@@ -14,7 +14,6 @@ impl FunctionLowerer<'_, '_> {
         arguments: &[TypeId],
         values: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use NativeDefaultMethod::*;
         let item_type = self.iterator_item(source)?;
         let optional = TypeId::StandardEnum {
             kind: StandardEnum::Option,
@@ -26,13 +25,16 @@ impl FunctionLowerer<'_, '_> {
         let result_optional = TypeId::StandardEnum {
             kind: StandardEnum::Option,
             args: vec![match operation {
-                FindMap => arguments[0].clone(),
-                Position => TypeId::Builtin(BuiltinType::USize),
+                NativeDefaultMethod::FindMap => arguments[0].clone(),
+                NativeDefaultMethod::Position => TypeId::Builtin(BuiltinType::USize),
                 _ => item_type.clone(),
             }],
         };
-        let counter = if matches!(operation, Position | Nth) {
-            let initial = if operation == Nth {
+        let counter = if matches!(
+            operation,
+            NativeDefaultMethod::Position | NativeDefaultMethod::Nth
+        ) {
+            let initial = if operation == NativeDefaultMethod::Nth {
                 values[1]
             } else {
                 self.usize_constant(0)
@@ -51,13 +53,26 @@ impl FunctionLowerer<'_, '_> {
             None
         };
         let result = match operation {
-            Find | FindMap | Position | Nth | Last | Reduce | MinBy | MaxBy | Min | Max
-            | MinByKey | MaxByKey => {
+            NativeDefaultMethod::Find
+            | NativeDefaultMethod::FindMap
+            | NativeDefaultMethod::Position
+            | NativeDefaultMethod::Nth
+            | NativeDefaultMethod::Last
+            | NativeDefaultMethod::Reduce
+            | NativeDefaultMethod::MinBy
+            | NativeDefaultMethod::MaxBy
+            | NativeDefaultMethod::Min
+            | NativeDefaultMethod::Max
+            | NativeDefaultMethod::MinByKey
+            | NativeDefaultMethod::MaxByKey => {
                 self.standard_enum_op(&result_optional, StandardEnumOp::Make(1), None)?
             }
-            Any | All => self.lower_constant(Constant::Bool(operation == All), ValueType::Bool),
-            Count => self.usize_constant(0),
-            Fold => {
+            NativeDefaultMethod::Any | NativeDefaultMethod::All => self.lower_constant(
+                Constant::Bool(operation == NativeDefaultMethod::All),
+                ValueType::Bool,
+            ),
+            NativeDefaultMethod::Count => self.usize_constant(0),
+            NativeDefaultMethod::Fold => {
                 let result = self.alloc_temp(values[1].ty);
                 self.emit(Instruction::Move {
                     dst: result,
@@ -69,21 +84,26 @@ impl FunctionLowerer<'_, '_> {
                 );
                 result
             }
-            ForEach => self.lower_constant(Constant::Unit, ValueType::Unit),
-            Join | Partition => self.collection_new(&array_type)?,
-            GroupBy => self.collection_new(&TypeId::Map {
+            NativeDefaultMethod::ForEach => self.lower_constant(Constant::Unit, ValueType::Unit),
+            NativeDefaultMethod::Join | NativeDefaultMethod::Partition => {
+                self.collection_new(&array_type)?
+            }
+            NativeDefaultMethod::GroupBy => self.collection_new(&TypeId::Map {
                 key: Box::new(arguments[0].clone()),
                 value: Box::new(array_type.clone()),
                 access: Mutable,
             })?,
             _ => return Err(IrLoweringError::MissingBinding("iterator terminal")),
         };
-        let rejected = if operation == Partition {
+        let rejected = if operation == NativeDefaultMethod::Partition {
             Some(self.collection_new(&array_type)?)
         } else {
             None
         };
-        let key_state = if matches!(operation, MinByKey | MaxByKey) {
+        let key_state = if matches!(
+            operation,
+            NativeDefaultMethod::MinByKey | NativeDefaultMethod::MaxByKey
+        ) {
             let ty = TypeId::StandardEnum {
                 kind: StandardEnum::Option,
                 args: vec![arguments[0].clone()],
@@ -116,11 +136,11 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(body);
         let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
         match operation {
-            Join => {
+            NativeDefaultMethod::Join => {
                 self.collection_insert(&array_type, result, item)?;
                 self.ensure_jump(head);
             }
-            FindMap => {
+            NativeDefaultMethod::FindMap => {
                 let mapped = self.call_function_value(values[1], &result_optional, &[item])?;
                 let present =
                     self.standard_enum_op(&result_optional, StandardEnumOp::Test(0), Some(mapped))?;
@@ -134,9 +154,9 @@ impl FunctionLowerer<'_, '_> {
                     else_block: head,
                 });
             }
-            Position | Nth => {
+            NativeDefaultMethod::Position | NativeDefaultMethod::Nth => {
                 let counter = counter.unwrap();
-                let matched = if operation == Position {
+                let matched = if operation == NativeDefaultMethod::Position {
                     self.call_function_value(values[1], &bool_type, &[item])?
                 } else {
                     let zero = self.usize_constant(0);
@@ -157,7 +177,7 @@ impl FunctionLowerer<'_, '_> {
                     else_block: advance,
                 });
                 self.switch_to_block(found);
-                let value = if operation == Position {
+                let value = if operation == NativeDefaultMethod::Position {
                     self.standard_enum_op(&result_optional, StandardEnumOp::Make(0), Some(counter))?
                 } else {
                     next
@@ -172,7 +192,7 @@ impl FunctionLowerer<'_, '_> {
                 let next_counter = self.alloc_temp(ValueType::U64);
                 self.emit(Instruction::Binary {
                     dst: next_counter,
-                    op: if operation == Position {
+                    op: if operation == NativeDefaultMethod::Position {
                         BinaryOp::Add
                     } else {
                         BinaryOp::Sub
@@ -186,14 +206,20 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(head);
             }
-            Last => {
+            NativeDefaultMethod::Last => {
                 self.emit(Instruction::Move {
                     dst: result,
                     src: next,
                 });
                 self.ensure_jump(head);
             }
-            Reduce | MinBy | MaxBy | Min | Max | MinByKey | MaxByKey => {
+            NativeDefaultMethod::Reduce
+            | NativeDefaultMethod::MinBy
+            | NativeDefaultMethod::MaxBy
+            | NativeDefaultMethod::Min
+            | NativeDefaultMethod::Max
+            | NativeDefaultMethod::MinByKey
+            | NativeDefaultMethod::MaxByKey => {
                 let current_key = if key_state.is_some() {
                     Some(self.call_function_value(values[1], &arguments[0], &[item])?)
                 } else {
@@ -211,7 +237,7 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(combine);
                 let previous =
                     self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(result))?;
-                if operation == Reduce {
+                if operation == NativeDefaultMethod::Reduce {
                     let combined =
                         self.call_function_value(values[1], &item_type, &[previous, item])?;
                     let wrapped =
@@ -226,7 +252,10 @@ impl FunctionLowerer<'_, '_> {
                         kind: StandardEnum::Ordering,
                         args: vec![],
                     };
-                    let comparison = if matches!(operation, MinBy | MaxBy) {
+                    let comparison = if matches!(
+                        operation,
+                        NativeDefaultMethod::MinBy | NativeDefaultMethod::MaxBy
+                    ) {
                         self.call_function_value(values[1], &ordering, &[previous, item])?
                     } else {
                         let (ty, left, right) = if let Some((state, option)) = &key_state {
@@ -256,12 +285,22 @@ impl FunctionLowerer<'_, '_> {
                     )?;
                     self.set_terminator(Terminator::Branch {
                         cond: greater,
-                        then_block: if matches!(operation, MinBy | Min | MinByKey) {
+                        then_block: if matches!(
+                            operation,
+                            NativeDefaultMethod::MinBy
+                                | NativeDefaultMethod::Min
+                                | NativeDefaultMethod::MinByKey
+                        ) {
                             replace
                         } else {
                             head
                         },
-                        else_block: if matches!(operation, MinBy | Min | MinByKey) {
+                        else_block: if matches!(
+                            operation,
+                            NativeDefaultMethod::MinBy
+                                | NativeDefaultMethod::Min
+                                | NativeDefaultMethod::MinByKey
+                        ) {
                             head
                         } else {
                             replace
@@ -283,10 +322,10 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(head);
             }
-            Find | Any | All => {
+            NativeDefaultMethod::Find | NativeDefaultMethod::Any | NativeDefaultMethod::All => {
                 let predicate = self.call_function_value(values[1], &bool_type, &[item])?;
                 let found = self.new_block();
-                let (then_block, else_block) = if operation == All {
+                let (then_block, else_block) = if operation == NativeDefaultMethod::All {
                     (head, found)
                 } else {
                     (found, head)
@@ -297,10 +336,13 @@ impl FunctionLowerer<'_, '_> {
                     else_block,
                 });
                 self.switch_to_block(found);
-                let value = if operation == Find {
+                let value = if operation == NativeDefaultMethod::Find {
                     next
                 } else {
-                    self.lower_constant(Constant::Bool(operation == Any), ValueType::Bool)
+                    self.lower_constant(
+                        Constant::Bool(operation == NativeDefaultMethod::Any),
+                        ValueType::Bool,
+                    )
                 };
                 self.emit(Instruction::Move {
                     dst: result,
@@ -308,7 +350,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(done);
             }
-            Count => {
+            NativeDefaultMethod::Count => {
                 let one = self.usize_constant(1);
                 let next = self.alloc_temp(ValueType::U64);
                 self.emit(Instruction::Binary {
@@ -323,7 +365,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(head);
             }
-            Fold => {
+            NativeDefaultMethod::Fold => {
                 let next = self.call_function_value(values[2], &arguments[0], &[result, item])?;
                 self.emit(Instruction::Move {
                     dst: result,
@@ -331,11 +373,11 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(head);
             }
-            ForEach => {
+            NativeDefaultMethod::ForEach => {
                 self.call_function_value(values[1], &unit_type, &[item])?;
                 self.ensure_jump(head);
             }
-            Partition => {
+            NativeDefaultMethod::Partition => {
                 let predicate = self.call_function_value(values[1], &bool_type, &[item])?;
                 let yes = self.new_block();
                 let no = self.new_block();
@@ -351,7 +393,7 @@ impl FunctionLowerer<'_, '_> {
                 self.collection_insert(&array_type, rejected.unwrap(), item)?;
                 self.ensure_jump(head);
             }
-            GroupBy => {
+            NativeDefaultMethod::GroupBy => {
                 let key_type = &arguments[0];
                 let key = self.call_function_value(values[1], key_type, &[item])?;
                 let custom = self.has_custom_protocol(key_type);
@@ -407,7 +449,7 @@ impl FunctionLowerer<'_, '_> {
             self.iterator_close(source, values[0]);
             self.emit(Instruction::EndIteration);
         }
-        if operation == Join {
+        if operation == NativeDefaultMethod::Join {
             return Ok(self.emit_intrinsic(
                 StandardIntrinsic::ArrayJoin,
                 &[result, values[1]],

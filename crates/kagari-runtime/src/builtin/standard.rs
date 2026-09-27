@@ -35,10 +35,14 @@ pub fn invoke_with_callbacks(
     args: &[Value],
     callbacks: &mut dyn BuiltinCallbacks,
 ) -> Result<Value, BuiltinError> {
-    use StandardIntrinsic::*;
-
     match intrinsic {
-        MapContainsKey | MapGet | MapInsert | MapRemove | SetContains | SetInsert | SetRemove => {
+        StandardIntrinsic::MapContainsKey
+        | StandardIntrinsic::MapGet
+        | StandardIntrinsic::MapInsert
+        | StandardIntrinsic::MapRemove
+        | StandardIntrinsic::SetContains
+        | StandardIntrinsic::SetInsert
+        | StandardIntrinsic::SetRemove => {
             if let Some(collection) = args.first() {
                 gc.ensure_key_mode(collection, false)?;
             }
@@ -47,47 +51,64 @@ pub fn invoke_with_callbacks(
         _ => {}
     }
     match intrinsic {
-        ArrayReplaceStorage | CollectionRetainStorage => {
+        StandardIntrinsic::ArrayReplaceStorage | StandardIntrinsic::CollectionRetainStorage => {
             gc.commit_prepared_collection(intrinsic, args)?;
             Ok(Value::Unit)
         }
-        ArrayRetain | MapRetain | SetRetain | ArraySort | ArraySortBy | ArraySortByKey
-        | ArrayDedup => Err(BuiltinError::new(
+        StandardIntrinsic::ArrayRetain
+        | StandardIntrinsic::MapRetain
+        | StandardIntrinsic::SetRetain
+        | StandardIntrinsic::ArraySort
+        | StandardIntrinsic::ArraySortBy
+        | StandardIntrinsic::ArraySortByKey
+        | StandardIntrinsic::ArrayDedup => Err(BuiltinError::new(
             "collection callback requires static lowering",
         )),
-        IterResume => {
+        StandardIntrinsic::IterResume => {
             gc.resume_iter(
                 args.first()
                     .ok_or_else(|| BuiltinError::new("missing iterator"))?,
             )?;
             Ok(Value::Unit)
         }
-        StringParse => Err(BuiltinError::new("parse requires static dispatch")),
-        ParseNumber(ty) => crate::parsing::parse(gc, ty, args, false).map_err(Into::into),
-        ParseRadix(ty) => crate::parsing::parse(gc, ty, args, true).map_err(Into::into),
-        Integer(operation, ty) => {
+        StandardIntrinsic::StringParse => Err(BuiltinError::new("parse requires static dispatch")),
+        StandardIntrinsic::ParseNumber(ty) => {
+            crate::parsing::parse(gc, ty, args, false).map_err(Into::into)
+        }
+        StandardIntrinsic::ParseRadix(ty) => {
+            crate::parsing::parse(gc, ty, args, true).map_err(Into::into)
+        }
+        StandardIntrinsic::Integer(operation, ty) => {
             crate::numeric::integer_method(gc, operation, ty, args).map_err(Into::into)
         }
-        CollectionMutationBegin | CollectionMutationEnd | MapGetOrInsertWith | MapUpdate => Err(
-            BuiltinError::new("collection operation requires static lowering"),
-        ),
-        KeyLookupBegin => Err(BuiltinError::new("key lookup requires an execution frame")),
-        KeyCandidates => {
+        StandardIntrinsic::CollectionMutationBegin
+        | StandardIntrinsic::CollectionMutationEnd
+        | StandardIntrinsic::MapGetOrInsertWith
+        | StandardIntrinsic::MapUpdate => Err(BuiltinError::new(
+            "collection operation requires static lowering",
+        )),
+        StandardIntrinsic::KeyLookupBegin => {
+            Err(BuiltinError::new("key lookup requires an execution frame"))
+        }
+        StandardIntrinsic::KeyCandidates => {
             let [collection, Value::I64(hash)] = args else {
                 return Err(BuiltinError::new("invalid key candidates arguments"));
             };
             array_value(gc, gc.custom_candidates(collection, *hash)?)
         }
-        KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove => {
-            custom_key_operation(gc, intrinsic, args)
-        }
-        ValuePartialCmp | ValueCmp => {
+        StandardIntrinsic::KeyMapGet
+        | StandardIntrinsic::KeyMapInsert
+        | StandardIntrinsic::KeyMapRemove
+        | StandardIntrinsic::KeySetContains
+        | StandardIntrinsic::KeySetInsert
+        | StandardIntrinsic::KeySetRemove => custom_key_operation(gc, intrinsic, args),
+        StandardIntrinsic::ValuePartialCmp | StandardIntrinsic::ValueCmp => {
             let [a, b] = args else {
                 return Err(BuiltinError::new("comparison requires two operands"));
             };
             let ordering = crate::value_semantics::builtin_order(gc, a, b)?;
             let Some(ordering) = ordering else {
-                if intrinsic == ValueCmp {
+                if intrinsic == StandardIntrinsic::ValueCmp {
                     return Err(BuiltinError::new("total comparison cannot be unordered"));
                 }
                 return option_none(gc);
@@ -98,13 +119,13 @@ pub fn invoke_with_callbacks(
                 std::cmp::Ordering::Greater => EnumTag::OrderingGreater,
             };
             let value = Value::Enum(gc.alloc_enum(tag, vec![])?);
-            if intrinsic == ValuePartialCmp {
+            if intrinsic == StandardIntrinsic::ValuePartialCmp {
                 option_some(gc, value)
             } else {
                 Ok(value)
             }
         }
-        ValueEq => {
+        StandardIntrinsic::ValueEq => {
             let [a, b] = args else {
                 return Err(BuiltinError::new("eq expects two operands"));
             };
@@ -112,7 +133,7 @@ pub fn invoke_with_callbacks(
                 .map(Value::Bool)
                 .map_err(BuiltinError::from)
         }
-        ValueHash => {
+        StandardIntrinsic::ValueHash => {
             let [value] = args else {
                 return Err(BuiltinError::new("hash expects one operand"));
             };
@@ -122,44 +143,61 @@ pub fn invoke_with_callbacks(
                     BuiltinError::new("value has no hash semantics or exceeds key size limit")
                 })
         }
-        ValueDebug | ValueDisplay => {
+        StandardIntrinsic::ValueDebug | StandardIntrinsic::ValueDisplay => {
             let [value] = args else {
                 return Err(BuiltinError::new("format expects one operand"));
             };
-            crate::value_semantics::format_value(gc, value, intrinsic == ValueDebug)
-                .map(Value::Str)
-                .map_err(BuiltinError::from)
+            crate::value_semantics::format_value(
+                gc,
+                value,
+                intrinsic == StandardIntrinsic::ValueDebug,
+            )
+            .map(Value::Str)
+            .map_err(BuiltinError::from)
         }
-        ArrayListNew => {
+        StandardIntrinsic::ArrayListNew => {
             if !args.is_empty() {
                 return Err(BuiltinError::new("new expects no arguments"));
             }
             Ok(Value::Array(gc.alloc_array(vec![])?))
         }
-        MapKeys | MapValues | MapEntries | ArrayCopyFrom | ArrayListFromFn | ArrayListFrom
-        | LinkedHashMapFrom | LinkedHashSetFrom => Err(BuiltinError::new(
+        StandardIntrinsic::MapKeys
+        | StandardIntrinsic::MapValues
+        | StandardIntrinsic::MapEntries
+        | StandardIntrinsic::ArrayCopyFrom
+        | StandardIntrinsic::ArrayListFromFn
+        | StandardIntrinsic::ArrayListFrom
+        | StandardIntrinsic::LinkedHashMapFrom
+        | StandardIntrinsic::LinkedHashSetFrom => Err(BuiltinError::new(
             "collection factories must be lowered to checked construction",
         )),
-        ArrayLen => array_len(gc, args),
-        ArrayIsEmpty => array_is_empty(gc, args),
-        ArrayGet => array_get(gc, args),
-        ArrayPush => array_push(gc, args),
-        ArrayPop => array_pop(gc, args),
-        ArrayInsert => array_insert(gc, args),
-        ArrayRemove => array_remove(gc, args),
-        ArrayWithCapacity | ArrayCapacity | ArrayReserve | MapWithCapacity | MapCapacity
-        | MapReserve | SetWithCapacity | SetCapacity | SetReserve => {
-            collection_capacity(gc, intrinsic, args)
-        }
-        ArrayExtend => Err(BuiltinError::new(
+        StandardIntrinsic::ArrayLen => array_len(gc, args),
+        StandardIntrinsic::ArrayIsEmpty => array_is_empty(gc, args),
+        StandardIntrinsic::ArrayGet => array_get(gc, args),
+        StandardIntrinsic::ArrayPush => array_push(gc, args),
+        StandardIntrinsic::ArrayPop => array_pop(gc, args),
+        StandardIntrinsic::ArrayInsert => array_insert(gc, args),
+        StandardIntrinsic::ArrayRemove => array_remove(gc, args),
+        StandardIntrinsic::ArrayWithCapacity
+        | StandardIntrinsic::ArrayCapacity
+        | StandardIntrinsic::ArrayReserve
+        | StandardIntrinsic::MapWithCapacity
+        | StandardIntrinsic::MapCapacity
+        | StandardIntrinsic::MapReserve
+        | StandardIntrinsic::SetWithCapacity
+        | StandardIntrinsic::SetCapacity
+        | StandardIntrinsic::SetReserve => collection_capacity(gc, intrinsic, args),
+        StandardIntrinsic::ArrayExtend => Err(BuiltinError::new(
             "extend requires prepared source lowering",
         )),
-        ArraySwap | ArrayReverse | ArrayTruncate | ArrayExtendStorage | ArraySwapRemove => {
-            array_mutation(gc, intrinsic, args)
-        }
-        ArrayJoin => array_join(gc, args),
-        ArrayClear => array_clear(gc, args),
-        ArrayRemoveRangePrepare => {
+        StandardIntrinsic::ArraySwap
+        | StandardIntrinsic::ArrayReverse
+        | StandardIntrinsic::ArrayTruncate
+        | StandardIntrinsic::ArrayExtendStorage
+        | StandardIntrinsic::ArraySwapRemove => array_mutation(gc, intrinsic, args),
+        StandardIntrinsic::ArrayJoin => array_join(gc, args),
+        StandardIntrinsic::ArrayClear => array_clear(gc, args),
+        StandardIntrinsic::ArrayRemoveRangePrepare => {
             let [Value::Array(target), start, end] = args else {
                 return Err(BuiltinError::new("invalid remove range operands"));
             };
@@ -168,10 +206,10 @@ pub fn invoke_with_callbacks(
             gc.prepare_array_removal(*target, start, end)
                 .map_err(Into::into)
         }
-        ArrayRemoveRange | ArrayCopyWithin => {
+        StandardIntrinsic::ArrayRemoveRange | StandardIntrinsic::ArrayCopyWithin => {
             Err(BuiltinError::new("range bounds require static lowering"))
         }
-        ArrayCopyWithinBounds => {
+        StandardIntrinsic::ArrayCopyWithinBounds => {
             let [Value::Array(target), start, end, destination] = args else {
                 return Err(BuiltinError::new("invalid copy_within operands"));
             };
@@ -185,103 +223,128 @@ pub fn invoke_with_callbacks(
             gc.array_copy_within(*target, start, end, destination)?;
             Ok(Value::Unit)
         }
-        ArrayFill => {
+        StandardIntrinsic::ArrayFill => {
             let [Value::Array(target), value] = args else {
                 return Err(BuiltinError::new("array.fill expects an array and value"));
             };
             gc.array_fill(*target, value.clone())?;
             Ok(Value::Unit)
         }
-        ArrayCopyFromStorage => {
+        StandardIntrinsic::ArrayCopyFromStorage => {
             let [Value::Array(target), Value::Array(source)] = args else {
                 return Err(BuiltinError::new("array.copy_from expects two arrays"));
             };
             gc.array_copy_from(*target, *source)?;
             Ok(Value::Unit)
         }
-        LinkedHashMapNew => map_new(gc, args),
-        MapLen => map_len(gc, args),
-        MapIsEmpty => map_is_empty(gc, args),
-        MapContainsKey => map_contains_key(gc, args),
-        MapGet => map_get(gc, args),
-        MapInsert => map_insert(gc, args),
-        MapRemove => map_remove(gc, args),
-        MapClear => map_clear(gc, args),
-        MapKeysStorage => map_keys(gc, args),
-        MapValuesStorage => map_values(gc, args),
-        MapEntriesStorage => map_entries(gc, args),
-        LinkedHashSetNew => set_new(gc, args),
-        SetLen => set_len(gc, args),
-        SetIsEmpty => set_is_empty(gc, args),
-        SetContains => set_contains(gc, args),
-        SetInsert => set_insert(gc, args),
-        SetRemove => set_remove(gc, args),
-        SetClear => set_clear(gc, args),
-        SetToArray => set_to_array(gc, args),
-        StringLenBytes => string_len_bytes(args),
-        StringLenChars => string_len_chars(args),
-        StringIsEmpty => string_is_empty(args),
-        StringConcat => string_concat(args),
-        StringContains => string_contains(args),
-        StringStartsWith => string_starts_with(args),
-        StringEndsWith => string_ends_with(args),
-        StringSlice => string_slice(gc, args),
-        StringReplace
-        | StringReplaceN
-        | StringRepeat
-        | StringIsAscii
-        | StringEqIgnoreAsciiCase
-        | StringToAsciiLowercase
-        | StringToAsciiUppercase
-        | StringToLowercase
-        | StringToUppercase
-        | StringIsCharBoundary => string_transform(intrinsic, args),
-        StringSplit
-        | StringSplitN
-        | StringSplitWhitespace
-        | StringLines
-        | StringBytes
-        | StringCharIndices => Err(BuiltinError::new(
+        StandardIntrinsic::LinkedHashMapNew => map_new(gc, args),
+        StandardIntrinsic::MapLen => map_len(gc, args),
+        StandardIntrinsic::MapIsEmpty => map_is_empty(gc, args),
+        StandardIntrinsic::MapContainsKey => map_contains_key(gc, args),
+        StandardIntrinsic::MapGet => map_get(gc, args),
+        StandardIntrinsic::MapInsert => map_insert(gc, args),
+        StandardIntrinsic::MapRemove => map_remove(gc, args),
+        StandardIntrinsic::MapClear => map_clear(gc, args),
+        StandardIntrinsic::MapKeysStorage => map_keys(gc, args),
+        StandardIntrinsic::MapValuesStorage => map_values(gc, args),
+        StandardIntrinsic::MapEntriesStorage => map_entries(gc, args),
+        StandardIntrinsic::LinkedHashSetNew => set_new(gc, args),
+        StandardIntrinsic::SetLen => set_len(gc, args),
+        StandardIntrinsic::SetIsEmpty => set_is_empty(gc, args),
+        StandardIntrinsic::SetContains => set_contains(gc, args),
+        StandardIntrinsic::SetInsert => set_insert(gc, args),
+        StandardIntrinsic::SetRemove => set_remove(gc, args),
+        StandardIntrinsic::SetClear => set_clear(gc, args),
+        StandardIntrinsic::SetToArray => set_to_array(gc, args),
+        StandardIntrinsic::StringLenBytes => string_len_bytes(args),
+        StandardIntrinsic::StringLenChars => string_len_chars(args),
+        StandardIntrinsic::StringIsEmpty => string_is_empty(args),
+        StandardIntrinsic::StringConcat => string_concat(args),
+        StandardIntrinsic::StringContains => string_contains(args),
+        StandardIntrinsic::StringStartsWith => string_starts_with(args),
+        StandardIntrinsic::StringEndsWith => string_ends_with(args),
+        StandardIntrinsic::StringSlice => string_slice(gc, args),
+        StandardIntrinsic::StringReplace
+        | StandardIntrinsic::StringReplaceN
+        | StandardIntrinsic::StringRepeat
+        | StandardIntrinsic::StringIsAscii
+        | StandardIntrinsic::StringEqIgnoreAsciiCase
+        | StandardIntrinsic::StringToAsciiLowercase
+        | StandardIntrinsic::StringToAsciiUppercase
+        | StandardIntrinsic::StringToLowercase
+        | StandardIntrinsic::StringToUppercase
+        | StandardIntrinsic::StringIsCharBoundary => string_transform(intrinsic, args),
+        StandardIntrinsic::StringSplit
+        | StandardIntrinsic::StringSplitN
+        | StandardIntrinsic::StringSplitWhitespace
+        | StandardIntrinsic::StringLines
+        | StandardIntrinsic::StringBytes
+        | StandardIntrinsic::StringCharIndices => Err(BuiltinError::new(
             "string traversal requires iterator lowering",
         )),
-        StringSplitOnce | StringRsplitOnce => string_split_once(gc, intrinsic, args),
-        StringTrim | StringTrimStart | StringTrimEnd | StringFind | StringRfind
-        | StringStripPrefix | StringStripSuffix => string_query(gc, intrinsic, args),
-        OptionUnwrapOrElse | OptionOrElse | OptionMapOr | OptionMapOrElse | OptionFilter
-        | OptionIsSomeAnd | OptionZip | OptionFlatten | OptionTranspose | ResultUnwrapOrElse
-        | ResultOrElse | ResultMapOr | ResultMapOrElse | ResultOk | ResultErr | ResultIsOkAnd
-        | ResultIsErrAnd | ResultFlatten | ResultTranspose => {
+        StandardIntrinsic::StringSplitOnce | StandardIntrinsic::StringRsplitOnce => {
+            string_split_once(gc, intrinsic, args)
+        }
+        StandardIntrinsic::StringTrim
+        | StandardIntrinsic::StringTrimStart
+        | StandardIntrinsic::StringTrimEnd
+        | StandardIntrinsic::StringFind
+        | StandardIntrinsic::StringRfind
+        | StandardIntrinsic::StringStripPrefix
+        | StandardIntrinsic::StringStripSuffix => string_query(gc, intrinsic, args),
+        StandardIntrinsic::OptionUnwrapOrElse
+        | StandardIntrinsic::OptionOrElse
+        | StandardIntrinsic::OptionMapOr
+        | StandardIntrinsic::OptionMapOrElse
+        | StandardIntrinsic::OptionFilter
+        | StandardIntrinsic::OptionIsSomeAnd
+        | StandardIntrinsic::OptionZip
+        | StandardIntrinsic::OptionFlatten
+        | StandardIntrinsic::OptionTranspose
+        | StandardIntrinsic::ResultUnwrapOrElse
+        | StandardIntrinsic::ResultOrElse
+        | StandardIntrinsic::ResultMapOr
+        | StandardIntrinsic::ResultMapOrElse
+        | StandardIntrinsic::ResultOk
+        | StandardIntrinsic::ResultErr
+        | StandardIntrinsic::ResultIsOkAnd
+        | StandardIntrinsic::ResultIsErrAnd
+        | StandardIntrinsic::ResultFlatten
+        | StandardIntrinsic::ResultTranspose => {
             Err(BuiltinError::new("enum combinators require frame lowering"))
         }
-        OptionIsSome => option_is_some(gc, args),
-        OptionIsNone => option_is_none(gc, args),
-        OptionUnwrapOr => option_unwrap_or(gc, args),
-        OptionMap => option_map(gc, args, callbacks),
-        OptionAndThen => option_and_then(gc, args, callbacks),
-        OptionOkOr | OptionOkOrElse => {
-            option_ok_or(gc, args, callbacks, intrinsic == OptionOkOrElse)
-        }
-        ResultIsOk => result_is_ok(gc, args),
-        ResultIsErr => result_is_err(gc, args),
-        ResultUnwrapOr => result_unwrap_or(gc, args),
-        ResultMap => result_map(gc, args, callbacks),
-        ResultMapErr => result_map_err(gc, args, callbacks),
-        ResultAndThen => result_and_then(gc, args, callbacks),
-        MathMin => math_min(args),
-        MathMax => math_max(args),
-        MathClamp => math_clamp(args),
-        MathAbs => math_abs(args),
-        MathFloor => math_unary_f64(args, "math.floor", f64::floor),
-        MathCeil => math_unary_f64(args, "math.ceil", f64::ceil),
-        MathRound => math_unary_f64(args, "math.round", f64::round),
-        MathSqrt => math_sqrt(args),
-        MathSin => math_unary_f64(args, "math.sin", f64::sin),
-        MathCos => math_unary_f64(args, "math.cos", f64::cos),
-        MathTan => math_unary_f64(args, "math.tan", f64::tan),
-        DebugPrint => debug_print(args),
-        DebugAssert => debug_assert(args),
-        DebugAssertEq => debug_assert_eq(gc, args),
-        DebugPanic => debug_panic(args),
+        StandardIntrinsic::OptionIsSome => option_is_some(gc, args),
+        StandardIntrinsic::OptionIsNone => option_is_none(gc, args),
+        StandardIntrinsic::OptionUnwrapOr => option_unwrap_or(gc, args),
+        StandardIntrinsic::OptionMap => option_map(gc, args, callbacks),
+        StandardIntrinsic::OptionAndThen => option_and_then(gc, args, callbacks),
+        StandardIntrinsic::OptionOkOr | StandardIntrinsic::OptionOkOrElse => option_ok_or(
+            gc,
+            args,
+            callbacks,
+            intrinsic == StandardIntrinsic::OptionOkOrElse,
+        ),
+        StandardIntrinsic::ResultIsOk => result_is_ok(gc, args),
+        StandardIntrinsic::ResultIsErr => result_is_err(gc, args),
+        StandardIntrinsic::ResultUnwrapOr => result_unwrap_or(gc, args),
+        StandardIntrinsic::ResultMap => result_map(gc, args, callbacks),
+        StandardIntrinsic::ResultMapErr => result_map_err(gc, args, callbacks),
+        StandardIntrinsic::ResultAndThen => result_and_then(gc, args, callbacks),
+        StandardIntrinsic::MathMin => math_min(args),
+        StandardIntrinsic::MathMax => math_max(args),
+        StandardIntrinsic::MathClamp => math_clamp(args),
+        StandardIntrinsic::MathAbs => math_abs(args),
+        StandardIntrinsic::MathFloor => math_unary_f64(args, "math.floor", f64::floor),
+        StandardIntrinsic::MathCeil => math_unary_f64(args, "math.ceil", f64::ceil),
+        StandardIntrinsic::MathRound => math_unary_f64(args, "math.round", f64::round),
+        StandardIntrinsic::MathSqrt => math_sqrt(args),
+        StandardIntrinsic::MathSin => math_unary_f64(args, "math.sin", f64::sin),
+        StandardIntrinsic::MathCos => math_unary_f64(args, "math.cos", f64::cos),
+        StandardIntrinsic::MathTan => math_unary_f64(args, "math.tan", f64::tan),
+        StandardIntrinsic::DebugPrint => debug_print(args),
+        StandardIntrinsic::DebugAssert => debug_assert(args),
+        StandardIntrinsic::DebugAssertEq => debug_assert_eq(gc, args),
+        StandardIntrinsic::DebugPanic => debug_panic(args),
     }
 }
 
@@ -290,10 +353,11 @@ fn collection_capacity(
     intrinsic: StandardIntrinsic,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
-    use StandardIntrinsic::*;
     if matches!(
         intrinsic,
-        ArrayWithCapacity | MapWithCapacity | SetWithCapacity
+        StandardIntrinsic::ArrayWithCapacity
+            | StandardIntrinsic::MapWithCapacity
+            | StandardIntrinsic::SetWithCapacity
     ) {
         let [Value::U64(capacity)] = args else {
             return Err(BuiltinError::new("capacity constructor requires usize"));
@@ -301,19 +365,31 @@ fn collection_capacity(
         let capacity = usize::try_from(*capacity)
             .map_err(|_| BuiltinError::new("capacity exceeds platform limit"))?;
         let value = match intrinsic {
-            ArrayWithCapacity => Value::Array(gc.alloc_array(vec![])?),
-            MapWithCapacity => Value::Map(gc.alloc_map(vec![])?),
+            StandardIntrinsic::ArrayWithCapacity => Value::Array(gc.alloc_array(vec![])?),
+            StandardIntrinsic::MapWithCapacity => Value::Map(gc.alloc_map(vec![])?),
             _ => Value::Set(gc.alloc_set(vec![])?),
         };
         gc.reserve_collection(&value, capacity)?;
         return Ok(value);
     }
     match args {
-        [value] if matches!(intrinsic, ArrayCapacity | MapCapacity | SetCapacity) => {
+        [value]
+            if matches!(
+                intrinsic,
+                StandardIntrinsic::ArrayCapacity
+                    | StandardIntrinsic::MapCapacity
+                    | StandardIntrinsic::SetCapacity
+            ) =>
+        {
             Ok(Value::U64(gc.collection_capacity(value)? as u64))
         }
         [value, Value::U64(additional)]
-            if matches!(intrinsic, ArrayReserve | MapReserve | SetReserve) =>
+            if matches!(
+                intrinsic,
+                StandardIntrinsic::ArrayReserve
+                    | StandardIntrinsic::MapReserve
+                    | StandardIntrinsic::SetReserve
+            ) =>
         {
             let additional = usize::try_from(*additional)
                 .map_err(|_| BuiltinError::new("capacity exceeds platform limit"))?;
@@ -329,7 +405,6 @@ fn array_mutation(
     intrinsic: StandardIntrinsic,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
-    use StandardIntrinsic::*;
     let Some(Value::Array(id)) = args.first() else {
         return Err(BuiltinError::new("array mutation requires an array"));
     };
@@ -340,11 +415,13 @@ fn array_mutation(
         _ => Err(BuiltinError::new("invalid array index")),
     };
     match (intrinsic, args) {
-        (ArraySwap, [_, a, b]) => gc.array_swap(*id, index(a)?, index(b)?)?,
-        (ArrayReverse, [_]) => gc.array_reverse(*id)?,
-        (ArrayTruncate, [_, len]) => gc.array_truncate(*id, index(len)?)?,
-        (ArrayExtendStorage, [_, Value::Array(source)]) => gc.array_extend(*id, *source)?,
-        (ArraySwapRemove, [_, position]) => {
+        (StandardIntrinsic::ArraySwap, [_, a, b]) => gc.array_swap(*id, index(a)?, index(b)?)?,
+        (StandardIntrinsic::ArrayReverse, [_]) => gc.array_reverse(*id)?,
+        (StandardIntrinsic::ArrayTruncate, [_, len]) => gc.array_truncate(*id, index(len)?)?,
+        (StandardIntrinsic::ArrayExtendStorage, [_, Value::Array(source)]) => {
+            gc.array_extend(*id, *source)?
+        }
+        (StandardIntrinsic::ArraySwapRemove, [_, position]) => {
             let position = index(position)?;
             // Prepare the return value before committing removal.
             let result = match gc.array_get(*id, position) {
@@ -679,7 +756,6 @@ fn set_to_array(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
 }
 
 fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Value, BuiltinError> {
-    use StandardIntrinsic::*;
     let Some(Value::Str(text)) = args.first() else {
         return Err(BuiltinError::new(
             "string operation requires a string receiver",
@@ -691,27 +767,30 @@ fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Valu
         ))
     };
     match (intrinsic, args) {
-        (StringIsAscii, [_]) => Ok(Value::Bool(text.is_ascii())),
-        (StringEqIgnoreAsciiCase, [_, Value::Str(other)]) => {
+        (StandardIntrinsic::StringIsAscii, [_]) => Ok(Value::Bool(text.is_ascii())),
+        (StandardIntrinsic::StringEqIgnoreAsciiCase, [_, Value::Str(other)]) => {
             Ok(Value::Bool(text.eq_ignore_ascii_case(other)))
         }
-        (StringIsCharBoundary, [_, Value::U64(index)]) => Ok(Value::Bool(
+        (StandardIntrinsic::StringIsCharBoundary, [_, Value::U64(index)]) => Ok(Value::Bool(
             usize::try_from(*index).is_ok_and(|index| text.is_char_boundary(index)),
         )),
-        (StringToLowercase, [_]) => Ok(Value::Str(text.to_lowercase())),
-        (StringToUppercase, [_]) => Ok(Value::Str(text.to_uppercase())),
-        (StringToAsciiLowercase | StringToAsciiUppercase, [_]) => {
+        (StandardIntrinsic::StringToLowercase, [_]) => Ok(Value::Str(text.to_lowercase())),
+        (StandardIntrinsic::StringToUppercase, [_]) => Ok(Value::Str(text.to_uppercase())),
+        (
+            StandardIntrinsic::StringToAsciiLowercase | StandardIntrinsic::StringToAsciiUppercase,
+            [_],
+        ) => {
             let Value::Str(mut result) = copy_string(text)? else {
                 unreachable!()
             };
-            if intrinsic == StringToAsciiLowercase {
+            if intrinsic == StandardIntrinsic::StringToAsciiLowercase {
                 result.make_ascii_lowercase();
             } else {
                 result.make_ascii_uppercase();
             }
             Ok(Value::Str(result))
         }
-        (StringRepeat, [_, Value::U64(count)]) => {
+        (StandardIntrinsic::StringRepeat, [_, Value::U64(count)]) => {
             if text.is_empty() {
                 return Ok(Value::Str(String::new()));
             }
@@ -724,17 +803,18 @@ fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Valu
             }
             Ok(Value::Str(result))
         }
-        (StringReplace, [_, Value::Str(from), Value::Str(to)]) => {
+        (StandardIntrinsic::StringReplace, [_, Value::Str(from), Value::Str(to)]) => {
             replace_string(text, from, to, usize::MAX)
         }
-        (StringReplaceN, [_, Value::Str(from), Value::Str(to), Value::U64(count)]) => {
-            replace_string(
-                text,
-                from,
-                to,
-                usize::try_from(*count).unwrap_or(usize::MAX),
-            )
-        }
+        (
+            StandardIntrinsic::StringReplaceN,
+            [_, Value::Str(from), Value::Str(to), Value::U64(count)],
+        ) => replace_string(
+            text,
+            from,
+            to,
+            usize::try_from(*count).unwrap_or(usize::MAX),
+        ),
         _ => Err(BuiltinError::new("invalid string operation arguments")),
     }
 }
@@ -791,25 +871,32 @@ fn string_query(
     intrinsic: StandardIntrinsic,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
-    use StandardIntrinsic::*;
     let Some(Value::Str(text)) = args.first() else {
         return Err(BuiltinError::new("string query requires a string receiver"));
     };
-    if matches!(intrinsic, StringTrim | StringTrimStart | StringTrimEnd) {
+    if matches!(
+        intrinsic,
+        StandardIntrinsic::StringTrim
+            | StandardIntrinsic::StringTrimStart
+            | StandardIntrinsic::StringTrimEnd
+    ) {
         if args.len() != 1 {
             return Err(BuiltinError::new("trim expects one argument"));
         }
         return copy_string(match intrinsic {
-            StringTrim => text.trim(),
-            StringTrimStart => text.trim_start(),
+            StandardIntrinsic::StringTrim => text.trim(),
+            StandardIntrinsic::StringTrimStart => text.trim_start(),
             _ => text.trim_end(),
         });
     }
     let [_, Value::Str(needle)] = args else {
         return Err(BuiltinError::new("string query requires a string pattern"));
     };
-    if matches!(intrinsic, StringFind | StringRfind) {
-        let found = if intrinsic == StringFind {
+    if matches!(
+        intrinsic,
+        StandardIntrinsic::StringFind | StandardIntrinsic::StringRfind
+    ) {
+        let found = if intrinsic == StandardIntrinsic::StringFind {
             text.find(needle)
         } else {
             text.rfind(needle)
@@ -819,7 +906,7 @@ fn string_query(
             None => option_none(gc),
         };
     }
-    let stripped = if intrinsic == StringStripPrefix {
+    let stripped = if intrinsic == StandardIntrinsic::StringStripPrefix {
         text.strip_prefix(needle.as_str())
     } else {
         text.strip_suffix(needle.as_str())
@@ -1412,19 +1499,27 @@ fn custom_key_operation(
     op: StandardIntrinsic,
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
-    use StandardIntrinsic::*;
     let [collection, Value::I64(hash), Value::I64(token), rest @ ..] = args else {
         return Err(BuiltinError::new("invalid key operation arguments"));
     };
-    if matches!(op, KeyMapGet | KeyMapInsert | KeyMapRemove) && !matches!(collection, Value::Map(_))
-        || matches!(op, KeySetContains | KeySetInsert | KeySetRemove)
-            && !matches!(collection, Value::Set(_))
+    if matches!(
+        op,
+        StandardIntrinsic::KeyMapGet
+            | StandardIntrinsic::KeyMapInsert
+            | StandardIntrinsic::KeyMapRemove
+    ) && !matches!(collection, Value::Map(_))
+        || matches!(
+            op,
+            StandardIntrinsic::KeySetContains
+                | StandardIntrinsic::KeySetInsert
+                | StandardIntrinsic::KeySetRemove
+        ) && !matches!(collection, Value::Set(_))
     {
         return Err(BuiltinError::new("key operation collection category"));
     }
     match op {
-        KeyMapGet | KeyMapRemove => {
-            if op == KeyMapRemove
+        StandardIntrinsic::KeyMapGet | StandardIntrinsic::KeyMapRemove => {
+            if op == StandardIntrinsic::KeyMapRemove
                 && let Value::Map(id) = collection
             {
                 gc.ensure_structure_mutable(*id)?;
@@ -1434,20 +1529,20 @@ fn custom_key_operation(
                 Some(value) => option_some(gc, value)?,
                 None => option_none(gc)?,
             };
-            if op == KeyMapRemove {
+            if op == StandardIntrinsic::KeyMapRemove {
                 gc.custom_remove(collection, *hash, *token)?;
             }
             Ok(result)
         }
-        KeySetContains => Ok(Value::Bool(
+        StandardIntrinsic::KeySetContains => Ok(Value::Bool(
             gc.custom_get(collection, *hash, *token)?.is_some(),
         )),
-        KeyMapInsert | KeySetInsert => {
+        StandardIntrinsic::KeyMapInsert | StandardIntrinsic::KeySetInsert => {
             let key = rest
                 .first()
                 .ok_or_else(|| BuiltinError::new("missing custom key"))?
                 .clone();
-            let value = if op == KeyMapInsert {
+            let value = if op == StandardIntrinsic::KeyMapInsert {
                 rest.get(1)
                     .ok_or_else(|| BuiltinError::new("missing map value"))?
                     .clone()
@@ -1457,7 +1552,7 @@ fn custom_key_operation(
             gc.custom_insert(collection, *hash, *token, key, value)?;
             Ok(collection.clone())
         }
-        KeySetRemove => {
+        StandardIntrinsic::KeySetRemove => {
             let exists = gc.custom_get(collection, *hash, *token)?.is_some();
             gc.custom_remove(collection, *hash, *token)?;
             Ok(Value::Bool(exists))

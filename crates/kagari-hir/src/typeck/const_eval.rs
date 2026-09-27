@@ -147,7 +147,6 @@ fn binary(
     lhs: ScalarValue,
     rhs: ScalarValue,
 ) -> Option<Result<ScalarValue, &'static str>> {
-    use ScalarValue::*;
     use kagari_common::integer::IntegerOp as Bit;
     let bit = match op {
         BinaryOp::BitAnd => Some(Bit::BitAnd),
@@ -170,17 +169,17 @@ fn binary(
     };
     if let Some(op) = arithmetic_op {
         return Some(match (lhs, rhs) {
-            (I32(lhs), I32(rhs)) => arithmetic::i32_binary(op, lhs, rhs)
-                .map(I32)
+            (ScalarValue::I32(lhs), ScalarValue::I32(rhs)) => arithmetic::i32_binary(op, lhs, rhs)
+                .map(ScalarValue::I32)
                 .map_err(|error| error.message()),
-            (F32(lhs), F32(rhs)) => Ok(F32(match op {
+            (ScalarValue::F32(lhs), ScalarValue::F32(rhs)) => Ok(ScalarValue::F32(match op {
                 IntegerBinaryOp::Add => lhs + rhs,
                 IntegerBinaryOp::Sub => lhs - rhs,
                 IntegerBinaryOp::Mul => lhs * rhs,
                 IntegerBinaryOp::Div => lhs / rhs,
                 IntegerBinaryOp::Rem => lhs % rhs,
             })),
-            (F64(lhs), F64(rhs)) => Ok(F64(match op {
+            (ScalarValue::F64(lhs), ScalarValue::F64(rhs)) => Ok(ScalarValue::F64(match op {
                 IntegerBinaryOp::Add => lhs + rhs,
                 IntegerBinaryOp::Sub => lhs - rhs,
                 IntegerBinaryOp::Mul => lhs * rhs,
@@ -188,8 +187,8 @@ fn binary(
                 IntegerBinaryOp::Rem => lhs % rhs,
             })),
             (
-                Integer { value: lhs, ty },
-                Integer {
+                ScalarValue::Integer { value: lhs, ty },
+                ScalarValue::Integer {
                     value: rhs,
                     ty: right,
                 },
@@ -229,23 +228,23 @@ fn binary(
         };
     }
     let result = match (lhs, rhs) {
-        (Unit, Unit) => match op {
+        (ScalarValue::Unit, ScalarValue::Unit) => match op {
             BinaryOp::Eq => true,
             BinaryOp::NotEq => false,
             _ => return None,
         },
-        (I32(lhs), I32(rhs)) => compare!(lhs, rhs),
-        (F32(lhs), F32(rhs)) => compare!(lhs, rhs),
-        (F64(lhs), F64(rhs)) => compare!(lhs, rhs),
+        (ScalarValue::I32(lhs), ScalarValue::I32(rhs)) => compare!(lhs, rhs),
+        (ScalarValue::F32(lhs), ScalarValue::F32(rhs)) => compare!(lhs, rhs),
+        (ScalarValue::F64(lhs), ScalarValue::F64(rhs)) => compare!(lhs, rhs),
         (
-            Integer { value: lhs, ty },
-            Integer {
+            ScalarValue::Integer { value: lhs, ty },
+            ScalarValue::Integer {
                 value: rhs,
                 ty: right,
             },
         ) if ty == right => compare!(lhs, rhs),
-        (String(lhs), String(rhs)) => compare!(lhs, rhs),
-        (Bool(lhs), Bool(rhs)) => match op {
+        (ScalarValue::String(lhs), ScalarValue::String(rhs)) => compare!(lhs, rhs),
+        (ScalarValue::Bool(lhs), ScalarValue::Bool(rhs)) => match op {
             BinaryOp::Eq => lhs == rhs,
             BinaryOp::NotEq => lhs != rhs,
             BinaryOp::AndAnd => lhs && rhs,
@@ -254,7 +253,7 @@ fn binary(
         },
         _ => return None,
     };
-    Some(Ok(Bool(result)))
+    Some(Ok(ScalarValue::Bool(result)))
 }
 
 fn scalar_bits(

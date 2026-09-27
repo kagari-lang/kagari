@@ -2156,11 +2156,14 @@ impl FunctionLowerer<'_, '_> {
                             );
                         }
 
-                        use kagari_hir::builtin::surface::StandardIntrinsic::*;
-                        if intrinsic == ArrayListFromFn {
+                        if intrinsic == StandardIntrinsic::ArrayListFromFn {
                             return self.lower_array_from_fn(expr, lowered[0], lowered[1]);
                         }
-                        if matches!(intrinsic, ArrayCopyWithin | ArrayRemoveRange) {
+                        if matches!(
+                            intrinsic,
+                            StandardIntrinsic::ArrayCopyWithin
+                                | StandardIntrinsic::ArrayRemoveRange
+                        ) {
                             use kagari_hir::builtin::traits::StandardTrait;
                             let input = args[usize::from(call.receiver.is_none())];
                             let source = self
@@ -2190,7 +2193,7 @@ impl FunctionLowerer<'_, '_> {
                                 &methods[1].id,
                                 &[lowered[1]],
                             )?;
-                            if intrinsic == ArrayRemoveRange {
+                            if intrinsic == StandardIntrinsic::ArrayRemoveRange {
                                 let base = call
                                     .receiver
                                     .or_else(|| args.first().copied())
@@ -2209,12 +2212,12 @@ impl FunctionLowerer<'_, '_> {
                                     return Err(IrLoweringError::MissingBinding("array storage"));
                                 };
                                 self.emit_intrinsic(
-                                    CollectionMutationBegin,
+                                    StandardIntrinsic::CollectionMutationBegin,
                                     &[lowered[0]],
                                     ValueType::Unit,
                                 );
                                 let prepared = self.emit_intrinsic(
-                                    ArrayRemoveRangePrepare,
+                                    StandardIntrinsic::ArrayRemoveRangePrepare,
                                     &[lowered[0], start, end],
                                     ValueType::HeapObject,
                                 );
@@ -2222,26 +2225,28 @@ impl FunctionLowerer<'_, '_> {
                                 let removed = self.prepared_field(prepared, 1, &ty)?;
                                 let result = self.readonly_array((**item).clone(), removed)?;
                                 self.emit_intrinsic(
-                                    CollectionMutationEnd,
+                                    StandardIntrinsic::CollectionMutationEnd,
                                     &[lowered[0]],
                                     ValueType::Unit,
                                 );
                                 self.emit_intrinsic(
-                                    ArrayReplaceStorage,
+                                    StandardIntrinsic::ArrayReplaceStorage,
                                     &[lowered[0], remaining],
                                     ValueType::Unit,
                                 );
                                 return Ok(result);
                             }
                             return Ok(self.emit_intrinsic(
-                                ArrayCopyWithinBounds,
+                                StandardIntrinsic::ArrayCopyWithinBounds,
                                 &[lowered[0], start, end, lowered[2]],
                                 ValueType::Unit,
                             ));
                         }
                         if matches!(
                             intrinsic,
-                            ArrayListFrom | LinkedHashMapFrom | LinkedHashSetFrom
+                            StandardIntrinsic::ArrayListFrom
+                                | StandardIntrinsic::LinkedHashMapFrom
+                                | StandardIntrinsic::LinkedHashSetFrom
                         ) {
                             return self.lower_collection_factory(expr, lowered[0]);
                         }
@@ -2257,7 +2262,7 @@ impl FunctionLowerer<'_, '_> {
                                 .planner
                                 .arguments(&[ty], &self.instance.substitution, span)?
                                 .remove(0);
-                            if intrinsic == DebugAssertEq {
+                            if intrinsic == StandardIntrinsic::DebugAssertEq {
                                 let equal = self.lower_protocol(
                                     kagari_hir::builtin::traits::StandardTrait::PartialEq,
                                     &ty,
@@ -2265,7 +2270,7 @@ impl FunctionLowerer<'_, '_> {
                                     0,
                                 )?;
                                 return Ok(self.emit_intrinsic(
-                                    DebugAssert,
+                                    StandardIntrinsic::DebugAssert,
                                     &[equal, lowered[2]],
                                     ValueType::Unit,
                                 ));
@@ -2279,13 +2284,13 @@ impl FunctionLowerer<'_, '_> {
                                 && self.has_custom_protocol(key)
                                 && matches!(
                                     intrinsic,
-                                    MapGet
-                                        | MapContainsKey
-                                        | MapInsert
-                                        | MapRemove
-                                        | SetContains
-                                        | SetInsert
-                                        | SetRemove
+                                    StandardIntrinsic::MapGet
+                                        | StandardIntrinsic::MapContainsKey
+                                        | StandardIntrinsic::MapInsert
+                                        | StandardIntrinsic::MapRemove
+                                        | StandardIntrinsic::SetContains
+                                        | StandardIntrinsic::SetInsert
+                                        | StandardIntrinsic::SetRemove
                                 )
                             {
                                 return self.lower_key_operation(intrinsic, key, &lowered);
@@ -2293,32 +2298,32 @@ impl FunctionLowerer<'_, '_> {
                         }
                         if matches!(
                             intrinsic,
-                            OptionUnwrapOrElse
-                                | OptionOrElse
-                                | OptionMapOr
-                                | OptionMapOrElse
-                                | OptionFilter
-                                | OptionIsSomeAnd
-                                | OptionZip
-                                | OptionFlatten
-                                | OptionTranspose
-                                | ResultUnwrapOrElse
-                                | ResultOrElse
-                                | ResultMapOr
-                                | ResultMapOrElse
-                                | ResultOk
-                                | ResultErr
-                                | ResultIsOkAnd
-                                | ResultIsErrAnd
-                                | ResultFlatten
-                                | ResultTranspose
-                                | OptionMap
-                                | OptionAndThen
-                                | OptionOkOr
-                                | OptionOkOrElse
-                                | ResultMap
-                                | ResultMapErr
-                                | ResultAndThen
+                            StandardIntrinsic::OptionUnwrapOrElse
+                                | StandardIntrinsic::OptionOrElse
+                                | StandardIntrinsic::OptionMapOr
+                                | StandardIntrinsic::OptionMapOrElse
+                                | StandardIntrinsic::OptionFilter
+                                | StandardIntrinsic::OptionIsSomeAnd
+                                | StandardIntrinsic::OptionZip
+                                | StandardIntrinsic::OptionFlatten
+                                | StandardIntrinsic::OptionTranspose
+                                | StandardIntrinsic::ResultUnwrapOrElse
+                                | StandardIntrinsic::ResultOrElse
+                                | StandardIntrinsic::ResultMapOr
+                                | StandardIntrinsic::ResultMapOrElse
+                                | StandardIntrinsic::ResultOk
+                                | StandardIntrinsic::ResultErr
+                                | StandardIntrinsic::ResultIsOkAnd
+                                | StandardIntrinsic::ResultIsErrAnd
+                                | StandardIntrinsic::ResultFlatten
+                                | StandardIntrinsic::ResultTranspose
+                                | StandardIntrinsic::OptionMap
+                                | StandardIntrinsic::OptionAndThen
+                                | StandardIntrinsic::OptionOkOr
+                                | StandardIntrinsic::OptionOkOrElse
+                                | StandardIntrinsic::ResultMap
+                                | StandardIntrinsic::ResultMapErr
+                                | StandardIntrinsic::ResultAndThen
                         ) {
                             let base = call
                                 .receiver

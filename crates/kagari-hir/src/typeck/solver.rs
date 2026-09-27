@@ -1,3 +1,4 @@
+use crate::types::BuiltinType;
 use std::collections::HashMap;
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
@@ -117,13 +118,21 @@ impl Solver {
                                 })
                             }
                             TypeId::Builtin(target) => {
-                                use crate::types::BuiltinType::*;
                                 if floating {
-                                    matches!(target, F32 | F64)
+                                    matches!(target, BuiltinType::F32 | BuiltinType::F64)
                                 } else {
                                     matches!(
                                         target,
-                                        I8 | I16 | I32 | I64 | ISize | U8 | U16 | U32 | U64 | USize
+                                        BuiltinType::I8
+                                            | BuiltinType::I16
+                                            | BuiltinType::I32
+                                            | BuiltinType::I64
+                                            | BuiltinType::ISize
+                                            | BuiltinType::U8
+                                            | BuiltinType::U16
+                                            | BuiltinType::U32
+                                            | BuiltinType::U64
+                                            | BuiltinType::USize
                                     )
                                 }
                             }

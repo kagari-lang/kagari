@@ -426,7 +426,7 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | `ec0bf1a` foundation imports; oversized test suites split by behavior | Checker: 32 tests pass; full audit: exit 1, 2,837 remaining findings, no exceptions; workspace clippy/tests pass at test-suite checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
+| A00 | `ec0bf1a` foundation imports; `2cf5fb3` behavioral test modules; 45 enum globs replaced by qualified variants | Checker: 32 tests pass; full audit: exit 1, 2,792 remaining findings, no exceptions; workspace clippy and 1,315 tests pass at enum checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -485,6 +485,27 @@ Environment: Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), aarch64-apple-darwin,
 MacBookPro18,2, 32 GiB RAM, 10 logical CPUs; workspace O1 dev/test profile,
 default Cargo parallelism and target directory, warm incremental cache. These
 are correctness runs; no performance comparison is claimed.
+
+### A00 checkpoint: explicit enum dispatch (2026-09-27)
+
+Checkpoint commit subject: `refactor: qualify semantic and execution enum variants`.
+Removed 45 function-local enum wildcard imports from HIR numeric/inference rules,
+IR lowering and verification, runtime helper dispatch/value semantics and VM
+collection dispatch. Variants retain their owning enum names; grouped enum uses
+in collection lowering now declare module-scope dependencies. The audit still
+tracks parent-module globs and remaining local-import/path cleanup within A00.
+
+Validation:
+
+- `cargo check --workspace --all-targets`: pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo test --workspace`: 1,315 tests pass; doc tests pass.
+- `cargo fmt --all -- --check` and `git diff --check`: pass.
+- Token comparison confirms the edits preserve operands and control flow after
+  normalizing enum qualification, imports and rustfmt's match-arm wrapping.
+- `uv run --locked scripts/check_structure.py --json`: exit 1, 2,792 findings
+  (2,710 qualified paths, 44 globs, 18 re-export locations, 9 parent traversals,
+  11 oversized files). No exceptions or parse errors. A01 remains gated.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

@@ -82,20 +82,19 @@ impl FunctionLowerer<'_, '_> {
         source: &TypeId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use NativeDefaultMethod::*;
         let item = self.iteration_output(StandardTrait::Iterable, source, "Item")?;
         let optional = TypeId::StandardEnum {
             kind: StandardEnum::Option,
             args: vec![item.clone()],
         };
         let zero = self.usize_constant(0);
-        if operation == ListFirst {
+        if operation == NativeDefaultMethod::ListFirst {
             return self.list_call(source, &item, "get", &[args[0], zero]);
         }
         let guard = self.query_guard(source, args[0])?;
         let length = self.list_call(source, &item, "len", &[args[0]])?;
         let one = self.usize_constant(1);
-        if operation == ListLast {
+        if operation == NativeDefaultMethod::ListLast {
             let empty = self.query_binary(BinaryOp::Eq, length, zero, ValueType::Bool);
             let result = self.branch_enum_value(
                 empty,
@@ -109,12 +108,15 @@ impl FunctionLowerer<'_, '_> {
             self.end_query_guard(guard);
             return Ok(result);
         }
-        if operation == ListBinarySearch {
+        if operation == NativeDefaultMethod::ListBinarySearch {
             let result = self.list_binary_search(source, &item, args, length)?;
             self.end_query_guard(guard);
             return Ok(result);
         }
-        let needle_source = if matches!(operation, ListStartsWith | ListEndsWith) {
+        let needle_source = if matches!(
+            operation,
+            NativeDefaultMethod::ListStartsWith | NativeDefaultMethod::ListEndsWith
+        ) {
             let mut interface = StandardTrait::List.nominal();
             interface.arguments.push(item.clone());
             Some(TypeId::Trait(interface))
@@ -130,8 +132,10 @@ impl FunctionLowerer<'_, '_> {
         } else {
             length
         };
-        let result =
-            self.lower_constant(Constant::Bool(operation != ListContains), ValueType::Bool);
+        let result = self.lower_constant(
+            Constant::Bool(operation != NativeDefaultMethod::ListContains),
+            ValueType::Bool,
+        );
         let index = self.usize_constant(0);
         let head = self.new_block();
         let body = self.new_block();
@@ -157,7 +161,7 @@ impl FunctionLowerer<'_, '_> {
             else_block: done,
         });
         self.switch_to_block(body);
-        let offset = if operation == ListEndsWith {
+        let offset = if operation == NativeDefaultMethod::ListEndsWith {
             let start = self.query_binary(BinaryOp::Sub, length, limit, ValueType::U64);
             self.query_binary(BinaryOp::Add, start, index, ValueType::U64)
         } else {
@@ -172,12 +176,12 @@ impl FunctionLowerer<'_, '_> {
         let equal = self.lower_protocol(StandardTrait::PartialEq, &item, &[left, right], 0)?;
         self.set_terminator(Terminator::Branch {
             cond: equal,
-            then_block: if operation == ListContains {
+            then_block: if operation == NativeDefaultMethod::ListContains {
                 found
             } else {
                 advanced
             },
-            else_block: if operation == ListContains {
+            else_block: if operation == NativeDefaultMethod::ListContains {
                 advanced
             } else {
                 mismatch

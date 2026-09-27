@@ -102,7 +102,6 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
         variant: u32,
     ) -> Result<IrValue, IrLoweringError> {
-        use StandardIntrinsic::*;
         let result_input = matches!(
             input,
             TypeId::StandardEnum {
@@ -117,37 +116,45 @@ impl FunctionLowerer<'_, '_> {
         };
         let callback_args: Vec<_> = payload.into_iter().collect();
         match operation {
-            OptionUnwrapOrElse | ResultUnwrapOrElse => {
+            StandardIntrinsic::OptionUnwrapOrElse | StandardIntrinsic::ResultUnwrapOrElse => {
                 if variant == 0 {
                     Ok(payload.unwrap())
                 } else {
                     self.call_function_value(args[1], output, &callback_args)
                 }
             }
-            OptionOrElse | ResultOrElse => {
+            StandardIntrinsic::OptionOrElse | StandardIntrinsic::ResultOrElse => {
                 if variant == 0 {
                     self.standard_enum_op(output, Op::Make(0), payload)
                 } else {
                     self.call_function_value(args[1], output, &callback_args)
                 }
             }
-            OptionMapOr | ResultMapOr | OptionMapOrElse | ResultMapOrElse => {
+            StandardIntrinsic::OptionMapOr
+            | StandardIntrinsic::ResultMapOr
+            | StandardIntrinsic::OptionMapOrElse
+            | StandardIntrinsic::ResultMapOrElse => {
                 if variant == 0 {
                     self.call_function_value(args[2], output, &callback_args)
-                } else if matches!(operation, OptionMapOr | ResultMapOr) {
+                } else if matches!(
+                    operation,
+                    StandardIntrinsic::OptionMapOr | StandardIntrinsic::ResultMapOr
+                ) {
                     Ok(args[1])
                 } else {
                     self.call_function_value(args[1], output, &callback_args)
                 }
             }
-            OptionIsSomeAnd | ResultIsOkAnd | ResultIsErrAnd => {
-                if (variant == 1) == (operation == ResultIsErrAnd) {
+            StandardIntrinsic::OptionIsSomeAnd
+            | StandardIntrinsic::ResultIsOkAnd
+            | StandardIntrinsic::ResultIsErrAnd => {
+                if (variant == 1) == (operation == StandardIntrinsic::ResultIsErrAnd) {
                     self.call_function_value(args[1], output, &callback_args)
                 } else {
                     Ok(self.lower_constant(Constant::Bool(false), ValueType::Bool))
                 }
             }
-            OptionFilter => {
+            StandardIntrinsic::OptionFilter => {
                 if variant == 1 {
                     return Ok(args[0]);
                 }
@@ -163,7 +170,7 @@ impl FunctionLowerer<'_, '_> {
                     |this| this.standard_enum_op(output, Op::Make(1), None),
                 )
             }
-            OptionZip => {
+            StandardIntrinsic::OptionZip => {
                 if variant == 1 {
                     return self.standard_enum_op(output, Op::Make(1), None);
                 }
@@ -190,7 +197,7 @@ impl FunctionLowerer<'_, '_> {
                     |this| this.standard_enum_op(output, Op::Make(1), None),
                 )
             }
-            OptionFlatten | ResultFlatten => {
+            StandardIntrinsic::OptionFlatten | StandardIntrinsic::ResultFlatten => {
                 if variant == 0 {
                     Ok(payload.unwrap())
                 } else if result_input {
@@ -199,14 +206,14 @@ impl FunctionLowerer<'_, '_> {
                     self.standard_enum_op(output, Op::Make(1), None)
                 }
             }
-            ResultOk | ResultErr => {
-                if (variant == 1) == (operation == ResultErr) {
+            StandardIntrinsic::ResultOk | StandardIntrinsic::ResultErr => {
+                if (variant == 1) == (operation == StandardIntrinsic::ResultErr) {
                     self.standard_enum_op(output, Op::Make(0), payload)
                 } else {
                     self.standard_enum_op(output, Op::Make(1), None)
                 }
             }
-            OptionTranspose => {
+            StandardIntrinsic::OptionTranspose => {
                 let option = &enum_args(output)?[0];
                 if variant == 1 {
                     let none = self.standard_enum_op(option, Op::Make(1), None)?;
@@ -229,7 +236,7 @@ impl FunctionLowerer<'_, '_> {
                     },
                 )
             }
-            ResultTranspose => {
+            StandardIntrinsic::ResultTranspose => {
                 let result = &enum_args(output)?[0];
                 if variant == 1 {
                     let error = self.preserve_enum_error(result, args[0], payload.unwrap())?;

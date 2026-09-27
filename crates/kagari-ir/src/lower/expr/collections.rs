@@ -1,4 +1,8 @@
 use super::*;
+use crate::module::instruction::StandardEnumOp;
+use kagari_hir::builtin::{
+    declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait,
+};
 use kagari_hir::types::TypeId;
 
 impl FunctionLowerer<'_, '_> {
@@ -33,19 +37,15 @@ impl FunctionLowerer<'_, '_> {
         source: &TypeId,
         value: IrValue,
     ) -> Result<IrValue, IrLoweringError> {
-        use crate::module::instruction::StandardEnumOp;
-        use kagari_hir::builtin::{
-            declarations::NativeDefaultMethod::*, surface::StandardEnum, traits::StandardTrait,
-        };
         let iter_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
         let pair = self.iterator_item(&iter_type)?;
         let TypeId::Tuple(fields) = &pair else {
             return Err(IrLoweringError::MissingBinding("map entry tuple"));
         };
         let index = match operation {
-            MapKeysView => Some(0),
-            MapValuesView => Some(1),
-            MapEntriesView => None,
+            NativeDefaultMethod::MapKeysView => Some(0),
+            NativeDefaultMethod::MapValuesView => Some(1),
+            NativeDefaultMethod::MapEntriesView => None,
             _ => unreachable!(),
         };
         let item = index.map_or_else(|| pair.clone(), |i| fields[i].clone());
@@ -238,13 +238,12 @@ impl FunctionLowerer<'_, '_> {
         name: &str,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use StandardIntrinsic::*;
         if matches!(name, "get_or_insert_with" | "update") {
             return self.lower_map_update(
                 if name == "update" {
-                    MapUpdate
+                    StandardIntrinsic::MapUpdate
                 } else {
-                    MapGetOrInsertWith
+                    StandardIntrinsic::MapGetOrInsertWith
                 },
                 ty,
                 args,
@@ -269,28 +268,46 @@ impl FunctionLowerer<'_, '_> {
             return Ok(self.lower_unit());
         }
         let (intrinsic, output, discard) = match (ty, name) {
-            (TypeId::Array(_, _), "len") => (ArrayLen, ValueType::U64, false),
-            (TypeId::Array(_, _), "is_empty") => (ArrayIsEmpty, ValueType::Bool, false),
-            (TypeId::Array(_, _), "get") => (ArrayGet, ValueType::HeapObject, false),
-            (TypeId::Array(_, _), "push") => (ArrayPush, ValueType::HeapObject, true),
-            (TypeId::Array(_, _), "pop") => (ArrayPop, ValueType::HeapObject, false),
-            (TypeId::Array(_, _), "insert") => (ArrayInsert, ValueType::HeapObject, true),
-            (TypeId::Array(_, _), "remove") => (ArrayRemove, ValueType::HeapObject, false),
-            (TypeId::Array(_, _), "swap") => (ArraySwap, ValueType::Unit, false),
-            (TypeId::Array(_, _), "reverse") => (ArrayReverse, ValueType::Unit, false),
-            (TypeId::Array(_, _), "truncate") => (ArrayTruncate, ValueType::Unit, false),
+            (TypeId::Array(_, _), "len") => (StandardIntrinsic::ArrayLen, ValueType::U64, false),
+            (TypeId::Array(_, _), "is_empty") => {
+                (StandardIntrinsic::ArrayIsEmpty, ValueType::Bool, false)
+            }
+            (TypeId::Array(_, _), "get") => {
+                (StandardIntrinsic::ArrayGet, ValueType::HeapObject, false)
+            }
+            (TypeId::Array(_, _), "push") => {
+                (StandardIntrinsic::ArrayPush, ValueType::HeapObject, true)
+            }
+            (TypeId::Array(_, _), "pop") => {
+                (StandardIntrinsic::ArrayPop, ValueType::HeapObject, false)
+            }
+            (TypeId::Array(_, _), "insert") => {
+                (StandardIntrinsic::ArrayInsert, ValueType::HeapObject, true)
+            }
+            (TypeId::Array(_, _), "remove") => {
+                (StandardIntrinsic::ArrayRemove, ValueType::HeapObject, false)
+            }
+            (TypeId::Array(_, _), "swap") => (StandardIntrinsic::ArraySwap, ValueType::Unit, false),
+            (TypeId::Array(_, _), "reverse") => {
+                (StandardIntrinsic::ArrayReverse, ValueType::Unit, false)
+            }
+            (TypeId::Array(_, _), "truncate") => {
+                (StandardIntrinsic::ArrayTruncate, ValueType::Unit, false)
+            }
             (TypeId::Array(item, _), "extend") => {
                 let mut interface = kagari_hir::builtin::traits::StandardTrait::List.nominal();
                 interface.arguments.push((**item).clone());
                 return self.lower_list_copy(TypeId::Trait(interface), args[0], args[1], true);
             }
-            (TypeId::Array(_, _), "clear") => (ArrayClear, ValueType::HeapObject, true),
+            (TypeId::Array(_, _), "clear") => {
+                (StandardIntrinsic::ArrayClear, ValueType::HeapObject, true)
+            }
             (TypeId::Map { key, .. }, "get" | "contains_key" | "insert" | "remove") => {
                 let intrinsic = match name {
-                    "get" => MapGet,
-                    "contains_key" => MapContainsKey,
-                    "insert" => MapInsert,
-                    _ => MapRemove,
+                    "get" => StandardIntrinsic::MapGet,
+                    "contains_key" => StandardIntrinsic::MapContainsKey,
+                    "insert" => StandardIntrinsic::MapInsert,
+                    _ => StandardIntrinsic::MapRemove,
                 };
                 let result = if self.has_custom_protocol(key) {
                     self.lower_key_operation(intrinsic, key, args)?
@@ -311,14 +328,18 @@ impl FunctionLowerer<'_, '_> {
                     result
                 });
             }
-            (TypeId::Map { .. }, "len") => (MapLen, ValueType::U64, false),
-            (TypeId::Map { .. }, "is_empty") => (MapIsEmpty, ValueType::Bool, false),
-            (TypeId::Map { .. }, "clear") => (MapClear, ValueType::HeapObject, true),
+            (TypeId::Map { .. }, "len") => (StandardIntrinsic::MapLen, ValueType::U64, false),
+            (TypeId::Map { .. }, "is_empty") => {
+                (StandardIntrinsic::MapIsEmpty, ValueType::Bool, false)
+            }
+            (TypeId::Map { .. }, "clear") => {
+                (StandardIntrinsic::MapClear, ValueType::HeapObject, true)
+            }
             (TypeId::Set(item, _), "contains" | "insert" | "remove") => {
                 let intrinsic = match name {
-                    "contains" => SetContains,
-                    "insert" => SetInsert,
-                    _ => SetRemove,
+                    "contains" => StandardIntrinsic::SetContains,
+                    "insert" => StandardIntrinsic::SetInsert,
+                    _ => StandardIntrinsic::SetRemove,
                 };
                 let result = if self.has_custom_protocol(item) {
                     self.lower_key_operation(intrinsic, item, args)?
@@ -339,9 +360,13 @@ impl FunctionLowerer<'_, '_> {
                     result
                 });
             }
-            (TypeId::Set(_, _), "len") => (SetLen, ValueType::U64, false),
-            (TypeId::Set(_, _), "is_empty") => (SetIsEmpty, ValueType::Bool, false),
-            (TypeId::Set(_, _), "clear") => (SetClear, ValueType::HeapObject, true),
+            (TypeId::Set(_, _), "len") => (StandardIntrinsic::SetLen, ValueType::U64, false),
+            (TypeId::Set(_, _), "is_empty") => {
+                (StandardIntrinsic::SetIsEmpty, ValueType::Bool, false)
+            }
+            (TypeId::Set(_, _), "clear") => {
+                (StandardIntrinsic::SetClear, ValueType::HeapObject, true)
+            }
             _ => return Err(IrLoweringError::MissingBinding("native collection method")),
         };
         let result = self.emit_intrinsic(intrinsic, args, output);

@@ -29,11 +29,10 @@ pub(crate) fn verify_runtime_helper_call(
     helper: RuntimeHelperKind,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
-    use RuntimeHelperKind::*;
     let arity = match helper {
-        TypeOf | GetField => 1,
-        SetField => 2,
-        SetIndex => 3,
+        RuntimeHelperKind::TypeOf | RuntimeHelperKind::GetField => 1,
+        RuntimeHelperKind::SetField => 2,
+        RuntimeHelperKind::SetIndex => 3,
     };
     if args.len() != arity {
         return Err(ContractError::InvalidOperation {
@@ -41,8 +40,8 @@ pub(crate) fn verify_runtime_helper_call(
         });
     }
     match helper {
-        TypeOf => verify_call_dst(dst, ValueType::Str),
-        GetField => {
+        RuntimeHelperKind::TypeOf => verify_call_dst(dst, ValueType::Str),
+        RuntimeHelperKind::GetField => {
             expect_type(args[0], ValueType::HeapObject, "reflection field base")?;
             if dst.is_none() {
                 return Err(ContractError::InvalidOperation {
@@ -51,9 +50,9 @@ pub(crate) fn verify_runtime_helper_call(
             }
             Ok(())
         }
-        SetField | SetIndex => {
+        RuntimeHelperKind::SetField | RuntimeHelperKind::SetIndex => {
             expect_type(args[0], ValueType::HeapObject, "reflection write base")?;
-            let value = if helper == SetIndex {
+            let value = if helper == RuntimeHelperKind::SetIndex {
                 if !matches!(args[1], ValueType::I32 | ValueType::I64 | ValueType::U64) {
                     return Err(ContractError::InvalidOperation {
                         reason: "reflection index must be an integer",
@@ -174,23 +173,33 @@ pub(crate) fn verify_intrinsic(
     intrinsic: StandardIntrinsic,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
-    use StandardIntrinsic::*;
-
     let arity = match intrinsic {
-        ParseNumber(_) => 1,
-        ParseRadix(_) => 2,
-        ArrayCopyWithinBounds => 4,
-        ArrayCopyFromStorage | ArrayExtendStorage => 2,
-        MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
-        ArrayRemoveRangePrepare => 3,
-        ArrayReplaceStorage | CollectionRetainStorage => 2,
-        KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd | IterResume => 1,
-        KeyCandidates => 2,
-        KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
-        KeySetInsert => 4,
-        KeyMapInsert => 5,
-        ValueEq | ValuePartialCmp | ValueCmp => 2,
-        ValueHash | ValueDebug | ValueDisplay => 1,
+        StandardIntrinsic::ParseNumber(_) => 1,
+        StandardIntrinsic::ParseRadix(_) => 2,
+        StandardIntrinsic::ArrayCopyWithinBounds => 4,
+        StandardIntrinsic::ArrayCopyFromStorage | StandardIntrinsic::ArrayExtendStorage => 2,
+        StandardIntrinsic::MapKeysStorage
+        | StandardIntrinsic::MapValuesStorage
+        | StandardIntrinsic::MapEntriesStorage => 1,
+        StandardIntrinsic::ArrayRemoveRangePrepare => 3,
+        StandardIntrinsic::ArrayReplaceStorage | StandardIntrinsic::CollectionRetainStorage => 2,
+        StandardIntrinsic::KeyLookupBegin
+        | StandardIntrinsic::CollectionMutationBegin
+        | StandardIntrinsic::CollectionMutationEnd
+        | StandardIntrinsic::IterResume => 1,
+        StandardIntrinsic::KeyCandidates => 2,
+        StandardIntrinsic::KeyMapGet
+        | StandardIntrinsic::KeyMapRemove
+        | StandardIntrinsic::KeySetContains
+        | StandardIntrinsic::KeySetRemove => 3,
+        StandardIntrinsic::KeySetInsert => 4,
+        StandardIntrinsic::KeyMapInsert => 5,
+        StandardIntrinsic::ValueEq
+        | StandardIntrinsic::ValuePartialCmp
+        | StandardIntrinsic::ValueCmp => 2,
+        StandardIntrinsic::ValueHash
+        | StandardIntrinsic::ValueDebug
+        | StandardIntrinsic::ValueDisplay => 1,
         _ => {
             kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
                 .ok_or(ContractError::Intrinsic {
@@ -208,14 +217,15 @@ pub(crate) fn verify_intrinsic(
     }
 
     match intrinsic {
-        StringParse => {
+        StandardIntrinsic::StringParse => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "parse requires static lowering",
             });
         }
-        ParseNumber(ty) | ParseRadix(ty) => {
-            if !matches!(intrinsic, ParseNumber(_)) && ty.integer_layout().is_none()
+        StandardIntrinsic::ParseNumber(ty) | StandardIntrinsic::ParseRadix(ty) => {
+            if !matches!(intrinsic, StandardIntrinsic::ParseNumber(_))
+                && ty.integer_layout().is_none()
                 || kagari_hir::builtin::traits::parsing_error(&kagari_hir::types::TypeId::Builtin(
                     ty,
                 ))
@@ -227,12 +237,12 @@ pub(crate) fn verify_intrinsic(
                 });
             }
             expect_arg_ty(args, 0, ValueType::Str, "parse input")?;
-            if matches!(intrinsic, ParseRadix(_)) {
+            if matches!(intrinsic, StandardIntrinsic::ParseRadix(_)) {
                 expect_arg_ty(args, 1, ValueType::I64, "parse radix")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        Integer(_, _) => {
+        StandardIntrinsic::Integer(_, _) => {
             let spec = kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
                 .ok_or(ContractError::Intrinsic {
                     intrinsic,
@@ -252,14 +262,21 @@ pub(crate) fn verify_intrinsic(
                 ValueType::from_type_id(&spec.api.result.instantiate(&arguments)),
             )?;
         }
-        ArrayRetain | MapRetain | SetRetain | ArraySort | ArraySortBy | ArraySortByKey
-        | ArrayDedup | MapGetOrInsertWith | MapUpdate => {
+        StandardIntrinsic::ArrayRetain
+        | StandardIntrinsic::MapRetain
+        | StandardIntrinsic::SetRetain
+        | StandardIntrinsic::ArraySort
+        | StandardIntrinsic::ArraySortBy
+        | StandardIntrinsic::ArraySortByKey
+        | StandardIntrinsic::ArrayDedup
+        | StandardIntrinsic::MapGetOrInsertWith
+        | StandardIntrinsic::MapUpdate => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "map update requires static lowering",
             });
         }
-        ArrayRemoveRangePrepare => {
+        StandardIntrinsic::ArrayRemoveRangePrepare => {
             for index in 0..3 {
                 expect_arg_ty(
                     args,
@@ -270,38 +287,49 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayRemoveRange => {
+        StandardIntrinsic::ArrayRemoveRange => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "range removal requires static lowering",
             });
         }
-        ArrayReplaceStorage | CollectionRetainStorage => {
+        StandardIntrinsic::ArrayReplaceStorage | StandardIntrinsic::CollectionRetainStorage => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "collection commit target")?;
             expect_arg_ty(args, 1, ValueType::HeapObject, "prepared collection")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd | IterResume => {
+        StandardIntrinsic::KeyLookupBegin
+        | StandardIntrinsic::CollectionMutationBegin
+        | StandardIntrinsic::CollectionMutationEnd
+        | StandardIntrinsic::IterResume => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert
-        | KeySetRemove => {
+        StandardIntrinsic::KeyCandidates
+        | StandardIntrinsic::KeyMapGet
+        | StandardIntrinsic::KeyMapInsert
+        | StandardIntrinsic::KeyMapRemove
+        | StandardIntrinsic::KeySetContains
+        | StandardIntrinsic::KeySetInsert
+        | StandardIntrinsic::KeySetRemove => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;
             expect_arg_ty(args, 1, ValueType::I64, "key hash")?;
-            if intrinsic != KeyCandidates {
+            if intrinsic != StandardIntrinsic::KeyCandidates {
                 expect_arg_ty(args, 2, ValueType::I64, "key token")?;
             }
             verify_call_dst(
                 dst,
-                if matches!(intrinsic, KeySetContains | KeySetRemove) {
+                if matches!(
+                    intrinsic,
+                    StandardIntrinsic::KeySetContains | StandardIntrinsic::KeySetRemove
+                ) {
                     ValueType::Bool
                 } else {
                     ValueType::HeapObject
                 },
             )?;
         }
-        ValuePartialCmp | ValueCmp => {
+        StandardIntrinsic::ValuePartialCmp | StandardIntrinsic::ValueCmp => {
             if args[0] != args[1] {
                 return Err(ContractError::Intrinsic {
                     intrinsic,
@@ -310,7 +338,7 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ValueEq => {
+        StandardIntrinsic::ValueEq => {
             if args[0] != args[1] {
                 return Err(ContractError::Intrinsic {
                     intrinsic,
@@ -319,14 +347,14 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        ValueHash => {
+        StandardIntrinsic::ValueHash => {
             expect_hash_key_arg(args, 0, intrinsic)?;
             verify_call_dst(dst, ValueType::I64)?;
         }
-        ValueDebug | ValueDisplay => {
+        StandardIntrinsic::ValueDebug | StandardIntrinsic::ValueDisplay => {
             verify_call_dst(dst, ValueType::Str)?;
         }
-        ArrayLen => {
+        StandardIntrinsic::ArrayLen => {
             expect_arg_ty(
                 args,
                 0,
@@ -335,7 +363,7 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::U64)?;
         }
-        ArrayIsEmpty => {
+        StandardIntrinsic::ArrayIsEmpty => {
             expect_arg_ty(
                 args,
                 0,
@@ -344,89 +372,109 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        ArrayGet | ArrayPop | ArrayRemove | ArraySwapRemove => {
+        StandardIntrinsic::ArrayGet
+        | StandardIntrinsic::ArrayPop
+        | StandardIntrinsic::ArrayRemove
+        | StandardIntrinsic::ArraySwapRemove => {
             expect_arg_ty(
                 args,
                 0,
                 ValueType::HeapObject,
                 "standard intrinsic argument",
             )?;
-            if matches!(intrinsic, ArrayGet | ArrayRemove | ArraySwapRemove) {
+            if matches!(
+                intrinsic,
+                StandardIntrinsic::ArrayGet
+                    | StandardIntrinsic::ArrayRemove
+                    | StandardIntrinsic::ArraySwapRemove
+            ) {
                 expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayWithCapacity | MapWithCapacity | SetWithCapacity => {
+        StandardIntrinsic::ArrayWithCapacity
+        | StandardIntrinsic::MapWithCapacity
+        | StandardIntrinsic::SetWithCapacity => {
             expect_arg_ty(args, 0, ValueType::U64, "initial capacity")?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayCapacity | MapCapacity | SetCapacity => {
+        StandardIntrinsic::ArrayCapacity
+        | StandardIntrinsic::MapCapacity
+        | StandardIntrinsic::SetCapacity => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "collection receiver")?;
             verify_call_dst(dst, ValueType::U64)?;
         }
-        ArrayReserve | MapReserve | SetReserve => {
+        StandardIntrinsic::ArrayReserve
+        | StandardIntrinsic::MapReserve
+        | StandardIntrinsic::SetReserve => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "collection receiver")?;
             expect_arg_ty(args, 1, ValueType::U64, "additional capacity")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        ArraySwap | ArrayReverse | ArrayTruncate | ArrayExtendStorage => {
+        StandardIntrinsic::ArraySwap
+        | StandardIntrinsic::ArrayReverse
+        | StandardIntrinsic::ArrayTruncate
+        | StandardIntrinsic::ArrayExtendStorage => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "array mutation receiver")?;
-            if intrinsic == ArrayExtendStorage {
+            if intrinsic == StandardIntrinsic::ArrayExtendStorage {
                 expect_arg_ty(args, 1, ValueType::HeapObject, "array extension storage")?;
             }
-            if matches!(intrinsic, ArraySwap | ArrayTruncate) {
+            if matches!(
+                intrinsic,
+                StandardIntrinsic::ArraySwap | StandardIntrinsic::ArrayTruncate
+            ) {
                 expect_arg_ty(args, 1, ValueType::U64, "array mutation index")?;
             }
-            if intrinsic == ArraySwap {
+            if intrinsic == StandardIntrinsic::ArraySwap {
                 expect_arg_ty(args, 2, ValueType::U64, "array mutation index")?;
             }
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        ArrayPush | ArrayInsert => {
+        StandardIntrinsic::ArrayPush | StandardIntrinsic::ArrayInsert => {
             expect_arg_ty(
                 args,
                 0,
                 ValueType::HeapObject,
                 "standard intrinsic argument",
             )?;
-            if intrinsic == ArrayInsert {
+            if intrinsic == StandardIntrinsic::ArrayInsert {
                 expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayExtend
-        | StringBytes
-        | StringCharIndices
-        | StringSplit
-        | StringSplitN
-        | StringSplitWhitespace
-        | StringLines
-        | ArrayCopyFrom
-        | ArrayCopyWithin
-        | ArrayListFromFn
-        | MapKeys
-        | MapValues
-        | MapEntries => {
+        StandardIntrinsic::ArrayExtend
+        | StandardIntrinsic::StringBytes
+        | StandardIntrinsic::StringCharIndices
+        | StandardIntrinsic::StringSplit
+        | StandardIntrinsic::StringSplitN
+        | StandardIntrinsic::StringSplitWhitespace
+        | StandardIntrinsic::StringLines
+        | StandardIntrinsic::ArrayCopyFrom
+        | StandardIntrinsic::ArrayCopyWithin
+        | StandardIntrinsic::ArrayListFromFn
+        | StandardIntrinsic::MapKeys
+        | StandardIntrinsic::MapValues
+        | StandardIntrinsic::MapEntries => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "callback and protocol calls require static lowering",
             });
         }
-        ArrayCopyWithinBounds => {
+        StandardIntrinsic::ArrayCopyWithinBounds => {
             for index in 0..3 {
                 expect_arg_ty(args, index, ValueType::HeapObject, "array range operand")?;
             }
             expect_arg_ty(args, 3, ValueType::U64, "array copy destination")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        ArrayFill | ArrayCopyFromStorage => {
+        StandardIntrinsic::ArrayFill | StandardIntrinsic::ArrayCopyFromStorage => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "array target")?;
-            if intrinsic == ArrayCopyFromStorage {
+            if intrinsic == StandardIntrinsic::ArrayCopyFromStorage {
                 expect_arg_ty(args, 1, ValueType::HeapObject, "array source")?;
             }
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        ArrayClear => {
+        StandardIntrinsic::ArrayClear => {
             expect_arg_ty(
                 args,
                 0,
@@ -435,24 +483,31 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        LinkedHashMapNew | LinkedHashSetNew | ArrayListNew => {
+        StandardIntrinsic::LinkedHashMapNew
+        | StandardIntrinsic::LinkedHashSetNew
+        | StandardIntrinsic::ArrayListNew => {
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayListFrom | LinkedHashMapFrom | LinkedHashSetFrom => {
+        StandardIntrinsic::ArrayListFrom
+        | StandardIntrinsic::LinkedHashMapFrom
+        | StandardIntrinsic::LinkedHashSetFrom => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "collection factories require checked construction lowering",
             });
         }
-        MapLen | SetLen => {
+        StandardIntrinsic::MapLen | StandardIntrinsic::SetLen => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;
             verify_call_dst(dst, ValueType::U64)?;
         }
-        MapIsEmpty | SetIsEmpty => {
+        StandardIntrinsic::MapIsEmpty | StandardIntrinsic::SetIsEmpty => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        MapContainsKey | MapGet | MapInsert | MapRemove => {
+        StandardIntrinsic::MapContainsKey
+        | StandardIntrinsic::MapGet
+        | StandardIntrinsic::MapInsert
+        | StandardIntrinsic::MapRemove => {
             expect_arg_ty(
                 args,
                 0,
@@ -461,15 +516,19 @@ pub(crate) fn verify_intrinsic(
             )?;
             expect_hash_key_arg(args, 1, intrinsic)?;
             let return_ty = match intrinsic {
-                MapContainsKey => ValueType::Bool,
-                MapGet | MapRemove => ValueType::HeapObject,
-                MapInsert => ValueType::HeapObject,
+                StandardIntrinsic::MapContainsKey => ValueType::Bool,
+                StandardIntrinsic::MapGet | StandardIntrinsic::MapRemove => ValueType::HeapObject,
+                StandardIntrinsic::MapInsert => ValueType::HeapObject,
                 _ => unreachable!(),
             };
             verify_call_dst(dst, return_ty)?;
         }
-        MapClear | MapKeysStorage | MapValuesStorage | MapEntriesStorage | SetClear
-        | SetToArray => {
+        StandardIntrinsic::MapClear
+        | StandardIntrinsic::MapKeysStorage
+        | StandardIntrinsic::MapValuesStorage
+        | StandardIntrinsic::MapEntriesStorage
+        | StandardIntrinsic::SetClear
+        | StandardIntrinsic::SetToArray => {
             expect_arg_ty(
                 args,
                 0,
@@ -478,7 +537,9 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        SetContains | SetInsert | SetRemove => {
+        StandardIntrinsic::SetContains
+        | StandardIntrinsic::SetInsert
+        | StandardIntrinsic::SetRemove => {
             expect_arg_ty(
                 args,
                 0,
@@ -487,94 +548,119 @@ pub(crate) fn verify_intrinsic(
             )?;
             expect_hash_key_arg(args, 1, intrinsic)?;
             let return_ty = match intrinsic {
-                SetContains | SetRemove => ValueType::Bool,
-                SetInsert => ValueType::HeapObject,
+                StandardIntrinsic::SetContains | StandardIntrinsic::SetRemove => ValueType::Bool,
+                StandardIntrinsic::SetInsert => ValueType::HeapObject,
                 _ => unreachable!(),
             };
             verify_call_dst(dst, return_ty)?;
         }
 
-        StringLenBytes | StringLenChars => {
+        StandardIntrinsic::StringLenBytes | StandardIntrinsic::StringLenChars => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::U64)?;
         }
-        StringIsEmpty | StringContains | StringStartsWith | StringEndsWith => {
+        StandardIntrinsic::StringIsEmpty
+        | StandardIntrinsic::StringContains
+        | StandardIntrinsic::StringStartsWith
+        | StandardIntrinsic::StringEndsWith => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
-            if intrinsic != StringIsEmpty {
+            if intrinsic != StandardIntrinsic::StringIsEmpty {
                 expect_arg_ty(args, 1, ValueType::Str, "standard intrinsic argument")?;
             }
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        ArrayJoin => {
+        StandardIntrinsic::ArrayJoin => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "string array")?;
             expect_arg_ty(args, 1, ValueType::Str, "join separator")?;
             verify_call_dst(dst, ValueType::Str)?;
         }
-        StringReplace | StringReplaceN => {
+        StandardIntrinsic::StringReplace | StandardIntrinsic::StringReplaceN => {
             for i in 0..3 {
                 expect_arg_ty(args, i, ValueType::Str, "string replacement argument")?;
             }
-            if intrinsic == StringReplaceN {
+            if intrinsic == StandardIntrinsic::StringReplaceN {
                 expect_arg_ty(args, 3, ValueType::U64, "replacement limit")?;
             }
             verify_call_dst(dst, ValueType::Str)?;
         }
-        StringRepeat | StringIsCharBoundary => {
+        StandardIntrinsic::StringRepeat | StandardIntrinsic::StringIsCharBoundary => {
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
             expect_arg_ty(args, 1, ValueType::U64, "string count/index")?;
             verify_call_dst(
                 dst,
-                if intrinsic == StringRepeat {
+                if intrinsic == StandardIntrinsic::StringRepeat {
                     ValueType::Str
                 } else {
                     ValueType::Bool
                 },
             )?;
         }
-        StringIsAscii | StringEqIgnoreAsciiCase => {
+        StandardIntrinsic::StringIsAscii | StandardIntrinsic::StringEqIgnoreAsciiCase => {
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
-            if intrinsic == StringEqIgnoreAsciiCase {
+            if intrinsic == StandardIntrinsic::StringEqIgnoreAsciiCase {
                 expect_arg_ty(args, 1, ValueType::Str, "string comparison")?;
             }
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        StringToAsciiLowercase
-        | StringToAsciiUppercase
-        | StringToLowercase
-        | StringToUppercase
-        | StringTrim
-        | StringTrimStart
-        | StringTrimEnd => {
+        StandardIntrinsic::StringToAsciiLowercase
+        | StandardIntrinsic::StringToAsciiUppercase
+        | StandardIntrinsic::StringToLowercase
+        | StandardIntrinsic::StringToUppercase
+        | StandardIntrinsic::StringTrim
+        | StandardIntrinsic::StringTrimStart
+        | StandardIntrinsic::StringTrimEnd => {
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
             verify_call_dst(dst, ValueType::Str)?;
         }
-        StringFind | StringRfind | StringStripPrefix | StringStripSuffix | StringSplitOnce
-        | StringRsplitOnce => {
+        StandardIntrinsic::StringFind
+        | StandardIntrinsic::StringRfind
+        | StandardIntrinsic::StringStripPrefix
+        | StandardIntrinsic::StringStripSuffix
+        | StandardIntrinsic::StringSplitOnce
+        | StandardIntrinsic::StringRsplitOnce => {
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
             expect_arg_ty(args, 1, ValueType::Str, "string pattern")?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        StringConcat => {
+        StandardIntrinsic::StringConcat => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             expect_arg_ty(args, 1, ValueType::Str, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::Str)?;
         }
-        StringSlice => {
+        StandardIntrinsic::StringSlice => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             expect_arg_ty(args, 2, ValueType::U64, "standard intrinsic index")?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        OptionUnwrapOrElse | OptionOrElse | OptionMapOr | OptionMapOrElse | OptionFilter
-        | OptionIsSomeAnd | OptionZip | OptionFlatten | OptionTranspose | ResultUnwrapOrElse
-        | ResultOrElse | ResultMapOr | ResultMapOrElse | ResultOk | ResultErr | ResultIsOkAnd
-        | ResultIsErrAnd | ResultFlatten | ResultTranspose => {
+        StandardIntrinsic::OptionUnwrapOrElse
+        | StandardIntrinsic::OptionOrElse
+        | StandardIntrinsic::OptionMapOr
+        | StandardIntrinsic::OptionMapOrElse
+        | StandardIntrinsic::OptionFilter
+        | StandardIntrinsic::OptionIsSomeAnd
+        | StandardIntrinsic::OptionZip
+        | StandardIntrinsic::OptionFlatten
+        | StandardIntrinsic::OptionTranspose
+        | StandardIntrinsic::ResultUnwrapOrElse
+        | StandardIntrinsic::ResultOrElse
+        | StandardIntrinsic::ResultMapOr
+        | StandardIntrinsic::ResultMapOrElse
+        | StandardIntrinsic::ResultOk
+        | StandardIntrinsic::ResultErr
+        | StandardIntrinsic::ResultIsOkAnd
+        | StandardIntrinsic::ResultIsErrAnd
+        | StandardIntrinsic::ResultFlatten
+        | StandardIntrinsic::ResultTranspose => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "enum combinator requires lowering",
             });
         }
-        OptionIsSome | OptionIsNone | ResultIsOk | ResultIsErr => {
+        StandardIntrinsic::OptionIsSome
+        | StandardIntrinsic::OptionIsNone
+        | StandardIntrinsic::ResultIsOk
+        | StandardIntrinsic::ResultIsErr => {
             expect_arg_ty(
                 args,
                 0,
@@ -583,7 +669,7 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        OptionUnwrapOr | ResultUnwrapOr => {
+        StandardIntrinsic::OptionUnwrapOr | StandardIntrinsic::ResultUnwrapOr => {
             expect_arg_ty(
                 args,
                 0,
@@ -593,8 +679,13 @@ pub(crate) fn verify_intrinsic(
             let fallback_ty = args[1];
             verify_call_dst(dst, fallback_ty)?;
         }
-        OptionOkOr | OptionOkOrElse | OptionMap | OptionAndThen | ResultMap | ResultMapErr
-        | ResultAndThen => {
+        StandardIntrinsic::OptionOkOr
+        | StandardIntrinsic::OptionOkOrElse
+        | StandardIntrinsic::OptionMap
+        | StandardIntrinsic::OptionAndThen
+        | StandardIntrinsic::ResultMap
+        | StandardIntrinsic::ResultMapErr
+        | StandardIntrinsic::ResultAndThen => {
             expect_arg_ty(
                 args,
                 0,
@@ -604,7 +695,7 @@ pub(crate) fn verify_intrinsic(
             let _ = args[1];
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        MathMin | MathMax => {
+        StandardIntrinsic::MathMin | StandardIntrinsic::MathMax => {
             let lhs = expect_numeric_arg(args, 0, intrinsic)?;
             let rhs = args[1];
             if rhs != lhs {
@@ -616,31 +707,37 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, lhs)?;
         }
-        MathClamp => {
+        StandardIntrinsic::MathClamp => {
             let value = expect_numeric_arg(args, 0, intrinsic)?;
             for arg in &args[1..] {
                 expect_type(*arg, value, "standard intrinsic numeric argument")?;
             }
             verify_call_dst(dst, value)?;
         }
-        MathAbs => {
+        StandardIntrinsic::MathAbs => {
             let value = expect_numeric_arg(args, 0, intrinsic)?;
             verify_call_dst(dst, value)?;
         }
-        MathFloor | MathCeil | MathRound | MathSqrt | MathSin | MathCos | MathTan => {
+        StandardIntrinsic::MathFloor
+        | StandardIntrinsic::MathCeil
+        | StandardIntrinsic::MathRound
+        | StandardIntrinsic::MathSqrt
+        | StandardIntrinsic::MathSin
+        | StandardIntrinsic::MathCos
+        | StandardIntrinsic::MathTan => {
             expect_arg_ty(args, 0, ValueType::F64, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::F64)?;
         }
-        DebugPrint | DebugPanic => {
+        StandardIntrinsic::DebugPrint | StandardIntrinsic::DebugPanic => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        DebugAssert => {
+        StandardIntrinsic::DebugAssert => {
             expect_arg_ty(args, 0, ValueType::Bool, "standard intrinsic argument")?;
             expect_arg_ty(args, 1, ValueType::Str, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        DebugAssertEq => {
+        StandardIntrinsic::DebugAssertEq => {
             let lhs = args[0];
             let rhs = args[1];
             if lhs != rhs {

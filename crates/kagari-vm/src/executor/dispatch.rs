@@ -1,3 +1,4 @@
+use kagari_ir::bytecode::StandardIntrinsic;
 use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
 use kagari_runtime::{HostPathDescriptorId, value::Value};
 
@@ -529,12 +530,14 @@ impl<'a> Executor<'a> {
         dst: Option<Register>,
         args: Vec<Value>,
     ) -> Result<(), VmError> {
-        use kagari_ir::bytecode::StandardIntrinsic::*;
-        if matches!(intrinsic, CollectionMutationBegin | CollectionMutationEnd) {
+        if matches!(
+            intrinsic,
+            StandardIntrinsic::CollectionMutationBegin | StandardIntrinsic::CollectionMutationEnd
+        ) {
             let value = args
                 .first()
                 .ok_or(VmError::TypeMismatch("mutation target"))?;
-            if intrinsic == CollectionMutationBegin {
+            if intrinsic == StandardIntrinsic::CollectionMutationBegin {
                 self.current_frame_mut()?.begin_collection_mutation(value)?;
             } else {
                 self.current_frame_mut()?.end_collection_mutation(value)?;
@@ -544,7 +547,7 @@ impl<'a> Executor<'a> {
             }
             return Ok(());
         }
-        if intrinsic == KeyLookupBegin {
+        if intrinsic == StandardIntrinsic::KeyLookupBegin {
             self.current_frame_mut()?.begin_key_lookup(
                 args.first()
                     .ok_or(VmError::TypeMismatch("key lookup collection"))?,
@@ -556,7 +559,12 @@ impl<'a> Executor<'a> {
         }
         if matches!(
             intrinsic,
-            KeyMapGet | KeyMapInsert | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove
+            StandardIntrinsic::KeyMapGet
+                | StandardIntrinsic::KeyMapInsert
+                | StandardIntrinsic::KeyMapRemove
+                | StandardIntrinsic::KeySetContains
+                | StandardIntrinsic::KeySetInsert
+                | StandardIntrinsic::KeySetRemove
         ) {
             self.current_frame_mut()?.end_key_lookup(
                 args.first()

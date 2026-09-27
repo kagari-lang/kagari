@@ -1,6 +1,7 @@
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
 use kagari_common::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
 use kagari_ir::bytecode::{BinaryOp, UnaryOp};
+use kagari_ir::module::abi::BuiltinType;
 
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, error.message())
@@ -107,10 +108,10 @@ pub fn fixed_integer(
     let (bits, signed) = operation.input.integer_layout().ok_or_else(invalid)?;
     let result = kagari_common::integer::integer_operation(operation.op, lhs, rhs, bits, signed)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
-    use kagari_ir::module::abi::BuiltinType::*;
+
     Ok(match operation.input {
-        I8 | I16 | I32 => Value::I32(result as i32),
-        U64 | USize => Value::U64(result as u64),
+        BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(result as i32),
+        BuiltinType::U64 | BuiltinType::USize => Value::U64(result as u64),
         _ => Value::I64(result as i64),
     })
 }
@@ -155,10 +156,10 @@ pub fn integer_method(
         bits,
         signed,
     );
-    use kagari_ir::module::abi::BuiltinType::*;
+
     let value = match ty {
-        I8 | I16 | I32 => Value::I32(value as i32),
-        U64 | USize => Value::U64(value as u64),
+        BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(value as i32),
+        BuiltinType::U64 | BuiltinType::USize => Value::U64(value as u64),
         _ => Value::I64(value as i64),
     };
     if operation.checked() {

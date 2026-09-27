@@ -3,6 +3,7 @@ use super::declarations::{
 };
 use crate::types::{BuiltinType, TypeId};
 use kagari_common::collection::CollectionAccess;
+use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -880,19 +881,25 @@ fn builtin_family(ty: &TypeId) -> Option<BuiltinTypeFamily> {
 pub fn standard_variants_in_module(
     module: StandardModule,
 ) -> &'static [(&'static str, StandardVariant)] {
-    use StandardVariant::*;
     match module {
         StandardModule::ParseError => &[
-            ("Empty", ParseEmpty),
-            ("InvalidDigit", ParseInvalidDigit),
-            ("OutOfRange", ParseOutOfRange),
-            ("InvalidRadix", ParseInvalidRadix),
-            ("InvalidSyntax", ParseInvalidSyntax),
+            ("Empty", StandardVariant::ParseEmpty),
+            ("InvalidDigit", StandardVariant::ParseInvalidDigit),
+            ("OutOfRange", StandardVariant::ParseOutOfRange),
+            ("InvalidRadix", StandardVariant::ParseInvalidRadix),
+            ("InvalidSyntax", StandardVariant::ParseInvalidSyntax),
         ],
-        StandardModule::TryFromIntError => &[("OutOfRange", OutOfRange)],
-        StandardModule::Ordering => &[("Less", Less), ("Equal", Equal), ("Greater", Greater)],
-        StandardModule::Option => &[("Some", Some), ("None", None)],
-        StandardModule::Result => &[("Ok", Ok), ("Err", Err)],
+        StandardModule::TryFromIntError => &[("OutOfRange", StandardVariant::OutOfRange)],
+        StandardModule::Ordering => &[
+            ("Less", StandardVariant::Less),
+            ("Equal", StandardVariant::Equal),
+            ("Greater", StandardVariant::Greater),
+        ],
+        StandardModule::Option => &[
+            ("Some", StandardVariant::Some),
+            ("None", StandardVariant::None),
+        ],
+        StandardModule::Result => &[("Ok", StandardVariant::Ok), ("Err", StandardVariant::Err)],
         _ => &[],
     }
 }
@@ -910,39 +917,37 @@ pub fn standard_associated_function(path: &str) -> Option<&'static StandardFunct
 }
 
 pub fn range_kind(name: &str) -> Option<kagari_common::range::RangeKind> {
-    use kagari_common::range::RangeKind::*;
     Some(match name.strip_prefix("std::ops::").unwrap_or(name) {
-        "Range" => Exclusive,
-        "RangeInclusive" => Inclusive,
-        "RangeFrom" => From,
-        "RangeTo" => To,
-        "RangeToInclusive" => ToInclusive,
-        "RangeFull" => Full,
+        "Range" => RangeKind::Exclusive,
+        "RangeInclusive" => RangeKind::Inclusive,
+        "RangeFrom" => RangeKind::From,
+        "RangeTo" => RangeKind::To,
+        "RangeToInclusive" => RangeKind::ToInclusive,
+        "RangeFull" => RangeKind::Full,
         _ => return None,
     })
 }
 
 pub fn collection_read_method(intrinsic: StandardIntrinsic) -> bool {
-    use StandardIntrinsic::*;
     matches!(
         intrinsic,
-        ArrayCapacity
-            | MapCapacity
-            | SetCapacity
-            | ArrayLen
-            | ArrayIsEmpty
-            | ArrayGet
-            | ArrayJoin
-            | MapLen
-            | MapIsEmpty
-            | MapContainsKey
-            | MapGet
-            | MapKeys
-            | MapValues
-            | MapEntries
-            | SetLen
-            | SetIsEmpty
-            | SetContains
-            | SetToArray
+        StandardIntrinsic::ArrayCapacity
+            | StandardIntrinsic::MapCapacity
+            | StandardIntrinsic::SetCapacity
+            | StandardIntrinsic::ArrayLen
+            | StandardIntrinsic::ArrayIsEmpty
+            | StandardIntrinsic::ArrayGet
+            | StandardIntrinsic::ArrayJoin
+            | StandardIntrinsic::MapLen
+            | StandardIntrinsic::MapIsEmpty
+            | StandardIntrinsic::MapContainsKey
+            | StandardIntrinsic::MapGet
+            | StandardIntrinsic::MapKeys
+            | StandardIntrinsic::MapValues
+            | StandardIntrinsic::MapEntries
+            | StandardIntrinsic::SetLen
+            | StandardIntrinsic::SetIsEmpty
+            | StandardIntrinsic::SetContains
+            | StandardIntrinsic::SetToArray
     )
 }

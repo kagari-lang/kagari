@@ -40,13 +40,21 @@ impl ScalarValue {
         let (digits, suffix) = kagari_common::literal::numeric_literal_parts(&literal.text);
         let suffix_type = suffix.and_then(super::super::builtin::surface::builtin_type);
         let expected = expected.filter(|ty| {
-            use BuiltinType::*;
             if literal.kind == LiteralKind::Float {
-                matches!(ty, F32 | F64)
+                matches!(ty, BuiltinType::F32 | BuiltinType::F64)
             } else {
                 matches!(
                     ty,
-                    I8 | I16 | I32 | I64 | ISize | U8 | U16 | U32 | U64 | USize
+                    BuiltinType::I8
+                        | BuiltinType::I16
+                        | BuiltinType::I32
+                        | BuiltinType::I64
+                        | BuiltinType::ISize
+                        | BuiltinType::U8
+                        | BuiltinType::U16
+                        | BuiltinType::U32
+                        | BuiltinType::U64
+                        | BuiltinType::USize
                 )
             }
         });
@@ -101,22 +109,21 @@ impl ScalarValue {
     }
 
     pub fn integer(value: i128, ty: BuiltinType) -> Result<Self, &'static str> {
-        use BuiltinType::*;
         let (min, max) = match ty {
-            I8 => (i8::MIN as i128, i8::MAX as i128),
-            I16 => (i16::MIN as i128, i16::MAX as i128),
-            I32 => (i32::MIN as i128, i32::MAX as i128),
-            I64 | ISize => (i64::MIN as i128, i64::MAX as i128),
-            U8 => (0, u8::MAX as i128),
-            U16 => (0, u16::MAX as i128),
-            U32 => (0, u32::MAX as i128),
-            U64 | USize => (0, u64::MAX as i128),
+            BuiltinType::I8 => (i8::MIN as i128, i8::MAX as i128),
+            BuiltinType::I16 => (i16::MIN as i128, i16::MAX as i128),
+            BuiltinType::I32 => (i32::MIN as i128, i32::MAX as i128),
+            BuiltinType::I64 | BuiltinType::ISize => (i64::MIN as i128, i64::MAX as i128),
+            BuiltinType::U8 => (0, u8::MAX as i128),
+            BuiltinType::U16 => (0, u16::MAX as i128),
+            BuiltinType::U32 => (0, u32::MAX as i128),
+            BuiltinType::U64 | BuiltinType::USize => (0, u64::MAX as i128),
             _ => return Err("integer literal requires an integer type"),
         };
         if !(min..=max).contains(&value) {
             return Err("integer literal is outside the target type range");
         }
-        if ty == I32 {
+        if ty == BuiltinType::I32 {
             Ok(Self::I32(value as i32))
         } else {
             Ok(Self::Integer { value, ty })

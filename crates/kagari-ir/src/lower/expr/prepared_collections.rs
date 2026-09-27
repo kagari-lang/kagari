@@ -89,22 +89,39 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
         callback: Option<&TypeId>,
     ) -> Result<IrValue, IrLoweringError> {
-        use StandardIntrinsic::*;
-        self.emit_intrinsic(CollectionMutationBegin, &[args[0]], ValueType::Unit);
+        self.emit_intrinsic(
+            StandardIntrinsic::CollectionMutationBegin,
+            &[args[0]],
+            ValueType::Unit,
+        );
         let item = self.iteration_output(StandardTrait::Iterable, source, "Item")?;
-        let prepared = if matches!(operation, ArraySort | ArraySortBy | ArraySortByKey) {
+        let prepared = if matches!(
+            operation,
+            StandardIntrinsic::ArraySort
+                | StandardIntrinsic::ArraySortBy
+                | StandardIntrinsic::ArraySortByKey
+        ) {
             self.prepare_sort(operation, source, &item, args, callback)?
-        } else if operation == ArrayDedup {
+        } else if operation == StandardIntrinsic::ArrayDedup {
             self.prepare_dedup(&item, args[0])?
         } else {
             self.prepare_retain(source, &item, args)?
         };
-        self.emit_intrinsic(CollectionMutationEnd, &[args[0]], ValueType::Unit);
+        self.emit_intrinsic(
+            StandardIntrinsic::CollectionMutationEnd,
+            &[args[0]],
+            ValueType::Unit,
+        );
         Ok(self.emit_intrinsic(
-            if matches!(operation, ArraySort | ArraySortBy | ArraySortByKey) {
-                ArrayReplaceStorage
+            if matches!(
+                operation,
+                StandardIntrinsic::ArraySort
+                    | StandardIntrinsic::ArraySortBy
+                    | StandardIntrinsic::ArraySortByKey
+            ) {
+                StandardIntrinsic::ArrayReplaceStorage
             } else {
-                CollectionRetainStorage
+                StandardIntrinsic::CollectionRetainStorage
             },
             &[args[0], prepared],
             ValueType::Unit,
@@ -220,7 +237,6 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
         callback: Option<&TypeId>,
     ) -> Result<IrValue, IrLoweringError> {
-        use StandardIntrinsic::*;
         let key = if let Some(TypeId::Function { result, .. }) = callback {
             Some(&**result)
         } else {
@@ -232,7 +248,7 @@ impl FunctionLowerer<'_, '_> {
         );
         let storage = array(decorated.clone());
         let values = self.collection_new(&storage)?;
-        let len = self.emit_intrinsic(ArrayLen, &[args[0]], ValueType::U64);
+        let len = self.emit_intrinsic(StandardIntrinsic::ArrayLen, &[args[0]], ValueType::U64);
         let guard = self.query_guard(source, args[0])?;
         self.prepared_indices(len, |this, index| {
             let value = this.prepared_read(args[0], index, item)?;
@@ -318,7 +334,9 @@ impl FunctionLowerer<'_, '_> {
                                                     this.prepared_read(values, left, &decorated)?;
                                                 let b =
                                                     this.prepared_read(values, right, &decorated)?;
-                                                let compared = if operation == ArraySortBy {
+                                                let compared = if operation
+                                                    == StandardIntrinsic::ArraySortBy
+                                                {
                                                     this.call_function_value(
                                                         args[1],
                                                         &ordering,

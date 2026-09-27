@@ -32,15 +32,14 @@ impl FunctionLowerer<'_, '_> {
         arguments: &[TypeId],
         values: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use NativeDefaultMethod::*;
         let item = self.iterator_item(source)?;
         let mut captures = vec![values[0]];
         let mut types = vec![source.clone()];
         let mut dependencies = vec![values[0]];
         let mut dependency_types = vec![source.clone()];
         let output = match operation {
-            FlatMap | Flatten => {
-                let inner_source = if operation == FlatMap {
+            NativeDefaultMethod::FlatMap | NativeDefaultMethod::Flatten => {
+                let inner_source = if operation == NativeDefaultMethod::FlatMap {
                     arguments[0].clone()
                 } else {
                     item.clone()
@@ -74,7 +73,7 @@ impl FunctionLowerer<'_, '_> {
                     Box::new(TypeId::Builtin(BuiltinType::Bool)),
                     kagari_common::collection::CollectionAccess::Mutable,
                 ));
-                if operation == FlatMap {
+                if operation == NativeDefaultMethod::FlatMap {
                     captures.push(values[1]);
                     types.push(TypeId::Function {
                         params: vec![item.clone()],
@@ -83,16 +82,29 @@ impl FunctionLowerer<'_, '_> {
                 }
                 output
             }
-            Map | FilterMap | Filter | Inspect | TakeWhile | SkipWhile => {
-                let output = if matches!(operation, Filter | Inspect | TakeWhile | SkipWhile) {
+            NativeDefaultMethod::Map
+            | NativeDefaultMethod::FilterMap
+            | NativeDefaultMethod::Filter
+            | NativeDefaultMethod::Inspect
+            | NativeDefaultMethod::TakeWhile
+            | NativeDefaultMethod::SkipWhile => {
+                let output = if matches!(
+                    operation,
+                    NativeDefaultMethod::Filter
+                        | NativeDefaultMethod::Inspect
+                        | NativeDefaultMethod::TakeWhile
+                        | NativeDefaultMethod::SkipWhile
+                ) {
                     item.clone()
                 } else {
                     arguments[0].clone()
                 };
                 let result = match operation {
-                    Filter | TakeWhile | SkipWhile => TypeId::Builtin(BuiltinType::Bool),
-                    Inspect => TypeId::Builtin(BuiltinType::Unit),
-                    FilterMap => option(output.clone()),
+                    NativeDefaultMethod::Filter
+                    | NativeDefaultMethod::TakeWhile
+                    | NativeDefaultMethod::SkipWhile => TypeId::Builtin(BuiltinType::Bool),
+                    NativeDefaultMethod::Inspect => TypeId::Builtin(BuiltinType::Unit),
+                    NativeDefaultMethod::FilterMap => option(output.clone()),
                     _ => output.clone(),
                 };
                 captures.push(values[1]);
@@ -100,7 +112,10 @@ impl FunctionLowerer<'_, '_> {
                     params: vec![item.clone()],
                     result: Box::new(result),
                 });
-                if matches!(operation, TakeWhile | SkipWhile) {
+                if matches!(
+                    operation,
+                    NativeDefaultMethod::TakeWhile | NativeDefaultMethod::SkipWhile
+                ) {
                     let state = self.new_adapter_flag(false);
                     captures.push(state);
                     types.push(TypeId::Array(
@@ -110,7 +125,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 output
             }
-            Fuse => {
+            NativeDefaultMethod::Fuse => {
                 captures.push(self.new_adapter_flag(false));
                 types.push(TypeId::Array(
                     Box::new(TypeId::Builtin(BuiltinType::Bool)),
@@ -118,8 +133,10 @@ impl FunctionLowerer<'_, '_> {
                 ));
                 item.clone()
             }
-            Take | Skip | Enumerate => {
-                let initial = if operation == Enumerate {
+            NativeDefaultMethod::Take
+            | NativeDefaultMethod::Skip
+            | NativeDefaultMethod::Enumerate => {
+                let initial = if operation == NativeDefaultMethod::Enumerate {
                     self.usize_constant(0)
                 } else {
                     values[1]
@@ -139,13 +156,13 @@ impl FunctionLowerer<'_, '_> {
                     .insert(state.temp.index(), AbiType::from_checked_type(&state_type));
                 captures.push(state);
                 types.push(state_type);
-                if operation == Enumerate {
+                if operation == NativeDefaultMethod::Enumerate {
                     TypeId::Tuple(vec![TypeId::Builtin(BuiltinType::USize), item.clone()])
                 } else {
                     item.clone()
                 }
             }
-            Zip | Chain => {
+            NativeDefaultMethod::Zip | NativeDefaultMethod::Chain => {
                 let other =
                     self.iteration_output(StandardTrait::Iterable, &arguments[0], "Iter")?;
                 let value = self.lower_applied_operator(
@@ -158,7 +175,7 @@ impl FunctionLowerer<'_, '_> {
                 types.push(other.clone());
                 dependencies.push(value);
                 dependency_types.push(other.clone());
-                if operation == Chain {
+                if operation == NativeDefaultMethod::Chain {
                     let initial = self.lower_constant(Constant::I32(0), ValueType::I32);
                     let state = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::MakeArray {
@@ -317,11 +334,16 @@ impl FunctionLowerer<'_, '_> {
         body: &IteratorInstance,
         args: &[IrValue],
     ) -> Result<(), IrLoweringError> {
-        use NativeDefaultMethod::*;
-        if matches!(body.operation, ListWindows | ListChunks) {
+        if matches!(
+            body.operation,
+            NativeDefaultMethod::ListWindows | NativeDefaultMethod::ListChunks
+        ) {
             return self.lower_window_step(body, args);
         }
-        if matches!(body.operation, FlatMap | Flatten) {
+        if matches!(
+            body.operation,
+            NativeDefaultMethod::FlatMap | NativeDefaultMethod::Flatten
+        ) {
             return self.lower_flatten_step(body, args);
         }
         let source = &body.captures[0];
@@ -332,7 +354,7 @@ impl FunctionLowerer<'_, '_> {
         let done = self.new_block();
         self.ensure_jump(head);
         self.switch_to_block(head);
-        if body.operation == Chain {
+        if body.operation == NativeDefaultMethod::Chain {
             let state = self.adapter_state(args[2], ValueType::I32);
             let zero = self.lower_constant(Constant::I32(0), ValueType::I32);
             let left = self.adapter_binary(BinaryOp::Eq, state, zero, ValueType::Bool);
@@ -383,8 +405,15 @@ impl FunctionLowerer<'_, '_> {
             self.switch_to_block(yield_right);
             self.set_terminator(Terminator::Return(Some(next)));
         } else {
-            if matches!(body.operation, Fuse | TakeWhile) {
-                let state = args[if body.operation == Fuse { 1 } else { 2 }];
+            if matches!(
+                body.operation,
+                NativeDefaultMethod::Fuse | NativeDefaultMethod::TakeWhile
+            ) {
+                let state = args[if body.operation == NativeDefaultMethod::Fuse {
+                    1
+                } else {
+                    2
+                }];
                 let ended = self.adapter_state(state, ValueType::Bool);
                 let advance = self.new_block();
                 self.set_terminator(Terminator::Branch {
@@ -394,7 +423,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.switch_to_block(advance);
             }
-            if body.operation == Take {
+            if body.operation == NativeDefaultMethod::Take {
                 let count = self.adapter_state(args[1], ValueType::U64);
                 let zero = self.lower_constant(Constant::U64(0), ValueType::U64);
                 let empty = self.adapter_binary(BinaryOp::Eq, count, zero, ValueType::Bool);
@@ -422,8 +451,8 @@ impl FunctionLowerer<'_, '_> {
             let value =
                 self.standard_enum_op(&input_option, StandardEnumOp::Read(0), Some(next))?;
             let value = match body.operation {
-                Fuse => value,
-                Inspect => {
+                NativeDefaultMethod::Fuse => value,
+                NativeDefaultMethod::Inspect => {
                     self.call_function_value(
                         args[1],
                         &TypeId::Builtin(BuiltinType::Unit),
@@ -431,9 +460,9 @@ impl FunctionLowerer<'_, '_> {
                     )?;
                     value
                 }
-                TakeWhile | SkipWhile => {
+                NativeDefaultMethod::TakeWhile | NativeDefaultMethod::SkipWhile => {
                     let yield_item = self.new_block();
-                    if body.operation == SkipWhile {
+                    if body.operation == NativeDefaultMethod::SkipWhile {
                         let passing = self.adapter_state(args[2], ValueType::Bool);
                         let test = self.new_block();
                         self.set_terminator(Terminator::Branch {
@@ -448,7 +477,7 @@ impl FunctionLowerer<'_, '_> {
                         &TypeId::Builtin(BuiltinType::Bool),
                         &[value],
                     )?;
-                    if body.operation == TakeWhile {
+                    if body.operation == NativeDefaultMethod::TakeWhile {
                         self.set_terminator(Terminator::Branch {
                             cond: keep,
                             then_block: yield_item,
@@ -469,8 +498,10 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(yield_item);
                     value
                 }
-                Map => self.call_function_value(args[1], &body.output, &[value])?,
-                Filter => {
+                NativeDefaultMethod::Map => {
+                    self.call_function_value(args[1], &body.output, &[value])?
+                }
+                NativeDefaultMethod::Filter => {
                     let keep = self.call_function_value(
                         args[1],
                         &TypeId::Builtin(BuiltinType::Bool),
@@ -485,7 +516,7 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(yield_item);
                     value
                 }
-                FilterMap => {
+                NativeDefaultMethod::FilterMap => {
                     let mapped = self.call_function_value(args[1], &output_option, &[value])?;
                     let present = self.standard_enum_op(
                         &output_option,
@@ -507,7 +538,7 @@ impl FunctionLowerer<'_, '_> {
                     self.set_terminator(Terminator::Return(Some(none)));
                     return Ok(());
                 }
-                Skip => {
+                NativeDefaultMethod::Skip => {
                     let count = self.adapter_state(args[1], ValueType::U64);
                     let zero = self.lower_constant(Constant::U64(0), ValueType::U64);
                     let empty = self.adapter_binary(BinaryOp::Eq, count, zero, ValueType::Bool);
@@ -526,7 +557,7 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(yield_item);
                     value
                 }
-                Enumerate => {
+                NativeDefaultMethod::Enumerate => {
                     let index = self.adapter_state(args[1], ValueType::U64);
                     let one = self.lower_constant(Constant::U64(1), ValueType::U64);
                     let next_index = self.adapter_binary(BinaryOp::Add, index, one, ValueType::U64);
@@ -538,7 +569,7 @@ impl FunctionLowerer<'_, '_> {
                     });
                     pair
                 }
-                Zip => {
+                NativeDefaultMethod::Zip => {
                     let other = self.iterator_next(&body.captures[1], args[1])?;
                     let right_option = option(self.iterator_item(&body.captures[1])?);
                     let present =
@@ -559,7 +590,7 @@ impl FunctionLowerer<'_, '_> {
                     });
                     pair
                 }
-                Take => value,
+                NativeDefaultMethod::Take => value,
                 _ => return Err(IrLoweringError::MissingBinding("iterator step operation")),
             };
             let some =
@@ -567,20 +598,33 @@ impl FunctionLowerer<'_, '_> {
             self.set_terminator(Terminator::Return(Some(some)));
         }
         self.switch_to_block(done);
-        if matches!(body.operation, Fuse | TakeWhile) {
+        if matches!(
+            body.operation,
+            NativeDefaultMethod::Fuse | NativeDefaultMethod::TakeWhile
+        ) {
             let ended = self.lower_constant(Constant::Bool(true), ValueType::Bool);
-            self.set_adapter_state(args[if body.operation == Fuse { 1 } else { 2 }], ended);
+            self.set_adapter_state(
+                args[if body.operation == NativeDefaultMethod::Fuse {
+                    1
+                } else {
+                    2
+                }],
+                ended,
+            );
         }
-        if body.operation == Chain {
+        if body.operation == NativeDefaultMethod::Chain {
             let end = self.lower_constant(Constant::I32(2), ValueType::I32);
             self.set_adapter_state(args[2], end);
         }
-        if body.operation == Skip {
+        if body.operation == NativeDefaultMethod::Skip {
             let zero = self.usize_constant(0);
             self.set_adapter_state(args[1], zero);
         }
         self.iterator_close(source, args[0]);
-        if matches!(body.operation, Zip | Chain) {
+        if matches!(
+            body.operation,
+            NativeDefaultMethod::Zip | NativeDefaultMethod::Chain
+        ) {
             self.iterator_close(&body.captures[1], args[1]);
         }
         let none = self.standard_enum_op(&output_option, StandardEnumOp::Make(1), None)?;

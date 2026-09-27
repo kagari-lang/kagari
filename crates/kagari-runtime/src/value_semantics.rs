@@ -44,7 +44,6 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
 }
 
 pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
-    use Value::*;
     let left = collection_data(gc, lhs);
     let right = collection_data(gc, rhs);
     let (lhs, rhs) = (left.as_ref().unwrap_or(lhs), right.as_ref().unwrap_or(rhs));
@@ -58,32 +57,41 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
         return Err(invalid());
     }
     Ok(match (lhs, rhs) {
-        (Interface(_) | HostRoot(_) | HostPathView(_) | Ephemeral(_), _)
-        | (_, Interface(_) | HostRoot(_) | HostPathView(_) | Ephemeral(_)) => {
+        (
+            Value::Interface(_) | Value::HostRoot(_) | Value::HostPathView(_) | Value::Ephemeral(_),
+            _,
+        )
+        | (
+            _,
+            Value::Interface(_) | Value::HostRoot(_) | Value::HostPathView(_) | Value::Ephemeral(_),
+        ) => {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "value category does not support general equality",
             ));
         }
-        (Unit, Unit) => true,
-        (Bool(a), Bool(b)) => a == b,
-        (I32(a), I32(b)) => a == b,
-        (I64(a), I64(b)) => a == b,
-        (U64(a), U64(b)) => a == b,
-        (F32(a), F32(b)) => a == b,
-        (F64(a), F64(b)) => a == b,
-        (Str(a), Str(b)) => a == b,
-        (Tuple(a), Tuple(b)) => members_equal(gc, a, b)?,
-        (Enum(a), Enum(b)) => {
+        (Value::Unit, Value::Unit) => true,
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::I32(a), Value::I32(b)) => a == b,
+        (Value::I64(a), Value::I64(b)) => a == b,
+        (Value::U64(a), Value::U64(b)) => a == b,
+        (Value::F32(a), Value::F32(b)) => a == b,
+        (Value::F64(a), Value::F64(b)) => a == b,
+        (Value::Str(a), Value::Str(b)) => a == b,
+        (Value::Tuple(a), Value::Tuple(b)) => members_equal(gc, a, b)?,
+        (Value::Enum(a), Value::Enum(b)) => {
             let a = gc.enum_snapshot(*a).ok_or_else(invalid)?;
             let b = gc.enum_snapshot(*b).ok_or_else(invalid)?;
             a.tag == b.tag && members_equal(gc, &a.fields, &b.fields)?
         }
-        (Array(a), Array(b)) | (Map(a), Map(b)) | (Set(a), Set(b)) | (Struct(a), Struct(b)) => {
+        (Value::Array(a), Value::Array(b))
+        | (Value::Map(a), Value::Map(b))
+        | (Value::Set(a), Value::Set(b))
+        | (Value::Struct(a), Value::Struct(b)) => {
             let kind = match lhs {
-                Array(_) => GcObjectKind::Array,
-                Map(_) => GcObjectKind::Map,
-                Set(_) => GcObjectKind::Set,
+                Value::Array(_) => GcObjectKind::Array,
+                Value::Map(_) => GcObjectKind::Map,
+                Value::Set(_) => GcObjectKind::Set,
                 _ => GcObjectKind::Struct,
             };
             if gc.object_kind(*a) != Some(kind) || gc.object_kind(*b) != Some(kind) {
@@ -91,7 +99,7 @@ pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Runti
             }
             a == b
         }
-        (GcHandle(_), _) | (_, GcHandle(_)) => {
+        (Value::GcHandle(_), _) | (_, Value::GcHandle(_)) => {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "untyped GC handle does not support general equality",
@@ -150,22 +158,21 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
         depth: usize,
         out: &mut Output,
     ) -> Option<()> {
-        use Value::*;
         use std::fmt::Write;
         if depth > 64 || out.failed || !gc.validate_value(value) {
             return None;
         }
         match value {
-            Unit => out.push_str("()"),
-            Bool(v) => write!(out, "{v}").ok()?,
-            I32(v) => write!(out, "{v}").ok()?,
-            I64(v) => write!(out, "{v}").ok()?,
-            U64(v) => write!(out, "{v}").ok()?,
-            F32(v) => write!(out, "{v}").ok()?,
-            F64(v) => write!(out, "{v}").ok()?,
-            Str(v) if debug => write!(out, "{v:?}").ok()?,
-            Str(v) => out.push_str(v),
-            Tuple(values) if debug => {
+            Value::Unit => out.push_str("()"),
+            Value::Bool(v) => write!(out, "{v}").ok()?,
+            Value::I32(v) => write!(out, "{v}").ok()?,
+            Value::I64(v) => write!(out, "{v}").ok()?,
+            Value::U64(v) => write!(out, "{v}").ok()?,
+            Value::F32(v) => write!(out, "{v}").ok()?,
+            Value::F64(v) => write!(out, "{v}").ok()?,
+            Value::Str(v) if debug => write!(out, "{v:?}").ok()?,
+            Value::Str(v) => out.push_str(v),
+            Value::Tuple(values) if debug => {
                 out.push('(');
                 for (i, value) in values.iter().enumerate() {
                     if i > 0 {
@@ -178,7 +185,7 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                 }
                 out.push(')');
             }
-            Enum(id) if debug => {
+            Value::Enum(id) if debug => {
                 let value = gc.enum_snapshot(*id)?;
                 write!(
                     out,
@@ -198,20 +205,20 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
                     out.push(')');
                 }
             }
-            Struct(id) | Array(id) | Map(id) | Set(id) if debug => {
+            Value::Struct(id) | Value::Array(id) | Value::Map(id) | Value::Set(id) if debug => {
                 let name = match value {
-                    Struct(_) => "Struct",
-                    Array(_) => "Array",
-                    Map(_) => "Map",
+                    Value::Struct(_) => "Struct",
+                    Value::Array(_) => "Array",
+                    Value::Map(_) => "Map",
                     _ => "Set",
                 };
                 write!(out, "{name}@{}:{}", id.index(), id.generation()).ok()?;
             }
-            HostRoot(_) if debug => out.push_str("<host>"),
-            Interface(_) if debug => out.push_str("<interface>"),
-            Closure(_) if debug => out.push_str("<function>"),
-            HostPathView(_) if debug => out.push_str("<host path>"),
-            Ephemeral(_) if debug => out.push_str("<borrow>"),
+            Value::HostRoot(_) if debug => out.push_str("<host>"),
+            Value::Interface(_) if debug => out.push_str("<interface>"),
+            Value::Closure(_) if debug => out.push_str("<function>"),
+            Value::HostPathView(_) if debug => out.push_str("<host path>"),
+            Value::Ephemeral(_) if debug => out.push_str("<borrow>"),
             _ => return None,
         }
         (!out.failed).then_some(())
@@ -232,7 +239,6 @@ pub fn builtin_order(
     a: &Value,
     b: &Value,
 ) -> Result<Option<std::cmp::Ordering>, RuntimeError> {
-    use Value::*;
     let invalid = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
@@ -243,14 +249,14 @@ pub fn builtin_order(
         return Err(invalid());
     }
     Ok(match (a, b) {
-        (Unit, Unit) => Some(std::cmp::Ordering::Equal),
-        (Bool(a), Bool(b)) => a.partial_cmp(b),
-        (I32(a), I32(b)) => a.partial_cmp(b),
-        (I64(a), I64(b)) => a.partial_cmp(b),
-        (F32(a), F32(b)) => a.partial_cmp(b),
-        (F64(a), F64(b)) => a.partial_cmp(b),
-        (Str(a), Str(b)) => a.partial_cmp(b),
-        (Enum(a), Enum(b)) => {
+        (Value::Unit, Value::Unit) => Some(std::cmp::Ordering::Equal),
+        (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
+        (Value::I32(a), Value::I32(b)) => a.partial_cmp(b),
+        (Value::I64(a), Value::I64(b)) => a.partial_cmp(b),
+        (Value::F32(a), Value::F32(b)) => a.partial_cmp(b),
+        (Value::F64(a), Value::F64(b)) => a.partial_cmp(b),
+        (Value::Str(a), Value::Str(b)) => a.partial_cmp(b),
+        (Value::Enum(a), Value::Enum(b)) => {
             let rank = |id| match gc.enum_snapshot(id)?.tag {
                 crate::value::EnumTag::OrderingLess => Some(0),
                 crate::value::EnumTag::OrderingEqual => Some(1),

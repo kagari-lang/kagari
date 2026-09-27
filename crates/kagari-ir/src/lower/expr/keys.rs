@@ -8,14 +8,20 @@ impl FunctionLowerer<'_, '_> {
         key_ty: &TypeId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use StandardIntrinsic::*;
         let collection = args[0];
         let query = args[1];
-        self.emit_intrinsic(KeyLookupBegin, &[collection], ValueType::Unit);
+        self.emit_intrinsic(
+            StandardIntrinsic::KeyLookupBegin,
+            &[collection],
+            ValueType::Unit,
+        );
         let hash = self.lower_protocol(StandardTrait::Hash, key_ty, &[query], 0)?;
-        let candidates =
-            self.emit_intrinsic(KeyCandidates, &[collection, hash], ValueType::HeapObject);
-        let len = self.emit_intrinsic(ArrayLen, &[candidates], ValueType::U64);
+        let candidates = self.emit_intrinsic(
+            StandardIntrinsic::KeyCandidates,
+            &[collection, hash],
+            ValueType::HeapObject,
+        );
+        let len = self.emit_intrinsic(StandardIntrinsic::ArrayLen, &[candidates], ValueType::U64);
         let token = self.lower_constant(Constant::I64(-1), ValueType::I64);
         let index = self.lower_constant(Constant::U64(0), ValueType::U64);
         let cond_block = self.new_block();
@@ -86,21 +92,32 @@ impl FunctionLowerer<'_, '_> {
         self.set_terminator(Terminator::Jump(cond_block));
         self.switch_to_block(done);
         let (commit, result_ty) = match intrinsic {
-            MapGet | MapContainsKey => (KeyMapGet, ValueType::HeapObject),
-            MapInsert => (KeyMapInsert, ValueType::HeapObject),
-            MapRemove => (KeyMapRemove, ValueType::HeapObject),
-            SetContains => (KeySetContains, ValueType::Bool),
-            SetInsert => (KeySetInsert, ValueType::HeapObject),
-            SetRemove => (KeySetRemove, ValueType::Bool),
+            StandardIntrinsic::MapGet | StandardIntrinsic::MapContainsKey => {
+                (StandardIntrinsic::KeyMapGet, ValueType::HeapObject)
+            }
+            StandardIntrinsic::MapInsert => {
+                (StandardIntrinsic::KeyMapInsert, ValueType::HeapObject)
+            }
+            StandardIntrinsic::MapRemove => {
+                (StandardIntrinsic::KeyMapRemove, ValueType::HeapObject)
+            }
+            StandardIntrinsic::SetContains => (StandardIntrinsic::KeySetContains, ValueType::Bool),
+            StandardIntrinsic::SetInsert => {
+                (StandardIntrinsic::KeySetInsert, ValueType::HeapObject)
+            }
+            StandardIntrinsic::SetRemove => (StandardIntrinsic::KeySetRemove, ValueType::Bool),
             _ => return Err(IrLoweringError::MissingBinding("custom key operation")),
         };
         let mut values = vec![collection, hash, token];
-        if matches!(intrinsic, MapInsert | SetInsert) {
+        if matches!(
+            intrinsic,
+            StandardIntrinsic::MapInsert | StandardIntrinsic::SetInsert
+        ) {
             values.extend_from_slice(&args[1..]);
         }
         let result = self.emit_intrinsic(commit, &values, result_ty);
-        if intrinsic == MapContainsKey {
-            Ok(self.emit_intrinsic(OptionIsSome, &[result], ValueType::Bool))
+        if intrinsic == StandardIntrinsic::MapContainsKey {
+            Ok(self.emit_intrinsic(StandardIntrinsic::OptionIsSome, &[result], ValueType::Bool))
         } else {
             Ok(result)
         }

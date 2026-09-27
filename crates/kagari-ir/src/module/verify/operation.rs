@@ -11,7 +11,6 @@ pub(super) fn verify(
     instruction: &Instruction,
     context: Context<'_>,
 ) -> Result<(), IrVerificationError> {
-    use Instruction::*;
     let contract = |error| context.error(Error::Contract(error));
     if let Some(path) = instruction.path_reference()
         && let Some(declaration) = &path.declaration
@@ -36,7 +35,7 @@ pub(super) fn verify(
         }
     }
     match instruction {
-        Convert {
+        Instruction::Convert {
             dst,
             src,
             conversion,
@@ -49,7 +48,7 @@ pub(super) fn verify(
             context.expect(src.ty, input.representation(), "conversion source")?;
             context.expect(dst.ty, output.representation(), "conversion destination")?;
         }
-        Numeric {
+        Instruction::Numeric {
             dst,
             operation,
             lhs,
@@ -74,7 +73,7 @@ pub(super) fn verify(
                 }
             }
         }
-        LoadConst { dst, constant } => {
+        Instruction::LoadConst { dst, constant } => {
             let ty = match constant {
                 Constant::Unit => ValueType::Unit,
                 Constant::Bool(_) => ValueType::Bool,
@@ -87,42 +86,42 @@ pub(super) fn verify(
             };
             context.expect(dst.ty, ty, "constant destination")?;
         }
-        BeginIteration { collection } => {
+        Instruction::BeginIteration { collection } => {
             context.expect(collection.ty, ValueType::HeapObject, "iteration collection")?;
         }
-        EndIteration => {}
-        LoadLocal { dst, local } => {
+        Instruction::EndIteration => {}
+        Instruction::LoadLocal { dst, local } => {
             context.expect(dst.ty, context.local(function, *local)?, "local load")?
         }
-        StoreLocal { local, src } => {
+        Instruction::StoreLocal { local, src } => {
             context.expect(src.ty, context.local(function, *local)?, "local store")?
         }
-        LoadModule { dst, slot } => {
+        Instruction::LoadModule { dst, slot } => {
             let slot = module
                 .module_slots
                 .get(slot.index())
                 .ok_or_else(|| context.error(Error::InvalidModuleSlot))?;
             context.expect(dst.ty, slot.ty, "module load")?;
         }
-        StoreModule { slot, src } => {
+        Instruction::StoreModule { slot, src } => {
             let slot = module
                 .module_slots
                 .get(slot.index())
                 .ok_or_else(|| context.error(Error::InvalidModuleSlot))?;
             context.expect(src.ty, slot.ty, "module store")?;
         }
-        Move { dst, src } => context.expect(dst.ty, src.ty, "move destination")?,
-        Unary { dst, op, operand } => context.expect(
+        Instruction::Move { dst, src } => context.expect(dst.ty, src.ty, "move destination")?,
+        Instruction::Unary { dst, op, operand } => context.expect(
             dst.ty,
             contracts::unary_result(*op, operand.ty).map_err(contract)?,
             "unary destination",
         )?,
-        Binary { dst, op, lhs, rhs } => context.expect(
+        Instruction::Binary { dst, op, lhs, rhs } => context.expect(
             dst.ty,
             contracts::binary_result(*op, lhs.ty, rhs.ty).map_err(contract)?,
             "binary destination",
         )?,
-        Call { dst, callee, args } => match callee {
+        Instruction::Call { dst, callee, args } => match callee {
             CallTarget::Function(target) => {
                 let callee = module
                     .functions
@@ -230,7 +229,7 @@ pub(super) fn verify(
                 .map_err(contract)?;
             }
         },
-        RangeBound {
+        Instruction::RangeBound {
             dst,
             value,
             range,
@@ -245,7 +244,7 @@ pub(super) fn verify(
                 }));
             }
         }
-        MakeRange {
+        Instruction::MakeRange {
             dst,
             start,
             end,
@@ -262,14 +261,14 @@ pub(super) fn verify(
                 }));
             }
         }
-        RepeatArray { dst, count, .. } => {
+        Instruction::RepeatArray { dst, count, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "repeat array destination")?;
             context.expect(count.ty, ValueType::U64, "repeat array count")?;
         }
-        MakeTuple { dst, .. } | MakeArray { dst, .. } => {
+        Instruction::MakeTuple { dst, .. } | Instruction::MakeArray { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }
-        MakeClosure {
+        Instruction::MakeClosure {
             dst,
             function: target,
             captures,
@@ -289,13 +288,13 @@ pub(super) fn verify(
                 context.expect(capture.ty, param.ty, "closure capture")?;
             }
         }
-        MakeCell { dst, .. } => {
+        Instruction::MakeCell { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "cell destination")?
         }
-        ReadCell { cell, .. } | WriteCell { cell, .. } => {
+        Instruction::ReadCell { cell, .. } | Instruction::WriteCell { cell, .. } => {
             context.expect(cell.ty, ValueType::HeapObject, "cell handle")?
         }
-        UpcastInterface {
+        Instruction::UpcastInterface {
             dst,
             value,
             source,
@@ -309,7 +308,7 @@ pub(super) fn verify(
                 return Err(context.error(Error::InvalidInterfaceTable));
             }
         }
-        MakeInterface {
+        Instruction::MakeInterface {
             dst,
             value,
             implementation,
@@ -349,7 +348,7 @@ pub(super) fn verify(
                 "interface receiver",
             )?;
         }
-        MapResultError {
+        Instruction::MapResultError {
             dst,
             original,
             error,
@@ -361,7 +360,7 @@ pub(super) fn verify(
             context.expect(error.ty, payload, "mapped error")?;
             context.expect(dst.ty, ValueType::HeapObject, "mapped Result")?;
         }
-        Iter { dst, value, ty, op } => {
+        Instruction::Iter { dst, value, ty, op } => {
             let (input, output) = op
                 .contract(ty)
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
@@ -370,7 +369,7 @@ pub(super) fn verify(
             }
             context.expect(dst.ty, output, "iterator result")?;
         }
-        StandardEnum { dst, value, ty, op } => {
+        Instruction::StandardEnum { dst, value, ty, op } => {
             let (input, output) = op
                 .contract(ty)
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
@@ -379,7 +378,7 @@ pub(super) fn verify(
             }
             context.expect(dst.ty, output, "standard enum result")?;
         }
-        MakeEnum {
+        Instruction::MakeEnum {
             dst,
             enumeration,
             variant,
@@ -403,7 +402,7 @@ pub(super) fn verify(
                 context.expect(value.ty, ty.representation(), "enum payload")?;
             }
         }
-        TestEnumVariant {
+        Instruction::TestEnumVariant {
             dst,
             value,
             enumeration,
@@ -421,7 +420,7 @@ pub(super) fn verify(
                 .and_then(|layout| layout.variants.get(*variant))
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
         }
-        ReadEnumPayload {
+        Instruction::ReadEnumPayload {
             dst,
             value,
             enumeration,
@@ -441,7 +440,7 @@ pub(super) fn verify(
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             context.expect(dst.ty, payload.representation(), "enum pattern payload")?;
         }
-        MakeStruct {
+        Instruction::MakeStruct {
             dst,
             structure,
             fields,
@@ -470,7 +469,7 @@ pub(super) fn verify(
                 )?;
             }
         }
-        ReadAggregateField { dst, base, field } => {
+        Instruction::ReadAggregateField { dst, base, field } => {
             context.expect(base.ty, ValueType::HeapObject, "field base")?;
             let target = module
                 .structure(&field.owner)
@@ -478,7 +477,7 @@ pub(super) fn verify(
                 .ok_or_else(|| context.error(Error::InvalidField))?;
             context.expect(dst.ty, target.ty.representation(), "field read")?;
         }
-        WriteAggregateField { base, field, value } => {
+        Instruction::WriteAggregateField { base, field, value } => {
             context.expect(base.ty, ValueType::HeapObject, "field base")?;
             let target = module
                 .structure(&field.owner)
@@ -489,7 +488,8 @@ pub(super) fn verify(
             }
             context.expect(value.ty, target.ty.representation(), "field write")?;
         }
-        ReadAggregateIndex { base, index, .. } | WriteAggregateIndex { base, index, .. } => {
+        Instruction::ReadAggregateIndex { base, index, .. }
+        | Instruction::WriteAggregateIndex { base, index, .. } => {
             context.expect(base.ty, ValueType::HeapObject, "index base")?;
             if !matches!(index.ty, ValueType::I32 | ValueType::I64 | ValueType::U64) {
                 return Err(contract(ContractError::InvalidOperation {
@@ -497,7 +497,7 @@ pub(super) fn verify(
                 }));
             }
         }
-        ReadPath {
+        Instruction::ReadPath {
             dst,
             root_or_view,
             path,
@@ -507,7 +507,7 @@ pub(super) fn verify(
             context.expect(root_or_view.ty, path.root_ty, "path root")?;
             context.expect(dst.ty, path.result_ty, "path result")?;
         }
-        MakePathView {
+        Instruction::MakePathView {
             dst,
             root_or_view,
             path,
@@ -517,13 +517,13 @@ pub(super) fn verify(
             context.expect(root_or_view.ty, path.root_ty, "path root")?;
             context.expect(dst.ty, ValueType::HostHandle, "path view")?;
         }
-        SetPath {
+        Instruction::SetPath {
             root_or_view,
             path,
             value,
             ..
         }
-        | ModifyPath {
+        | Instruction::ModifyPath {
             root_or_view,
             path,
             value,
@@ -535,7 +535,7 @@ pub(super) fn verify(
             context.expect(path.root_ty, ValueType::HostHandle, "path representation")?;
             context.expect(root_or_view.ty, path.root_ty, "path root")?;
             context.expect(value.ty, path.result_ty, "path value")?;
-            if let ModifyPath { dst, op, .. } = instruction {
+            if let Instruction::ModifyPath { dst, op, .. } = instruction {
                 let ty =
                     contracts::binary_result(*op, path.result_ty, value.ty).map_err(contract)?;
                 context.expect(ty, path.result_ty, "path modification result")?;

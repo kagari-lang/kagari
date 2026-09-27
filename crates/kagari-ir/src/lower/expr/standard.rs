@@ -1,4 +1,9 @@
 use super::*;
+use crate::module::instruction::StandardEnumOp;
+use kagari_hir::{
+    builtin::surface::{StandardEnum, StandardIntrinsic},
+    types::TypeId,
+};
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn standard_enum_op(
@@ -30,30 +35,27 @@ impl FunctionLowerer<'_, '_> {
         input: &kagari_hir::types::TypeId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use crate::module::instruction::StandardEnumOp;
-        use kagari_hir::builtin::surface::{StandardEnum, StandardIntrinsic::*};
-        use kagari_hir::types::TypeId;
         if matches!(
             intrinsic,
-            OptionUnwrapOrElse
-                | OptionOrElse
-                | OptionMapOr
-                | OptionMapOrElse
-                | OptionFilter
-                | OptionIsSomeAnd
-                | OptionZip
-                | OptionFlatten
-                | OptionTranspose
-                | ResultUnwrapOrElse
-                | ResultOrElse
-                | ResultMapOr
-                | ResultMapOrElse
-                | ResultOk
-                | ResultErr
-                | ResultIsOkAnd
-                | ResultIsErrAnd
-                | ResultFlatten
-                | ResultTranspose
+            StandardIntrinsic::OptionUnwrapOrElse
+                | StandardIntrinsic::OptionOrElse
+                | StandardIntrinsic::OptionMapOr
+                | StandardIntrinsic::OptionMapOrElse
+                | StandardIntrinsic::OptionFilter
+                | StandardIntrinsic::OptionIsSomeAnd
+                | StandardIntrinsic::OptionZip
+                | StandardIntrinsic::OptionFlatten
+                | StandardIntrinsic::OptionTranspose
+                | StandardIntrinsic::ResultUnwrapOrElse
+                | StandardIntrinsic::ResultOrElse
+                | StandardIntrinsic::ResultMapOr
+                | StandardIntrinsic::ResultMapOrElse
+                | StandardIntrinsic::ResultOk
+                | StandardIntrinsic::ResultErr
+                | StandardIntrinsic::ResultIsOkAnd
+                | StandardIntrinsic::ResultIsErrAnd
+                | StandardIntrinsic::ResultFlatten
+                | StandardIntrinsic::ResultTranspose
         ) {
             return self.lower_enum_extension(site, intrinsic, input, args);
         }
@@ -94,22 +96,31 @@ impl FunctionLowerer<'_, '_> {
                 None
             };
             let invokes = match intrinsic {
-                OptionMap | OptionAndThen | ResultMap | ResultAndThen => variant == 0,
-                ResultMapErr | OptionOkOrElse => variant == 1,
+                StandardIntrinsic::OptionMap
+                | StandardIntrinsic::OptionAndThen
+                | StandardIntrinsic::ResultMap
+                | StandardIntrinsic::ResultAndThen => variant == 0,
+                StandardIntrinsic::ResultMapErr | StandardIntrinsic::OptionOkOrElse => variant == 1,
                 _ => false,
             };
             let next = if invokes {
-                let callback_result = if matches!(intrinsic, OptionAndThen | ResultAndThen) {
+                let callback_result = if matches!(
+                    intrinsic,
+                    StandardIntrinsic::OptionAndThen | StandardIntrinsic::ResultAndThen
+                ) {
                     output.clone()
                 } else {
-                    output_args[usize::from(matches!(intrinsic, ResultMapErr | OptionOkOrElse))]
-                        .clone()
+                    output_args[usize::from(matches!(
+                        intrinsic,
+                        StandardIntrinsic::ResultMapErr | StandardIntrinsic::OptionOkOrElse
+                    ))]
+                    .clone()
                 };
                 let span = self.analyzed.lowered.source_map.expr_span(site);
                 let return_type =
                     self.planner
                         .value_type(&callback_result, &self.instance.substitution, span)?;
-                let params = if intrinsic == OptionOkOrElse {
+                let params = if intrinsic == StandardIntrinsic::OptionOkOrElse {
                     vec![]
                 } else {
                     vec![self.planner.value_type(
@@ -128,9 +139,12 @@ impl FunctionLowerer<'_, '_> {
                     },
                     args: payload.into_iter().collect(),
                 });
-                if matches!(intrinsic, OptionAndThen | ResultAndThen) {
+                if matches!(
+                    intrinsic,
+                    StandardIntrinsic::OptionAndThen | StandardIntrinsic::ResultAndThen
+                ) {
                     value
-                } else if intrinsic == ResultMapErr {
+                } else if intrinsic == StandardIntrinsic::ResultMapErr {
                     let concrete = self
                         .planner
                         .arguments(
@@ -150,7 +164,10 @@ impl FunctionLowerer<'_, '_> {
                 } else {
                     self.standard_enum_op(&output, StandardEnumOp::Make(variant), Some(value))?
                 }
-            } else if matches!(intrinsic, OptionOkOr | OptionOkOrElse) {
+            } else if matches!(
+                intrinsic,
+                StandardIntrinsic::OptionOkOr | StandardIntrinsic::OptionOkOrElse
+            ) {
                 self.standard_enum_op(
                     &output,
                     StandardEnumOp::Make(variant),

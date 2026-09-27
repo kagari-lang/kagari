@@ -1,4 +1,5 @@
 use super::*;
+use kagari_hir::builtin::declarations::NativeDefaultMethod;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
 
 impl FunctionLowerer<'_, '_> {
@@ -254,37 +255,44 @@ impl FunctionLowerer<'_, '_> {
                 .implementation_method(method, &interface, &ty)
                 .is_none()
         {
-            use kagari_hir::builtin::declarations::NativeDefaultMethod::*;
             if matches!(
                 operation,
-                SetUnion
-                    | SetIntersection
-                    | SetDifference
-                    | SetSymmetricDifference
-                    | SetIsSubset
-                    | SetIsSuperset
-                    | SetIsDisjoint
+                NativeDefaultMethod::SetUnion
+                    | NativeDefaultMethod::SetIntersection
+                    | NativeDefaultMethod::SetDifference
+                    | NativeDefaultMethod::SetSymmetricDifference
+                    | NativeDefaultMethod::SetIsSubset
+                    | NativeDefaultMethod::SetIsSuperset
+                    | NativeDefaultMethod::SetIsDisjoint
             ) {
                 return self.lower_set_query(operation, &ty, args);
             }
-            if matches!(operation, ListWindows | ListChunks) {
+            if matches!(
+                operation,
+                NativeDefaultMethod::ListWindows | NativeDefaultMethod::ListChunks
+            ) {
                 return self.lower_list_windows(operation, &ty, args);
             }
-            if matches!(operation, MapKeysView | MapValuesView | MapEntriesView) {
+            if matches!(
+                operation,
+                NativeDefaultMethod::MapKeysView
+                    | NativeDefaultMethod::MapValuesView
+                    | NativeDefaultMethod::MapEntriesView
+            ) {
                 return self.lower_map_view_snapshot(operation, &ty, args[0]);
             }
             if matches!(
                 operation,
-                ListFirst
-                    | ListLast
-                    | ListContains
-                    | ListStartsWith
-                    | ListEndsWith
-                    | ListBinarySearch
+                NativeDefaultMethod::ListFirst
+                    | NativeDefaultMethod::ListLast
+                    | NativeDefaultMethod::ListContains
+                    | NativeDefaultMethod::ListStartsWith
+                    | NativeDefaultMethod::ListEndsWith
+                    | NativeDefaultMethod::ListBinarySearch
             ) {
                 return self.lower_list_query(operation, &ty, args);
             }
-            if operation == ListJoin {
+            if operation == NativeDefaultMethod::ListJoin {
                 if matches!(ty, TypeId::Array(_, _)) {
                     return Ok(self.emit_intrinsic(
                         StandardIntrinsic::ArrayJoin,
@@ -300,14 +308,17 @@ impl FunctionLowerer<'_, '_> {
                     &[args[0]],
                 )?;
                 return self.lower_iterator_terminal(
-                    Join,
+                    NativeDefaultMethod::Join,
                     &iterator_type,
                     &[],
                     &[iterator, args[1]],
                 );
             }
-            if matches!(operation, Sum | Product) {
-                let protocol = if operation == Sum {
+            if matches!(
+                operation,
+                NativeDefaultMethod::Sum | NativeDefaultMethod::Product
+            ) {
+                let protocol = if operation == NativeDefaultMethod::Sum {
                     StandardTrait::Sum
                 } else {
                     StandardTrait::Product
@@ -325,25 +336,26 @@ impl FunctionLowerer<'_, '_> {
             }
             if matches!(
                 operation,
-                Join | Find
-                    | Any
-                    | All
-                    | Count
-                    | Fold
-                    | ForEach
-                    | Partition
-                    | GroupBy
-                    | FindMap
-                    | Position
-                    | Nth
-                    | Last
-                    | Reduce
-                    | MinBy
-                    | MaxBy
-                    | Min
-                    | Max
-                    | MinByKey
-                    | MaxByKey
+                NativeDefaultMethod::Join
+                    | NativeDefaultMethod::Find
+                    | NativeDefaultMethod::Any
+                    | NativeDefaultMethod::All
+                    | NativeDefaultMethod::Count
+                    | NativeDefaultMethod::Fold
+                    | NativeDefaultMethod::ForEach
+                    | NativeDefaultMethod::Partition
+                    | NativeDefaultMethod::GroupBy
+                    | NativeDefaultMethod::FindMap
+                    | NativeDefaultMethod::Position
+                    | NativeDefaultMethod::Nth
+                    | NativeDefaultMethod::Last
+                    | NativeDefaultMethod::Reduce
+                    | NativeDefaultMethod::MinBy
+                    | NativeDefaultMethod::MaxBy
+                    | NativeDefaultMethod::Min
+                    | NativeDefaultMethod::Max
+                    | NativeDefaultMethod::MinByKey
+                    | NativeDefaultMethod::MaxByKey
             ) {
                 return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
             }

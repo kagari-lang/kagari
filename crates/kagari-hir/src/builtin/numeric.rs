@@ -3,19 +3,32 @@ use super::surface::StandardEnum;
 use crate::types::{BuiltinType, TypeId};
 
 pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
-    use BuiltinType::*;
     if source == target {
-        return source.number_type().is_some() || source == Bool;
+        return source.number_type().is_some() || source == BuiltinType::Bool;
     }
-    if source == Bool {
+    if source == BuiltinType::Bool {
         return target.integer_layout().is_some();
     }
     match target {
-        F32 => matches!(source, I8 | I16 | U8 | U16),
-        F64 => matches!(source, I8 | I16 | I32 | U8 | U16 | U32 | F32),
-        ISize => matches!(source, I8 | I16 | U8),
-        USize => matches!(source, U8 | U16),
-        _ if matches!(source, ISize | USize) => false,
+        BuiltinType::F32 => matches!(
+            source,
+            BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8 | BuiltinType::U16
+        ),
+        BuiltinType::F64 => matches!(
+            source,
+            BuiltinType::I8
+                | BuiltinType::I16
+                | BuiltinType::I32
+                | BuiltinType::U8
+                | BuiltinType::U16
+                | BuiltinType::U32
+                | BuiltinType::F32
+        ),
+        BuiltinType::ISize => {
+            matches!(source, BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8)
+        }
+        BuiltinType::USize => matches!(source, BuiltinType::U8 | BuiltinType::U16),
+        _ if matches!(source, BuiltinType::ISize | BuiltinType::USize) => false,
         _ => match (source.integer_layout(), target.integer_layout()) {
             (Some((a, sa)), Some((b, sb))) => (sa == sb && a < b) || (!sa && sb && a < b),
             _ => false,

@@ -12,7 +12,6 @@ impl FunctionLowerer<'_, '_> {
         source: &TypeId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use NativeDefaultMethod::*;
         let item = self.iteration_output(StandardTrait::Iterable, source, "Item")?;
         let mut interface = StandardTrait::Set.nominal();
         interface.arguments.push(item.clone());
@@ -27,7 +26,12 @@ impl FunctionLowerer<'_, '_> {
             .clone();
         let left = self.query_guard(source, args[0])?;
         let right = self.query_guard(&other, args[1])?;
-        let relation = matches!(operation, SetIsSubset | SetIsSuperset | SetIsDisjoint);
+        let relation = matches!(
+            operation,
+            NativeDefaultMethod::SetIsSubset
+                | NativeDefaultMethod::SetIsSuperset
+                | NativeDefaultMethod::SetIsDisjoint
+        );
         let result_type = TypeId::Set(
             Box::new(item.clone()),
             kagari_common::collection::CollectionAccess::Mutable,
@@ -41,13 +45,16 @@ impl FunctionLowerer<'_, '_> {
             kind: StandardEnum::Option,
             args: vec![item],
         };
-        let passes = if matches!(operation, SetUnion | SetSymmetricDifference) {
+        let passes = if matches!(
+            operation,
+            NativeDefaultMethod::SetUnion | NativeDefaultMethod::SetSymmetricDifference
+        ) {
             2
         } else {
             1
         };
         for pass in 0..passes {
-            let reversed = pass == 1 || operation == SetIsSuperset;
+            let reversed = pass == 1 || operation == NativeDefaultMethod::SetIsSuperset;
             let (iterator, queried_type, queried_value) = if reversed {
                 (&right, source, args[0])
             } else {
@@ -68,7 +75,7 @@ impl FunctionLowerer<'_, '_> {
             });
             self.switch_to_block(body);
             let value = self.standard_enum_op(&optional, Op::Read(0), Some(next))?;
-            if operation == SetUnion {
+            if operation == NativeDefaultMethod::SetUnion {
                 self.ensure_jump(selected);
             } else {
                 let contains = self.lower_applied_operator(
@@ -77,7 +84,10 @@ impl FunctionLowerer<'_, '_> {
                     &membership,
                     &[queried_value, value],
                 )?;
-                let positive = matches!(operation, SetIntersection | SetIsDisjoint);
+                let positive = matches!(
+                    operation,
+                    NativeDefaultMethod::SetIntersection | NativeDefaultMethod::SetIsDisjoint
+                );
                 self.set_terminator(Terminator::Branch {
                     cond: contains,
                     then_block: if positive { selected } else { head },

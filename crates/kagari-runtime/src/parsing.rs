@@ -55,35 +55,34 @@ pub(crate) fn parse(
 }
 
 fn integer(text: &str, ty: BuiltinType, base: u32) -> Result<Value, u8> {
-    use BuiltinType::*;
     let failure = |error: std::num::ParseIntError| match error.kind() {
         std::num::IntErrorKind::Empty => 0,
         std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow => 2,
         _ => 1,
     };
     match ty {
-        I8 => i8::from_str_radix(text, base)
+        BuiltinType::I8 => i8::from_str_radix(text, base)
             .map(|v| Value::I32(v.into()))
             .map_err(failure),
-        I16 => i16::from_str_radix(text, base)
+        BuiltinType::I16 => i16::from_str_radix(text, base)
             .map(|v| Value::I32(v.into()))
             .map_err(failure),
-        I32 => i32::from_str_radix(text, base)
+        BuiltinType::I32 => i32::from_str_radix(text, base)
             .map(Value::I32)
             .map_err(failure),
-        I64 | ISize => i64::from_str_radix(text, base)
+        BuiltinType::I64 | BuiltinType::ISize => i64::from_str_radix(text, base)
             .map(Value::I64)
             .map_err(failure),
-        U8 => u8::from_str_radix(text, base)
+        BuiltinType::U8 => u8::from_str_radix(text, base)
             .map(|v| Value::I64(v.into()))
             .map_err(failure),
-        U16 => u16::from_str_radix(text, base)
+        BuiltinType::U16 => u16::from_str_radix(text, base)
             .map(|v| Value::I64(v.into()))
             .map_err(failure),
-        U32 => u32::from_str_radix(text, base)
+        BuiltinType::U32 => u32::from_str_radix(text, base)
             .map(|v| Value::I64(v.into()))
             .map_err(failure),
-        U64 | USize => u64::from_str_radix(text, base)
+        BuiltinType::U64 | BuiltinType::USize => u64::from_str_radix(text, base)
             .map(Value::U64)
             .map_err(failure),
         _ => Err(4),

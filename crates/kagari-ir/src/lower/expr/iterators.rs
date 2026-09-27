@@ -276,16 +276,23 @@ impl FunctionLowerer<'_, '_> {
         output: IrValue,
         item: IrValue,
     ) -> Result<(), IrLoweringError> {
-        use StandardIntrinsic::*;
         match target {
             TypeId::Array(_, _) => {
-                self.emit_intrinsic(ArrayPush, &[output, item], ValueType::HeapObject);
+                self.emit_intrinsic(
+                    StandardIntrinsic::ArrayPush,
+                    &[output, item],
+                    ValueType::HeapObject,
+                );
             }
             TypeId::Set(key, _) => {
                 if self.has_custom_protocol(key) {
-                    self.lower_key_operation(SetInsert, key, &[output, item])?;
+                    self.lower_key_operation(StandardIntrinsic::SetInsert, key, &[output, item])?;
                 } else {
-                    self.emit_intrinsic(SetInsert, &[output, item], ValueType::HeapObject);
+                    self.emit_intrinsic(
+                        StandardIntrinsic::SetInsert,
+                        &[output, item],
+                        ValueType::HeapObject,
+                    );
                 }
             }
             TypeId::Map { key, value, .. } => {
@@ -304,9 +311,13 @@ impl FunctionLowerer<'_, '_> {
                     index: second,
                 });
                 if self.has_custom_protocol(key) {
-                    self.lower_key_operation(MapInsert, key, &[output, k, v])?;
+                    self.lower_key_operation(StandardIntrinsic::MapInsert, key, &[output, k, v])?;
                 } else {
-                    self.emit_intrinsic(MapInsert, &[output, k, v], ValueType::HeapObject);
+                    self.emit_intrinsic(
+                        StandardIntrinsic::MapInsert,
+                        &[output, k, v],
+                        ValueType::HeapObject,
+                    );
                 }
             }
             _ => return Err(IrLoweringError::MissingBinding("collection insertion")),

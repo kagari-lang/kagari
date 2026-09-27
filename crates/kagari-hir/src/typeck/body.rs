@@ -4873,18 +4873,24 @@ fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
 }
 
 fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
-    use StandardIntrinsic::*;
-
     if let Some(spec) = surface::standard_function_by_intrinsic(intrinsic) {
         return spec.api.qualified_name;
     }
     match intrinsic {
-        ValueEq => "std::cmp::PartialEq::eq",
-        ValueHash => "std::hash::Hash::hash",
-        ValueDebug => "std::fmt::Debug::debug",
-        ValueDisplay => "std::fmt::Display::display",
-        ValuePartialCmp | ValueCmp | KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert
-        | KeyMapRemove | KeySetContains | KeySetInsert | KeySetRemove => "internal key operation",
+        StandardIntrinsic::ValueEq => "std::cmp::PartialEq::eq",
+        StandardIntrinsic::ValueHash => "std::hash::Hash::hash",
+        StandardIntrinsic::ValueDebug => "std::fmt::Debug::debug",
+        StandardIntrinsic::ValueDisplay => "std::fmt::Display::display",
+        StandardIntrinsic::ValuePartialCmp
+        | StandardIntrinsic::ValueCmp
+        | StandardIntrinsic::KeyLookupBegin
+        | StandardIntrinsic::KeyCandidates
+        | StandardIntrinsic::KeyMapGet
+        | StandardIntrinsic::KeyMapInsert
+        | StandardIntrinsic::KeyMapRemove
+        | StandardIntrinsic::KeySetContains
+        | StandardIntrinsic::KeySetInsert
+        | StandardIntrinsic::KeySetRemove => "internal key operation",
         _ => unreachable!("public intrinsic has a declaration"),
     }
 }

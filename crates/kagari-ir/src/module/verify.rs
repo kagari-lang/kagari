@@ -90,36 +90,35 @@ pub enum IrVerificationErrorKind {
 
 impl IrVerificationError {
     pub fn code(&self) -> &'static str {
-        use IrVerificationErrorKind::*;
         match self.kind {
-            Cancelled => "KG_IR_CANCELLED",
-            Limit { .. } => "KG_IR_LIMIT_EXCEEDED",
-            InvalidInstance => "KG_IR_INVALID_INSTANCE",
-            InvalidStructLayout => "KG_IR_INVALID_STRUCT_LAYOUT",
-            InvalidEnumLayout => "KG_IR_INVALID_ENUM_LAYOUT",
-            InvalidPublicAbi => "KG_IR_INVALID_PUBLIC_ABI",
-            InvalidHostInterface => "KG_IR_INVALID_HOST_INTERFACE",
-            InvalidEnumInitializer => "KG_IR_INVALID_ENUM_INITIALIZER",
-            InvalidInterfaceTable => "KG_IR_INVALID_INTERFACE_TABLE",
-            InvalidField => "KG_IR_INVALID_FIELD",
-            InvalidStructInitializer => "KG_IR_INVALID_STRUCT_INITIALIZER",
-            ReadOnlyField => "KG_IR_READ_ONLY_FIELD",
-            InvalidModuleSlot => "KG_IR_INVALID_MODULE_SLOT",
-            InvalidInitializer => "KG_IR_INVALID_INITIALIZER",
-            InvalidBlock(_) => "KG_IR_INVALID_BLOCK",
-            MissingTerminator => "KG_IR_MISSING_TERMINATOR",
-            InvalidDebugMetadata => "KG_IR_INVALID_DEBUG_METADATA",
-            InvalidParameterLayout => "KG_IR_INVALID_PARAMETER_LAYOUT",
-            InvalidTemp(_) => "KG_IR_INVALID_TEMP",
-            InvalidLocal(_) => "KG_IR_INVALID_LOCAL",
-            UninitializedTemp(_) => "KG_IR_UNINITIALIZED_TEMP",
-            UninitializedLocal(_) => "KG_IR_UNINITIALIZED_LOCAL",
-            InvalidCall(_) => "KG_IR_INVALID_CALL",
-            CallArity { .. } => "KG_IR_CALL_ARITY",
-            UnsupportedCall => "KG_IR_UNSUPPORTED_CALL",
-            ReadOnlyPath => "KG_IR_READ_ONLY_PATH",
-            MissingEffects => "KG_IR_MISSING_EFFECTS",
-            Contract(_) => "KG_IR_OPERATION_CONTRACT",
+            IrVerificationErrorKind::Cancelled => "KG_IR_CANCELLED",
+            IrVerificationErrorKind::Limit { .. } => "KG_IR_LIMIT_EXCEEDED",
+            IrVerificationErrorKind::InvalidInstance => "KG_IR_INVALID_INSTANCE",
+            IrVerificationErrorKind::InvalidStructLayout => "KG_IR_INVALID_STRUCT_LAYOUT",
+            IrVerificationErrorKind::InvalidEnumLayout => "KG_IR_INVALID_ENUM_LAYOUT",
+            IrVerificationErrorKind::InvalidPublicAbi => "KG_IR_INVALID_PUBLIC_ABI",
+            IrVerificationErrorKind::InvalidHostInterface => "KG_IR_INVALID_HOST_INTERFACE",
+            IrVerificationErrorKind::InvalidEnumInitializer => "KG_IR_INVALID_ENUM_INITIALIZER",
+            IrVerificationErrorKind::InvalidInterfaceTable => "KG_IR_INVALID_INTERFACE_TABLE",
+            IrVerificationErrorKind::InvalidField => "KG_IR_INVALID_FIELD",
+            IrVerificationErrorKind::InvalidStructInitializer => "KG_IR_INVALID_STRUCT_INITIALIZER",
+            IrVerificationErrorKind::ReadOnlyField => "KG_IR_READ_ONLY_FIELD",
+            IrVerificationErrorKind::InvalidModuleSlot => "KG_IR_INVALID_MODULE_SLOT",
+            IrVerificationErrorKind::InvalidInitializer => "KG_IR_INVALID_INITIALIZER",
+            IrVerificationErrorKind::InvalidBlock(_) => "KG_IR_INVALID_BLOCK",
+            IrVerificationErrorKind::MissingTerminator => "KG_IR_MISSING_TERMINATOR",
+            IrVerificationErrorKind::InvalidDebugMetadata => "KG_IR_INVALID_DEBUG_METADATA",
+            IrVerificationErrorKind::InvalidParameterLayout => "KG_IR_INVALID_PARAMETER_LAYOUT",
+            IrVerificationErrorKind::InvalidTemp(_) => "KG_IR_INVALID_TEMP",
+            IrVerificationErrorKind::InvalidLocal(_) => "KG_IR_INVALID_LOCAL",
+            IrVerificationErrorKind::UninitializedTemp(_) => "KG_IR_UNINITIALIZED_TEMP",
+            IrVerificationErrorKind::UninitializedLocal(_) => "KG_IR_UNINITIALIZED_LOCAL",
+            IrVerificationErrorKind::InvalidCall(_) => "KG_IR_INVALID_CALL",
+            IrVerificationErrorKind::CallArity { .. } => "KG_IR_CALL_ARITY",
+            IrVerificationErrorKind::UnsupportedCall => "KG_IR_UNSUPPORTED_CALL",
+            IrVerificationErrorKind::ReadOnlyPath => "KG_IR_READ_ONLY_PATH",
+            IrVerificationErrorKind::MissingEffects => "KG_IR_MISSING_EFFECTS",
+            IrVerificationErrorKind::Contract(_) => "KG_IR_OPERATION_CONTRACT",
         }
     }
 }
@@ -436,26 +435,33 @@ fn successors(terminator: &Terminator) -> smallvec::SmallVec<[BlockId; 2]> {
 }
 
 fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
-    use Instruction::*;
     match instruction {
-        Convert { src, .. } => smallvec::smallvec![*src],
-        Numeric { lhs, rhs, .. } => std::iter::once(*lhs).chain(rhs.iter().copied()).collect(),
-        MapResultError {
+        Instruction::Convert { src, .. } => smallvec::smallvec![*src],
+        Instruction::Numeric { lhs, rhs, .. } => {
+            std::iter::once(*lhs).chain(rhs.iter().copied()).collect()
+        }
+        Instruction::MapResultError {
             original, error, ..
         } => smallvec::smallvec![*original, *error],
-        Iter { value, .. } | StandardEnum { value, .. } => value.iter().copied().collect(),
-        LoadConst { .. } | LoadLocal { .. } | LoadModule { .. } => smallvec::smallvec![],
-        StoreLocal { src, .. } | StoreModule { src, .. } | Move { src, .. } => {
+        Instruction::Iter { value, .. } | Instruction::StandardEnum { value, .. } => {
+            value.iter().copied().collect()
+        }
+        Instruction::LoadConst { .. }
+        | Instruction::LoadLocal { .. }
+        | Instruction::LoadModule { .. } => smallvec::smallvec![],
+        Instruction::StoreLocal { src, .. }
+        | Instruction::StoreModule { src, .. }
+        | Instruction::Move { src, .. } => {
             smallvec::smallvec![*src]
         }
-        Unary { operand, .. } => smallvec::smallvec![*operand],
-        BeginIteration { collection } => smallvec::smallvec![*collection],
-        EndIteration => smallvec::smallvec![],
-        RangeBound { value, .. } => smallvec::smallvec![*value],
-        MakeRange { start, end, .. } => start.iter().chain(end).copied().collect(),
-        RepeatArray { value, count, .. } => smallvec::smallvec![*value, *count],
-        Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
-        Call { callee, args, .. } => {
+        Instruction::Unary { operand, .. } => smallvec::smallvec![*operand],
+        Instruction::BeginIteration { collection } => smallvec::smallvec![*collection],
+        Instruction::EndIteration => smallvec::smallvec![],
+        Instruction::RangeBound { value, .. } => smallvec::smallvec![*value],
+        Instruction::MakeRange { start, end, .. } => start.iter().chain(end).copied().collect(),
+        Instruction::RepeatArray { value, count, .. } => smallvec::smallvec![*value, *count],
+        Instruction::Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
+        Instruction::Call { callee, args, .. } => {
             let mut values = args.clone();
             if let super::instruction::CallTarget::Value(value) = callee {
                 values.push(*value);
@@ -465,32 +471,34 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
             }
             values
         }
-        MakeTuple { elements, .. }
-        | MakeArray { elements, .. }
-        | MakeEnum {
+        Instruction::MakeTuple { elements, .. }
+        | Instruction::MakeArray { elements, .. }
+        | Instruction::MakeEnum {
             fields: elements, ..
         } => elements.clone(),
-        MakeClosure { captures, .. } => captures.clone(),
-        MakeCell { value, .. } => smallvec::smallvec![*value],
-        ReadCell { cell, .. } => smallvec::smallvec![*cell],
-        WriteCell { cell, value } => smallvec::smallvec![*cell, *value],
-        MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
-        MakeInterface { value, .. } | UpcastInterface { value, .. } => smallvec::smallvec![*value],
-        TestEnumVariant { value, .. } | ReadEnumPayload { value, .. } => {
+        Instruction::MakeClosure { captures, .. } => captures.clone(),
+        Instruction::MakeCell { value, .. } => smallvec::smallvec![*value],
+        Instruction::ReadCell { cell, .. } => smallvec::smallvec![*cell],
+        Instruction::WriteCell { cell, value } => smallvec::smallvec![*cell, *value],
+        Instruction::MakeStruct { fields, .. } => fields.iter().map(|f| f.value).collect(),
+        Instruction::MakeInterface { value, .. } | Instruction::UpcastInterface { value, .. } => {
             smallvec::smallvec![*value]
         }
-        ReadAggregateField { base, .. } => smallvec::smallvec![*base],
-        WriteAggregateField { base, value, .. } => smallvec::smallvec![*base, *value],
-        ReadAggregateIndex { base, index, .. } => smallvec::smallvec![*base, *index],
-        WriteAggregateIndex {
+        Instruction::TestEnumVariant { value, .. } | Instruction::ReadEnumPayload { value, .. } => {
+            smallvec::smallvec![*value]
+        }
+        Instruction::ReadAggregateField { base, .. } => smallvec::smallvec![*base],
+        Instruction::WriteAggregateField { base, value, .. } => smallvec::smallvec![*base, *value],
+        Instruction::ReadAggregateIndex { base, index, .. } => smallvec::smallvec![*base, *index],
+        Instruction::WriteAggregateIndex {
             base, index, value, ..
         } => smallvec::smallvec![*base, *index, *value],
-        ReadPath {
+        Instruction::ReadPath {
             root_or_view,
             dynamic_args,
             ..
         }
-        | MakePathView {
+        | Instruction::MakePathView {
             root_or_view,
             dynamic_args,
             ..
@@ -499,13 +507,13 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
             values.push(*root_or_view);
             values
         }
-        SetPath {
+        Instruction::SetPath {
             root_or_view,
             dynamic_args,
             value,
             ..
         }
-        | ModifyPath {
+        | Instruction::ModifyPath {
             root_or_view,
             dynamic_args,
             value,
@@ -520,44 +528,43 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
 }
 
 fn output(instruction: &Instruction) -> Option<IrValue> {
-    use Instruction::*;
     match instruction {
-        LoadConst { dst, .. }
-        | LoadLocal { dst, .. }
-        | LoadModule { dst, .. }
-        | Move { dst, .. }
-        | Unary { dst, .. }
-        | Binary { dst, .. }
-        | MakeTuple { dst, .. }
-        | MakeArray { dst, .. }
-        | RepeatArray { dst, .. }
-        | MakeRange { dst, .. }
-        | RangeBound { dst, .. }
-        | MakeClosure { dst, .. }
-        | MakeCell { dst, .. }
-        | ReadCell { dst, .. }
-        | MakeStruct { dst, .. }
-        | Convert { dst, .. }
-        | Numeric { dst, .. }
-        | MapResultError { dst, .. }
-        | Iter { dst, .. }
-        | StandardEnum { dst, .. }
-        | MakeEnum { dst, .. }
-        | MakeInterface { dst, .. }
-        | UpcastInterface { dst, .. }
-        | TestEnumVariant { dst, .. }
-        | ReadEnumPayload { dst, .. }
-        | ReadAggregateField { dst, .. }
-        | ReadAggregateIndex { dst, .. }
-        | ReadPath { dst, .. }
-        | MakePathView { dst, .. } => Some(*dst),
-        Call { dst, .. } | ModifyPath { dst, .. } => *dst,
-        StoreLocal { .. }
-        | StoreModule { .. }
-        | WriteAggregateField { .. }
-        | WriteAggregateIndex { .. }
-        | SetPath { .. } => None,
-        WriteCell { .. } => None,
-        BeginIteration { .. } | EndIteration => None,
+        Instruction::LoadConst { dst, .. }
+        | Instruction::LoadLocal { dst, .. }
+        | Instruction::LoadModule { dst, .. }
+        | Instruction::Move { dst, .. }
+        | Instruction::Unary { dst, .. }
+        | Instruction::Binary { dst, .. }
+        | Instruction::MakeTuple { dst, .. }
+        | Instruction::MakeArray { dst, .. }
+        | Instruction::RepeatArray { dst, .. }
+        | Instruction::MakeRange { dst, .. }
+        | Instruction::RangeBound { dst, .. }
+        | Instruction::MakeClosure { dst, .. }
+        | Instruction::MakeCell { dst, .. }
+        | Instruction::ReadCell { dst, .. }
+        | Instruction::MakeStruct { dst, .. }
+        | Instruction::Convert { dst, .. }
+        | Instruction::Numeric { dst, .. }
+        | Instruction::MapResultError { dst, .. }
+        | Instruction::Iter { dst, .. }
+        | Instruction::StandardEnum { dst, .. }
+        | Instruction::MakeEnum { dst, .. }
+        | Instruction::MakeInterface { dst, .. }
+        | Instruction::UpcastInterface { dst, .. }
+        | Instruction::TestEnumVariant { dst, .. }
+        | Instruction::ReadEnumPayload { dst, .. }
+        | Instruction::ReadAggregateField { dst, .. }
+        | Instruction::ReadAggregateIndex { dst, .. }
+        | Instruction::ReadPath { dst, .. }
+        | Instruction::MakePathView { dst, .. } => Some(*dst),
+        Instruction::Call { dst, .. } | Instruction::ModifyPath { dst, .. } => *dst,
+        Instruction::StoreLocal { .. }
+        | Instruction::StoreModule { .. }
+        | Instruction::WriteAggregateField { .. }
+        | Instruction::WriteAggregateIndex { .. }
+        | Instruction::SetPath { .. } => None,
+        Instruction::WriteCell { .. } => None,
+        Instruction::BeginIteration { .. } | Instruction::EndIteration => None,
     }
 }
