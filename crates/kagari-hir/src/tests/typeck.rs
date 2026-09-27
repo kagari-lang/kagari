@@ -551,21 +551,25 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         })
     ));
 
-    let map_get = surface::standard_function(surface::StandardModule::Map, "get")
-        .expect("std::map::get should be standard");
+    let map_get = surface::standard_function(surface::StandardModule::Map, "Map::get")
+        .expect("std::map::Map::get should be standard");
     assert_eq!(map_get.intrinsic, surface::StandardIntrinsic::MapGet);
     assert_eq!(
         map_get.constraints[0].constraint,
         surface::StandardTypeConstraint::HashKey
     );
     assert_eq!(
-        surface::standard_function(surface::StandardModule::String, "slice")
-            .expect("std::string::slice should be standard")
+        surface::standard_function(surface::StandardModule::String, "String::slice")
+            .expect("std::string::String::slice should be standard")
             .arity,
         3
     );
-    assert!(surface::standard_function(surface::StandardModule::Option, "and_then").is_some());
-    assert!(surface::standard_function(surface::StandardModule::Result, "map_err").is_some());
+    assert!(
+        surface::standard_function(surface::StandardModule::Option, "Option::and_then").is_some()
+    );
+    assert!(
+        surface::standard_function(surface::StandardModule::Result, "Result::map_err").is_some()
+    );
     assert!(surface::standard_function(surface::StandardModule::Math, "clamp").is_some());
     assert!(surface::standard_function(surface::StandardModule::Debug, "panic").is_some());
     assert_eq!(
@@ -649,7 +653,7 @@ fn resolves_standard_module_imports_facade_exports_and_function_calls() {
     let lowered = common::lower_ok(
         r#"
 pub use std::math as math;
-use std::map::len as map_len;
+use std::map::Map::len as map_len;
 
 fn size(values: MutableMap<String, i32>) -> usize {
     map_len(values)
@@ -809,11 +813,11 @@ fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
     let lowered = common::lower_ok(
         r#"
 fn contains<K: Eq + Hash, V>(values: MutableMap<K, V>, key: K) -> bool {
-    std::map::contains_key(values, key)
+    std::map::Map::contains_key(values, key)
 }
 
 fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
-    std::set::len(values)
+    std::set::Set::len(values)
 }
 "#,
     );
@@ -824,8 +828,9 @@ fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
-    let lowered =
-        common::lower_ok("fn bad(values: MutableMap<f64, i32>) -> usize { std::map::len(values) }");
+    let lowered = common::lower_ok(
+        "fn bad(values: MutableMap<f64, i32>) -> usize { std::map::Map::len(values) }",
+    );
     let names = resolve_names(&lowered)
         .into_checked()
         .expect("resolver should succeed");
@@ -841,7 +846,7 @@ fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
     }));
 
     let lowered = common::lower_ok(
-        "fn bad<K, V>(values: MutableMap<K, V>) -> usize { std::map::len(values) }",
+        "fn bad<K, V>(values: MutableMap<K, V>) -> usize { std::map::Map::len(values) }",
     );
     let names = resolve_names(&lowered)
         .into_checked()
@@ -892,7 +897,7 @@ fn bad(values: MutableMap<String, i32>) -> bool {
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::ArgumentTypeMismatch {
-                function_name: "std::map::contains_key".to_owned(),
+                function_name: "std::map::Map::contains_key".to_owned(),
                 parameter_name: "key".to_owned(),
                 expected: "String".to_owned(),
                 found: "i32".to_owned(),

@@ -59,7 +59,7 @@ fn main() -> i32 {
     std::debug::assert(generic(7) == "value=7", "generic protocol");
     std::debug::assert(["a", "", "b"].join("::") == "a::::b", "join");
     val empty: MutableArray<String> = [];
-    std::debug::assert(std::array::join(empty, ",") == "", "empty join");
+    std::debug::assert(std::array::Array::join(empty, ",") == "", "empty join");
     42
 }
 "##,

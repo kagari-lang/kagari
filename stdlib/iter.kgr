@@ -16,7 +16,6 @@
 /// std::debug::assert(std::iter::len("é!") == [0, 0].len(), "scalar count");
 /// ```
 #[intrinsic(IterLen)]
-#[method(len)]
 pub fn len<I: Iterable>(value: I) -> usize;
 
 /// Test whether a native iterable collection is empty.
@@ -33,7 +32,6 @@ pub fn len<I: Iterable>(value: I) -> usize;
 /// std::debug::assert(std::iter::is_empty(""), "empty");
 /// ```
 #[intrinsic(IterIsEmpty)]
-#[method(is_empty)]
 pub fn is_empty<I: Iterable>(value: I) -> bool;
 
 /// Return the indexed native iteration item, or None if out of bounds.
@@ -53,7 +51,6 @@ pub fn is_empty<I: Iterable>(value: I) -> bool;
 /// std::debug::assert(std::iter::get("é!", "".len_bytes()) == Some("é"), "scalar");
 /// ```
 #[intrinsic(IterGet)]
-#[method(get)]
 pub fn get<I: Iterable>(value: I, index: usize) -> Option<I::Item>;
 
 /// Collect native iteration items into a shallow array.
@@ -71,7 +68,6 @@ pub fn get<I: Iterable>(value: I, index: usize) -> Option<I::Item>;
 /// std::debug::assert(items.get("".len_bytes()) == Some("h"), "collected");
 /// ```
 #[intrinsic(IterToArray)]
-#[method(to_array)]
 pub fn to_array<I: Iterable>(value: I) -> MutableArray<I::Item>;
 
 /// Call the callback once for each native iteration item.
@@ -98,7 +94,6 @@ pub fn to_array<I: Iterable>(value: I) -> MutableArray<I::Item>;
 /// std::debug::assert(total == 6, "visited");
 /// ```
 #[intrinsic(IterForEach)]
-#[method(for_each)]
 pub fn for_each<I: Iterable>(value: I, callback: fn(I::Item) -> ()) -> ();
 
 /// A stateful source of successive items.

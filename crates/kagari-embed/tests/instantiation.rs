@@ -428,7 +428,7 @@ fn reflective_write_targets_supply_generic_constructor_context() {
 #[test]
 fn standard_container_context_executes_through_methods_and_qualified_calls() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: MutableArray<Marker<i32>> = []; values.push(Marker { value: 10 }); std::array::push(values, Marker { value: 10 }); val map: MutableMap<i32, Marker<i32>> = MutableMap::new(); std::map::insert(map, 1, Marker { value: 22 }); values[0].value + values[1].value + map.get(1).unwrap_or(Marker { value: 0 }).value }",
+        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: MutableArray<Marker<i32>> = []; values.push(Marker { value: 10 }); std::array::MutableArray::push(values, Marker { value: 10 }); val map: MutableMap<i32, Marker<i32>> = MutableMap::new(); std::map::MutableMap::insert(map, 1, Marker { value: 22 }); values[0].value + values[1].value + map.get(1).unwrap_or(Marker { value: 0 }).value }",
         42,
     );
 }
@@ -717,14 +717,14 @@ fn terminating_index_receivers_skip_index_effects_and_reads() {
 #[test]
 fn terminating_standard_receivers_skip_container_and_string_operations() {
     for call in [
-        "std::array::len(ARG)",
-        "std::map::len(ARG)",
-        "std::set::len(ARG)",
-        "std::string::len_bytes(ARG)",
-        "std::option::is_some(ARG)",
-        "std::result::is_ok(ARG)",
+        "std::array::Array::len(ARG)",
+        "std::map::Map::len(ARG)",
+        "std::set::Set::len(ARG)",
+        "std::string::String::len_bytes(ARG)",
+        "std::option::Option::is_some(ARG)",
+        "std::result::Result::is_ok(ARG)",
         "std::iter::len(ARG)",
-        "std::array::push(ARG, tick(count))",
+        "std::array::MutableArray::push(ARG, tick(count))",
     ] {
         let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
         execute_contextual_source(

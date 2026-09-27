@@ -230,7 +230,7 @@ Map insert returns the receiver, not Rust's previous-value Option. Constructor
 syntax alignment does not silently change unrelated API behavior.
 
 Read methods accept either access type through the permitted conversion. Free
-functions and method views use the same signatures: `std::map::insert(readable,
+functions and method views use the same signatures: `std::map::MutableMap::insert(readable,
 key, value)` is rejected just like `readable.insert(key, value)`. Mutable results
 that alias the receiver cannot be obtained through a read-only receiver.
 Iteration and formatting consume either access type without changing access to

@@ -240,7 +240,7 @@ lossless nested metadata and following declaration recovery.
   ordinary text escapes and nested interpolation.
 - [x] Canonical Display/Debug selection, left-to-right single evaluation and
   ordinary propagation/trap cleanup through existing call frames.
-- [x] `[String].join(separator)` and `std::array::join`, using checked byte-length
+- [x] `[String].join(separator)` and `std::array::Array::join`, using checked byte-length
   accumulation and one result-buffer reservation; concat remains available.
 - [x] English API docs, runnable example and EBNF coverage inventories.
 
@@ -280,8 +280,8 @@ standard declaration/example migration must agree. No compatibility constructors
 or dual mutability model remain. `Type::from(array)` creates fresh shallow storage;
 map entries use `(K, V)` tuples and both access variants use checked insertion.
 General variance, frozen/persistent collections, deep immutability, general
-copy/clone protocols, capacity APIs, variadic calls and arbitrary iterator
-construction remain separate work.
+copy/clone protocols, capacity APIs and variadic calls remain separate work.
+Arbitrary iterator construction is tracked in the iteration checkpoints below.
 
 C01a introduced `CollectionAccess::{ReadOnly, Mutable}` in semantic types, KBC/runtime
 ABI v63 and host interface KHI v12. C01-C03 activate the public access types and
@@ -310,3 +310,30 @@ methods, free functions, indexing, reflection, generics, closures and branch joi
 Constructor navigation and read-only member completion have query coverage.
 `cargo fmt --all -- --check`, workspace/all-targets clippy with warnings denied,
 `cargo test --workspace --no-fail-fast` and `git diff --check` passed.
+
+## Standard methods and lazy collection pipelines
+
+This sequence replaces the previous method aliases and native-only iteration helpers.
+Each checkpoint includes specifications, examples, relevant tests and a Conventional
+Commit. No compatibility aliases are retained.
+
+- [x] I01: source-owned inherent methods and associated functions in generic impl
+  blocks; remove method attributes and migrate native API calls and queries.
+- [ ] I02: unify Iterable/Iterator and iter, including derived iterator identity,
+  for-loop conversion, associated outputs and user-defined protocols.
+- [ ] I03: FromIterator and target-directed collect for all six collection types
+  and user-defined collections; fresh shallow construction and checked key insertion.
+- [ ] I04: lazy map, filter, filter_map, take, skip, enumerate, zip and chain.
+- [ ] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
+- [ ] I06: shared iterator progress, short-circuit continuation, guard lifetimes,
+  callback failures, budgets and GC retention across adapter chains.
+- [ ] I07: executable English API documentation, examples, source/artifact/backend
+  conformance and final workspace formatting, clippy and test validation.
+
+Kagari uses iter without ownership transfer; callbacks receive ordinary values.
+group_by is a Kagari extension returning MutableMap<K, MutableArray<T>>. flat_map,
+flatten, sum/product and Result/Option collection lifting remain follow-up work.
+
+I01 validation: HIR and embedding tests passed, including executable standard API
+examples, native declaration navigation, removed-export rejection, receiver access
+and concrete Array<String> method checks. Workspace check and git diff --check passed.

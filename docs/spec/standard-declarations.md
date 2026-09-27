@@ -15,8 +15,8 @@ imports or recognized by a user-controlled file extension.
 
 Outer `///` comments belong to the immediately following declaration. They retain
 Markdown including fenced Kagari examples. The CST remains lossless. Existing
-`#[intrinsic(...)]` and `#[method(...)]` attribute syntax is used for interface metadata;
-no second attribute syntax is introduced.
+`#[intrinsic(...)]` binds native execution. Instance methods are declared with
+`self` inside an inherent `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in
 [the implementation roadmap](../implementation-roadmap.md#standard-library-declaration-sources).
@@ -30,8 +30,15 @@ build artifact, not a second handwritten API definition. Unknown intrinsic IDs,
 duplicate bindings/exports/method views, missing documentation and function bodies
 fail the standard-library build. The engine bundles the exact parsed source text.
 
-`#[method(name)]` exposes a view using the first parameter as receiver. Function
-and method calls share parameter types, generic constraints and result types.
+Generic inherent blocks own their receiver parameters, for example
+`impl<T> Array<T> { pub fn get(self, index: usize) -> Option<T>; }`.
+Associated constructors omit `self`. Method-specific generic parameters extend
+the impl parameters; `Self` resolves to the impl target. Concrete targets such as
+`impl Array<String>` restrict methods to that receiver shape. Metadata and source
+identities are generated from these declarations, including read-only versus
+mutable receiver access. Method syntax and qualified calls such as
+`Array::get(values, index)` share the same checked signature. Old module-level
+method functions are removed. Genuine free functions remain at module scope.
 Native `Iterable`, `OrderedNumber` and `SignedNumber` constraints retain their
 existing restricted meanings. They do not grant arbitrary Iterator or operator
 implementations access to native helpers.

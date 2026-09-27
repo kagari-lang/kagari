@@ -135,7 +135,7 @@ fn main() -> i32 {
 fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
     for (source, code) in [
         (
-            "fn f()->i32 { val x: Option<i32> = None; std::result::map_err(x, |n: i32| n); 42 }",
+            "fn f()->i32 { val x: Option<i32> = None; std::result::Result::map_err(x, |n: i32| n); 42 }",
             "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
         ),
         (

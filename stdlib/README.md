@@ -28,8 +28,11 @@ Runtime-native functions intentionally have no Kagari body.
 
 Examples use Kagari syntax. A snippet without `fn main` can be placed inside a
 `main` function. A snippet containing `fn main` is a complete program. Standard
-functions can be called by qualified path, such as `std::array::get(values, index)`;
-functions marked `#[method(get)]` also support `values.get(index)`.
+methods live in `impl` blocks: `values.get(index)` calls the same declaration as
+`Array::get(values, index)`. Constructors such as `Array::new()` omit `self`.
+Generic impl parameters describe the receiver; method generics describe additional
+types introduced by that operation. Free functions such as `std::math::min` remain
+at module scope.
 
 Integer literals currently have type `i32`, while indices and lengths use `usize`.
 Examples obtain `usize` values from collection or string lengths. Functions taking

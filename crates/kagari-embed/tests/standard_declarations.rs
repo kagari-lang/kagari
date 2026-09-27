@@ -4,6 +4,43 @@ use kagari_hir::builtin::surface;
 use kagari_runtime::{host::HostFunction, value::Value};
 
 #[test]
+fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports() {
+    let engine = KagariEngine::default();
+    for body in [
+        "std::array::len([1]);",
+        "std::set::contains(Set::from([1]), 1);",
+        "[1].join(\",\");",
+        "val a: Array<i32> = [1]; MutableArray::push(a, 2);",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new(
+                        "removed-standard-api.kgr",
+                        format!("fn main() {{ {body} }}")
+                    ),
+                    Default::default(),
+                    Default::default(),
+                )
+                .is_err(),
+            "{body}"
+        );
+    }
+    for intrinsic in [
+        surface::StandardIntrinsic::ArrayGet,
+        surface::StandardIntrinsic::ArrayPush,
+        surface::StandardIntrinsic::ArrayJoin,
+        surface::StandardIntrinsic::ResultMap,
+    ] {
+        let function = surface::standard_function_by_intrinsic(intrinsic).unwrap();
+        assert_eq!(function.api.params[0].name, "self");
+        let declaration = kagari_hir::builtin::declarations::function(intrinsic).unwrap();
+        assert_eq!(declaration.path.len(), 2);
+        assert!(declaration.signature.contains("(self"));
+    }
+}
+
+#[test]
 fn declared_for_each_uses_script_frames_and_cleans_iteration_guards_on_failure() {
     let engine = KagariEngine::default();
     let artifact = engine

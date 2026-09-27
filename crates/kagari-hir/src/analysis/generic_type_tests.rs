@@ -1315,13 +1315,19 @@ fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
     for (body, mismatch) in [
         ("values.push((1, missing));", false),
         ("values.push((true, missing));", true),
-        ("std::array::push(values, (1, missing));", false),
-        ("std::array::push(values, (true, missing));", true),
-        ("std::array::len(missing);", false),
-        ("std::array::len((1, missing));", true),
-        ("std::string::contains(missing, \"x\");", false),
-        ("std::string::contains(\"x\", missing);", false),
-        ("std::string::contains(\"x\", (1, missing));", true),
+        (
+            "std::array::MutableArray::push(values, (1, missing));",
+            false,
+        ),
+        (
+            "std::array::MutableArray::push(values, (true, missing));",
+            true,
+        ),
+        ("std::array::Array::len(missing);", false),
+        ("std::array::Array::len((1, missing));", true),
+        ("std::string::String::contains(missing, \"x\");", false),
+        ("std::string::String::contains(\"x\", missing);", false),
+        ("std::string::String::contains(\"x\", (1, missing));", true),
     ] {
         let source = SourceFile::new(
             "standard-recovery.kgr",
@@ -1352,15 +1358,21 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
         ("values.push(Marker { value: 7 });", true),
         ("map.get(1).unwrap_or(Marker { value: 7 });", true),
         (
-            "std::option::unwrap_or(map.get(1), Marker { value: 7 });",
+            "std::option::Option::unwrap_or(map.get(1), Marker { value: 7 });",
             true,
         ),
-        ("std::array::push(values, Marker { value: 7 });", true),
+        (
+            "std::array::MutableArray::push(values, Marker { value: 7 });",
+            true,
+        ),
         ("map.insert(1, Marker { value: 7 });", true),
-        ("std::map::insert(map, 1, Marker { value: 7 });", true),
+        (
+            "std::map::MutableMap::insert(map, 1, Marker { value: 7 });",
+            true,
+        ),
         ("values.push(Marker<bool> { value: 7 });", false),
         (
-            "std::map::insert(map, 1, Marker<bool> { value: 7 });",
+            "std::map::MutableMap::insert(map, 1, Marker<bool> { value: 7 });",
             false,
         ),
         ("values.push(Marker { value: true });", false),
@@ -1386,9 +1398,9 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
 fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
     for body in [
         "keys.union(MutableSet::new());",
-        "std::set::intersection(keys, MutableSet::new());",
+        "std::set::Set::intersection(keys, MutableSet::new());",
         "result.unwrap_or(Marker { value: 7 });",
-        "std::result::unwrap_or(result, Marker { value: 7 });",
+        "std::result::Result::unwrap_or(result, Marker { value: 7 });",
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new(
@@ -2237,12 +2249,12 @@ fn index_reads_require_a_receiver_value_but_keep_inner_index_errors() {
 #[test]
 fn standard_receiver_shapes_require_normally_produced_values() {
     for call in [
-        "std::array::len(ARG)",
-        "std::map::len(ARG)",
-        "std::set::len(ARG)",
-        "std::string::len_bytes(ARG)",
-        "std::option::is_some(ARG)",
-        "std::result::is_ok(ARG)",
+        "std::array::Array::len(ARG)",
+        "std::map::Map::len(ARG)",
+        "std::set::Set::len(ARG)",
+        "std::string::String::len_bytes(ARG)",
+        "std::option::Option::is_some(ARG)",
+        "std::result::Result::is_ok(ARG)",
         "std::iter::len(ARG)",
     ] {
         for (argument, valid) in [

@@ -136,7 +136,7 @@ fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
 
     (
         values.len(),
-        std::string::contains("kagari", "gar"),
+        std::string::String::contains("kagari", "gar"),
         scores.keys().len(),
         names.contains("bob"),
         names.to_array().len(),

@@ -106,20 +106,22 @@ fn main() {
                     implementation.trait_ref().is_none(),
                     "native associated functions are inherent"
                 );
-                assert!(
-                    implementation.generic_params().is_none(),
-                    "native generics belong to each function"
-                );
-                let owner = implementation.target_type().unwrap().name_text().unwrap();
                 for method in implementation.methods() {
                     native_functions.push((
-                        Some(owner.clone()),
+                        Some(implementation.clone()),
                         api::NativeFunction::cast(method.syntax().clone()).unwrap(),
                     ));
                 }
             }
         }
-        for (owner, function) in native_functions {
+        for (implementation, function) in native_functions {
+            assert!(
+                attribute(&function, "method").is_none(),
+                "declare methods in impl blocks"
+            );
+            let target = implementation.as_ref().and_then(|i| i.target_type());
+            let owner = target.as_ref().and_then(|t| t.name_text());
+            let self_type = target.map(ty);
             let name = function.name_text().unwrap();
             let path = if let Some(owner) = &owner {
                 vec![("AssociatedType", owner.clone()), ("Method", name.clone())]
@@ -158,9 +160,11 @@ fn main() {
             );
             let mut generics = Vec::new();
             let mut constraints = Vec::new();
-            for param in function
-                .generic_params()
+            for param in implementation
+                .as_ref()
+                .and_then(|i| i.generic_params())
                 .into_iter()
+                .chain(function.generic_params())
                 .flat_map(|list| list.params().collect::<Vec<_>>())
             {
                 let param_name = param.name_text().unwrap();
@@ -201,7 +205,18 @@ fn main() {
                     format!(
                         "ApiParameter{{name:{:?},ty:{}}}",
                         p.name_text().unwrap(),
-                        ty(p.ty().unwrap())
+                        p.ty()
+                            .map(ty)
+                            .unwrap_or_else(|| {
+                                assert_eq!(p.name_text().as_deref(), Some("self"));
+                                self_type.clone().expect("receiver requires an impl")
+                            })
+                            .replace(
+                                "ApiType::Named(\"Self\", &[])",
+                                self_type
+                                    .as_deref()
+                                    .unwrap_or("ApiType::Named(\"Self\", &[])")
+                            )
                     )
                 })
                 .collect::<Vec<_>>()
@@ -209,7 +224,13 @@ fn main() {
             let output = function
                 .return_type()
                 .map(ty)
-                .unwrap_or("ApiType::Tuple(&[])".into());
+                .unwrap_or("ApiType::Tuple(&[])".into())
+                .replace(
+                    "ApiType::Named(\"Self\", &[])",
+                    self_type
+                        .as_deref()
+                        .unwrap_or("ApiType::Named(\"Self\", &[])"),
+                );
             let signature = function.syntax().text().to_string();
             let signature = &signature[signature.find("pub fn").unwrap()..];
             let doc = function.documentation(&text);
@@ -220,9 +241,16 @@ fn main() {
             let constraints = format!("&[{}]", constraints.join(","));
             let qualified_name = format!("std::{}::{export}", module.to_lowercase());
             writeln!(functions,"StandardFunctionSpec{{module:StandardModule::{module},name:{export:?},intrinsic:StandardIntrinsic::{intrinsic},type_params:{generics},arity:{arity},constraints:{constraints},api:&ApiFunction{{qualified_name:{qualified_name:?},uri:{uri:?},start:{start},end:{end},documentation:{doc:?},signature:{signature:?},params:&[{parameter_types}],result:{output}}}}},").unwrap();
-            if let Some(method) = attribute(&function, "method") {
+            if params
+                .first()
+                .is_some_and(|p| p.name_text().as_deref() == Some("self"))
+            {
+                let method = name;
                 assert!(arity > 0, "method needs a receiver");
-                let receiver = if module == "Iter" { "Iterable" } else { module };
+                let receiver = owner
+                    .as_deref()
+                    .expect("method owner")
+                    .trim_start_matches("Mutable");
                 assert!(
                     method_bindings.insert((receiver.to_owned(), method.clone())),
                     "duplicate method binding"

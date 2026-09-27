@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn native_calls_types_and_variants_navigate_to_documented_source() {
-        let text = "use std::array::get as lookup; fn main() { val value: Result<i32,String> = Ok(7); val values=[7]; lookup(values, values.len()); value.is_ok(); }";
+        let text = "use std::array::Array::get as lookup; fn main() { val value: Result<i32,String> = Ok(7); val values=[7]; lookup(values, values.len()); value.is_ok(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)

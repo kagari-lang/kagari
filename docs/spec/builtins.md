@@ -471,7 +471,7 @@ fn main() -> (usize, bool, usize, bool, i32) {
 
     (
         values.len(),
-        std::string::starts_with("kagari", "ka"),
+        std::string::String::starts_with("kagari", "ka"),
         scores.keys().len(),
         names.contains("bob"),
         std::math::max(10, 12)
@@ -681,7 +681,7 @@ See [iterators.kgr](../../examples/syntax/iterators.kgr).
 
 ## String construction
 
-`std::array::join(value: [String], separator: String) -> String`, also available as
+`std::array::Array::join(value: [String], separator: String) -> String`, also available as
 `value.join(separator)`, joins already formatted strings. Empty input returns an
 empty string; separators appear only between adjacent elements. It does not mutate
 its source or call user code. Size arithmetic is checked and result allocation is

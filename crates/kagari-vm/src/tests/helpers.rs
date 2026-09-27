@@ -1260,9 +1260,9 @@ fn main() -> (usize, bool, usize, usize, usize, usize, usize, usize, bool, bool,
         set.len(),
         set_items.len(),
         union.len(),
-        std::string::contains("kagari", "gar"),
-        std::string::starts_with("kagari", "ka"),
-        std::string::ends_with("kagari", "ri"),
+        std::string::String::contains("kagari", "gar"),
+        std::string::String::starts_with("kagari", "ka"),
+        std::string::String::ends_with("kagari", "ri"),
         std::math::max(1, 2)
     )
 }
