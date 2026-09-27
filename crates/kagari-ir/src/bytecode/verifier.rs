@@ -1,8 +1,5 @@
 use kagari_common::identity::DefinitionKind;
-use std::{
-    collections::HashSet,
-    fmt::{self, Display, Formatter},
-};
+use std::collections::HashSet;
 
 use crate::{
     bytecode::{
@@ -13,97 +10,112 @@ use crate::{
     module::ValueType,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
+    #[error("invalid executable module graph")]
     InvalidProgramGraph,
+    #[error("invalid struct layouts")]
     InvalidStructLayout,
+    #[error("invalid enum layouts")]
     InvalidEnumLayout,
+    #[error("invalid public ABI")]
     InvalidPublicAbi,
+    #[error("invalid executable interface table")]
     InvalidInterfaceTable,
+    #[error("invalid host path layout")]
     InvalidPathLayout,
+    #[error("invalid struct {structure:?} in {function:?}")]
     InvalidStructId {
         function: FunctionRef,
         structure: StructId,
     },
+    #[error("invalid host interface: {0}")]
     InvalidHostInterface(String),
+    #[error("invalid host import {import:?} in {function:?}")]
     InvalidHostImport {
         function: FunctionRef,
         import: super::HostImportId,
     },
+    #[error("invalid operation in {function:?}: {reason}")]
     InvalidOperation {
         function: FunctionRef,
         reason: &'static str,
     },
-    FunctionTableLengthMismatch {
-        functions: usize,
-        table: usize,
-    },
-    FunctionRecordMismatch {
-        function: FunctionRef,
-    },
-    InvalidFunctionIdentity {
-        function: FunctionRef,
-    },
-    InvalidRootLayout {
-        function: FunctionRef,
-    },
+    #[error("function table length mismatch: {functions} functions, {table} table records")]
+    FunctionTableLengthMismatch { functions: usize, table: usize },
+    #[error("function record mismatch for {function:?}")]
+    FunctionRecordMismatch { function: FunctionRef },
+    #[error("invalid function identity for {function:?}")]
+    InvalidFunctionIdentity { function: FunctionRef },
+    #[error("invalid GC root layout for {function:?}")]
+    InvalidRootLayout { function: FunctionRef },
+    #[error("metadata count mismatch in {function:?} {layout}: expected {expected}, found {found}")]
     MetadataCountMismatch {
         function: FunctionRef,
         layout: &'static str,
         expected: usize,
         found: usize,
     },
+    #[error("invalid register {register:?} in {function:?}")]
     InvalidRegister {
         function: FunctionRef,
         register: Register,
     },
+    #[error("invalid local {local:?} in {function:?}")]
     InvalidLocal {
         function: FunctionRef,
         local: LocalSlot,
     },
+    #[error("invalid module slot {slot:?} in {function:?}")]
     InvalidModuleSlot {
         function: FunctionRef,
         slot: ModuleSlot,
     },
+    #[error("invalid field id {field:?} in {function:?}")]
     InvalidFieldReference {
         function: FunctionRef,
         field: FieldRef,
     },
-    InvalidPathId {
-        function: FunctionRef,
-        path: PathId,
-    },
-    ReadOnlyPath {
-        function: FunctionRef,
-        path: PathId,
-    },
+    #[error("invalid path id {path:?} in {function:?}")]
+    InvalidPathId { function: FunctionRef, path: PathId },
+    #[error("write to read-only path {path:?} in {function:?}")]
+    ReadOnlyPath { function: FunctionRef, path: PathId },
+    #[error("invalid call target {target:?} referenced from {function:?}")]
     InvalidFunctionRef {
         function: FunctionRef,
         target: FunctionRef,
     },
-    MissingConstant {
-        function: FunctionRef,
-    },
+    #[error("instruction in {function:?} references a missing constant")]
+    MissingConstant { function: FunctionRef },
+    #[error("metadata in {function:?} references missing type {ty:?}")]
     MissingType {
         function: FunctionRef,
         ty: ValueType,
     },
+    #[error("invalid jump target {target:?} in {function:?}")]
     InvalidJumpTarget {
         function: FunctionRef,
         target: JumpTarget,
     },
+    #[error(
+        "bytecode type mismatch in {function:?} {context}: expected {expected:?}, found {found:?}"
+    )]
     TypeMismatch {
         function: FunctionRef,
         context: &'static str,
         expected: ValueType,
         found: ValueType,
     },
+    #[error(
+        "call arity mismatch in {function:?} to {target:?}: expected {expected}, found {found}"
+    )]
     ArityMismatch {
         function: FunctionRef,
         target: FunctionRef,
         expected: usize,
         found: usize,
     },
+    #[error("standard intrinsic signature mismatch in {function:?} for {intrinsic:?}: {reason}")]
     StandardIntrinsicSignatureMismatch {
         function: FunctionRef,
         intrinsic: StandardIntrinsic,
@@ -149,114 +161,6 @@ impl BytecodeVerificationError {
         }
     }
 }
-
-impl Display for BytecodeVerificationError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidProgramGraph => write!(f, "invalid executable module graph"),
-            Self::InvalidStructLayout => write!(f, "invalid struct layouts"),
-            Self::InvalidEnumLayout => write!(f, "invalid enum layouts"),
-            Self::InvalidPublicAbi => write!(f, "invalid public ABI"),
-            Self::InvalidInterfaceTable => write!(f, "invalid executable interface table"),
-            Self::InvalidPathLayout => write!(f, "invalid host path layout"),
-            Self::InvalidStructId {
-                function,
-                structure,
-            } => write!(f, "invalid struct {structure:?} in {function:?}"),
-            Self::InvalidHostInterface(reason) => write!(f, "invalid host interface: {reason}"),
-            Self::InvalidHostImport { function, import } => {
-                write!(f, "invalid host import {import:?} in {function:?}")
-            }
-            Self::InvalidOperation { function, reason } => {
-                write!(f, "invalid operation in {function:?}: {reason}")
-            }
-            Self::FunctionTableLengthMismatch { functions, table } => write!(
-                f,
-                "function table length mismatch: {functions} functions, {table} table records"
-            ),
-            Self::FunctionRecordMismatch { function } => {
-                write!(f, "function record mismatch for {function:?}")
-            }
-            Self::InvalidFunctionIdentity { function } => {
-                write!(f, "invalid function identity for {function:?}")
-            }
-            Self::InvalidRootLayout { function } => {
-                write!(f, "invalid GC root layout for {function:?}")
-            }
-            Self::MetadataCountMismatch {
-                function,
-                layout,
-                expected,
-                found,
-            } => write!(
-                f,
-                "metadata count mismatch in {function:?} {layout}: expected {expected}, found {found}"
-            ),
-            Self::InvalidRegister { function, register } => {
-                write!(f, "invalid register {register:?} in {function:?}")
-            }
-            Self::InvalidLocal { function, local } => {
-                write!(f, "invalid local {local:?} in {function:?}")
-            }
-            Self::InvalidModuleSlot { function, slot } => {
-                write!(f, "invalid module slot {slot:?} in {function:?}")
-            }
-            Self::InvalidFieldReference { function, field } => {
-                write!(f, "invalid field id {field:?} in {function:?}")
-            }
-            Self::InvalidPathId { function, path } => {
-                write!(f, "invalid path id {path:?} in {function:?}")
-            }
-            Self::ReadOnlyPath { function, path } => {
-                write!(f, "write to read-only path {path:?} in {function:?}")
-            }
-            Self::InvalidFunctionRef { function, target } => write!(
-                f,
-                "invalid call target {target:?} referenced from {function:?}"
-            ),
-            Self::MissingConstant { function } => {
-                write!(
-                    f,
-                    "instruction in {function:?} references a missing constant"
-                )
-            }
-            Self::MissingType { function, ty } => {
-                write!(f, "metadata in {function:?} references missing type {ty:?}")
-            }
-            Self::InvalidJumpTarget { function, target } => {
-                write!(f, "invalid jump target {target:?} in {function:?}")
-            }
-            Self::TypeMismatch {
-                function,
-                context,
-                expected,
-                found,
-            } => write!(
-                f,
-                "bytecode type mismatch in {function:?} {context}: expected {expected:?}, found {found:?}"
-            ),
-            Self::ArityMismatch {
-                function,
-                target,
-                expected,
-                found,
-            } => write!(
-                f,
-                "call arity mismatch in {function:?} to {target:?}: expected {expected}, found {found}"
-            ),
-            Self::StandardIntrinsicSignatureMismatch {
-                function,
-                intrinsic,
-                reason,
-            } => write!(
-                f,
-                "standard intrinsic signature mismatch in {function:?} for {intrinsic:?}: {reason}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for BytecodeVerificationError {}
 
 pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
     if !module.dependencies.is_empty() {

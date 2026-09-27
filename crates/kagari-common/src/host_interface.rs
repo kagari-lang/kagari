@@ -409,7 +409,8 @@ impl HostInterface {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("host interface: {self:?}")]
 pub enum HostInterfaceError {
     InvalidDeclaration,
     DuplicateDeclaration,
@@ -417,13 +418,6 @@ pub enum HostInterfaceError {
     TooLarge,
     Encoding,
 }
-
-impl std::fmt::Display for HostInterfaceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "host interface: {self:?}")
-    }
-}
-impl std::error::Error for HostInterfaceError {}
 
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()

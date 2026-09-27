@@ -919,19 +919,12 @@ impl EmbeddingError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReloadValidationError {
+    #[error("artifact validation failed: {0}")]
     Artifact(ArtifactValidationError),
+    #[error("{0}")]
     Runtime(RuntimeReloadValidationError),
-}
-
-impl std::fmt::Display for ReloadValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Artifact(error) => write!(f, "artifact validation failed: {error}"),
-            Self::Runtime(error) => write!(f, "{error}"),
-        }
-    }
 }
 
 impl ReloadValidationError {

@@ -2,7 +2,6 @@ use bincode::Options;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::ModuleIdentity;
-use std::fmt::{self, Display, Formatter};
 
 use crate::{
     bytecode::{
@@ -1325,49 +1324,55 @@ pub struct ArtifactSignature {
     pub signature: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ArtifactValidationError {
+    #[error("invalid KBC magic bytes {0:?}")]
     InvalidMagic([u8; 4]),
-    FormatVersionMismatch {
-        expected: u16,
-        found: u16,
-    },
-    LanguageVersionMismatch {
-        expected: String,
-        found: String,
-    },
-    RuntimeAbiMismatch {
-        expected: String,
-        found: String,
-    },
-    RuntimeHelperAbiMismatch {
-        expected: String,
-        found: String,
-    },
+    #[error("artifact format version mismatch: expected {expected}, found {found}")]
+    FormatVersionMismatch { expected: u16, found: u16 },
+    #[error("artifact language version mismatch: expected `{expected}`, found `{found}`")]
+    LanguageVersionMismatch { expected: String, found: String },
+    #[error("artifact runtime ABI mismatch: expected `{expected}`, found `{found}`")]
+    RuntimeAbiMismatch { expected: String, found: String },
+    #[error("artifact runtime helper ABI mismatch: expected `{expected}`, found `{found}`")]
+    RuntimeHelperAbiMismatch { expected: String, found: String },
+    #[error("artifact module identity mismatch: expected `{expected}`, found `{found}`")]
     ModuleIdentityMismatch {
         expected: Box<ModuleIdentity>,
         found: Box<ModuleIdentity>,
     },
+    #[error("artifact content hash mismatch")]
     ContentHashMismatch,
+    #[error("artifact bytecode was not verified")]
     UnverifiedBytecode,
+    #[error("artifact verification metadata differs from its program")]
     VerificationMetadataMismatch,
+    #[error("artifact tables differ from their program")]
     TableMismatch,
+    #[error("artifact resource limit exceeded: {0}")]
     ResourceLimit(&'static str),
+    #[error("artifact dependency fingerprints mismatch")]
     DependencyFingerprintMismatch,
+    #[error("artifact host interface fingerprint mismatch: expected {}, found {}", .expected.to_hex(), .found.to_hex())]
     HostInterfaceFingerprintMismatch {
         expected: ArtifactFingerprint,
         found: ArtifactFingerprint,
     },
+    #[error("artifact security profile mismatch: expected {expected:?}, found {found:?}")]
     SecurityProfileMismatch {
         expected: Option<String>,
         found: Option<String>,
     },
+    #[error("artifact typed path fingerprints mismatch")]
     PathFingerprintMismatch,
+    #[error("artifact public ABI fingerprints mismatch")]
     PublicAbiFingerprintMismatch,
+    #[error("artifact bytecode verification failed: {0}")]
     Bytecode(crate::bytecode::BytecodeVerificationError),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("artifact codec error: {message}")]
 pub struct ArtifactCodecError {
     message: String,
 }
@@ -1385,14 +1390,6 @@ impl From<Box<bincode::ErrorKind>> for ArtifactCodecError {
         }
     }
 }
-
-impl Display for ArtifactCodecError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "artifact codec error: {}", self.message)
-    }
-}
-
-impl std::error::Error for ArtifactCodecError {}
 
 impl ArtifactValidationError {
     pub fn code(&self) -> &'static str {
@@ -1419,64 +1416,6 @@ impl ArtifactValidationError {
         }
     }
 }
-
-impl Display for ArtifactValidationError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidMagic(magic) => write!(f, "invalid KBC magic bytes {magic:?}"),
-            Self::FormatVersionMismatch { expected, found } => write!(
-                f,
-                "artifact format version mismatch: expected {expected}, found {found}"
-            ),
-            Self::LanguageVersionMismatch { expected, found } => write!(
-                f,
-                "artifact language version mismatch: expected `{expected}`, found `{found}`"
-            ),
-            Self::RuntimeAbiMismatch { expected, found } => write!(
-                f,
-                "artifact runtime ABI mismatch: expected `{expected}`, found `{found}`"
-            ),
-            Self::RuntimeHelperAbiMismatch { expected, found } => write!(
-                f,
-                "artifact runtime helper ABI mismatch: expected `{expected}`, found `{found}`"
-            ),
-            Self::ModuleIdentityMismatch { expected, found } => write!(
-                f,
-                "artifact module identity mismatch: expected `{}`, found `{}`",
-                expected, found
-            ),
-            Self::ContentHashMismatch => write!(f, "artifact content hash mismatch"),
-            Self::UnverifiedBytecode => write!(f, "artifact bytecode was not verified"),
-            Self::VerificationMetadataMismatch => {
-                write!(f, "artifact verification metadata differs from its program")
-            }
-            Self::TableMismatch => write!(f, "artifact tables differ from their program"),
-            Self::ResourceLimit(reason) => write!(f, "artifact resource limit exceeded: {reason}"),
-            Self::DependencyFingerprintMismatch => {
-                write!(f, "artifact dependency fingerprints mismatch")
-            }
-            Self::HostInterfaceFingerprintMismatch { expected, found } => write!(
-                f,
-                "artifact host interface fingerprint mismatch: expected {}, found {}",
-                expected.to_hex(),
-                found.to_hex()
-            ),
-            Self::SecurityProfileMismatch { expected, found } => write!(
-                f,
-                "artifact security profile mismatch: expected {expected:?}, found {found:?}"
-            ),
-            Self::PathFingerprintMismatch => {
-                write!(f, "artifact typed path fingerprints mismatch")
-            }
-            Self::PublicAbiFingerprintMismatch => {
-                write!(f, "artifact public ABI fingerprints mismatch")
-            }
-            Self::Bytecode(error) => write!(f, "artifact bytecode verification failed: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for ArtifactValidationError {}
 
 pub type ArtifactSectionBuffer = Vec<ArtifactSection>;
 pub type SourceFileTable = Vec<String>;

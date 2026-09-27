@@ -237,7 +237,8 @@ impl BackendCompileError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{}", self.message())]
 pub enum BackendInvocationError {
     UnsupportedArtifact(String),
     RuntimeFailure(crate::RuntimeError),
@@ -253,12 +254,6 @@ impl BackendInvocationError {
     }
 }
 
-impl fmt::Display for BackendInvocationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.message())
-    }
-}
-impl std::error::Error for BackendInvocationError {}
 pub trait CodegenBackend {
     fn backend_id(&self) -> BackendId;
 

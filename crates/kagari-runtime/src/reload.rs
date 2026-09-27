@@ -14,25 +14,29 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleEpoch(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ReloadValidationError {
-    ModuleIdentityMismatch {
-        expected: String,
-        found: String,
-    },
-    ModuleIdChanged {
-        expected: ModuleId,
-        found: ModuleId,
-    },
+    #[error("reload module identity mismatch: expected `{expected}`, found `{found}`")]
+    ModuleIdentityMismatch { expected: String, found: String },
+    #[error("reload module id changed: expected {expected:?}, found {found:?}")]
+    ModuleIdChanged { expected: ModuleId, found: ModuleId },
+    #[error(
+        "reload target `{module_name}` is not active: expected {expected:?}, active {active:?}"
+    )]
     ModuleNotActive {
         module_name: String,
         expected: ModuleEpoch,
         active: Option<ModuleEpoch>,
     },
+    #[error("reload artifact validation failed: {0}")]
     Artifact(ArtifactValidationError),
+    #[error("reload bytecode validation failed: {0}")]
     Bytecode(BytecodeVerificationError),
+    #[error("reload runtime validation failed: {0}")]
     Runtime(RuntimeError),
+    #[error("reload public ABI fingerprints changed")]
     PublicAbiFingerprintMismatch,
+    #[error("reload typed path fingerprints changed")]
     PathFingerprintMismatch,
 }
 
@@ -50,40 +54,6 @@ impl ReloadValidationError {
         }
     }
 }
-
-impl std::fmt::Display for ReloadValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ModuleIdentityMismatch { expected, found } => write!(
-                f,
-                "reload module identity mismatch: expected `{expected}`, found `{found}`"
-            ),
-            Self::ModuleIdChanged { expected, found } => write!(
-                f,
-                "reload module id changed: expected {:?}, found {:?}",
-                expected, found
-            ),
-            Self::ModuleNotActive {
-                module_name,
-                expected,
-                active,
-            } => write!(
-                f,
-                "reload target `{module_name}` is not active: expected {:?}, active {:?}",
-                expected, active
-            ),
-            Self::Artifact(error) => write!(f, "reload artifact validation failed: {error}"),
-            Self::Bytecode(error) => write!(f, "reload bytecode validation failed: {error}"),
-            Self::Runtime(error) => write!(f, "reload runtime validation failed: {error}"),
-            Self::PublicAbiFingerprintMismatch => {
-                write!(f, "reload public ABI fingerprints changed")
-            }
-            Self::PathFingerprintMismatch => write!(f, "reload typed path fingerprints changed"),
-        }
-    }
-}
-
-impl std::error::Error for ReloadValidationError {}
 
 pub fn validate_load_candidate(bytecode: &BytecodeProgram) -> Result<(), ReloadValidationError> {
     kagari_ir::bytecode::validate_program_resource_limits(bytecode)

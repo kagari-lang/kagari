@@ -9,6 +9,7 @@ default = []
 jit = []
 
 [dependencies]
+thiserror.workspace = true
 cranelift-codegen.workspace = true
 cranelift-frontend.workspace = true
 cranelift-jit.workspace = true

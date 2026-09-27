@@ -588,7 +588,8 @@ fn usage() -> String {
     .join("\n")
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 struct CliError {
     code: u8,
     message: String,
@@ -610,14 +611,6 @@ impl CliError {
         self.code
     }
 }
-
-impl std::fmt::Display for CliError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CliError {}
 
 #[cfg(test)]
 mod tests {

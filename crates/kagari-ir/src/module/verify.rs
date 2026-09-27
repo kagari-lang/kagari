@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt, ops::Deref};
+use std::{collections::HashSet, ops::Deref};
 
 use kagari_common::{Span, cancellation::CancellationToken};
 
@@ -40,7 +40,8 @@ impl VerifiedIrModule {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{} at {function:?}/{block:?}/{instruction:?}: {kind:?}", self.code())]
 pub struct IrVerificationError {
     pub function: Option<InstanceId>,
     pub block: Option<BlockId>,
@@ -122,21 +123,6 @@ impl IrVerificationError {
         }
     }
 }
-
-impl fmt::Display for IrVerificationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} at {:?}/{:?}/{:?}: {:?}",
-            self.code(),
-            self.function,
-            self.block,
-            self.instruction,
-            self.kind
-        )
-    }
-}
-impl std::error::Error for IrVerificationError {}
 
 /// Validates representation contracts and definite initialization before any
 /// narrowing of IDs or flattening of control flow into bytecode offsets.

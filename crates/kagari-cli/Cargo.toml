@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+thiserror.workspace = true
 kagari-common.workspace = true
 kagari-embed.workspace = true
 kagari-jit-cranelift = { workspace = true, optional = true }

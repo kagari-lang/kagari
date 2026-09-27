@@ -358,7 +358,8 @@ impl CodegenBackend for CraneliftBackend {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct CraneliftBackendError {
     message: String,
 }
@@ -374,14 +375,6 @@ impl CraneliftBackendError {
         }
     }
 }
-
-impl fmt::Display for CraneliftBackendError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CraneliftBackendError {}
 
 #[derive(Debug, Clone, Copy)]
 struct LoweredValue {

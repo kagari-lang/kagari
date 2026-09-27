@@ -1,7 +1,7 @@
 //! Integer arithmetic shared by constant evaluation and runtime operations.
-use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("{}", self.message())]
 pub enum ArithmeticError {
     Overflow,
     DivisionByZero,
@@ -17,12 +17,6 @@ impl ArithmeticError {
         }
     }
 }
-impl fmt::Display for ArithmeticError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.message())
-    }
-}
-impl std::error::Error for ArithmeticError {}
 
 #[derive(Debug, Clone, Copy)]
 pub enum IntegerBinaryOp {
