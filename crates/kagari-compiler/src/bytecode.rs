@@ -55,6 +55,7 @@ use kagari_bytecode::StructId;
 use kagari_bytecode::UnaryOp;
 use kagari_bytecode::verify_module;
 use kagari_mir::VerifiedMirModule;
+use kagari_mir::analysis::FunctionAnalysis;
 use kagari_mir::function::BasicBlock;
 use kagari_mir::function::MirFunction;
 use kagari_mir::ids::BlockId;
@@ -130,7 +131,13 @@ fn lower_linked_module(
     let functions = ir
         .functions
         .iter()
-        .map(|function| lower_function(function, &mut context))
+        .map(|function| {
+            lower_function(
+                function,
+                ir.analysis(function.id).expect("sealed function facts"),
+                &mut context,
+            )
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let mut module = BytecodeModule {
         dependencies,
@@ -395,6 +402,7 @@ impl BytecodeLoweringContext<'_> {
 
 fn lower_function(
     function: &MirFunction,
+    analysis: &FunctionAnalysis,
     context: &mut BytecodeLoweringContext,
 ) -> Result<BytecodeFunction, BytecodeLoweringError> {
     let block_offsets = compute_block_offsets(function);
@@ -406,13 +414,8 @@ fn lower_function(
             .sum(),
     );
     let mut instruction_spans = Vec::with_capacity(instructions.capacity());
-    let mut instruction_scopes = Vec::with_capacity(instructions.capacity());
 
     for (_, block) in emission_order(function) {
-        instruction_scopes.extend(&block.instruction_scopes);
-        if block.terminator.is_some() {
-            instruction_scopes.push(block.terminator_scope.unwrap_or(0));
-        }
         lower_block(
             block,
             &block_offsets,
@@ -443,9 +446,8 @@ fn lower_function(
         effects: function.effects,
         debug: collect_debug_metadata(
             function,
-            &instructions,
+            analysis,
             &instruction_spans,
-            &instruction_scopes,
             function
                 .debug
                 .source_module

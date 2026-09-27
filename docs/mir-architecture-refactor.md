@@ -466,8 +466,8 @@ does not authorize starting the MIR refactor with failing gates.
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
-| A01 | `1838e57` shared ABI identities; frozen inventory; thirteen real crate owners and compile/invocation boundary extracted | Cargo metadata resolves 13 packages; 447-file structure audit, fmt and diff checks pass; all 1,312 test functions retained; workspace check fails in ABI | A01 owns remaining HIR-dependent ABI/MIR/bytecode validation and contract visibility; A02-A04 own downstream wiring listed below |
-| A02 | Not started | Not run | None recorded |
+| A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
+| A02 | `0cb6570` concrete source instance handoff; sealed liveness/root/debug availability and safepoint facts | 140 targeted tests and 2 seal doc tests; source/core clippy, structure, fmt and diff checks pass | Explicit logical budgets, portable origins and bounded public passes remain; A03/A04 own VM/native integration |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
@@ -1106,6 +1106,63 @@ coverage while completing that contract. The recorded five VM native-integration
 errors (A03) and Cranelift errors (A04) remain; unchanged downstream failures were
 not repeated at this checkpoint. SDK feature/artifact integration, the A05 behavior
 matrix and full workspace gates remain unverified.
+
+### A02 checkpoint: sealed program-point analyses (2026-09-28)
+
+Checkpoint subject: `refactor(mir): seal liveness and debugger availability`.
+
+`VerifiedMirModule` now owns revision-bound function/block/point facts in addition
+to the checked CFG. Forward definite initialization feeds lexical debugger
+availability. Backward non-SSA liveness includes debugger reads and names logical
+heap roots before each instruction and terminator. Runtime-service and control-flow
+safepoints are classified from MIR, including allocation and potentially reentrant
+calls. A call's operands remain roots while its newly defined result is unavailable
+until successful completion. Unreachable points expose no live/debug values.
+`BackendFunctionInput` exposes these facts from the same immutable seal. Extracting
+raw MIR discards the analyses; reverification recomputes them. The two seal
+compile-fail examples now test real exported types rather than unresolved paths.
+
+Operand definitions/uses and successor inventories moved to their instruction and
+terminator owners, with exhaustive enum matching. Verification and analyses share
+these inventories. The analyses use packed slot sets and worklists, with a module
+budget of 64 MiB for conservatively estimated fact/scratch storage and 100 million
+work units, plus cooperative cancellation during both fixed points and lexical
+scope traversal. The prior definite-initialization matrix limit remains checked.
+
+Compiler debug emission consumes MIR availability and MIR operation/control-flow
+kinds instead of reconstructing lexical availability from flattened bytecode.
+Locals are emitted only where definitely initialized and in scope; parameter debug
+records are now explicitly required, closing a forged-metadata case that otherwise
+could omit a parameter and substitute an unscoped local. Interpreter root storage
+remains its existing conservative function-wide layout; precise native stack-map
+mapping belongs to A04 and must consume the sealed logical roots.
+
+Validation (default Cargo target/parallelism and configured O1 profiles):
+
+- `cargo test -p kagari-mir -p kagari-codegen -p kagari-compiler`: 140 tests pass
+  (131 compiler unit, eight program integration, one MIR budget), plus two seal
+  compile-fail doc tests. Nine new tests cover call operand/result roots, debugger
+  retention, semantic liveness across loop backedges without debugger visibility,
+  last uses, branch initialization, unreachable code, mutation/reverification,
+  metadata rejection, memory limits, work limits and cancellation. Existing tests
+  and assertions remain intact.
+- `cargo clippy -p kagari-mir -p kagari-codegen -p kagari-compiler --all-targets -- -D warnings`
+  and `cargo clippy -p kagari-compiler --no-default-features --all-targets -- -D warnings`:
+  pass. The lowering core remains frontend-free.
+- `uv run --locked scripts/check_structure.py`: 476 Rust files, zero findings and
+  zero exceptions. Reviewed private analysis ownership, instruction inventories,
+  production imports, visibility and the separate debug/fixed-point/root stages.
+- `cargo fmt --all -- --check` and `git diff --check`: pass. Temporary logs are
+  under `target/a02-analysis-*.log`.
+
+A02 remains open. Next represent portable source positions/origins without retaining
+`SourceFile`, add explicit logical budget charges that preserve existing failure
+points, and implement bounded public simplification/cleanup passes with verification
+and analysis invalidation. No budget semantics or optimized native execution are
+claimed by this checkpoint. The previously recorded VM errors (A03), Cranelift
+errors (A04), feature/artifact integration and A05 acceptance remain outstanding;
+unchanged downstream failures were not rerun. The workspace is still broken at
+those integration boundaries.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

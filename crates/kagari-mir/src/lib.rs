@@ -1,4 +1,5 @@
 //! Concrete control-flow representation and verified execution facts.
+pub mod analysis;
 pub mod function;
 pub mod ids;
 pub mod instruction;

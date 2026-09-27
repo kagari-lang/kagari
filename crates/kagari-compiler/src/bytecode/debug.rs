@@ -1,7 +1,7 @@
+use crate::bytecode::emission_order;
 use crate::bytecode::lower_local;
 use kagari_abi::ids::DebugPointId;
 use kagari_bytecode::BytecodeDebugMetadata;
-use kagari_bytecode::BytecodeInstruction;
 use kagari_bytecode::CapturedBindingDebugInfo;
 use kagari_bytecode::FrameLayout;
 use kagari_bytecode::InstructionSourceSpan;
@@ -12,14 +12,14 @@ use kagari_bytecode::SafeDebugPoint;
 use kagari_bytecode::SafeDebugPointKind;
 use kagari_common::Span;
 use kagari_common::line_index::PositionEncoding;
+use kagari_mir::analysis::{FunctionAnalysis, PointAnalysis};
 use kagari_mir::function::MirFunction;
-use kagari_mir::ids::LocalId;
+use kagari_mir::{BlockId, Instruction, Terminator};
 use std::collections::HashMap;
 pub(super) fn collect_debug_metadata(
     function: &MirFunction,
-    instructions: &[BytecodeInstruction],
+    analysis: &FunctionAnalysis,
     instruction_spans: &[Span],
-    instruction_scopes: &[usize],
     source_module: Option<ModuleRef>,
 ) -> BytecodeDebugMetadata {
     let source_spans = instruction_spans
@@ -50,7 +50,7 @@ pub(super) fn collect_debug_metadata(
         .collect::<Vec<_>>();
 
     let mut safe_debug_points = Vec::new();
-    if !instructions.is_empty() {
+    if !instruction_spans.is_empty() {
         push_debug_point(
             &mut safe_debug_points,
             0,
@@ -58,49 +58,38 @@ pub(super) fn collect_debug_metadata(
             SafeDebugPointKind::FunctionEntry,
         );
     }
-    for (instruction_offset, instruction) in instructions.iter().enumerate() {
-        let span = instruction_spans
-            .get(instruction_offset)
-            .copied()
-            .unwrap_or_default();
-        match instruction {
-            BytecodeInstruction::Call { .. } => push_debug_point(
-                &mut safe_debug_points,
-                instruction_offset,
-                span,
-                SafeDebugPointKind::CallBoundary,
-            ),
-            BytecodeInstruction::Jump { .. } | BytecodeInstruction::Branch { .. } => {
-                push_debug_point(
-                    &mut safe_debug_points,
-                    instruction_offset,
-                    span,
-                    SafeDebugPointKind::BranchTarget,
-                );
+    let mut points = Vec::with_capacity(instruction_spans.len());
+    for (id, block) in emission_order(function) {
+        let facts = analysis
+            .block(BlockId::new(id))
+            .expect("sealed block facts");
+        for (index, instruction) in block.instructions.iter().enumerate() {
+            let offset = points.len();
+            let span = block.instruction_spans[index];
+            let kind = match instruction {
+                Instruction::Call { .. } => Some(SafeDebugPointKind::CallBoundary),
+                _ if span != Span::default() => Some(SafeDebugPointKind::Statement),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                push_debug_point(&mut safe_debug_points, offset, span, kind);
             }
-            BytecodeInstruction::Return(_) => push_debug_point(
-                &mut safe_debug_points,
-                instruction_offset,
-                span,
-                SafeDebugPointKind::FunctionReturn,
-            ),
-            BytecodeInstruction::Unreachable => push_debug_point(
-                &mut safe_debug_points,
-                instruction_offset,
-                span,
-                SafeDebugPointKind::Trap,
-            ),
-            _ if span != Span::default() => push_debug_point(
-                &mut safe_debug_points,
-                instruction_offset,
-                span,
-                SafeDebugPointKind::Statement,
-            ),
-            _ => {}
+            points.push(facts.instruction(index).expect("sealed instruction facts"));
         }
+        let kind = match block.terminator.as_ref().expect("verified terminator") {
+            Terminator::Jump(_) | Terminator::Branch { .. } => SafeDebugPointKind::BranchTarget,
+            Terminator::Return(_) => SafeDebugPointKind::FunctionReturn,
+            Terminator::Unreachable => SafeDebugPointKind::Trap,
+        };
+        push_debug_point(
+            &mut safe_debug_points,
+            points.len(),
+            block.terminator_span.unwrap_or_default(),
+            kind,
+        );
+        points.push(facts.terminator());
     }
-
-    let local_live_ranges = collect_local_live_ranges(function, instructions, instruction_scopes);
+    let local_live_ranges = collect_local_live_ranges(function, &points);
     let captured_bindings = function
         .debug
         .captured_bindings
@@ -133,12 +122,10 @@ pub(super) fn collect_debug_metadata(
     }
 }
 
-pub(super) fn collect_local_live_ranges(
+fn collect_local_live_ranges(
     function: &MirFunction,
-    instructions: &[BytecodeInstruction],
-    instruction_scopes: &[usize],
+    points: &[&PointAnalysis],
 ) -> Vec<LocalLiveRange> {
-    let end = instructions.len();
     let mut ranges = Vec::new();
     let locals = function
         .debug
@@ -146,68 +133,30 @@ pub(super) fn collect_local_live_ranges(
         .iter()
         .map(|local| (local.local, local))
         .collect::<HashMap<_, _>>();
-    for local in function
-        .debug
-        .locals
-        .iter()
-        .filter(|local| local.is_parameter)
-    {
-        ranges.push(LocalLiveRange {
-            local: lower_local(local.local),
-            name: local.name.clone(),
-            span: local.span,
-            start: 0,
-            end,
-            ty: local.ty,
-            is_parameter: true,
+    let mut open = HashMap::new();
+    for offset in 0..=points.len() {
+        let available = points.get(offset).map(|point| point.debug_available());
+        open.retain(|local, start| {
+            if available.is_some_and(|set| set.contains_local(*local)) {
+                return true;
+            }
+            let info = locals[local];
+            ranges.push(LocalLiveRange {
+                local: lower_local(*local),
+                name: info.name.clone(),
+                span: info.span,
+                start: *start,
+                end: offset,
+                ty: info.ty,
+                is_parameter: info.is_parameter,
+            });
+            false
         });
-    }
-
-    let scopes = &function.debug.lexical_scopes;
-    let mut previous_path = Vec::<usize>::new();
-    let mut open = HashMap::<LocalId, usize>::new();
-    for offset in 0..=end {
-        let mut next_path = Vec::<usize>::new();
-        if offset < end && !scopes.is_empty() {
-            let mut scope = instruction_scopes.get(offset).copied().unwrap_or(0);
-            while let Some(entry) = scopes.get(scope) {
-                next_path.push(scope);
-                if next_path.len() >= scopes.len() {
-                    break;
-                }
-                let Some(parent) = entry.parent else { break };
-                scope = parent;
-            }
-            next_path.reverse();
-        }
-        let common = previous_path
-            .iter()
-            .zip(&next_path)
-            .take_while(|(left, right)| left == right)
-            .count();
-        for scope in previous_path[common..].iter().rev() {
-            if let Some(local) = scopes[*scope].local
-                && let Some(start) = open.remove(&local)
-                && start < offset
-                && let Some(info) = locals.get(&local)
-            {
-                ranges.push(LocalLiveRange {
-                    local: lower_local(local),
-                    name: info.name.clone(),
-                    span: info.span,
-                    start,
-                    end: offset,
-                    ty: info.ty,
-                    is_parameter: false,
-                });
+        if let Some(available) = available {
+            for local in available.locals() {
+                open.entry(local).or_insert(offset);
             }
         }
-        for scope in &next_path[common..] {
-            if let Some(local) = scopes[*scope].local {
-                open.insert(local, offset);
-            }
-        }
-        previous_path = next_path;
     }
     ranges.sort_by_key(|range| (range.local.index(), range.start));
     ranges

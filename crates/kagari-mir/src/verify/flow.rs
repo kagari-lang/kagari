@@ -4,13 +4,16 @@ use std::mem;
 use crate::BlockId;
 use crate::Instruction;
 use crate::MirFunction;
-use crate::Terminator;
 use crate::verify::Context;
 use crate::verify::MirVerificationError;
 use crate::verify::MirVerificationErrorKind as Error;
-use crate::verify::inputs;
-use crate::verify::output;
-use crate::verify::successors;
+use crate::verify::analysis::Budget;
+
+pub(super) struct Initialization {
+    pub reachable: Vec<bool>,
+    pub predecessors: Vec<Vec<usize>>,
+    pub entries: Vec<Vec<u64>>,
+}
 
 // Bound the verifier's quadratic block/value state rather than allocating an
 // unbounded matrix for malicious or accidentally enormous IR.
@@ -19,32 +22,27 @@ const MAX_FLOW_BYTES: usize = 64 * 1024 * 1024;
 pub(super) fn verify(
     function: &MirFunction,
     context: Context<'_>,
-) -> Result<(), MirVerificationError> {
+    budget: &mut Budget,
+) -> Result<Initialization, MirVerificationError> {
     let mut reachable = vec![false; function.blocks.len()];
     let mut pending = vec![function.entry];
     let mut predecessors = vec![Vec::new(); function.blocks.len()];
     while let Some(id) = pending.pop() {
-        context.check_cancel()?;
+        budget.work(1, context)?;
         if mem::replace(&mut reachable[id.index()], true) {
             continue;
         }
-        for target in successors(
-            function.blocks[id.index()]
-                .terminator
-                .as_ref()
-                .expect("checked terminator"),
-        ) {
+        for target in function.blocks[id.index()]
+            .terminator
+            .as_ref()
+            .expect("checked terminator")
+            .successors()
+        {
             predecessors[target.index()].push(id.index());
             pending.push(target);
         }
     }
     let words = (function.temps.len() + function.locals.len()).div_ceil(64);
-    let bytes = function
-        .blocks
-        .len()
-        .saturating_mul(words)
-        .saturating_mul(8);
-    context.limit(bytes, MAX_FLOW_BYTES, "definite-initialization state bytes")?;
     let mut outputs = vec![vec![u64::MAX; words]; function.blocks.len()];
     let mut queue: VecDeque<_> = (0..function.blocks.len())
         .filter(|&i| reachable[i])
@@ -53,25 +51,33 @@ pub(super) fn verify(
     while let Some(index) = queue.pop_front() {
         queued[index] = false;
         context.check_cancel()?;
+        budget.work(
+            words
+                .saturating_mul(predecessors[index].len() + 1)
+                .saturating_add(function.params.len())
+                .saturating_add(1),
+            context,
+        )?;
         let mut state = incoming(function, index, words, &predecessors, &outputs);
         for instruction in &function.blocks[index].instructions {
-            context.check_cancel()?;
+            budget.work(1, context)?;
             define(function, instruction, &mut state);
         }
         if state != outputs[index] {
             outputs[index] = state;
-            for target in successors(
-                function.blocks[index]
-                    .terminator
-                    .as_ref()
-                    .expect("checked terminator"),
-            ) {
+            for target in function.blocks[index]
+                .terminator
+                .as_ref()
+                .expect("checked terminator")
+                .successors()
+            {
                 if !mem::replace(&mut queued[target.index()], true) {
                     queue.push_back(target.index());
                 }
             }
         }
     }
+    let mut entries = vec![vec![0; words]; function.blocks.len()];
     for (index, block) in function.blocks.iter().enumerate() {
         if !reachable[index] {
             continue;
@@ -80,15 +86,24 @@ pub(super) fn verify(
             block: Some(BlockId::new(index)),
             ..context
         };
+        budget.work(
+            words
+                .saturating_mul(predecessors[index].len() + 1)
+                .saturating_add(function.params.len())
+                .saturating_add(1),
+            context,
+        )?;
         let mut state = incoming(function, index, words, &predecessors, &outputs);
+        entries[index].clone_from(&state);
         for (index, instruction) in block.instructions.iter().enumerate() {
             let context = Context {
                 instruction: Some(index),
                 span: Some(block.instruction_spans[index]),
                 ..context
             };
-            context.check_cancel()?;
-            for value in inputs(instruction) {
+            let inputs = instruction.inputs();
+            budget.work(inputs.len() + 1, context)?;
+            for value in inputs {
                 if !contains(&state, value.temp.index()) {
                     return Err(context.error(Error::UninitializedTemp(value.temp)));
                 }
@@ -100,11 +115,11 @@ pub(super) fn verify(
             }
             define(function, instruction, &mut state);
         }
-        let value = match block.terminator.as_ref().expect("checked terminator") {
-            Terminator::Return(value) => *value,
-            Terminator::Branch { cond, .. } => Some(*cond),
-            _ => None,
-        };
+        let value = block
+            .terminator
+            .as_ref()
+            .expect("checked terminator")
+            .input();
         if let Some(value) = value
             && !contains(&state, value.temp.index())
         {
@@ -115,7 +130,11 @@ pub(super) fn verify(
             .error(Error::UninitializedTemp(value.temp)));
         }
     }
-    Ok(())
+    Ok(Initialization {
+        reachable,
+        predecessors,
+        entries,
+    })
 }
 
 fn incoming(
@@ -142,17 +161,31 @@ fn incoming(
     }
 }
 
-fn define(function: &MirFunction, instruction: &Instruction, state: &mut [u64]) {
-    if let Some(dst) = output(instruction) {
+pub(super) fn define(function: &MirFunction, instruction: &Instruction, state: &mut [u64]) {
+    if let Some(dst) = instruction.output() {
         insert(state, dst.temp.index());
     }
     if let Instruction::StoreLocal { local, .. } = instruction {
         insert(state, function.temps.len() + local.index());
     }
 }
-fn insert(state: &mut [u64], index: usize) {
+pub(super) fn insert(state: &mut [u64], index: usize) {
     state[index / 64] |= 1 << (index % 64);
 }
-fn contains(state: &[u64], index: usize) -> bool {
+pub(super) fn contains(state: &[u64], index: usize) -> bool {
     state[index / 64] & (1 << (index % 64)) != 0
+}
+
+pub(super) fn check_size(
+    function: &MirFunction,
+    context: Context<'_>,
+) -> Result<(), MirVerificationError> {
+    let words = (function.temps.len() + function.locals.len()).div_ceil(64);
+    let bytes = function
+        .blocks
+        .len()
+        .saturating_mul(words)
+        .saturating_mul(8);
+    context.limit(bytes, MAX_FLOW_BYTES, "definite-initialization state bytes")?;
+    Ok(())
 }

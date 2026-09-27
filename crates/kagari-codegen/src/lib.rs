@@ -4,6 +4,7 @@ pub use diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKi
 use kagari_abi::native::{
     BackendId, BackendTarget, NativeCompilationProduct, NativeLinkDescription,
 };
+use kagari_mir::analysis::FunctionAnalysis;
 use kagari_mir::ids::InstanceId;
 use kagari_mir::{MirFunction, VerifiedMirModule};
 
@@ -31,6 +32,11 @@ impl<'a> BackendFunctionInput<'a> {
     }
     pub fn function(&self) -> &'a MirFunction {
         &self.module.functions[self.function.index()]
+    }
+    pub fn analysis(&self) -> &'a FunctionAnalysis {
+        self.module
+            .analysis(self.function)
+            .expect("sealed function facts")
     }
     pub fn function_ref(&self) -> InstanceId {
         self.function
