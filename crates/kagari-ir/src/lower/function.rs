@@ -7,6 +7,64 @@ use crate::module::function::{IrCapturedBindingDebugInfo, IrParameter};
 use crate::module::{function::IrFunction, instruction::Terminator};
 use kagari_hir::resolver::ResolvedName;
 
+pub(crate) fn lower_iterator<'a>(
+    module: &'a AnalyzedModule,
+    parent: &hir::Function,
+    instance: super::instances::Instance,
+    planner: &mut super::instances::InstancePlanner<'a>,
+) -> Result<IrFunction, IrLoweringError> {
+    let body = instance.iterator.clone().expect("iterator step");
+    let typed = kagari_hir::typeck::TypedFunction {
+        generic_params: vec![],
+        bounds: Default::default(),
+        id: parent.id,
+        name: String::new(),
+        params: Default::default(),
+        return_type: kagari_hir::types::TypeId::StandardEnum {
+            kind: kagari_hir::builtin::surface::StandardEnum::Option,
+            args: vec![body.output.clone()],
+        },
+    };
+    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    lowerer.function.name = format!("$iterator_{:?}", body.operation);
+    lowerer.function.debug.source_span = body.span;
+    let mut args = vec![];
+    for (index, ty) in body.captures.iter().enumerate() {
+        let physical = lowerer.value_type(ty)?;
+        let name = format!("capture_{index}");
+        let local = lowerer.alloc_local(name.clone(), physical, body.span);
+        lowerer
+            .function
+            .debug
+            .locals
+            .last_mut()
+            .unwrap()
+            .is_parameter = true;
+        lowerer.function.params.push(IrParameter {
+            name,
+            ty: physical,
+            local,
+        });
+        let semantic = lowerer.semantic_type(ty)?;
+        lowerer
+            .function
+            .semantic
+            .params
+            .insert(index, semantic.clone());
+        lowerer
+            .function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
+        let value = lowerer.alloc_temp(physical);
+        lowerer.emit(crate::module::instruction::Instruction::LoadLocal { dst: value, local });
+        args.push(value);
+    }
+    lowerer.lower_iterator_step(&body, &args)?;
+    lowerer.planner.check()?;
+    Ok(lowerer.finish())
+}
+
 pub(crate) fn lower_protocol<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,

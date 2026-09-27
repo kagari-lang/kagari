@@ -136,6 +136,41 @@ pub trait Iterator {
     /// ```
     #[intrinsic(IteratorCollect)]
     fn collect<C: FromIterator<Self::Item>>(self) -> C;
+
+    /// Lazily transform each item. Construction does not call the callback.
+    #[intrinsic(IteratorMap)]
+    fn map<U>(self, callback: fn(Self::Item) -> U) -> Cursor<U>;
+
+    /// Lazily retain items for which the predicate returns true.
+    /// Predicates receive ordinary values, including shared object references.
+    #[intrinsic(IteratorFilter)]
+    fn filter(self, predicate: fn(Self::Item) -> bool) -> Cursor<Self::Item>;
+
+    /// Lazily transform items and omit callback results that are None.
+    #[intrinsic(IteratorFilterMap)]
+    fn filter_map<U>(self, callback: fn(Self::Item) -> Option<U>) -> Cursor<U>;
+
+    /// Yield at most count items without evaluating any later items.
+    #[intrinsic(IteratorTake)]
+    fn take(self, count: usize) -> Cursor<Self::Item>;
+
+    /// Lazily skip the first count items, then yield remaining items.
+    #[intrinsic(IteratorSkip)]
+    fn skip(self, count: usize) -> Cursor<Self::Item>;
+
+    /// Yield (index, item) pairs starting at zero. Indices use usize.
+    #[intrinsic(IteratorEnumerate)]
+    fn enumerate(self) -> Cursor<(usize, Self::Item)>;
+
+    /// Lazily pair items, stepping the left iterator before the right iterator.
+    /// A missing item on either side ends the current traversal.
+    #[intrinsic(IteratorZip)]
+    fn zip<I: Iterable>(self, other: I) -> Cursor<(Self::Item, I::Item)>;
+
+    /// Yield this iterator's items, then the other iterable's items.
+    /// The first None permanently advances from the first iterator to the second.
+    #[intrinsic(IteratorChain)]
+    fn chain<I: Iterable<Item = Self::Item>>(self, other: I) -> Cursor<Self::Item>;
 }
 
 /// Obtain an iterator without transferring ownership of the source.

@@ -163,7 +163,10 @@ pub fn declarations(
                     .generic_params()
                     .into_iter()
                     .flat_map(|p| p.params().collect::<Vec<_>>())
-                    .map(|p| format!("({:?}, &[{}])", p.name_text().unwrap(), bounds(p.bounds())))
+                    .map(|p| {
+                        let name=p.name_text().unwrap(); let key=format!("@bound:{name}");
+                        format!("super::declarations::ApiGeneric{{name:{name:?}, bounds:&[{}],projection_key:{key:?}}}", bounds(p.bounds()))
+                    })
                     .collect::<Vec<_>>()
                     .join(",");
                 let path = [

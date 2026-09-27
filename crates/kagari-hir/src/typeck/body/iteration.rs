@@ -16,8 +16,14 @@ impl BodyChecker<'_> {
                 receiver,
                 Some(self.aggregates),
                 &Default::default(),
-            ) && !views.iter().any(|n| n.declaration == kind.contract().id)
-            {
+            ) {
+                if let Some(view) = views
+                    .iter_mut()
+                    .find(|n| n.declaration == kind.contract().id)
+                {
+                    view.associated_types.extend(outputs);
+                    continue;
+                }
                 let mut view = kind.nominal();
                 view.associated_types = outputs;
                 views.push(view);

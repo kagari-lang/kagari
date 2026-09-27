@@ -110,7 +110,9 @@ pub(crate) fn lower_to_ir_with_requests<'a>(
             .iter()
             .find(|function| function.id == instance.function)
             .ok_or(IrLoweringError::MissingTypedFunction(instance.function))?;
-        functions.push(if instance.protocol.is_some() {
+        functions.push(if instance.iterator.is_some() {
+            function::lower_iterator(origin, function, instance, &mut planner)?
+        } else if instance.protocol.is_some() {
             function::lower_protocol(origin, function, instance, &mut planner)?
         } else if let Some(closure) = instance.closure {
             function::lower_closure(origin, function, closure, instance, &mut planner)?

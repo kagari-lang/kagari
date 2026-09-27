@@ -41,15 +41,30 @@ pub struct ApiAssociatedType {
 pub struct ApiMethod {
     pub item: ApiItem,
     pub iterator: Option<IteratorMethod>,
-    pub generics: &'static [(&'static str, &'static [ApiBound])],
+    pub generics: &'static [ApiGeneric],
     pub params: &'static [ApiParameter],
     pub result: ApiType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApiGeneric {
+    pub name: &'static str,
+    pub bounds: &'static [ApiBound],
+    pub projection_key: &'static str,
 }
 
 /// Native defaults retain ordinary trait identities and checked generic signatures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IteratorMethod {
     Collect,
+    Map,
+    Filter,
+    FilterMap,
+    Take,
+    Skip,
+    Enumerate,
+    Zip,
+    Chain,
 }
 
 pub fn iterator_method(id: &kagari_common::identity::DefinitionId) -> Option<IteratorMethod> {
@@ -58,6 +73,20 @@ pub fn iterator_method(id: &kagari_common::identity::DefinitionId) -> Option<Ite
         .flat_map(|t| t.methods)
         .find(|m| m.item.identity() == *id)
         .and_then(|m| m.iterator)
+}
+
+pub fn native_iterator_default(
+    interface: &kagari_common::identity::DefinitionId,
+    name: &str,
+) -> bool {
+    surface::STANDARD_TRAITS
+        .iter()
+        .find(|t| t.item.identity() == *interface)
+        .is_some_and(|t| {
+            t.methods
+                .iter()
+                .any(|m| m.item.path.last().is_some_and(|p| p.1 == name) && m.iterator.is_some())
+        })
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiTrait {
@@ -245,6 +274,19 @@ impl ApiType {
                     };
                 }
                 if let Some((owner, "Item")) = name.split_once("::") {
+                    if let Some(TypeId::Trait(interface)) =
+                        arguments.get(format!("@bound:{owner}").as_str())
+                    {
+                        return TypeId::Projection {
+                            receiver: Box::new(arguments[owner].clone()),
+                            interface: Box::new(interface.clone()),
+                            member: crate::types::associated_type_id(
+                                &interface.declaration,
+                                "Item",
+                            ),
+                            arguments: vec![],
+                        };
+                    }
                     return arguments
                         .get(owner)
                         .and_then(surface::iterable_protocol)
@@ -431,16 +473,27 @@ impl ApiTrait {
                     let mut arguments = arguments.clone();
                     let mut parameters = generics.clone();
                     let mut method_bounds = crate::typeck::GenericBounds::new();
-                    for (position, (name, _)) in method.generics.iter().enumerate() {
+                    for (position, generic) in method.generics.iter().enumerate() {
+                        let name = generic.name;
                         let parameter = GenericParameterType {
                             owner: method.item.identity(),
                             position,
-                            name: (*name).into(),
+                            name: name.into(),
                         };
                         arguments.insert(name, TypeId::Generic(parameter.clone()));
                         parameters.push(parameter);
                     }
-                    for (name, bounds) in method.generics {
+                    for generic in method.generics {
+                        let (name, bounds) = (generic.name, generic.bounds);
+                        if let Some(bound) = bounds
+                            .iter()
+                            .find(|b| matches!(b.name, "Iterator" | "Iterable"))
+                        {
+                            arguments.insert(
+                                generic.projection_key,
+                                TypeId::Trait(bound.nominal(&arguments)),
+                            );
+                        }
                         method_bounds.insert(
                             arguments[name].clone(),
                             bounds

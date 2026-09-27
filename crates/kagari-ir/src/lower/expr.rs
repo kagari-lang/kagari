@@ -1,3 +1,4 @@
+mod adapters;
 mod collections;
 mod equality;
 mod iterators;

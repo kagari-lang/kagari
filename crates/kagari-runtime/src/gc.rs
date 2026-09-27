@@ -205,6 +205,7 @@ impl HeapObject {
 #[must_use = "retain the guard until iteration finishes"]
 #[derive(Debug)]
 pub struct CollectionIteration {
+    _children: Vec<CollectionIteration>,
     cursor_loops: Option<Rc<Cell<usize>>>,
     active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     id: Option<HeapObjectId>,
@@ -510,6 +511,26 @@ impl GcHeap {
         value: &Value,
     ) -> Result<CollectionIteration, RuntimeError> {
         self.ensure_execution_allowed()?;
+        if let Value::Tuple(fields) = value {
+            let mut children = Vec::new();
+            for field in fields.iter().skip(1) {
+                if matches!(field, Value::GcHandle(_)) {
+                    children.push(self.begin_collection_iteration(field)?);
+                }
+            }
+            return Ok(CollectionIteration {
+                _children: children,
+                cursor_loops: None,
+                active: self.iterations.clone(),
+                id: None,
+                _root: self.root_value(value.clone()).ok_or_else(|| {
+                    RuntimeError::new(
+                        RuntimeErrorKind::ScriptTrap,
+                        "invalid iterator dependencies",
+                    )
+                })?,
+            });
+        }
         if let Value::GcHandle(id) = value {
             let source = {
                 let objects = self.objects.borrow();
@@ -543,6 +564,7 @@ impl GcHeap {
         }
         if matches!(value, Value::Str(_)) {
             return Ok(CollectionIteration {
+                _children: Vec::new(),
                 cursor_loops: None,
                 active: self.iterations.clone(),
                 id: None,
@@ -584,6 +606,7 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("iteration registry"))?;
         active.insert(id, count);
         Ok(CollectionIteration {
+            _children: Vec::new(),
             cursor_loops: None,
             active: self.iterations.clone(),
             id: Some(id),

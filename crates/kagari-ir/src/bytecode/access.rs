@@ -175,7 +175,14 @@ pub(super) fn verify(
                         }
                         ConstantOperand::I64(n) => {
                             constants[dst.index()] = usize::try_from(*n).ok();
-                            B::I64
+                            if *n >= 0
+                                && semantic.registers.get(&dst.index())
+                                    == Some(&AbiType::Builtin(B::USize))
+                            {
+                                B::USize
+                            } else {
+                                B::I64
+                            }
                         }
                         ConstantOperand::F32(_) => B::F32,
                         ConstantOperand::Str(_) => B::String,
@@ -364,6 +371,9 @@ pub(super) fn verify(
                         return Err(invalid());
                     }
                     let item = match ty {
+                        AbiType::Tuple(_) if *op == CursorOp::FromClosure => {
+                            CursorOp::closure_item(ty).cloned()
+                        }
                         AbiType::Array(item, _) | AbiType::Set(item, _) | AbiType::Cursor(item) => {
                             Some((**item).clone())
                         }
@@ -376,7 +386,9 @@ pub(super) fn verify(
                         (
                             *dst,
                             Fact::typed(match op {
-                                CursorOp::New => AbiType::Cursor(Box::new(item)),
+                                CursorOp::New | CursorOp::FromClosure => {
+                                    AbiType::Cursor(Box::new(item))
+                                }
                                 CursorOp::Next => AbiType::StandardEnum {
                                     kind: surface::StandardEnum::Option,
                                     args: vec![item],

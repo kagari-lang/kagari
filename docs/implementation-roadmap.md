@@ -323,7 +323,7 @@ Commit. No compatibility aliases are retained.
   for-loop conversion, associated outputs and user-defined protocols.
 - [x] I03: FromIterator and target-directed collect for all six collection types
   and user-defined collections; fresh shallow construction and checked key insertion.
-- [ ] I04: lazy map, filter, filter_map, take, skip, enumerate, zip and chain.
+- [x] I04: lazy map, filter, filter_map, take, skip, enumerate, zip and chain.
 - [ ] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
 - [ ] I06: shared iterator progress, short-circuit continuation, guard lifetimes,
   callback failures, budgets and GC retention across adapter chains.
@@ -354,3 +354,9 @@ Self and associated outputs before checking. Native defaults appear in portable
 implementation contracts without fictitious script bodies. KBC/runtime ABI v66 rejects
 earlier artifacts. HIR, IR and embedding tests passed, including invalid bounds,
 fresh destination access, user destinations, duplicate policies and API documentation.
+
+I04 adds opaque Cursor adapters driven by ordinary VM closure frames. Construction
+does not invoke callbacks; aliases share progress. Generic callbacks and secondary
+Iterable inputs retain associated item types. HIR, IR and embedding tests passed,
+including all eight adapters through source, serialized artifacts and JIT fallback
+with collection at every allocation. KBC/runtime ABI v67 rejects older encodings.

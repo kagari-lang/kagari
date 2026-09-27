@@ -25,6 +25,76 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
+    pub(crate) fn new_script_cursor(
+        &self,
+        source: &Value,
+        ty: &AbiType,
+        owner: &crate::LoadedModule,
+        retention: crate::module::RetainedRuntimeProgram,
+    ) -> Result<Value, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let item_type = CursorOp::closure_item(ty).ok_or_else(invalid)?.clone();
+        if !self.matches_abi(source, ty, owner) {
+            return Err(invalid());
+        }
+        let session = self.resources.active_session().ok_or_else(invalid)?;
+        self.alloc_object(HeapObject::Cursor(Box::new(NativeCursor {
+            source: source.clone(),
+            items: vec![],
+            item_type,
+            position: 0,
+            revision: 0,
+            guard: None,
+            loops: Rc::new(Cell::new(0)),
+            session: Rc::downgrade(&session),
+            _retention: retention,
+        })))
+        .map(Value::GcHandle)
+    }
+
+    /// Script-backed steps execute on the VM frame stack, never under a heap borrow.
+    pub fn cursor_step(&self, value: &Value, ty: &AbiType) -> Result<Option<Value>, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let (Value::GcHandle(id), AbiType::Cursor(item)) = (value, ty) else {
+            return Err(invalid());
+        };
+        let objects = self.objects.borrow();
+        let Some(HeapObject::Cursor(cursor)) = self.readable_object(&objects, *id) else {
+            return Err(invalid());
+        };
+        if cursor.item_type != **item {
+            return Err(invalid());
+        }
+        Ok(match &cursor.source {
+            Value::Tuple(fields) => fields.first().cloned(),
+            _ => None,
+        })
+    }
+
+    fn close_cursor_tree(&self, value: &Value) -> Result<(), RuntimeError> {
+        let mut pending = vec![value.clone()];
+        let mut visited = std::collections::HashSet::new();
+        while let Some(Value::GcHandle(id)) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            let mut objects = self.objects.borrow_mut();
+            let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, id) else {
+                return Err(invalid());
+            };
+            cursor.guard = None;
+            if let Value::Tuple(fields) = &cursor.source {
+                pending.extend(
+                    fields
+                        .iter()
+                        .skip(1)
+                        .filter(|v| matches!(v, Value::GcHandle(_)))
+                        .cloned(),
+                );
+            }
+        }
+        Ok(())
+    }
     fn collection_revision(&self, source: &Value) -> Option<u64> {
         match source {
             Value::Str(_) => Some(0),
@@ -115,11 +185,7 @@ impl GcHeap {
             )
         };
         if op == CursorOp::Close {
-            let mut objects = self.objects.borrow_mut();
-            let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, *id) else {
-                return Err(invalid());
-            };
-            cursor.guard = None;
+            self.close_cursor_tree(value)?;
             return Ok(Value::Unit);
         }
         if op != CursorOp::Next || self.collection_revision(&source) != Some(revision) {

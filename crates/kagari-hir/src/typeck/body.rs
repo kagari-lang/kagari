@@ -1072,6 +1072,12 @@ impl<'a> BodyChecker<'a> {
                                 );
                             } else if else_completes {
                                 then_ty.recover_from(&else_ty);
+                                if !then_ty.is_unresolved()
+                                    && let Some(tail) =
+                                        self.lowered.module.block(*then_branch).tail_expr
+                                {
+                                    self.refine_standard_tail(tail, &then_ty, &mut then_env);
+                                }
                             }
                             then_ty
                         }
@@ -2586,11 +2592,13 @@ impl<'a> BodyChecker<'a> {
         let param_types = params
             .iter()
             .map(|param| {
-                param
-                    .ty
-                    .with_self(self_owner, &self_ty)
-                    .instantiate(&substitution)
-                    .with_associated_types(interface)
+                self.aggregates.normalize_type(
+                    &param
+                        .ty
+                        .with_self(self_owner, &self_ty)
+                        .instantiate(&substitution)
+                        .with_associated_types(interface),
+                )
             })
             .collect::<Vec<_>>();
         let arg_tys = self.infer_generic_args(

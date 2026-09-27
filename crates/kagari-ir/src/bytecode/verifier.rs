@@ -539,6 +539,12 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .methods
                 .iter()
                 .filter(|method| method.generic_params.is_empty())
+                .filter(|method| {
+                    !kagari_hir::builtin::declarations::native_iterator_default(
+                        &trait_type.declaration,
+                        &method.name,
+                    )
+                })
                 .any(|method| {
                     table
                         .methods

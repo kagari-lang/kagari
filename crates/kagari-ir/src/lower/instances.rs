@@ -35,6 +35,7 @@ impl Default for IrLoweringOptions {
 
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
+    pub iterator: Option<IteratorInstance>,
     pub origin: kagari_common::identity::ModuleIdentity,
     pub id: InstanceId,
     pub function: hir::FunctionId,
@@ -42,6 +43,14 @@ pub(super) struct Instance {
     pub substitution: TypeSubstitution,
     pub closure: Option<hir::ExprId>,
     pub protocol: Option<(kagari_hir::builtin::traits::StandardTrait, TypeId)>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct IteratorInstance {
+    pub operation: kagari_hir::builtin::declarations::IteratorMethod,
+    pub captures: Vec<TypeId>,
+    pub output: TypeId,
+    pub span: Span,
 }
 
 pub(super) struct InstancePlanner<'a> {
@@ -67,6 +76,50 @@ pub(super) struct InstancePlanner<'a> {
 }
 
 impl<'a> InstancePlanner<'a> {
+    pub fn enqueue_iterator(
+        &mut self,
+        parent: &Instance,
+        body: IteratorInstance,
+    ) -> Result<InstanceId, IrLoweringError> {
+        self.check()?;
+        let declaration = kagari_common::identity::DefinitionId {
+            module: self.module.lowered.source.module_identity().clone(),
+            path: vec![kagari_common::identity::DefinitionPathSegment {
+                kind: kagari_common::identity::DefinitionKind::Function,
+                name: format!("$iterator_{:?}", body.operation),
+                occurrence: 0,
+            }],
+        };
+        let key = FunctionInstance {
+            declaration,
+            arguments: body
+                .captures
+                .iter()
+                .cloned()
+                .chain([body.output.clone()])
+                .collect(),
+        };
+        if let Some(id) = self.keys.get(&key) {
+            return Ok(*id);
+        }
+        self.charge_layout_instance(body.span)?;
+        for ty in &key.arguments {
+            self.record_layout_root(ty, &Default::default(), body.span)?;
+        }
+        let id = InstanceId::new(self.instances.len());
+        self.keys.insert(key.clone(), id);
+        self.instances.push(Instance {
+            origin: parent.origin.clone(),
+            id,
+            function: parent.function,
+            key,
+            substitution: parent.substitution.clone(),
+            closure: None,
+            protocol: None,
+            iterator: Some(body),
+        });
+        Ok(id)
+    }
     pub fn new(
         module: &'a AnalyzedModule,
         options: &'a IrLoweringOptions,
@@ -139,6 +192,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: None,
+            iterator: None,
             protocol: Some((protocol, ty.clone())),
         });
         self.record_layout_root(ty, &Default::default(), span)?;
@@ -237,6 +291,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
+            iterator: None,
             protocol: None,
         });
         Ok(id)
@@ -467,6 +522,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
+            iterator: None,
             protocol: None,
         });
         Ok(id)
@@ -510,6 +566,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: Some(closure),
+            iterator: None,
             protocol: None,
         });
         Ok(id)

@@ -660,6 +660,7 @@ impl StandardEnumOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CursorOp {
     New,
+    FromClosure,
     Next,
     Close,
 }
@@ -675,6 +676,10 @@ impl CursorOp {
             return None;
         }
         let input = match self {
+            Self::FromClosure => {
+                Self::closure_item(ty)?;
+                ValueType::HeapObject
+            }
             Self::New => match ty {
                 AbiType::Array(_, _) | AbiType::Map { .. } | AbiType::Set(_, _) => {
                     ValueType::HeapObject
@@ -697,6 +702,27 @@ impl CursorOp {
                 ValueType::HeapObject
             },
         ))
+    }
+
+    pub fn closure_item(ty: &super::abi::AbiType) -> Option<&super::abi::AbiType> {
+        use super::abi::AbiType;
+        let AbiType::Tuple(fields) = ty else {
+            return None;
+        };
+        let AbiType::Function { params, result } = fields.first()? else {
+            return None;
+        };
+        if !params.is_empty() {
+            return None;
+        }
+        let AbiType::StandardEnum {
+            kind: crate::module::abi::StandardEnumKind::Option,
+            args,
+        } = result.as_ref()
+        else {
+            return None;
+        };
+        (args.len() == 1).then(|| &args[0])
     }
 }
 

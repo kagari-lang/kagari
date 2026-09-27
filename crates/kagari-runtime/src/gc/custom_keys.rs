@@ -58,6 +58,7 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("key lookup registry"))?;
         active.insert(id, count);
         Ok(CollectionIteration {
+            _children: Vec::new(),
             cursor_loops: None,
             active: self.key_lookups.clone(),
             id: Some(id),

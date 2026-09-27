@@ -71,13 +71,16 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
-        if kagari_hir::builtin::declarations::iterator_method(method).is_some()
+        if let Some(operation) = kagari_hir::builtin::declarations::iterator_method(method)
             && self
                 .planner
                 .catalog
                 .implementation_method(method, &interface, &ty)
                 .is_none()
         {
+            if operation != kagari_hir::builtin::declarations::IteratorMethod::Collect {
+                return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
+            }
             let target = method_arguments
                 .first()
                 .ok_or(IrLoweringError::MissingBinding("collect destination"))?;

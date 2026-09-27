@@ -653,12 +653,20 @@ impl Runtime {
         op: kagari_ir::module::instruction::CursorOp,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
-        if op == kagari_ir::module::instruction::CursorOp::New {
+        if matches!(
+            op,
+            kagari_ir::module::instruction::CursorOp::New
+                | kagari_ir::module::instruction::CursorOp::FromClosure
+        ) {
             let retention = self
                 .modules
                 .retain_runtime_program(owner)
                 .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
-            self.gc.new_cursor(value, ty, owner, retention)
+            if op == kagari_ir::module::instruction::CursorOp::FromClosure {
+                self.gc.new_script_cursor(value, ty, owner, retention)
+            } else {
+                self.gc.new_cursor(value, ty, owner, retention)
+            }
         } else {
             self.gc.advance_cursor(value, ty, op)
         }

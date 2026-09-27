@@ -1,6 +1,51 @@
 use super::*;
 
 impl BodyChecker<'_> {
+    /// A completed branch can supply the missing payload type of a sibling None.
+    /// Only result expressions participate; unrelated incomplete locals remain errors.
+    pub(super) fn refine_standard_tail(
+        &mut self,
+        site: ExprId,
+        expected: &TypeId,
+        env: &mut BodyTypeEnv,
+    ) {
+        let mut pending = vec![site];
+        while let Some(site) = pending.pop() {
+            if self.cancel.check().is_err() {
+                return;
+            }
+            let Some(mut actual) = self.type_table.expr_type(site) else {
+                continue;
+            };
+            if actual.conflicts_with(expected) {
+                continue;
+            }
+            actual.recover_from(expected);
+            if self.type_table.standard_constructor(site).is_some() && !actual.is_unresolved() {
+                let span = self.lowered.source_map.expr_span(site);
+                self.diagnostics.retain(|d| {
+                    !(d.span == Some(span)
+                        && matches!(d.kind, DiagnosticKind::CannotInferGenericArgument { .. }))
+                });
+            }
+            match &self.lowered.module.expr(site).kind {
+                ExprKind::Block(block) => {
+                    pending.extend(self.lowered.module.block(*block).tail_expr)
+                }
+                ExprKind::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    pending.extend(self.lowered.module.block(*then_branch).tail_expr);
+                    pending.extend(else_branch.iter().copied());
+                }
+                _ => {}
+            }
+            self.type_table.insert_expr(site, actual.clone());
+            env.exprs.insert(site, actual);
+        }
+    }
     pub(super) fn infer_standard_constructor(
         &mut self,
         site: ExprId,
