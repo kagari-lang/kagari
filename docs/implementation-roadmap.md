@@ -474,9 +474,24 @@ earlier products.
 - [x] T04: propagate constraints through iterator chains and associated types.
 - [x] T05: numeric suffixes, contextual numeric inference, checked ranges and f64 fallback.
 - [x] T06: local type placeholders and explicit function/method type arguments.
-- [ ] T07: diagnostics, source/artifact/backend acceptance, examples and final validation.
+- [x] T07: diagnostics, source/artifact/backend acceptance, examples and final validation.
 
 Inference is bounded by a function body; declaration signatures remain explicit.
 Inference variables are distinct from unknown/error recovery facts. Evaluation
 order and collection write permissions remain unchanged. Numeric suffixes cover
 existing primitive types only; out-of-range literals are compile errors.
+
+The executable [type inference example](../examples/syntax/type-inference.kgr)
+combines later-use inference, phantom generic parameters, local `_` holes,
+explicit function/method type arguments and checked numeric literals. This remains
+body-local inference, with explicit declaration signatures and bounded solving;
+it does not introduce whole-program inference or implicit numeric conversions.
+
+Final validation: 1,232 workspace tests passed, including 39 standalone examples
+and 158 executable API documentation blocks. Acceptance covers source compilation,
+encoded artifacts and JIT-enabled execution with interpreter fallback. Negative
+tests cover explicit type conflicts, unresolved holes, literal overflow and
+malformed integer constants; tolerant analysis retains independently known types.
+Formatting, workspace/all-targets clippy with warnings denied, and
+`git diff --check` passed. KBC/runtime ABI v77 rejects earlier products and carries
+u64/usize values without signed truncation.

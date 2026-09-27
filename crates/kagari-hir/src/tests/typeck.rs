@@ -12,6 +12,45 @@ use crate::{
 };
 
 #[test]
+fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
+    let source = SourceFile::new(
+        "holes.kgr",
+        "fn bad() { val partial: (i32, Array<_>) = (42, []); partial } fn good() -> u8 { 42 }",
+    );
+    let result = crate::analyze_source(&source, Default::default());
+    assert!(!result.diagnostics().is_empty());
+    let facts = result.facts();
+    let good = facts
+        .lowered
+        .module
+        .functions
+        .iter()
+        .find(|f| f.name == "good")
+        .unwrap();
+    assert_eq!(
+        facts
+            .typed
+            .type_table
+            .expr_type(facts.lowered.module.block(good.body).tail_expr.unwrap()),
+        Some(TypeId::Builtin(BuiltinType::U8))
+    );
+    let mut retained_tuple = false;
+    for (id, _) in facts.lowered.module.body.expressions() {
+        if let Some(ty) = facts.typed.type_table.expr_type(id) {
+            ty.substitute_once(|member| {
+                assert!(!matches!(member, TypeId::Inference(_)), "{ty:?}");
+                None
+            });
+            if let TypeId::Tuple(members) = ty {
+                retained_tuple |= members.first() == Some(&TypeId::Builtin(BuiltinType::I32));
+            }
+        }
+    }
+    assert!(retained_tuple);
+    assert!(result.into_codegen().is_err());
+}
+
+#[test]
 fn const_arithmetic_failures_preserve_other_semantic_facts() {
     for (expression, reason) in [
         ("2147483647 + 1", "integer overflow"),

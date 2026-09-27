@@ -175,14 +175,7 @@ pub(super) fn verify(
                         }
                         ConstantOperand::I64(n) => {
                             constants[dst.index()] = usize::try_from(*n).ok();
-                            if *n >= 0
-                                && semantic.registers.get(&dst.index())
-                                    == Some(&AbiType::Builtin(B::USize))
-                            {
-                                B::USize
-                            } else {
-                                B::I64
-                            }
+                            B::I64
                         }
                         ConstantOperand::F32(_) => B::F32,
                         ConstantOperand::F64(_) => B::F64,

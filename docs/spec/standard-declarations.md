@@ -47,9 +47,9 @@ Public documentation follows the [rustdoc writing guidance](https://doc.rust-lan
 a concise summary, behavior and boundary details, applicable Panics sections and
 executable Examples. Kagari's Panics sections describe script traps, not Rust
 unwinding. Examples run through source compilation and encoded artifact loading.
-The numeric examples reflect current literal typing: unsuffixed integers are i32,
-unsuffixed floats are f32; usize values may come from lengths and f64 values from
-typed host bindings. Declaration migration does not introduce numeric casts.
+Numeric literals use context before falling back to i32 or f64; suffixes such as
+`1usize` and `1.0f32` select an explicit primitive type. These rules do not introduce
+implicit numeric conversions. See the [literal rules](syntax.md#literals).
 
 ## Native types and standard protocols
 

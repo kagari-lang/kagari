@@ -40,9 +40,9 @@ The concrete iterator also declares its protocol explicitly:
 `impl<T> Iterator for Iter<T>` supplies `Item` and the native `next` method.
 Its `map`, `filter` and `collect` methods are defaults declared on `Iterator`.
 
-Integer literals currently have type `i32`, while indices and lengths use `usize`.
-Examples obtain `usize` values from collection or string lengths. Functions taking
-`f64` show a typed function parameter because unsuffixed float literals are `f32`.
+Numeric literals use contextual types and otherwise default to `i32` or `f64`.
+Suffixes select a primitive type explicitly, for example `1usize` and `1.0f32`.
+Indices and lengths use `usize`; examples can also obtain these from lengths.
 Logging requires a host log binding and permission to call it.
 
 A `# Panics` section describes script traps. It does not mean Rust unwinding or a

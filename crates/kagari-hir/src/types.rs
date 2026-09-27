@@ -922,7 +922,7 @@ impl TypeId {
             match part {
                 Part::Text(text) => output.push_str(text),
                 Part::Type(ty) => match ty {
-                    Self::Inference(_) => output.push_str("_"),
+                    Self::Inference(_) => output.push('_'),
                     Self::Unknown => output.push_str("<unknown>"),
                     Self::Error => output.push_str("<error>"),
                     Self::Host(id) => {

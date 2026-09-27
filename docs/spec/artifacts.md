@@ -362,6 +362,10 @@ value: bool is `0` or `1`, i32 is decimal, f32 is eight lowercase hexadecimal
 digits of IEEE bits, and String is its decimal UTF-8 byte length, a colon, and
 the UTF-8 contents. Unit has tag `unit` and no payload. This preserves signed
 zero and string boundaries without relying on Rust formatting traits for values.
+Additional integer types use `const-v2:<type>:<decimal-value>`, including the
+full u64/usize range. f64 uses `const-v2:f64:<bits>` with sixteen lowercase
+hexadecimal IEEE-bit digits. The enclosing format/ABI version rejects old
+artifacts before these values participate in linking.
 
 ## Header
 

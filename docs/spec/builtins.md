@@ -236,8 +236,9 @@ User bindings take precedence over implicit prelude names. `None` has no payload
 and is written without parentheses. Patterns use the same resolved identities,
 including nested, alternative and binding-condition patterns.
 
-Constructor type arguments come from payloads, an expected type, or an explicit
-owner such as `Result<i32, String>::Err("missing")`. Missing unconstrained arguments
+Constructor type arguments come from payloads, body constraints, an explicit call
+such as `Err::<i32, String>("missing")`, or an explicit owner such as
+`Result<i32, String>::Err("missing")`. Missing unconstrained arguments
 are diagnosed: give `val outcome: Result<i32, String> = Ok(42)` an annotation when
 there is no surrounding expected type. Constructors are not first-class functions.
 

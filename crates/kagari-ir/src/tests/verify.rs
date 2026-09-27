@@ -19,6 +19,33 @@ fn raw(source: &str) -> IrModule {
 }
 
 #[test]
+fn integer_constants_must_match_semantic_range_and_representation() {
+    for (source, invalid) in [
+        ("fn main() -> i8 { 1i8 }", ConstantOperand::I32(128)),
+        ("fn main() -> u8 { 1u8 }", ConstantOperand::I64(256)),
+        ("fn main() -> u8 { 1u8 }", ConstantOperand::I64(-1)),
+        ("fn main() -> usize { 1usize }", ConstantOperand::I64(1)),
+        ("fn main() -> u64 { 1u64 }", ConstantOperand::I64(1)),
+    ] {
+        let mut bytecode = common::bytecode_ok(source);
+        let mut replaced = false;
+        for function in &mut bytecode.functions {
+            for instruction in &mut function.instructions {
+                if let BytecodeInstruction::LoadConst { constant, .. } = instruction {
+                    *constant = invalid.clone();
+                    replaced = true;
+                }
+            }
+        }
+        assert!(replaced, "{source}");
+        assert!(
+            crate::bytecode::verify_module(&bytecode).is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
     let original = common::bytecode_ok("pub enum Packet<T> { Data(T) } fn main() {}");
     assert!(original.enumerations.is_empty());

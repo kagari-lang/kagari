@@ -194,9 +194,11 @@ mod tests {
 
     #[test]
     fn later_constraints_resolve_nested_types_without_conflating_recovery() {
-        let mut solver = Solver::default();
         // Variables are allocated directly here to avoid depending on HIR arenas.
-        solver.bindings = vec![None, None];
+        let mut solver = Solver {
+            bindings: vec![None, None],
+            ..Default::default()
+        };
         let a = TypeId::Inference(0);
         let b = TypeId::Inference(1);
         let array = TypeId::Array(Box::new(b.clone()), CollectionAccess::Mutable);
@@ -214,8 +216,10 @@ mod tests {
 
     #[test]
     fn recursive_constraints_are_rejected_without_installing_a_cycle() {
-        let mut solver = Solver::default();
-        solver.bindings = vec![None];
+        let mut solver = Solver {
+            bindings: vec![None],
+            ..Default::default()
+        };
         let variable = TypeId::Inference(0);
         let nested = TypeId::Tuple(vec![variable.clone()]);
         assert!(
