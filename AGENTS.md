@@ -2,8 +2,7 @@
 
 Kagari is a statically typed, GC-backed scripting language implemented in Rust.
 Its priorities include host embedding, explicit execution semantics, tooling and
-hot reload. These instructions adapt Vela's engineering practices to Kagari;
-Vela's language restrictions and milestone queue do not apply here.
+hot reload. This document defines repository-wide engineering and workflow rules.
 
 ## Authority and Task Context
 
@@ -13,10 +12,8 @@ Vela's language restrictions and milestone queue do not apply here.
   [docs/architecture.md](docs/architecture.md) for architecture, and
   [docs/implementation-roadmap.md](docs/implementation-roadmap.md) to find the
   active execution plan. The relevant `docs/spec/` files define language behavior.
-- The active architecture track is
-  [docs/mir-architecture-refactor.md](docs/mir-architecture-refactor.md).
-  It owns crate migration, phase order, progress and known integration errors.
-  The completed R01-R18 foundation track is historical, not a second work queue.
+- The active execution plan owns phase order, scope, acceptance criteria and the
+  progress ledger. Keep phase-specific instructions in that plan.
 - Read the relevant documents when starting a task or changing direction. Reuse
   that context during the same task; reread when documents change or an unresolved
   design decision requires it. Inspect `git status` and the relevant diff before
@@ -24,29 +21,32 @@ Vela's language restrictions and milestone queue do not apply here.
 - Inspect relevant implementation and tests before selecting a concrete unit of
   work. For bug fixes, use an existing failure or a focused reproduction when
   practical. Do not require a failing test for documentation or mechanical edits.
-- Creating or updating a plan does not start goal mode. Start a goal only when
-  explicitly requested. Use the plan's ledger and commit history when resuming.
+- Use the active plan's ledger and commit history when resuming work.
 
 ## Engineering Priorities
 
 Correctness and observable semantics come first, followed by testability, host
 boundary safety, hot reload correctness, maintainability and measured performance.
 Prefer cohesive, reviewable changes with explicit responsibility boundaries.
-For an approved structural migration, follow its phase size and intermediate-build
-policy rather than forcing every file move into a separately runnable checkpoint.
+For structural migrations, follow the active plan's phase size and intermediate
+build policy.
 
 ### Code Structure
 
 - Split code by crate and module responsibility. Keep `lib.rs` and facades focused
   on public entrypoints and orchestration, not accumulated feature implementations.
-- Treat 1200 lines as the ordinary handwritten implementation/test file review
-  threshold. When a changed file exceeds it, split at meaningful boundaries or
-  record a specific reason in the active plan's ledger or architecture docs.
+- Treat 1200 effective lines of code (LOC) as the ordinary handwritten
+  implementation/test file review threshold. Exclude blank lines and comment-only
+  lines, including Rust documentation comments and block comments. Count a line
+  containing both code and a comment once. Recognize comments lexically: comment
+  markers inside string literals are not comments. Do not use raw file line counts
+  as effective LOC.
+- When a changed file exceeds 1200 effective LOC, split at meaningful boundaries
+  or record a specific reason in the active plan's ledger or architecture docs.
   Generated output and cohesive exhaustive tables/fixtures can justify exceptions;
   exceptions do not authorize unrelated growth.
-- Existing large files are structural debt, not a reason to stop an unrelated task
-  or start a repository-wide split. During MIR migration, review affected files as
-  their responsibilities move, and record unresolved debt for the final audit.
+- Review affected files as their responsibilities change and record unresolved
+  structural debt in the active plan. Keep unrelated refactoring outside task scope.
 - Use normal Rust `mod` boundaries for handwritten source. Reserve `include!` for
   generated code and `#[path]` for justified test or cross-target sharing.
 - Follow the import/path rules and structural review below for handwritten Rust.
@@ -108,17 +108,16 @@ Review changed handwritten Rust modules before each implementation checkpoint:
 2. Check for repeated `super::` traversal and long qualified paths at use sites;
    replace them with explicit imports or short module qualification as appropriate.
 3. Check module ownership, visibility/re-export growth, handwritten `include!`,
-   unjustified `#[path]`, file size and large functions mixing responsibilities.
+   unjustified `#[path]`, effective LOC and large functions mixing responsibilities.
 4. Record any justified exception or existing debt in the active plan with its
    reason and follow-up owner. Resolve new violations in the changed code; do not
    hide them with broad lint allowances or claim that formatting checks catch them.
 
 Text searches are useful audit inputs, not a complete Rust-aware checker: imports
 may span multiple lines, contain nested groups, or appear inside string fixtures.
-Review results in context. Do not launch unrelated repository-wide source rewrites
-for a documentation task. During the MIR migration, apply this review as modules
-move and include a full structural audit in A05. Intermediate compilation failures
-do not prevent import/path review and do not require compatibility scaffolding.
+Review results in context. Apply structural review as modules change, and perform
+full audits at the milestones specified by the active plan. Import/path review
+does not require a successful build.
 
 ### Replacement and Migration
 
@@ -129,21 +128,18 @@ do not prevent import/path review and do not require compatibility scaffolding.
   compatibility support does not permit executing unvalidated input.
 - Update examples, consumers and tests to the intended model. Preserve meaningful
   behavioral coverage; do not remove tests or weaken assertions to conceal failures.
-- During MIR phases A01-A04, compilation/test failures are explicitly allowed at
-  checkpoints. Record the command, representative diagnostics, cause and owning
-  follow-up phase in the plan ledger; disclose a broken build in the commit body.
-- Continue authorized structural work despite documented intermediate failures.
-  Do not introduce adapters, fake success, disabled validation or production
-  `todo!()` stubs to manufacture a green checkpoint. Do not seek approval merely
-  because an intermediate build is broken.
-- Final A05 acceptance requires all carried build/test errors to be resolved and
-  all documented checks to pass. Track phase scope separately from build status.
+- Follow the active plan's policy on intermediate compilation/test failures.
+  Record the command, representative diagnostics, cause and owning follow-up phase
+  in its ledger; disclose a broken build in the commit body.
+- Resolve integration errors through the intended architecture. Do not introduce
+  fake success, disabled validation or production `todo!()` stubs to pass checks.
+- Final acceptance requires all carried build/test errors to be resolved and all
+  documented checks to pass. Track phase scope separately from build status.
 
 ## Kagari Semantic Boundaries
 
 - Preserve existing static typing, generics, traits, checked numeric behavior,
   shared object semantics and Result/Option propagation under their specifications.
-  Rust and Kotlin are references, not implicit permission to change semantics.
 - Host-owned Rust state remains outside the script heap. Script access uses the
   declared host capabilities and typed paths; never expose unrestricted Rust
   references through script values or bypass scoped borrow validation.
@@ -160,9 +156,7 @@ do not prevent import/path review and do not require compatibility scaffolding.
 - Follow the active plan's production dependency constraints: executable contracts
   must not depend on source analysis, and backends must consume checked facts
   rather than resolve syntax or infer types again.
-- The current track migrates the existing Cranelift subset. Expanded JIT comes
-  later; LLVM is a late independent track. Async, moving GC and speculative
-  optimization are not incidental additions to the crate migration.
+- Implement features within the active task's scope and the roadmap's sequencing.
 
 ## Verification and Tooling
 
@@ -173,10 +167,8 @@ do not prevent import/path review and do not require compatibility scaffolding.
 - Run focused tests when affected units build. At intermediate architecture
   boundaries, attempt relevant checks and record failures honestly; avoid repeating
   unchanged known failures while their owning migration step is still pending.
-- Use the workspace O1 development profile; tests inherit it. Use the default
-  `target` directory and default Cargo parallelism. Do not routinely add a custom
-  `--target-dir`, restrict builds to `-j 2`, or clean caches. Investigate concrete
-  file-lock/build failures before changing those defaults.
+- Use the build profiles defined in the workspace `Cargo.toml`, the default
+  `target` directory and Cargo's default build parallelism.
 - Python is managed through `uv`; use `uv run python` when Python is needed.
 - Store temporary logs and generated measurement output under ignored `target/`.
   Record durable conclusions, reproduction commands and known errors in the active
@@ -194,9 +186,8 @@ cargo test --workspace
 git diff --check
 ```
 
-Use `git diff --check` at every checkpoint. On Windows, an invocation-local
-`git -c core.safecrlf=false diff --check` is acceptable; do not change global Git
-configuration just to handle the repository's line-ending conversion.
+Use `git diff --check` at every checkpoint and preserve repository line-ending
+conventions.
 
 ## Progress and Commits
 
@@ -210,9 +201,8 @@ configuration just to handle the repository's line-ending conversion.
   `<type>(optional-scope): <description>`. Prefer imperative subjects under 72
   characters, with `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`
   or `chore` as appropriate.
-- Mark breaking API/format changes with `!` and explain their impact. Include
-  `Architecture-Step: Axx` for MIR phase commits; several commits may share a phase.
-  Do not apply a phase trailer to unrelated work or mark planning as implementation.
+- Mark breaking API/format changes with `!` and explain their impact. Use the
+  phase trailers required by the active plan on implementation checkpoints.
 - Keep unrelated changes out of the checkpoint. Do not amend or rewrite user
   commits unless requested.
 
