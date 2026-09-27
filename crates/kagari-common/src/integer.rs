@@ -27,7 +27,7 @@ pub fn wrap(value: i128, bits: u32, signed: bool) -> i128 {
     }
 }
 
-pub fn bit_operation(
+pub fn integer_operation(
     op: IntegerOp,
     lhs: i128,
     rhs: i128,
@@ -53,7 +53,13 @@ pub fn bit_operation(
             };
             let (value, overflow) = arithmetic_method(method, lhs, rhs, bits, signed);
             return if overflow {
-                Err("integer overflow or division by zero")
+                use crate::arithmetic::ArithmeticError;
+                Err(match (op, rhs) {
+                    (CheckedDiv, 0) => ArithmeticError::DivisionByZero,
+                    (CheckedRem, 0) => ArithmeticError::RemainderByZero,
+                    _ => ArithmeticError::Overflow,
+                }
+                .message())
             } else {
                 Ok(value)
             };

@@ -22,66 +22,162 @@
 
 impl i8 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).wrapping_add(1i8) == -128i8, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: i8) -> i8;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-128i8).wrapping_sub(1i8) == 127i8, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: i8) -> i8;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).wrapping_mul(2i8) == -2i8, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: i8) -> i8;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).checked_add(1i8) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: i8) -> Option<i8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-128i8).checked_sub(1i8) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: i8) -> Option<i8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).checked_mul(2i8) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: i8) -> Option<i8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-128i8).checked_div(-1i8) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: i8) -> Option<i8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42i8).checked_rem(5i8) == Some(2i8), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: i8) -> Option<i8>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).overflowing_add(1i8) == (-128i8, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: i8) -> (i8, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-128i8).overflowing_sub(1i8) == (127i8, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: i8) -> (i8, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).overflowing_mul(2i8) == (-2i8, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: i8) -> (i8, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).saturating_add(1i8) == 127i8, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: i8) -> i8;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-128i8).saturating_sub(1i8) == -128i8, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: i8) -> i8;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((127i8).saturating_mul(2i8) == 127i8, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: i8) -> i8;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i8).rotate_left(1u32) == 2i8, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> i8;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i8).rotate_right(1u32) == -128i8, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> i8;
 
@@ -89,66 +185,162 @@ impl i8 {
 
 impl i16 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).wrapping_add(1i16) == -32768i16, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: i16) -> i16;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-32768i16).wrapping_sub(1i16) == 32767i16, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: i16) -> i16;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).wrapping_mul(2i16) == -2i16, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: i16) -> i16;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).checked_add(1i16) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: i16) -> Option<i16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-32768i16).checked_sub(1i16) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: i16) -> Option<i16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).checked_mul(2i16) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: i16) -> Option<i16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-32768i16).checked_div(-1i16) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: i16) -> Option<i16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42i16).checked_rem(5i16) == Some(2i16), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: i16) -> Option<i16>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).overflowing_add(1i16) == (-32768i16, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: i16) -> (i16, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-32768i16).overflowing_sub(1i16) == (32767i16, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: i16) -> (i16, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).overflowing_mul(2i16) == (-2i16, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: i16) -> (i16, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).saturating_add(1i16) == 32767i16, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: i16) -> i16;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-32768i16).saturating_sub(1i16) == -32768i16, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: i16) -> i16;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((32767i16).saturating_mul(2i16) == 32767i16, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: i16) -> i16;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i16).rotate_left(1u32) == 2i16, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> i16;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i16).rotate_right(1u32) == -32768i16, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> i16;
 
@@ -156,66 +348,162 @@ impl i16 {
 
 impl i32 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).wrapping_add(1i32) == -2147483648i32, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: i32) -> i32;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-2147483648i32).wrapping_sub(1i32) == 2147483647i32, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: i32) -> i32;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).wrapping_mul(2i32) == -2i32, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: i32) -> i32;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).checked_add(1i32) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: i32) -> Option<i32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-2147483648i32).checked_sub(1i32) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: i32) -> Option<i32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).checked_mul(2i32) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: i32) -> Option<i32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-2147483648i32).checked_div(-1i32) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: i32) -> Option<i32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42i32).checked_rem(5i32) == Some(2i32), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: i32) -> Option<i32>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).overflowing_add(1i32) == (-2147483648i32, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: i32) -> (i32, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-2147483648i32).overflowing_sub(1i32) == (2147483647i32, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: i32) -> (i32, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).overflowing_mul(2i32) == (-2i32, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: i32) -> (i32, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).saturating_add(1i32) == 2147483647i32, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: i32) -> i32;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-2147483648i32).saturating_sub(1i32) == -2147483648i32, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: i32) -> i32;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((2147483647i32).saturating_mul(2i32) == 2147483647i32, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: i32) -> i32;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i32).rotate_left(1u32) == 2i32, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> i32;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i32).rotate_right(1u32) == -2147483648i32, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> i32;
 
@@ -223,66 +511,162 @@ impl i32 {
 
 impl i64 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).wrapping_add(1i64) == -9223372036854775808i64, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: i64) -> i64;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808i64).wrapping_sub(1i64) == 9223372036854775807i64, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: i64) -> i64;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).wrapping_mul(2i64) == -2i64, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: i64) -> i64;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).checked_add(1i64) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: i64) -> Option<i64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808i64).checked_sub(1i64) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: i64) -> Option<i64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).checked_mul(2i64) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: i64) -> Option<i64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808i64).checked_div(-1i64) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: i64) -> Option<i64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42i64).checked_rem(5i64) == Some(2i64), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: i64) -> Option<i64>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).overflowing_add(1i64) == (-9223372036854775808i64, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: i64) -> (i64, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808i64).overflowing_sub(1i64) == (9223372036854775807i64, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: i64) -> (i64, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).overflowing_mul(2i64) == (-2i64, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: i64) -> (i64, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).saturating_add(1i64) == 9223372036854775807i64, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: i64) -> i64;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808i64).saturating_sub(1i64) == -9223372036854775808i64, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: i64) -> i64;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807i64).saturating_mul(2i64) == 9223372036854775807i64, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: i64) -> i64;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i64).rotate_left(1u32) == 2i64, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> i64;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1i64).rotate_right(1u32) == -9223372036854775808i64, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> i64;
 
@@ -290,66 +674,162 @@ impl i64 {
 
 impl isize {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).wrapping_add(1isize) == -9223372036854775808isize, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: isize) -> isize;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808isize).wrapping_sub(1isize) == 9223372036854775807isize, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: isize) -> isize;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).wrapping_mul(2isize) == -2isize, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: isize) -> isize;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).checked_add(1isize) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: isize) -> Option<isize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808isize).checked_sub(1isize) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: isize) -> Option<isize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).checked_mul(2isize) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: isize) -> Option<isize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808isize).checked_div(-1isize) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: isize) -> Option<isize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42isize).checked_rem(5isize) == Some(2isize), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: isize) -> Option<isize>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).overflowing_add(1isize) == (-9223372036854775808isize, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: isize) -> (isize, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808isize).overflowing_sub(1isize) == (9223372036854775807isize, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: isize) -> (isize, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).overflowing_mul(2isize) == (-2isize, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: isize) -> (isize, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).saturating_add(1isize) == 9223372036854775807isize, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: isize) -> isize;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((-9223372036854775808isize).saturating_sub(1isize) == -9223372036854775808isize, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: isize) -> isize;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((9223372036854775807isize).saturating_mul(2isize) == 9223372036854775807isize, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: isize) -> isize;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1isize).rotate_left(1u32) == 2isize, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> isize;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1isize).rotate_right(1u32) == -9223372036854775808isize, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> isize;
 
@@ -357,70 +837,172 @@ impl isize {
 
 impl u8 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.wrapping_add(1u8) == 0u8, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: u8) -> u8;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(0u8.wrapping_sub(1u8) == 255u8, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: u8) -> u8;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.wrapping_mul(2u8) == 254u8, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: u8) -> u8;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.checked_add(1u8) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: u8) -> Option<u8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(0u8.checked_sub(1u8) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: u8) -> Option<u8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.checked_mul(2u8) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: u8) -> Option<u8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(1u8.checked_div(0u8) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: u8) -> Option<u8>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(42u8.checked_rem(5u8) == Some(2u8), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: u8) -> Option<u8>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.overflowing_add(1u8) == (0u8, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: u8) -> (u8, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(0u8.overflowing_sub(1u8) == (255u8, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: u8) -> (u8, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.overflowing_mul(2u8) == (254u8, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: u8) -> (u8, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.saturating_add(1u8) == 255u8, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: u8) -> u8;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(0u8.saturating_sub(1u8) == 0u8, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: u8) -> u8;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(255u8.saturating_mul(2u8) == 255u8, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: u8) -> u8;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(0u8.wrapping_add_signed(-1i8) == 255u8, "wrapping_add_signed");
+    /// ```
     #[numeric(WrappingAddSigned)]
     pub fn wrapping_add_signed(self, rhs: i8) -> u8;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(128u8.rotate_left(1u32) == 1u8, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> u8;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(1u8.rotate_right(9u32) == 128u8, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> u8;
 
@@ -428,70 +1010,172 @@ impl u8 {
 
 impl u16 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).wrapping_add(1u16) == 0u16, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: u16) -> u16;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u16).wrapping_sub(1u16) == 65535u16, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: u16) -> u16;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).wrapping_mul(2u16) == 65534u16, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: u16) -> u16;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).checked_add(1u16) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: u16) -> Option<u16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u16).checked_sub(1u16) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: u16) -> Option<u16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).checked_mul(2u16) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: u16) -> Option<u16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u16).checked_div(0u16) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: u16) -> Option<u16>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42u16).checked_rem(5u16) == Some(2u16), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: u16) -> Option<u16>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).overflowing_add(1u16) == (0u16, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: u16) -> (u16, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u16).overflowing_sub(1u16) == (65535u16, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: u16) -> (u16, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).overflowing_mul(2u16) == (65534u16, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: u16) -> (u16, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).saturating_add(1u16) == 65535u16, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: u16) -> u16;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u16).saturating_sub(1u16) == 0u16, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: u16) -> u16;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((65535u16).saturating_mul(2u16) == 65535u16, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: u16) -> u16;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u16).wrapping_add_signed(-1i16) == 65535u16, "wrapping_add_signed");
+    /// ```
     #[numeric(WrappingAddSigned)]
     pub fn wrapping_add_signed(self, rhs: i16) -> u16;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u16).rotate_left(1u32) == 2u16, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> u16;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u16).rotate_right(1u32) == 32768u16, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> u16;
 
@@ -499,70 +1183,172 @@ impl u16 {
 
 impl u32 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).wrapping_add(1u32) == 0u32, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: u32) -> u32;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u32).wrapping_sub(1u32) == 4294967295u32, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: u32) -> u32;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).wrapping_mul(2u32) == 4294967294u32, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: u32) -> u32;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).checked_add(1u32) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: u32) -> Option<u32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u32).checked_sub(1u32) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: u32) -> Option<u32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).checked_mul(2u32) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: u32) -> Option<u32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u32).checked_div(0u32) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: u32) -> Option<u32>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42u32).checked_rem(5u32) == Some(2u32), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: u32) -> Option<u32>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).overflowing_add(1u32) == (0u32, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: u32) -> (u32, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u32).overflowing_sub(1u32) == (4294967295u32, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: u32) -> (u32, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).overflowing_mul(2u32) == (4294967294u32, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: u32) -> (u32, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).saturating_add(1u32) == 4294967295u32, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: u32) -> u32;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u32).saturating_sub(1u32) == 0u32, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: u32) -> u32;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((4294967295u32).saturating_mul(2u32) == 4294967295u32, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: u32) -> u32;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u32).wrapping_add_signed(-1i32) == 4294967295u32, "wrapping_add_signed");
+    /// ```
     #[numeric(WrappingAddSigned)]
     pub fn wrapping_add_signed(self, rhs: i32) -> u32;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u32).rotate_left(1u32) == 2u32, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> u32;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u32).rotate_right(1u32) == 2147483648u32, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> u32;
 
@@ -570,70 +1356,172 @@ impl u32 {
 
 impl u64 {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).wrapping_add(1u64) == 0u64, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: u64) -> u64;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u64).wrapping_sub(1u64) == 18446744073709551615u64, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: u64) -> u64;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).wrapping_mul(2u64) == 18446744073709551614u64, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: u64) -> u64;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).checked_add(1u64) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: u64) -> Option<u64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u64).checked_sub(1u64) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: u64) -> Option<u64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).checked_mul(2u64) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: u64) -> Option<u64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u64).checked_div(0u64) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: u64) -> Option<u64>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42u64).checked_rem(5u64) == Some(2u64), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: u64) -> Option<u64>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).overflowing_add(1u64) == (0u64, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: u64) -> (u64, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u64).overflowing_sub(1u64) == (18446744073709551615u64, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: u64) -> (u64, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).overflowing_mul(2u64) == (18446744073709551614u64, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: u64) -> (u64, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).saturating_add(1u64) == 18446744073709551615u64, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: u64) -> u64;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u64).saturating_sub(1u64) == 0u64, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: u64) -> u64;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615u64).saturating_mul(2u64) == 18446744073709551615u64, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: u64) -> u64;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0u64).wrapping_add_signed(-1i64) == 18446744073709551615u64, "wrapping_add_signed");
+    /// ```
     #[numeric(WrappingAddSigned)]
     pub fn wrapping_add_signed(self, rhs: i64) -> u64;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u64).rotate_left(1u32) == 2u64, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> u64;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1u64).rotate_right(1u32) == 9223372036854775808u64, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> u64;
 
@@ -641,70 +1529,172 @@ impl u64 {
 
 impl usize {
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).wrapping_add(1usize) == 0usize, "wrapping_add");
+    /// ```
     #[numeric(WrappingAdd)]
     pub fn wrapping_add(self, rhs: usize) -> usize;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0usize).wrapping_sub(1usize) == 18446744073709551615usize, "wrapping_sub");
+    /// ```
     #[numeric(WrappingSub)]
     pub fn wrapping_sub(self, rhs: usize) -> usize;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).wrapping_mul(2usize) == 18446744073709551614usize, "wrapping_mul");
+    /// ```
     #[numeric(WrappingMul)]
     pub fn wrapping_mul(self, rhs: usize) -> usize;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).checked_add(1usize) == None, "checked_add");
+    /// ```
     #[numeric(CheckedAdd)]
     pub fn checked_add(self, rhs: usize) -> Option<usize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0usize).checked_sub(1usize) == None, "checked_sub");
+    /// ```
     #[numeric(CheckedSub)]
     pub fn checked_sub(self, rhs: usize) -> Option<usize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).checked_mul(2usize) == None, "checked_mul");
+    /// ```
     #[numeric(CheckedMul)]
     pub fn checked_mul(self, rhs: usize) -> Option<usize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1usize).checked_div(0usize) == None, "checked_div");
+    /// ```
     #[numeric(CheckedDiv)]
     pub fn checked_div(self, rhs: usize) -> Option<usize>;
 
     /// Return None on overflow or an undefined integer operation.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((42usize).checked_rem(5usize) == Some(2usize), "checked_rem");
+    /// ```
     #[numeric(CheckedRem)]
     pub fn checked_rem(self, rhs: usize) -> Option<usize>;
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).overflowing_add(1usize) == (0usize, true), "overflowing_add");
+    /// ```
     #[numeric(OverflowingAdd)]
     pub fn overflowing_add(self, rhs: usize) -> (usize, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0usize).overflowing_sub(1usize) == (18446744073709551615usize, true), "overflowing_sub");
+    /// ```
     #[numeric(OverflowingSub)]
     pub fn overflowing_sub(self, rhs: usize) -> (usize, bool);
 
     /// Return the wrapped result and whether the mathematical result overflows.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).overflowing_mul(2usize) == (18446744073709551614usize, true), "overflowing_mul");
+    /// ```
     #[numeric(OverflowingMul)]
     pub fn overflowing_mul(self, rhs: usize) -> (usize, bool);
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).saturating_add(1usize) == 18446744073709551615usize, "saturating_add");
+    /// ```
     #[numeric(SaturatingAdd)]
     pub fn saturating_add(self, rhs: usize) -> usize;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0usize).saturating_sub(1usize) == 0usize, "saturating_sub");
+    /// ```
     #[numeric(SaturatingSub)]
     pub fn saturating_sub(self, rhs: usize) -> usize;
 
     /// Clamp the mathematical result to the receiver type range.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((18446744073709551615usize).saturating_mul(2usize) == 18446744073709551615usize, "saturating_mul");
+    /// ```
     #[numeric(SaturatingMul)]
     pub fn saturating_mul(self, rhs: usize) -> usize;
 
     /// Return the low bits of the result, wrapping at the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((0usize).wrapping_add_signed(-1isize) == 18446744073709551615usize, "wrapping_add_signed");
+    /// ```
     #[numeric(WrappingAddSigned)]
     pub fn wrapping_add_signed(self, rhs: isize) -> usize;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1usize).rotate_left(1u32) == 2usize, "rotate_left");
+    /// ```
     #[numeric(RotateLeft)]
     pub fn rotate_left(self, rhs: u32) -> usize;
 
     /// Rotate bits by a count reduced modulo the receiver width.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert((1usize).rotate_right(1u32) == 9223372036854775808usize, "rotate_right");
+    /// ```
     #[numeric(RotateRight)]
     pub fn rotate_right(self, rhs: u32) -> usize;
 

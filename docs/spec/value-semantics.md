@@ -294,8 +294,9 @@ denotes the current location, not a detached Rust reference or a pinned element.
 If RHS execution removes the location, the final write fails. RHS effects already
 performed remain visible. No mutable host borrow spans RHS execution.
 
-The compound forms are `+=`, `-=`, `*=` and `/=` and require matching numeric
-operands. The root of a mutable object location retains the identity evaluated
+Arithmetic compound forms are `+=`, `-=`, `*=`, `/=` and `%=` with matching
+numeric operands. Bitwise forms are `&=`, `|=` and `^=` with matching integer
+operands; `<<=` and `>>=` accept an integer count of any width. The root of a mutable object location retains the identity evaluated
 before the RHS; rebinding the root variable does not retarget it. Captured indexes
 are applied to the current contents after the RHS, so replacing an intermediate
 element changes which current field is modified. A local scalar or tuple slot is

@@ -347,3 +347,46 @@ fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
         assert!(forged.validate_for_loader(&Default::default()).is_err());
     }
 }
+
+#[test]
+fn hardware_numeric_example_with_artifacts_and_gc() {
+    execute(include_str!("../../../examples/6502-numeric.kgr"));
+}
+
+#[test]
+fn ordinary_narrow_remainder_and_compound_arithmetic_still_trap() {
+    let engine = KagariEngine::default();
+    for body in [
+        "val n = -128i8; val r = n % -1i8;",
+        "var n = 255u8; n += 1u8;",
+        "var n = -32768i16; n %= -1i16;",
+        "var n = 255u8; n *= 2u8;",
+    ] {
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("checked.kgr", format!("fn main() {{ {body} }}")),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let program = runtime.load_program(artifact, Default::default()).unwrap();
+        assert!(
+            runtime.execute(&program, "main", &[], &context).is_err(),
+            "{body}"
+        );
+    }
+    assert!(
+        engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "checked-const.kgr",
+                    "const VALUE: i8 = -128i8 % -1i8; fn main() -> i8 { VALUE }"
+                ),
+                Default::default(),
+                Default::default()
+            )
+            .is_err()
+    );
+}

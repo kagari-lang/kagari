@@ -527,8 +527,22 @@ does not change the artifact layout.
 - [x] N03: wrapping, checked, overflowing and saturating integer methods.
 - [x] N04: numeric casts, built-in From/TryFrom conversions and typed conversion errors.
 - [x] N05: signed offset wrapping and bit rotations.
-- [ ] N06: 6502 examples, boundary tests, artifacts and final validation.
+- [x] N06: 6502 examples, boundary tests, artifacts and final validation.
 
 Ordinary integer arithmetic traps on overflow in every build mode. Explicit
 numeric operations follow Rust rules, with 64-bit isize/usize in Kagari. JIT
 optimization, compact buffers and fixed-length arrays are separate work.
+
+The executable [6502 numeric example](../examples/6502-numeric.kgr) covers
+address assembly, stack and zero-page wrapping, signed branch offsets, RAM
+mirroring and ADC/SBC carry/overflow flags. It is a numeric acceptance sample,
+not a cycle-accurate CPU implementation.
+
+Final validation: 1,253 workspace tests passed, including 43 standalone examples
+and 331 executable API documentation blocks. Numeric acceptance covers source,
+encoded artifacts and JIT-enabled interpreter fallback with frequent GC. Tests
+compare integer policies and floating-point cast boundaries against native Rust,
+reject malformed numeric instruction contracts, preserve compound-assignment
+effects on failure, and check direct native argument validation. Formatting,
+workspace/all-targets clippy with warnings denied, and `git diff --check` passed.
+KBC/runtime ABI v80 rejects earlier products.

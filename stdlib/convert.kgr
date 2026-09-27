@@ -121,6 +121,13 @@ pub trait TryInto<Target> {
 ///
 /// Integer TryFrom/TryInto return this error for potentially lossy conversions.
 /// The source value is never modified. Use `as` when truncation is intentional.
+///
+/// # Examples
+///
+/// ```kgr
+/// val result: Result<u8, std::convert::TryFromIntError> = u8::try_from(256u16);
+/// std::debug::assert(result.is_err(), "out of range");
+/// ```
 #[builtin_enum(TryFromIntError)]
 pub enum TryFromIntError {
     /// The source value cannot be represented by the destination integer type.
@@ -130,5 +137,12 @@ pub enum TryFromIntError {
 /// The error type of built-in TryFrom conversions that cannot fail.
 ///
 /// This enum has no values. Lossless built-in conversions always return Ok.
+///
+/// # Examples
+///
+/// ```kgr
+/// val result: Result<u16, std::convert::Infallible> = u16::try_from(42u8);
+/// std::debug::assert(result == Ok(42u16), "lossless");
+/// ```
 #[builtin_enum(Infallible)]
 pub enum Infallible {}

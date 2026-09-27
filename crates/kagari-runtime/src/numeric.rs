@@ -98,21 +98,15 @@ pub fn fixed_integer(
 ) -> Result<Value, RuntimeError> {
     let invalid = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric operand");
     operation.contract().ok_or_else(invalid)?;
-    let read = |value| match value {
-        Value::I32(n) => Ok(i128::from(n)),
-        Value::I64(n) => Ok(i128::from(n)),
-        Value::U64(n) => Ok(i128::from(n)),
-        _ => Err(invalid()),
+    let lhs = read_integer(operation.input, &lhs)?;
+    let rhs = match (operation.rhs, rhs) {
+        (Some(ty), Some(value)) => read_integer(ty, &value)?,
+        (None, None) => 0,
+        _ => return Err(invalid()),
     };
     let (bits, signed) = operation.input.integer_layout().ok_or_else(invalid)?;
-    let result = kagari_common::integer::bit_operation(
-        operation.op,
-        read(lhs)?,
-        rhs.map(read).transpose()?.unwrap_or(0),
-        bits,
-        signed,
-    )
-    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+    let result = kagari_common::integer::integer_operation(operation.op, lhs, rhs, bits, signed)
+        .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
     use kagari_ir::module::abi::BuiltinType::*;
     Ok(match operation.input {
         I8 | I16 | I32 => Value::I32(result as i32),
@@ -133,20 +127,34 @@ pub fn integer_method(
             "integer method requires two arguments",
         ));
     };
-    let read = |value: &Value| match value {
-        Value::I32(v) => Ok(i128::from(*v)),
-        Value::I64(v) => Ok(i128::from(*v)),
-        Value::U64(v) => Ok(i128::from(*v)),
-        _ => Err(RuntimeError::new(
-            RuntimeErrorKind::ScriptTrap,
-            "integer argument required",
-        )),
-    };
     let (bits, signed) = ty.integer_layout().ok_or_else(|| {
         RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer receiver required")
     })?;
-    let (value, overflow) =
-        kagari_common::integer::arithmetic_method(operation, read(lhs)?, read(rhs)?, bits, signed);
+    use kagari_common::integer::IntegerMethod;
+    use kagari_ir::module::abi::BuiltinType;
+    let rhs_ty = match operation {
+        IntegerMethod::RotateLeft | IntegerMethod::RotateRight => BuiltinType::U32,
+        IntegerMethod::WrappingAddSigned if signed => {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "signed-offset wrapping requires an unsigned receiver",
+            ));
+        }
+        IntegerMethod::WrappingAddSigned => match bits {
+            8 => BuiltinType::I8,
+            16 => BuiltinType::I16,
+            32 => BuiltinType::I32,
+            _ => BuiltinType::I64,
+        },
+        _ => ty,
+    };
+    let (value, overflow) = kagari_common::integer::arithmetic_method(
+        operation,
+        read_integer(ty, lhs)?,
+        read_integer(rhs_ty, rhs)?,
+        bits,
+        signed,
+    );
     use kagari_ir::module::abi::BuiltinType::*;
     let value = match ty {
         I8 | I16 | I32 => Value::I32(value as i32),
@@ -176,6 +184,14 @@ pub fn convert(
     use kagari_common::numeric::Number;
     let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
     conversion.contract().ok_or_else(fail)?;
+    if !value.has_representation(
+        kagari_ir::module::abi::AbiType::Builtin(conversion.source).representation(),
+    ) {
+        return Err(fail());
+    }
+    if conversion.source.integer_layout().is_some() {
+        read_integer(conversion.source, &value)?;
+    }
     if conversion.checked && conversion.source == conversion.target {
         return Ok(Value::Enum(
             gc.alloc_enum(crate::value::EnumTag::ResultOk, vec![value])?,
@@ -224,5 +240,56 @@ pub fn convert(
         )?))
     } else {
         Ok(value)
+    }
+}
+
+fn read_integer(
+    ty: kagari_ir::module::abi::BuiltinType,
+    value: &Value,
+) -> Result<i128, RuntimeError> {
+    let fail = || {
+        RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "invalid numeric operand type or range",
+        )
+    };
+    if !value.has_representation(kagari_ir::module::abi::AbiType::Builtin(ty).representation()) {
+        return Err(fail());
+    }
+    let value = match value {
+        Value::I32(v) => i128::from(*v),
+        Value::I64(v) => i128::from(*v),
+        Value::U64(v) => i128::from(*v),
+        _ => return Err(fail()),
+    };
+    let (bits, signed) = ty.integer_layout().ok_or_else(fail)?;
+    let (minimum, maximum) = kagari_common::integer::bounds(bits, signed);
+    if !(minimum..=maximum).contains(&value) {
+        return Err(fail());
+    }
+    Ok(value)
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    #[test]
+    fn invalid_direct_native_inputs_return_errors_without_panicking() {
+        use kagari_common::integer::IntegerMethod as M;
+        use kagari_ir::module::abi::BuiltinType as B;
+        let runtime = crate::Runtime::default();
+        for (method, ty, args) in [
+            (M::RotateLeft, B::U8, [Value::I64(1), Value::I64(-1)]),
+            (
+                M::RotateRight,
+                B::U8,
+                [Value::I64(1), Value::I64(4294967296)],
+            ),
+            (M::WrappingAdd, B::U8, [Value::I64(256), Value::I64(0)]),
+            (M::WrappingAddSigned, B::I8, [Value::I32(1), Value::I32(1)]),
+        ] {
+            assert!(integer_method(runtime.gc(), method, ty, &args).is_err());
+        }
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

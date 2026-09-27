@@ -141,7 +141,7 @@ queries and clear operations do not invoke equality/hash callbacks.
 
 The standard declarations include `std::cmp::{PartialEq, Eq, PartialOrd, Ord}`,
 `std::hash::Hash`, `std::fmt::{Debug, Display}`, and
-`std::ops::{Add, Sub, Mul, Div, Rem, Neg, Not, Index}`,
+`std::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, Neg, Not, Index}`,
 `std::convert::{From, Into, TryFrom, TryInto}` and `std::iter::{Iterator, Iterable}`.
 Their short names are available in the prelude;
 normal declarations and imports shadow them. Aliases and wildcard imports retain
@@ -310,7 +310,7 @@ Baseline numeric support includes:
 - explicit casts where the language defines them
 
 Ordinary integer arithmetic traps on overflow in every build mode and backend.
-Explicit wrapping operations are the only exception. Equality, copying, iteration,
+Explicit integer methods select wrapping, checked, overflowing or saturating policies. Equality, copying, iteration,
 and evaluation order follow [value semantics](value-semantics.md). Standard
 mutation failures follow [failure semantics](failure-semantics.md).
 
@@ -584,7 +584,8 @@ See [operators.kgr](../../examples/syntax/operators.kgr).
 
 `std::ops::{Neg, Not}` declare `type Output` and `fn neg(self) -> Self::Output`
 (respectively `not`). They control unary `-` and `!`; signed builtin numeric
-negation and bool negation keep direct instructions. Custom outputs may differ
+negation and bool negation keep direct instructions. Integer Not complements
+all bits of the declared width. Custom outputs may differ
 from the receiver. `&&`/`||` remain bool-only short-circuit operators.
 
 
@@ -634,9 +635,12 @@ metadata follows [error reporting](error-reporting.md).
 Identity `From<T> for T` preserves ordinary value/reference semantics and cannot
 be overridden. Custom conversions must belong to the defining module of a script
 nominal source or destination. Host conversions and overlapping identity impls
-are rejected. No blanket From-to-TryFrom conversion or numeric conversion matrix
-is introduced: fallible conversions explicitly return Result and may use any
-error type. A From method may still trap like any script function; its contract
+are rejected. Built-in numeric From/TryFrom bindings follow the
+[numeric conversion contract](value-semantics.md#explicit-numeric-conversions).
+They use TryFromIntError for potentially lossy integer conversions and Infallible
+for lossless built-in conversions. User-defined fallible conversions explicitly
+return Result and may use any error type; they gain no automatic From-to-TryFrom
+blanket implementation. A From method may still trap like any script function; its contract
 is that expected conversion failures do not use a business error result.
 See [conversions.kgr](../../examples/syntax/conversions.kgr).
 
@@ -813,3 +817,17 @@ execution, and standard trait defaults retain a single canonical contract rather
 than requiring every implementation to satisfy every conditional default method.
 
 See [iterator-extensions.kgr](../../examples/syntax/iterator-extensions.kgr).
+
+## Fixed-width integer APIs
+
+`std::ops::{BitAnd, BitOr, BitXor, Shl, Shr}` extend the same RHS/Output and static
+dispatch model as arithmetic. Native bitwise operands have the same integer type;
+shifts permit a different integer count type. Ordinary shifts validate the count
+before executing. These traits do not override compound assignment.
+
+[`stdlib/numeric.kgr`](../../stdlib/numeric.kgr) declares per-type integer methods:
+wrapping_add/sub/mul, checked_add/sub/mul/div/rem, overflowing_add/sub/mul,
+saturating_add/sub/mul, rotate_left/right, and unsigned wrapping_add_signed.
+Signatures, documentation and executable examples belong to these declarations.
+The [value semantics contract](value-semantics.md#explicit-integer-arithmetic)
+defines their results and failures; normal integer operators remain checked.

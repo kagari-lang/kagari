@@ -136,6 +136,7 @@ pub trait Neg {
 ///     std::debug::assert(!false, "unary");
 /// }
 /// ```
+/// Integer implementations complement every bit of the declared operand width.
 pub trait Not {
     /// The result type.
     type Output;
@@ -167,6 +168,12 @@ pub trait Index<Rhs> {
 /// The binary `&` operation.
 /// Integer operands use the left operand's fixed width. Operands evaluate once.
 /// Builtin integer operands must have the same type.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert((0xf0u8 & 0x3cu8) == 0x30u8, "BitAnd");
+/// ```
 pub trait BitAnd<Rhs> {
     /// The result type.
     type Output;
@@ -177,6 +184,12 @@ pub trait BitAnd<Rhs> {
 /// The binary `|` operation.
 /// Integer operands use the left operand's fixed width. Operands evaluate once.
 /// Builtin integer operands must have the same type.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert((0xf0u8 | 0x0fu8) == 0xffu8, "BitOr");
+/// ```
 pub trait BitOr<Rhs> {
     /// The result type.
     type Output;
@@ -187,6 +200,12 @@ pub trait BitOr<Rhs> {
 /// The binary `^` operation.
 /// Integer operands use the left operand's fixed width. Operands evaluate once.
 /// Builtin integer operands must have the same type.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert((0xffu8 ^ 0x0fu8) == 0xf0u8, "BitXor");
+/// ```
 pub trait BitXor<Rhs> {
     /// The result type.
     type Output;
@@ -197,6 +216,12 @@ pub trait BitXor<Rhs> {
 /// The binary `<<` operation.
 /// Integer operands use the left operand's fixed width. Operands evaluate once.
 /// Shift counts must be nonnegative and smaller than the left operand width; otherwise execution traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert((128u8 << 1u16) == 0u8, "Shl");
+/// ```
 pub trait Shl<Rhs> {
     /// The result type.
     type Output;
@@ -207,6 +232,12 @@ pub trait Shl<Rhs> {
 /// The binary `>>` operation.
 /// Integer operands use the left operand's fixed width. Operands evaluate once.
 /// Shift counts must be nonnegative and smaller than the left operand width; otherwise execution traps.
+///
+/// # Examples
+///
+/// ```kgr
+/// std::debug::assert((-128i8 >> 7u8) == -1i8, "Shr");
+/// ```
 pub trait Shr<Rhs> {
     /// The result type.
     type Output;

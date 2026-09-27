@@ -15,7 +15,9 @@ imports or recognized by a user-controlled file extension.
 
 Outer `///` comments belong to the immediately following declaration. They retain
 Markdown including fenced Kagari examples. The CST remains lossless. Existing
-`#[intrinsic(...)]` binds native execution. Instance methods are declared with
+`#[intrinsic(...)]` binds native execution. The installed numeric declarations
+use `#[numeric(...)]` to pair an integer operation with their concrete impl target;
+it does not grant user declarations intrinsic behavior. Instance methods are declared with
 `self` inside an inherent or native trait `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in

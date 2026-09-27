@@ -792,7 +792,8 @@ See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which retu
 ## Standard protocol identities
 
 The standard PartialEq, Eq, Hash, Debug, Display, PartialOrd, Ord, Add, Sub, Mul,
-Div, Rem, Neg, Not, Index, From, Into, TryFrom, TryInto, Iterator, Iterable, FromIterator, Sum and Product
+Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr, Neg, Not, Index, From, Into, TryFrom,
+TryInto, Iterator, Iterable, FromIterator, Sum and Product
 contracts are described in
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;

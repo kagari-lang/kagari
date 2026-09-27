@@ -194,6 +194,13 @@ fn binary(
                     ty: right,
                 },
             ) if ty == right => {
+                if matches!(op, IntegerBinaryOp::Rem)
+                    && ty.integer_layout().is_some_and(|(bits, signed)| {
+                        signed && lhs == kagari_common::integer::bounds(bits, signed).0 && rhs == -1
+                    })
+                {
+                    return Some(Err("integer overflow"));
+                }
                 let value = match op {
                     IntegerBinaryOp::Add => lhs.checked_add(rhs),
                     IntegerBinaryOp::Sub => lhs.checked_sub(rhs),
@@ -264,7 +271,7 @@ fn scalar_bits(
     let (rhs, _) = unpack(rhs)?;
     let (bits, signed) = ty.integer_layout()?;
     Some(
-        kagari_common::integer::bit_operation(op, lhs, rhs, bits, signed)
+        kagari_common::integer::integer_operation(op, lhs, rhs, bits, signed)
             .and_then(|v| ScalarValue::integer(v, ty)),
     )
 }

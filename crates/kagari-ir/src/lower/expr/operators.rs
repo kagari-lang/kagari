@@ -382,13 +382,33 @@ impl FunctionLowerer<'_, '_> {
                     _ => unreachable!(),
                 };
                 let dst = self.alloc_temp(result_ty);
-                self.emit(Instruction::Binary {
-                    dst,
-                    op,
-                    lhs: args[0],
-                    rhs: args[1],
-                });
-                self.check_integer_range(dst, &result);
+                if protocol == StandardTrait::Rem
+                    && let TypeId::Builtin(
+                        input @ (kagari_hir::types::BuiltinType::I8
+                        | kagari_hir::types::BuiltinType::I16),
+                    ) = ty
+                {
+                    let operation = crate::module::numeric::NumericOperation::binary(
+                        hir::BinaryOp::Rem,
+                        input,
+                        input,
+                    )
+                    .expect("integer remainder");
+                    self.emit(Instruction::Numeric {
+                        dst,
+                        operation,
+                        lhs: args[0],
+                        rhs: Some(args[1]),
+                    });
+                } else {
+                    self.emit(Instruction::Binary {
+                        dst,
+                        op,
+                        lhs: args[0],
+                        rhs: args[1],
+                    });
+                    self.check_integer_range(dst, &result);
+                }
                 return Ok(dst);
             }
             if let Some(protocol) = StandardTrait::from_id(&interface.declaration)

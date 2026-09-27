@@ -16,6 +16,9 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 
 | Executable feature | Small example or existing showcase | Expected result |
 | --- | --- | --- |
+| Fixed-width bitwise operations and compound assignment | [bitwise.kgr](syntax/bitwise.kgr) | `42` |
+| Explicit casts and built-in numeric From/TryFrom | [numeric-conversions.kgr](syntax/numeric-conversions.kgr) | `42` |
+| 6502 address arithmetic, stack/zero-page wrap, branches and ADC/SBC flags | [6502-numeric.kgr](6502-numeric.kgr) | `42` |
 | Standard `PartialEq/Eq/Hash`, `Debug/Display`, generic bounds and structural/identity keys | [standard-traits.kgr](syntax/standard-traits.kgr) | `42` |
 | Custom/native iterators, associated Item and generic for loops | [iterators.kgr](syntax/iterators.kgr) | `42` |
 | Explicit and fallible conversion protocols, derived reverse calls | [conversions.kgr](syntax/conversions.kgr) | `42` |
