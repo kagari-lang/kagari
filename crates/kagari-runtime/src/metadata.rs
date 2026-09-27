@@ -4,7 +4,10 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use crate::{error::RuntimeError, reload::ModuleEpoch, security::CapabilitySet};
+use {
+    crate::error::RuntimeError, crate::reload::ModuleEpoch,
+    kagari_common::capability::CapabilitySet,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(u64);
@@ -65,7 +68,7 @@ pub enum TypeKind {
     Set,
 }
 
-pub use kagari_common::host_interface::{PathAccess, Visibility};
+use kagari_common::host_interface::{PathAccess, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldInfo {

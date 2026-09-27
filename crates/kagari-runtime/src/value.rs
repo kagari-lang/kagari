@@ -413,12 +413,12 @@ impl Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        host::{
-            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-            HostPathSegmentRegistration, HostRootHandle, HostSchemaEpoch, HostTypeOwnership,
-        },
-        metadata::{AbiFingerprint, PathAccess, TypeId},
+    use {
+        crate::host::DynamicPathArguments, crate::host::HostBorrowTable, crate::host::HostObjectId,
+        crate::host::HostPathDescriptorRegistration, crate::host::HostPathSegmentRegistration,
+        crate::host::HostRootHandle, crate::host::HostSchemaEpoch, crate::metadata::AbiFingerprint,
+        crate::metadata::TypeId, kagari_common::host_interface::HostTypeOwnership,
+        kagari_common::host_interface::PathAccess,
     };
 
     fn host_root(object_id: u64) -> HostRootHandle {
@@ -470,7 +470,7 @@ mod tests {
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
-                capability_requirements: crate::security::CapabilitySet::default(),
+                capability_requirements: crate::CapabilitySet::default(),
             })
             .unwrap();
         Value::HostPathView(

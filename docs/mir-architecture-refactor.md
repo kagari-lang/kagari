@@ -426,7 +426,7 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | `ec0bf1a` foundation imports; `2cf5fb3` test modules; `957b691` enum dispatch; `ed10ba2` explicit paths; parent/local imports cleaned | Checker: 32 tests pass; full audit: exit 1, 29 remaining findings, no exceptions; workspace clippy and 810 focused tests pass at parent/local-import checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
+| A00 | `ec0bf1a` foundation imports; `2cf5fb3` test modules; `957b691` enum dispatch; `ed10ba2` explicit paths; parent/local imports cleaned | Checker: 32 tests pass; full audit: exit 1, 11 remaining findings, no exceptions; workspace clippy and 71 runtime unit tests pass at facade checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -552,6 +552,24 @@ Validation:
 - `uv run --locked scripts/check_structure.py --json`: exit 1, 29 findings:
   18 re-export locations and 11 oversized files. Zero production glob, qualified
   path, repeated-parent, parse-error findings or exceptions. A00 remains active.
+
+### A00 checkpoint: intentional facade exports (2026-09-28)
+
+Checkpoint commit subject: `refactor(runtime)!: consolidate contract facade exports`.
+HIR aggregates, analysis and imports, and the IR ABI contract now use ordinary
+`mod.rs` roots for their existing APIs and child implementations. This changes no
+crate edge or Rust module path. Runtime host declarations, path permissions and
+capabilities are re-exported directly by the runtime library facade; implementation
+modules import their common-crate owners. Consumers use the intended facade.
+The former `runtime::host`/`metadata`/`security` forwarding exports are removed,
+not retained as aliases. Host declaration types previously exported only below
+`host` are relocated to the runtime root; implementation visibility is unchanged.
+A01 will replace the current IR/HIR execution-contract ownership as planned.
+
+Validation: workspace clippy with all targets and denied warnings passes;
+`cargo test -p kagari-runtime --lib` passes 71 tests; fmt and diff checks pass.
+The strict structure audit reports only 11 effective-LOC findings, with no
+exceptions. Full A00 workspace and optional-feature acceptance is still pending.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

@@ -29,7 +29,7 @@ impl Default for LanguageProfile {
     }
 }
 
-pub use kagari_common::capability::CapabilitySet;
+use kagari_common::capability::CapabilitySet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HostExposurePolicy {

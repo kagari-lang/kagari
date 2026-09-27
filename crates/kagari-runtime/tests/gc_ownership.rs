@@ -130,9 +130,11 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 
 #[test]
 fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
-    use kagari_runtime::{
-        CapabilitySet, HostExposurePolicy, LanguageProfile, RuntimeConfig, SecurityContext,
-        host::{HostFunction, HostFunctionDeclaration, HostValueType},
+    use {
+        kagari_runtime::CapabilitySet, kagari_runtime::HostExposurePolicy,
+        kagari_runtime::HostFunctionDeclaration, kagari_runtime::HostValueType,
+        kagari_runtime::LanguageProfile, kagari_runtime::RuntimeConfig,
+        kagari_runtime::SecurityContext, kagari_runtime::host::HostFunction,
     };
     let mut runtime = Runtime::new(RuntimeConfig {
         security: SecurityContext {

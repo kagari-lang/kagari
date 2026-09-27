@@ -1,6 +1,8 @@
 use host::HostCallContext;
-use kagari_common::host_interface::HostPassingStyle;
 use kagari_common::host_interface::HostPathDeclaration;
+pub use kagari_common::host_interface::{
+    HostInterface, HostParameter, HostPassingStyle, HostTypeDeclaration, HostValueType,
+};
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::DefinitionPathSegment;
@@ -70,33 +72,42 @@ pub use cache::{
 };
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use frame::{ExecutionFrame, ExecutionStack};
-pub use host::{
-    BorrowEpoch, DynamicPathArgSlot, DynamicPathArgument, DynamicPathArguments,
-    DynamicPathParameter, FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallGuard,
-    HostFrameId, HostFunctionDeclaration, HostFunctionEffects, HostFunctionId, HostObjectId,
-    HostPathAdapter, HostPathContext, HostPathDescriptor, HostPathDescriptorId,
-    HostPathDescriptorRegistration, HostPathMutationRecord, HostPathOperation, HostPathSegment,
-    HostPathSegmentRegistration, HostPathViewHandle, HostReflectionPolicy, HostRootHandle,
-    HostSchemaEpoch, HostTypeInfo, HostTypeOwnership, HostTypeRegistration,
-};
 pub use host_scope::HostResourceScope;
-pub use metadata::{
-    AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
-    ParameterInfo, PathAccess, TraitInfo, TypeId, TypeInfo, TypeKind, TypeRegistration,
-    TypeRegistry, VariantInfo, VariantMetadataId, Visibility,
-};
 pub use module::{
     LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId, ModuleInstance,
     ModuleKey, ModuleStore, VerifiedProgram,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
-pub use security::{
-    CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext,
-};
 pub use session::{
     CandidateSession, DeterministicInputs, ExecutionCounters, ExecutionEvent, ExecutionObserver,
     ExecutionOptions, ExecutionPhase, ExecutionSession, ExecutionTrace, HostCallTrace, TraceValue,
+};
+pub use {
+    host::BorrowEpoch, host::DynamicPathArgSlot, host::DynamicPathArgument,
+    host::DynamicPathArguments, host::DynamicPathParameter, host::FrameHostBorrowToken,
+    host::HostBorrowKind, host::HostBorrowTable, host::HostCallGuard, host::HostFrameId,
+    host::HostFunctionId, host::HostObjectId, host::HostPathAdapter, host::HostPathContext,
+    host::HostPathDescriptor, host::HostPathDescriptorId, host::HostPathDescriptorRegistration,
+    host::HostPathMutationRecord, host::HostPathOperation, host::HostPathSegment,
+    host::HostPathSegmentRegistration, host::HostPathViewHandle, host::HostRootHandle,
+    host::HostSchemaEpoch, host::HostTypeInfo, host::HostTypeRegistration,
+    kagari_common::host_interface::HostFunctionDeclaration,
+    kagari_common::host_interface::HostFunctionEffects,
+    kagari_common::host_interface::HostReflectionPolicy,
+    kagari_common::host_interface::HostTypeOwnership,
+};
+pub use {
+    kagari_common::capability::CapabilitySet, security::DebugVisibilityPolicy,
+    security::HostExposurePolicy, security::LanguageProfile, security::SecurityContext,
+};
+pub use {
+    kagari_common::host_interface::PathAccess, kagari_common::host_interface::Visibility,
+    metadata::AbiFingerprint, metadata::FieldInfo, metadata::FieldMetadataId, metadata::MethodInfo,
+    metadata::MethodMetadataId, metadata::MethodOrigin, metadata::ParameterInfo,
+    metadata::TraitInfo, metadata::TypeId, metadata::TypeInfo, metadata::TypeKind,
+    metadata::TypeRegistration, metadata::TypeRegistry, metadata::VariantInfo,
+    metadata::VariantMetadataId,
 };
 
 use crate::{

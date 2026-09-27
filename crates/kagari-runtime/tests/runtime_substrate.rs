@@ -3,15 +3,17 @@ use kagari_common::collection::CollectionAccess;
 mod layouts;
 use kagari_ir::bytecode::BytecodeModule;
 use kagari_ir::module::abi::AbiType;
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId,
-    MethodOrigin, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind, TraitInfo, TypeId,
-    TypeKind, TypeRegistration, Visibility,
-    host::{
-        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-        HostPathSegmentRegistration, HostSchemaEpoch, HostTypeOwnership,
-    },
-    value::{Value, ValueCategory},
+use {
+    kagari_runtime::AbiFingerprint, kagari_runtime::CapabilitySet, kagari_runtime::FieldInfo,
+    kagari_runtime::FieldMetadataId, kagari_runtime::HostTypeOwnership, kagari_runtime::MethodInfo,
+    kagari_runtime::MethodMetadataId, kagari_runtime::MethodOrigin, kagari_runtime::ParameterInfo,
+    kagari_runtime::PathAccess, kagari_runtime::Runtime, kagari_runtime::RuntimeErrorKind,
+    kagari_runtime::TraitInfo, kagari_runtime::TypeId, kagari_runtime::TypeKind,
+    kagari_runtime::TypeRegistration, kagari_runtime::Visibility,
+    kagari_runtime::host::DynamicPathArguments, kagari_runtime::host::HostBorrowTable,
+    kagari_runtime::host::HostObjectId, kagari_runtime::host::HostPathDescriptorRegistration,
+    kagari_runtime::host::HostPathSegmentRegistration, kagari_runtime::host::HostSchemaEpoch,
+    kagari_runtime::value::Value, kagari_runtime::value::ValueCategory,
 };
 
 fn host_root_value(object_id: u64) -> Value {

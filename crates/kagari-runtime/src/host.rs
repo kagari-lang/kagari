@@ -5,7 +5,6 @@ use crate::Runtime;
 use crate::RuntimeErrorKind;
 use crate::gc::GcHeap;
 use crate::metadata::TypeRegistry;
-use crate::metadata::Visibility;
 use crate::numeric;
 use crate::value::EnumTag;
 use crate::value::EphemeralValue;
@@ -14,9 +13,10 @@ use kagari_common::host_interface::HostIndexSegmentDeclaration;
 use kagari_common::host_interface::HostPathDeclaration;
 use kagari_common::host_interface::HostPathSegmentDeclaration;
 use kagari_common::host_interface::HostVirtualSegmentDeclaration;
-pub use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostFunctionEffects, HostInterface, HostParameter, HostPassingStyle,
-    HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+use kagari_common::host_interface::Visibility;
+use kagari_common::host_interface::{
+    HostFunctionDeclaration, HostInterface, HostPassingStyle, HostTypeDeclaration,
+    HostTypeOwnership, HostValueType,
 };
 use std::iter;
 use std::rc::Weak;
@@ -30,11 +30,10 @@ use kagari_ir::bytecode::BinaryOp;
 
 mod path_fingerprint;
 
-use crate::{
-    error::RuntimeError,
-    metadata::{AbiFingerprint, FieldMetadataId, PathAccess, TypeId},
-    security::CapabilitySet,
-    value::Value,
+use {
+    crate::error::RuntimeError, crate::metadata::AbiFingerprint, crate::metadata::FieldMetadataId,
+    crate::metadata::TypeId, crate::value::Value, kagari_common::capability::CapabilitySet,
+    kagari_common::host_interface::PathAccess,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -7,12 +7,12 @@ use kagari_ir::bytecode::{
     InstructionSourceSpan, ModuleSlot, Register, RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
 };
 use kagari_ir::module::ValueType;
-use kagari_runtime::host::{HostFunction, HostFunctionDeclaration};
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention, ResourcePolicy,
     Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
 };
+use {kagari_runtime::HostFunctionDeclaration, kagari_runtime::host::HostFunction};
 
 use crate::tests::common::{compile_test_bytecode, load_test_module};
 use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
