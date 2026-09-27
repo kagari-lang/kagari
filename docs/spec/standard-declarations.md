@@ -146,3 +146,11 @@ None if absent. `split_whitespace` coalesces Unicode whitespace without empty
 fields. `lines` recognizes LF and CRLF, retains lone CR and omits an extra field
 after a final terminator. Empty input has no lines. Traversals retain their source
 and version; each step prepares its result before advancing the shared cursor.
+
+String replacement matches non-overlapping patterns from left to right; the empty
+pattern matches each scalar boundary, including both ends. `replacen` limits the
+number of replacements. `repeat` checks the output size before allocation; empty
+input stays empty for any count. ASCII casing only changes ASCII letters. Unicode
+casing uses context-sensitive, locale-independent Unicode mappings and may change
+length. `bytes` yields u8 values; `char_indices` yields (byte offset, one-scalar
+String). `is_char_boundary` accepts the start/end and rejects out-of-range offsets.

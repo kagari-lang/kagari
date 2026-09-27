@@ -636,3 +636,9 @@ KBC/runtime ABI v88 adds typed string-iterator constructors and split-once
 intrinsics. Constructors validate the argument tuple (including usize limits)
 and produce Iter<String>. Unlowered source bindings and previous artifacts are
 rejected. Iterator positions are committed only after result allocation succeeds.
+
+## String transformations and typed traversal (v89)
+
+KBC/runtime ABI v89 adds replacement, repetition, casing and boundary queries.
+String-iterator constructors encode byte/scalar-index modes and their exact item
+types, retaining validation before execution. Previous products are rejected.

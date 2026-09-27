@@ -113,3 +113,46 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn transforms_and_byte_iteration() {
+    execute(
+        r#"
+fn main() -> i32 {
+    std::debug::assert("aaa".replace("aa", "x") == "xa", "nonoverlapping");
+    std::debug::assert("é😀".replace("", "-") == "-é-😀-", "empty pattern boundaries");
+    std::debug::assert("aaa".replacen("a", "xx", 2usize) == "xxxxa", "limited replacement");
+    std::debug::assert("abc".replacen("", "x", 0usize) == "abc", "zero replacements");
+    std::debug::assert("".replace("", "x") == "x", "empty string replacement");
+    std::debug::assert("é".repeat(3usize) == "ééé", "repeat");
+    std::debug::assert("x".repeat(0usize) == "", "zero repeat");
+    std::debug::assert("".repeat(18446744073709551615usize) == "", "empty huge repeat");
+    std::debug::assert("".is_ascii(), "empty ASCII");
+    std::debug::assert(!"é".is_ascii(), "non ASCII");
+    std::debug::assert("Abé".eq_ignore_ascii_case("aBé"), "ASCII folding");
+    std::debug::assert(!"É".eq_ignore_ascii_case("é"), "no Unicode folding");
+    std::debug::assert("AbÉ".to_ascii_lowercase() == "abÉ", "ASCII lowercase");
+    std::debug::assert("Abé".to_ascii_uppercase() == "ABé", "ASCII uppercase");
+    std::debug::assert("ΟΣ".to_lowercase() == "ος", "final sigma");
+    std::debug::assert("straße".to_uppercase() == "STRASSE", "expansion");
+    std::debug::assert("é".bytes().collect::<ArrayList<u8>>()[1usize] == 169u8, "UTF8 bytes");
+    val bytes = "😀".bytes();
+    std::debug::assert(bytes.next() == Some(240u8), "first byte");
+    std::debug::assert(bytes.count() == 3usize, "partial progress");
+    std::debug::assert(bytes.next() == None, "fused byte iterator");
+    val chars = "é😀x".char_indices();
+    std::debug::assert(chars.next() == Some((0usize, "é")), "first scalar");
+    std::debug::assert(chars.next() == Some((2usize, "😀")), "second scalar");
+    std::debug::assert(chars.next() == Some((6usize, "x")), "third scalar");
+    std::debug::assert(chars.next() == None, "end");
+    std::debug::assert(chars.next() == None, "fused scalar iterator");
+    std::debug::assert("é😀".is_char_boundary(0usize), "start boundary");
+    std::debug::assert(!"é😀".is_char_boundary(1usize), "inside scalar");
+    std::debug::assert("é😀".is_char_boundary(6usize), "end boundary");
+    std::debug::assert(!"é😀".is_char_boundary(7usize), "out of bounds");
+    std::debug::assert("".bytes().next() == None, "empty bytes");
+    42
+}
+"#,
+    );
+}

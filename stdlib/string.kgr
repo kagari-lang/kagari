@@ -25,6 +25,150 @@
 pub type String;
 
 impl String {
+    /// Replace every non-overlapping occurrence.
+    ///
+    /// An empty pattern inserts the replacement at every Unicode scalar boundary, including both ends.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("aba".replace("a", "x") == "xbx", "replace");
+    /// ```
+    #[intrinsic(StringReplace)]
+    pub fn replace(self, from: String, to: String) -> String;
+
+    /// Replace at most count non-overlapping occurrences.
+    ///
+    /// Zero preserves the original contents. Matching proceeds from left to right.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("aba".replacen("a", "x", 1usize) == "xba", "replacen");
+    /// ```
+    #[intrinsic(StringReplaceN)]
+    pub fn replacen(self, from: String, to: String, count: usize) -> String;
+
+    /// Concatenate count repetitions of this string.
+    ///
+    /// Zero or an empty receiver returns an empty string. Size overflow or allocation failure traps.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("ab".repeat(2usize) == "abab", "repeat");
+    /// ```
+    #[intrinsic(StringRepeat)]
+    pub fn repeat(self, count: usize) -> String;
+
+    /// Test whether every byte is ASCII.
+    ///
+    /// The empty string is ASCII.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("abc".is_ascii(), "is_ascii");
+    /// ```
+    #[intrinsic(StringIsAscii)]
+    pub fn is_ascii(self) -> bool;
+
+    /// Compare contents ignoring ASCII letter case.
+    ///
+    /// Non-ASCII scalars are compared exactly; this is not Unicode case folding.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("AbC".eq_ignore_ascii_case("aBc"), "eq_ignore_ascii_case");
+    /// ```
+    #[intrinsic(StringEqIgnoreAsciiCase)]
+    pub fn eq_ignore_ascii_case(self, other: String) -> bool;
+
+    /// Lowercase ASCII letters and preserve other scalars.
+    ///
+    /// The receiver is unchanged. Unicode normalization is not performed.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("ABCé".to_ascii_lowercase() == "abcé", "to_ascii_lowercase");
+    /// ```
+    #[intrinsic(StringToAsciiLowercase)]
+    pub fn to_ascii_lowercase(self) -> String;
+
+    /// Uppercase ASCII letters and preserve other scalars.
+    ///
+    /// The receiver is unchanged. Unicode normalization is not performed.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("abcé".to_ascii_uppercase() == "ABCé", "to_ascii_uppercase");
+    /// ```
+    #[intrinsic(StringToAsciiUppercase)]
+    pub fn to_ascii_uppercase(self) -> String;
+
+    /// Return Unicode lowercase contents.
+    ///
+    /// Context-sensitive Unicode mappings are applied. Length may change; no locale is consulted.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("ΟΣ".to_lowercase() == "ος", "to_lowercase");
+    /// ```
+    #[intrinsic(StringToLowercase)]
+    pub fn to_lowercase(self) -> String;
+
+    /// Return Unicode uppercase contents.
+    ///
+    /// A scalar can expand into several scalars. Length may change; no locale is consulted.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("straße".to_uppercase() == "STRASSE", "to_uppercase");
+    /// ```
+    #[intrinsic(StringToUppercase)]
+    pub fn to_uppercase(self) -> String;
+
+    /// Lazily iterate the UTF-8 bytes.
+    ///
+    /// Bytes are not characters. The iterator retains the immutable source and is fused.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("é".bytes().next() == Some(195u8), "bytes");
+    /// ```
+    #[intrinsic(StringBytes)]
+    pub fn bytes(self) -> Iter<u8>;
+
+    /// Lazily iterate byte offsets and Unicode scalar strings.
+    ///
+    /// Each offset begins its scalar in the original UTF-8 contents. The iterator is fused.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("éx".char_indices().nth(1usize) == Some((2usize, "x")), "char_indices");
+    /// ```
+    #[intrinsic(StringCharIndices)]
+    pub fn char_indices(self) -> Iter<(usize, String)>;
+
+    /// Test whether a byte offset is a Unicode scalar boundary.
+    ///
+    /// Zero and len_bytes() are boundaries. Out-of-range offsets return false.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("é".is_char_boundary(2usize), "is_char_boundary");
+    /// ```
+    #[intrinsic(StringIsCharBoundary)]
+    pub fn is_char_boundary(self, index: usize) -> bool;
+
     /// Lazily split around non-overlapping string separators.
     ///
     /// Retains empty fields, including a trailing field. An empty separator yields an empty field at each end and one field per Unicode scalar.

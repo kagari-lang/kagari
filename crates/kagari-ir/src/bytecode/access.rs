@@ -464,7 +464,10 @@ pub(super) fn verify(
                     }
                     let item = match ty {
                         AbiType::Tuple(_) if matches!(op, IterOp::String(_)) => {
-                            Some(AbiType::Builtin(B::String))
+                            let IterOp::String(kind) = op else {
+                                unreachable!()
+                            };
+                            Some(kind.item_type())
                         }
                         AbiType::Builtin(B::String) => Some(AbiType::Builtin(B::String)),
                         AbiType::Tuple(_) if *op == IterOp::FromClosure => {

@@ -211,6 +211,7 @@ impl GcHeap {
             return Err(invalid());
         };
         iter.string = Some(traversal);
+        iter.item_type = kind.item_type();
         Ok(value)
     }
 

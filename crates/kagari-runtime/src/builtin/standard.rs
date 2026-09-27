@@ -193,7 +193,22 @@ pub fn invoke_with_callbacks(
         StringStartsWith => string_starts_with(args),
         StringEndsWith => string_ends_with(args),
         StringSlice => string_slice(gc, args),
-        StringSplit | StringSplitN | StringSplitWhitespace | StringLines => Err(BuiltinError::new(
+        StringReplace
+        | StringReplaceN
+        | StringRepeat
+        | StringIsAscii
+        | StringEqIgnoreAsciiCase
+        | StringToAsciiLowercase
+        | StringToAsciiUppercase
+        | StringToLowercase
+        | StringToUppercase
+        | StringIsCharBoundary => string_transform(intrinsic, args),
+        StringSplit
+        | StringSplitN
+        | StringSplitWhitespace
+        | StringLines
+        | StringBytes
+        | StringCharIndices => Err(BuiltinError::new(
             "string traversal requires iterator lowering",
         )),
         StringSplitOnce | StringRsplitOnce => string_split_once(gc, intrinsic, args),
@@ -588,6 +603,92 @@ fn set_difference(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .filter(|value| gc.set_contains(rhs, value) == Some(false))
         .collect();
     set_value(gc, values)
+}
+
+fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Value, BuiltinError> {
+    use StandardIntrinsic::*;
+    let Some(Value::Str(text)) = args.first() else {
+        return Err(BuiltinError::new(
+            "string operation requires a string receiver",
+        ));
+    };
+    let allocation = || {
+        BuiltinError::from(crate::error::RuntimeError::resource_limit(
+            "string result size",
+        ))
+    };
+    match (intrinsic, args) {
+        (StringIsAscii, [_]) => Ok(Value::Bool(text.is_ascii())),
+        (StringEqIgnoreAsciiCase, [_, Value::Str(other)]) => {
+            Ok(Value::Bool(text.eq_ignore_ascii_case(other)))
+        }
+        (StringIsCharBoundary, [_, Value::U64(index)]) => Ok(Value::Bool(
+            usize::try_from(*index).is_ok_and(|index| text.is_char_boundary(index)),
+        )),
+        (StringToLowercase, [_]) => Ok(Value::Str(text.to_lowercase())),
+        (StringToUppercase, [_]) => Ok(Value::Str(text.to_uppercase())),
+        (StringToAsciiLowercase | StringToAsciiUppercase, [_]) => {
+            let Value::Str(mut result) = copy_string(text)? else {
+                unreachable!()
+            };
+            if intrinsic == StringToAsciiLowercase {
+                result.make_ascii_lowercase();
+            } else {
+                result.make_ascii_uppercase();
+            }
+            Ok(Value::Str(result))
+        }
+        (StringRepeat, [_, Value::U64(count)]) => {
+            if text.is_empty() {
+                return Ok(Value::Str(String::new()));
+            }
+            let count = usize::try_from(*count).map_err(|_| allocation())?;
+            let size = text.len().checked_mul(count).ok_or_else(allocation)?;
+            let mut result = String::new();
+            result.try_reserve_exact(size).map_err(|_| allocation())?;
+            for _ in 0..count {
+                result.push_str(text);
+            }
+            Ok(Value::Str(result))
+        }
+        (StringReplace, [_, Value::Str(from), Value::Str(to)]) => {
+            replace_string(text, from, to, usize::MAX)
+        }
+        (StringReplaceN, [_, Value::Str(from), Value::Str(to), Value::U64(count)]) => {
+            replace_string(
+                text,
+                from,
+                to,
+                usize::try_from(*count).unwrap_or(usize::MAX),
+            )
+        }
+        _ => Err(BuiltinError::new("invalid string operation arguments")),
+    }
+}
+
+fn replace_string(text: &str, from: &str, to: &str, count: usize) -> Result<Value, BuiltinError> {
+    let allocation = || {
+        BuiltinError::from(crate::error::RuntimeError::resource_limit(
+            "string replacement size",
+        ))
+    };
+    let mut length = text.len();
+    for (_, matched) in text.match_indices(from).take(count) {
+        length = length
+            .checked_sub(matched.len())
+            .and_then(|n| n.checked_add(to.len()))
+            .ok_or_else(allocation)?;
+    }
+    let mut output = String::new();
+    output.try_reserve_exact(length).map_err(|_| allocation())?;
+    let mut previous = 0;
+    for (index, matched) in text.match_indices(from).take(count) {
+        output.push_str(&text[previous..index]);
+        output.push_str(to);
+        previous = index + matched.len();
+    }
+    output.push_str(&text[previous..]);
+    Ok(Value::Str(output))
 }
 
 fn string_split_once(

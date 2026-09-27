@@ -619,7 +619,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 
 - [x] S01: Unicode trimming, substring search and prefix/suffix stripping.
 - [x] S02: Lazy string splitting, bounded splitting, lines and whitespace.
-- [ ] S03: Replacement, repetition, case conversion and byte/boundary iteration.
+- [x] S03: Replacement, repetition, case conversion and byte/boundary iteration.
 - [ ] S04: Lazy Option/Result combinators, flattening and transposition.
 - [ ] S05: FromStr, typed parsing and integer radix parsing.
 - [ ] C01: Map snapshot interface methods and copy_from naming.
@@ -648,3 +648,7 @@ S02 validation: lazy split/line acceptance passed on source, encoded artifacts a
 JIT fallback with frequent collection. Constructor-forgery checks reject invalid
 argument shapes, modes and missing operands. Targeted clippy and diff checks pass;
 KBC/runtime ABI is v88.
+
+S03 validation: Unicode expansions/contextual casing, empty and bounded
+replacement, repetition, byte and scalar-index iteration pass across all three
+execution paths with frequent GC. Artifact/runtime ABI is v89.

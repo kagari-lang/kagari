@@ -1932,6 +1932,10 @@ impl FunctionLowerer<'_, '_> {
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         use crate::module::instruction::{IterOp, StringIterKind};
                         let string_iteration = match intrinsic {
+                            StandardIntrinsic::StringBytes => Some(StringIterKind::Bytes),
+                            StandardIntrinsic::StringCharIndices => {
+                                Some(StringIterKind::CharIndices)
+                            }
                             StandardIntrinsic::StringSplit => Some(StringIterKind::Split),
                             StandardIntrinsic::StringSplitN => Some(StringIterKind::SplitN),
                             StandardIntrinsic::StringSplitWhitespace => {

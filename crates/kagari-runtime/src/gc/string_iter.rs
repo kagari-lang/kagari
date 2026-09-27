@@ -25,9 +25,13 @@ impl StringTraversal {
             (StringIterKind::SplitN, [Value::Str(_), Value::U64(count), Value::Str(separator)]) => {
                 (*count, separator.clone())
             }
-            (StringIterKind::Whitespace | StringIterKind::Lines, [Value::Str(_)]) => {
-                (u64::MAX, String::new())
-            }
+            (
+                StringIterKind::Whitespace
+                | StringIterKind::Lines
+                | StringIterKind::Bytes
+                | StringIterKind::CharIndices,
+                [Value::Str(_)],
+            ) => (u64::MAX, String::new()),
             _ => {
                 return Err(RuntimeError::module_validation(
                     "invalid string traversal arguments",
@@ -50,10 +54,33 @@ impl StringTraversal {
             return Ok((None, cursor));
         }
         let start = cursor.position;
+        if self.kind == StringIterKind::Bytes {
+            let value = text
+                .as_bytes()
+                .get(start)
+                .map(|byte| Value::I64(i64::from(*byte)));
+            if value.is_some() {
+                cursor.position += 1;
+                cursor.yielded += 1;
+            } else {
+                cursor.done = true;
+            }
+            return Ok((value, cursor));
+        }
         let tail = text
             .get(start..)
             .ok_or_else(|| RuntimeError::module_validation("invalid string cursor"))?;
         let piece = match self.kind {
+            StringIterKind::Bytes => unreachable!(),
+            StringIterKind::CharIndices => {
+                if let Some(ch) = tail.chars().next() {
+                    cursor.position += ch.len_utf8();
+                    Some(&tail[..ch.len_utf8()])
+                } else {
+                    cursor.done = true;
+                    None
+                }
+            }
             StringIterKind::Split | StringIterKind::SplitN => {
                 if cursor.yielded == self.limit - 1 {
                     cursor.done = true;
@@ -109,7 +136,11 @@ impl StringTraversal {
                     .try_reserve_exact(piece.len())
                     .map_err(|_| RuntimeError::resource_limit("string iterator item"))?;
                 result.push_str(piece);
-                Ok(Value::Str(result))
+                Ok(if self.kind == StringIterKind::CharIndices {
+                    Value::Tuple(vec![Value::U64(start as u64), Value::Str(result)])
+                } else {
+                    Value::Str(result)
+                })
             })
             .transpose()?;
         if value.is_some() {

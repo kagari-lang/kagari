@@ -311,7 +311,9 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        StringSplit
+        StringBytes
+        | StringCharIndices
+        | StringSplit
         | StringSplitN
         | StringSplitWhitespace
         | StringLines
@@ -438,7 +440,41 @@ pub(crate) fn verify_intrinsic(
             expect_arg_ty(args, 1, ValueType::Str, "join separator")?;
             verify_call_dst(dst, ValueType::Str)?;
         }
-        StringTrim | StringTrimStart | StringTrimEnd => {
+        StringReplace | StringReplaceN => {
+            for i in 0..3 {
+                expect_arg_ty(args, i, ValueType::Str, "string replacement argument")?;
+            }
+            if intrinsic == StringReplaceN {
+                expect_arg_ty(args, 3, ValueType::U64, "replacement limit")?;
+            }
+            verify_call_dst(dst, ValueType::Str)?;
+        }
+        StringRepeat | StringIsCharBoundary => {
+            expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
+            expect_arg_ty(args, 1, ValueType::U64, "string count/index")?;
+            verify_call_dst(
+                dst,
+                if intrinsic == StringRepeat {
+                    ValueType::Str
+                } else {
+                    ValueType::Bool
+                },
+            )?;
+        }
+        StringIsAscii | StringEqIgnoreAsciiCase => {
+            expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
+            if intrinsic == StringEqIgnoreAsciiCase {
+                expect_arg_ty(args, 1, ValueType::Str, "string comparison")?;
+            }
+            verify_call_dst(dst, ValueType::Bool)?;
+        }
+        StringToAsciiLowercase
+        | StringToAsciiUppercase
+        | StringToLowercase
+        | StringToUppercase
+        | StringTrim
+        | StringTrimStart
+        | StringTrimEnd => {
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
             verify_call_dst(dst, ValueType::Str)?;
         }

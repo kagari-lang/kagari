@@ -564,6 +564,15 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | SetDifference
                 | ArrayJoin
                 | StringSlice
+                | StringReplace
+                | StringReplaceN
+                | StringRepeat
+                | StringToAsciiLowercase
+                | StringToAsciiUppercase
+                | StringToLowercase
+                | StringToUppercase
+                | StringBytes
+                | StringCharIndices
                 | StringSplit
                 | StringSplitN
                 | StringSplitOnce
@@ -857,6 +866,8 @@ pub fn range_bound_valid(range: &super::abi::AbiType, bound: &super::abi::AbiTyp
 /// Native string traversal has a typed tuple of constructor arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StringIterKind {
+    Bytes,
+    CharIndices,
     Split,
     SplitN,
     Whitespace,
@@ -869,8 +880,19 @@ impl StringIterKind {
         AbiType::Tuple(match self {
             Self::Split => vec![string.clone(), string],
             Self::SplitN => vec![string.clone(), AbiType::Builtin(BuiltinType::USize), string],
-            Self::Whitespace | Self::Lines => vec![string],
+            Self::Whitespace | Self::Lines | Self::Bytes | Self::CharIndices => vec![string],
         })
+    }
+    pub fn item_type(self) -> super::abi::AbiType {
+        use super::abi::{AbiType, BuiltinType};
+        match self {
+            Self::Bytes => AbiType::Builtin(BuiltinType::U8),
+            Self::CharIndices => AbiType::Tuple(vec![
+                AbiType::Builtin(BuiltinType::USize),
+                AbiType::Builtin(BuiltinType::String),
+            ]),
+            _ => AbiType::Builtin(BuiltinType::String),
+        }
     }
     pub fn valid_source(self, ty: &super::abi::AbiType) -> bool {
         *ty == self.source_type()
