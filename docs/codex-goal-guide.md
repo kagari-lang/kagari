@@ -1,5 +1,9 @@
 # Codex Goal Guide for Kagari
 
+Repository-wide engineering and agent workflow rules live in
+[AGENTS.md](../AGENTS.md). This guide describes goal execution and resumption;
+the active plan owns phase-specific acceptance and intermediate-error rules.
+
 The [implementation roadmap](implementation-roadmap.md) points to the active
 [MIR and crate architecture refactor](mir-architecture-refactor.md).
 The completed [foundation checkpoints](foundation-refactor.md) and subsequent

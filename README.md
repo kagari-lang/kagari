@@ -18,6 +18,7 @@ This currently means:
 
 ## Documentation
 
+- [Agent and engineering guidelines](AGENTS.md)
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
