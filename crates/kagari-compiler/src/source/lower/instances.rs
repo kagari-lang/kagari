@@ -1,4 +1,7 @@
 use crate::source::types::{lower_nominal_type, lower_type};
+use kagari_abi::standard::declarations as standard_declarations;
+use kagari_abi::standard::declarations::NativeDefaultMethod;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::FunctionAbi;
 use kagari_abi::types::InterfaceTableAbi;
@@ -11,9 +14,8 @@ use kagari_common::identity::ModuleIdentity;
 use kagari_hir::CheckedAnalysis;
 use kagari_hir::aggregates::AggregateCatalog;
 use kagari_hir::builtin::declarations;
-use kagari_hir::builtin::declarations::NativeDefaultMethod;
 use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::typeck::ScalarValue;
 use kagari_hir::types::NominalType;
 use std::collections::BTreeSet;
@@ -476,7 +478,7 @@ impl<'a> InstancePlanner<'a> {
             .ok_or(MirLoweringError::MissingBinding("native bridge origin"))?;
         let mut methods = Vec::new();
         for method in &contract.methods {
-            if declarations::native_default_method(&method.id).is_some() {
+            if standard_declarations::native_default_method(&method.id).is_some() {
                 continue;
             }
             let mut id = declaration.clone();

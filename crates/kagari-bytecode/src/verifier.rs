@@ -2,6 +2,7 @@ use crate::BytecodeProgram;
 use crate::HostImportId;
 use crate::InterfaceMethodSlot;
 use crate::verifier::operation::verify_instruction;
+use kagari_abi::standard::declarations as standard_declarations;
 mod operation;
 use crate::PathRecord;
 use crate::RootSlotLayout;
@@ -468,7 +469,10 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .iter()
                 .filter(|method| method.generic_params.is_empty())
                 .filter(|method| {
-                    !declarations::native_trait_default(&trait_type.declaration, &method.name)
+                    !standard_declarations::native_trait_default(
+                        &trait_type.declaration,
+                        &method.name,
+                    )
                 })
                 .any(|method| {
                     table

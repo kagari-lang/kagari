@@ -1,5 +1,5 @@
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::declarations::Declarations;
 use crate::hir::FunctionId;
 use crate::hir::TypeKind;
@@ -17,9 +17,11 @@ use crate::typeck::ty::display_type_id;
 use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use kagari_common::Span;
+use kagari_common::identity;
 use smallvec::SmallVec;
 use std::iter;
 pub(super) fn validate_trait_surface(
@@ -370,7 +372,7 @@ pub(super) fn validate_interface_type(
                 if trait_def.associated_types.iter().any(|member| {
                     !trait_name
                         .associated_types
-                        .contains_key(&types::associated_type_id(
+                        .contains_key(&identity::associated_type_id(
                             &trait_name.declaration,
                             &member.name,
                         ))

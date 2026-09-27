@@ -1,3 +1,8 @@
+pub(crate) mod contracts;
+pub mod declarations;
+mod resolve;
+pub mod surface;
+pub mod traits;
 use crate::scalar::BuiltinType;
 use kagari_common::integer::IntegerMethod;
 use serde::{Deserialize, Serialize};

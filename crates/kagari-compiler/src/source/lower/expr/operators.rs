@@ -1,5 +1,6 @@
 use crate::source::lower::MirLoweringError;
 use crate::source::lower::state::FunctionLowerer;
+use crate::source::types;
 use crate::source::types::{lower_nominal_type, lower_type};
 use hir::BinaryOp as HirBinaryOp;
 use kagari_abi::numeric::NumericConversion;
@@ -11,19 +12,22 @@ use kagari_abi::operations::UnaryOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::declarations as standard_declarations;
+use kagari_abi::standard::declarations::NativeDefaultMethod;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
 use kagari_common::identity::DefinitionId;
 use kagari_common::integer::IntegerOp;
 use kagari_hir::builtin::declarations;
-use kagari_hir::builtin::declarations::NativeDefaultMethod;
-use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::builtin::traits;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::hir;
 use kagari_hir::typeck::CallTarget as HirCallTarget;
 use kagari_hir::types::NominalType;
+use kagari_hir::types::TypeId;
 use kagari_hir::types::TypeSubstitution;
-use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
 use kagari_mir::instruction::CallTarget;
 use kagari_mir::instruction::Constant;
 use kagari_mir::instruction::Instruction;
@@ -187,7 +191,7 @@ impl FunctionLowerer<'_, '_> {
             interface
         };
         if let TypeId::Trait(child) = &ty
-            && declarations::native_default_method(method).is_none()
+            && standard_declarations::native_default_method(method).is_none()
             && self
                 .planner
                 .catalog
@@ -228,7 +232,7 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
-            && declarations::native_default_method(method).is_none()
+            && standard_declarations::native_default_method(method).is_none()
             && traits::native_interface_applies(&interface, &ty)
         {
             return self.lower_native_collection_method(
@@ -275,7 +279,7 @@ impl FunctionLowerer<'_, '_> {
             }
         }
 
-        if let Some(operation) = declarations::native_default_method(method)
+        if let Some(operation) = standard_declarations::native_default_method(method)
             && self
                 .planner
                 .catalog
@@ -603,7 +607,7 @@ impl FunctionLowerer<'_, '_> {
                 if protocol == StandardTrait::Rem
                     && let TypeId::Builtin(input @ (BuiltinType::I8 | BuiltinType::I16)) = ty
                 {
-                    let operation = NumericOperation::binary(HirBinaryOp::Rem, input, input)
+                    let operation = types::lower_numeric_operation(HirBinaryOp::Rem, input, input)
                         .expect("integer remainder");
                     self.emit(Instruction::Numeric {
                         dst,

@@ -1,20 +1,24 @@
 //! Standard API queries consume checked semantic targets and the bundled source catalog.
 
-use crate::builtin::surface::StandardMethodReceiver;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::declarations::{ApiItemSemantics, ApiTypeSemantics};
+use crate::builtin::traits::StandardTraitSemantics;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::STANDARD_TRAITS;
+
+use kagari_abi::standard::surface::StandardMethodReceiver;
+use kagari_abi::standard::traits::StandardTrait;
 
 use crate::analysis::FileAnalysis;
+use crate::builtin::declarations;
+use crate::builtin::declarations::Arguments;
+use crate::builtin::surface;
 use crate::builtin::traits;
+use crate::declarations::Declaration;
+use crate::declarations::DeclarationId;
 use crate::hir::ExprKind;
+use crate::typeck::CallTarget;
 use crate::types::TypeId;
-use crate::{
-    builtin::{
-        declarations::{self, ApiItem, Arguments},
-        surface,
-    },
-    declarations::{Declaration, DeclarationId},
-    typeck::CallTarget,
-};
+use kagari_abi::standard::declarations::ApiItem;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 
@@ -77,7 +81,7 @@ impl FileAnalysis {
             .min_by_key(|(len, _)| *len)?;
         let call = facts.typed.type_table.call_resolution(id)?;
         if let CallTarget::TraitMethod { method, .. } = &call.target {
-            let api = surface::STANDARD_TRAITS
+            let api = STANDARD_TRAITS
                 .iter()
                 .flat_map(|t| t.methods)
                 .find(|m| m.item.identity() == *method)?;
@@ -112,7 +116,7 @@ impl FileAnalysis {
         let CallTarget::StandardIntrinsic(intrinsic) = call.target else {
             return None;
         };
-        let spec = surface::standard_function_by_intrinsic(intrinsic)?;
+        let spec = standard_surface::standard_function_by_intrinsic(intrinsic)?;
         let mut arguments: Arguments = spec
             .type_params
             .iter()
@@ -142,7 +146,7 @@ impl FileAnalysis {
         let Some(ty) = self.member_receiver_type(offset) else {
             return Vec::new();
         };
-        let mut candidates: Vec<_> = surface::standard_methods()
+        let mut candidates: Vec<_> = standard_surface::standard_methods()
             .iter()
             .filter(|method| {
                 matches!(
@@ -156,14 +160,14 @@ impl FileAnalysis {
                         )
                         | (
                             TypeId::StandardEnum {
-                                kind: surface::StandardEnum::Option,
+                                kind: kagari_abi::standard::surface::StandardEnum::Option,
                                 ..
                             },
                             StandardMethodReceiver::Option,
                         )
                         | (
                             TypeId::StandardEnum {
-                                kind: surface::StandardEnum::Result,
+                                kind: kagari_abi::standard::surface::StandardEnum::Result,
                                 ..
                             },
                             StandardMethodReceiver::Result,
@@ -171,7 +175,8 @@ impl FileAnalysis {
                 )
             })
             .filter(|method| {
-                let Some(spec) = surface::standard_function_by_intrinsic(method.intrinsic) else {
+                let Some(spec) = standard_surface::standard_function_by_intrinsic(method.intrinsic)
+                else {
                     return false;
                 };
                 let mut arguments: Arguments = spec
@@ -217,7 +222,7 @@ impl FileAnalysis {
                 .trait_closure(interface, &ty, &Default::default())
                 .unwrap_or_default()
             {
-                if let Some(contract) = surface::STANDARD_TRAITS
+                if let Some(contract) = STANDARD_TRAITS
                     .iter()
                     .find(|t| t.item.identity() == parent.declaration)
                 {
@@ -233,7 +238,7 @@ impl FileAnalysis {
         }
         // Source-declared associated-item constraints also govern completion.
         candidates.retain(|item| {
-            let Some(method) = surface::STANDARD_TRAITS
+            let Some(method) = STANDARD_TRAITS
                 .iter()
                 .flat_map(|t| t.methods)
                 .find(|m| m.item.identity() == item.identity())
@@ -243,8 +248,11 @@ impl FileAnalysis {
             let mut arguments = Arguments::new();
             arguments.insert("Self", ty.clone());
             method.bounds.iter().all(|(target, constraints)| {
-                if !matches!(target, declarations::ApiType::Named("Self", _)) {
-                    let owner = surface::STANDARD_TRAITS
+                if !matches!(
+                    target,
+                    kagari_abi::standard::declarations::ApiType::Named("Self", _)
+                ) {
+                    let owner = STANDARD_TRAITS
                         .iter()
                         .find(|t| {
                             t.methods
@@ -443,7 +451,8 @@ mod tests {
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use crate::builtin::{surface::StandardEnum, traits::StandardTrait};
+        use kagari_abi::standard::surface::StandardEnum;
+        use kagari_abi::standard::traits::StandardTrait;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_abi::scalar::BuiltinType::String);
         let target = TypeId::Map {
@@ -669,7 +678,7 @@ mod trait_tests {
                 .standard_api_at(text.find("get(7)").unwrap())
                 .is_none()
         );
-        let iterator = crate::builtin::traits::StandardTrait::Iterator.contract();
+        let iterator = StandardTrait::Iterator.contract();
         let member = iterator.associated_types.keys().next().unwrap();
         let declaration = snapshot
             .declaration(&DeclarationId::Definition(member.clone()))
@@ -782,7 +791,7 @@ mod collection_access_tests {
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
-        use crate::builtin::traits::StandardTrait as S;
+        use kagari_abi::standard::traits::StandardTrait as S;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receivers = [
             TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),

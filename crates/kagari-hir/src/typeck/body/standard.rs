@@ -1,8 +1,8 @@
-use crate::builtin::declarations::ApiType;
+use crate::builtin::declarations::ApiTypeSemantics;
 use crate::builtin::declarations::Arguments;
 use crate::builtin::surface;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
 use crate::hir::PatternId;
@@ -16,9 +16,13 @@ use crate::typeck::body::standard_intrinsic_name;
 use crate::typeck::completion;
 use crate::types::TypeId;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::declarations::ApiType;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::surface::StandardFunctionSpec;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
-use surface::StandardEnum;
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.
@@ -247,7 +251,8 @@ impl BodyChecker<'_> {
             TypeId::StandardEnum { kind, args }
                 if matches!(
                     kind,
-                    surface::StandardEnum::Option | surface::StandardEnum::Result
+                    kagari_abi::standard::surface::StandardEnum::Option
+                        | kagari_abi::standard::surface::StandardEnum::Result
                 ) && args.len() == kind.spec().arity =>
             {
                 let mut args = args.clone();
@@ -281,7 +286,8 @@ impl BodyChecker<'_> {
         if args.len() != kind.spec().arity
             || !matches!(
                 kind,
-                surface::StandardEnum::Option | surface::StandardEnum::Result
+                kagari_abi::standard::surface::StandardEnum::Option
+                    | kagari_abi::standard::surface::StandardEnum::Result
             )
         {
             self.diagnostics.push(
@@ -403,7 +409,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn check_standard_parameter(
         &mut self,
-        spec: &surface::StandardFunctionSpec,
+        spec: &StandardFunctionSpec,
         parameter: &ApiType,
         actual: &TypeId,
         env: &BodyTypeEnv,
@@ -435,7 +441,7 @@ impl<'a> BodyChecker<'a> {
             unreachable!("standard call expression");
         };
 
-        let Some(spec) = surface::standard_function_by_intrinsic(intrinsic) else {
+        let Some(spec) = standard_surface::standard_function_by_intrinsic(intrinsic) else {
             return TypeId::Error;
         };
         let api = spec.api;

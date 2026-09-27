@@ -2,7 +2,7 @@
 
 use crate::types::TypeAbi;
 
-use crate::types::StandardEnumKind;
+use crate::standard::surface::StandardEnum as StandardEnumKind;
 use kagari_common::identity::DefinitionKind;
 
 use crate::types::AbiType;

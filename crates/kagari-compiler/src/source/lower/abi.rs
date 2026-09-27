@@ -3,6 +3,7 @@ use kagari_abi::types::AssociatedConstAbi;
 use kagari_abi::types::AssociatedTypeAbi;
 use kagari_abi::types::AssociatedTypeFamilyAbi;
 use kagari_abi::types::NominalAbiType;
+use kagari_common::identity;
 use kagari_hir::declarations::DeclarationId;
 use kagari_hir::resolver::ResolvedName;
 use kagari_hir::typeck::ConstraintTarget;
@@ -171,7 +172,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .associated_consts
                         .iter()
                         .map(|member| AssociatedConstAbi {
-                            declaration: types::associated_const_id(
+                            declaration: identity::associated_const_id(
                                 match &module
                                     .declarations
                                     .target(ResolvedName::Trait(id))
@@ -232,13 +233,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 parameter_bounds: module
                                     .typed
                                     .type_table
-                                    .associated_type_parameters(&types::associated_type_id(
+                                    .associated_type_parameters(&identity::associated_type_id(
                                         owner,
                                         &member.name,
                                     ))
                                     .map(|inputs| checked_bounds(&inputs.bounds))
                                     .unwrap_or_default(),
-                                declaration: types::associated_type_id(owner, &member.name),
+                                declaration: identity::associated_type_id(owner, &member.name),
                                 bounds: {
                                     let mut bounds = member
                                         .bounds

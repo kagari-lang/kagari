@@ -4,6 +4,7 @@ use crate::BytecodeProgram;
 
 use crate::BytecodeInstruction;
 use crate::BytecodeModule;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::ConstraintAbi;
@@ -17,17 +18,16 @@ use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::DefinitionPathSegment;
 use kagari_hir::aggregates;
+use kagari_hir::aggregates::AggregateCatalog;
+use kagari_hir::aggregates::ImplementationSignature;
 use kagari_hir::host::HostDeclarations;
 use kagari_hir::typeck;
+use kagari_hir::typeck::ConstraintTarget;
 use kagari_hir::typeck::GenericBounds;
+use kagari_hir::types::GenericParameterType;
 use kagari_hir::types::NominalType;
+use kagari_hir::types::TypeId;
 use kagari_hir::types::TypeSubstitution;
-use kagari_hir::{
-    aggregates::{AggregateCatalog, ImplementationSignature},
-    builtin::traits::StandardTrait,
-    typeck::ConstraintTarget,
-    types::{GenericParameterType, TypeId},
-};
 use std::collections::HashSet;
 
 const MAX_IMPLEMENTATIONS: usize = 4096;

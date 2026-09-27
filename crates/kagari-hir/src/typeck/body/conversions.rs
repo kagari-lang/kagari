@@ -1,6 +1,7 @@
 use crate::builtin::surface;
 use crate::builtin::traits;
-use crate::builtin::traits::{StandardTrait, conversion_requirement};
+use crate::builtin::traits::StandardTraitSemantics;
+use crate::builtin::traits::conversion_requirement;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
 use crate::hir::TypeKind;
@@ -14,9 +15,13 @@ use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::STANDARD_ITEMS;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
-use surface::StandardEnum;
+use kagari_common::identity;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_conversion_call(
@@ -122,17 +127,17 @@ impl BodyChecker<'_> {
                 };
                 if protocol == StandardTrait::FromIterator
                     && explicit_type.is_none()
-                    && let Some(constructor) =
-                        surface::standard_type_constructor(owner).or_else(|| {
+                    && let Some(constructor) = standard_surface::standard_type_constructor(owner)
+                        .or_else(|| {
                             let (module, name) = owner.rsplit_once("::")?;
-                            surface::STANDARD_ITEMS
+                            STANDARD_ITEMS
                                 .iter()
                                 .any(|item| {
                                     Some(item.module) == module.strip_prefix("std::")
                                         && item.path.len() == 1
                                         && item.path[0].1 == name
                                 })
-                                .then(|| surface::standard_type_constructor(name))
+                                .then(|| standard_surface::standard_type_constructor(name))
                                 .flatten()
                         })
                     && matches!(
@@ -256,7 +261,7 @@ impl BodyChecker<'_> {
             return Some(TypeId::Error);
         }
         let error = if protocol.fallible_conversion() || protocol == StandardTrait::FromStr {
-            let own = types::associated_type_id(
+            let own = identity::associated_type_id(
                 &interface.declaration,
                 if protocol == StandardTrait::FromStr {
                     "Err"

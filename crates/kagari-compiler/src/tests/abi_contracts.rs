@@ -2,9 +2,8 @@ use crate::source::types::lower_type;
 use crate::tests::common::bytecode_ok;
 use bincode::Options;
 use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::{
-    AbiType, GenericParameterAbi, NominalAbiType, PublicAbiItem, StandardEnumKind,
-};
+use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
+use kagari_abi::types::{AbiType, GenericParameterAbi, NominalAbiType, PublicAbiItem};
 use kagari_bytecode::{BytecodeVerificationError, verify_module};
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::{

@@ -1,6 +1,6 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
-use kagari_abi::types::StandardEnumKind;
+use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
 
 use crate::LoadedModule;
 use crate::ResourceState;

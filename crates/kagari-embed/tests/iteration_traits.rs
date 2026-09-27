@@ -407,7 +407,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             _ => {
                 *ty = AbiType::Array(
                     Box::new(AbiType::StandardEnum {
-                        kind: kagari_hir::builtin::surface::StandardEnum::Option,
+                        kind: kagari_abi::standard::surface::StandardEnum::Option,
                         args: vec![],
                     }),
                     CollectionAccess::Mutable,

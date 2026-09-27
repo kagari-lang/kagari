@@ -10,9 +10,9 @@ use crate::resource::ResourceState;
 use crate::value::EnumTag;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
+use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
-use kagari_abi::types::StandardEnumKind;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;

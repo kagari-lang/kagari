@@ -1,5 +1,7 @@
 use crate::representation::ValueType;
 use crate::scalar::BuiltinType;
+use crate::standard::contracts;
+use crate::standard::surface::StandardEnum as StandardEnumKind;
 use bincode::DefaultOptions;
 use bincode::Options;
 use kagari_common::collection::CollectionAccess;
@@ -9,10 +11,9 @@ use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::ModuleIdentity;
 use kagari_common::range::RangeKind;
 use kagari_hir::aggregates::ImplementationSignature;
-pub use kagari_hir::builtin::declarations::native_trait_default;
-pub use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
-use kagari_hir::builtin::surface::StandardTypeConstraint;
-use kagari_hir::builtin::traits::StandardTrait;
+
+use crate::standard::surface::StandardTypeConstraint;
+use crate::standard::traits::StandardTrait;
 use kagari_hir::typeck::ConstraintTarget;
 use kagari_hir::types::AssociatedTypeFamily;
 use kagari_hir::types::AssociatedTypeParameters;
@@ -769,113 +770,11 @@ pub fn standard_trait_contract(id: &DefinitionId) -> Option<&'static TraitAbi> {
             StandardTrait::ALL
                 .into_iter()
                 .map(|kind| {
-                    let contract = kind.contract();
-                    TraitAbi {
-                        name: kind.name().into(),
-                        associated_consts: vec![],
-                        associated_types: contract
-                            .associated_types
-                            .iter()
-                            .map(|(id, bounds)| AssociatedTypeAbi {
-                                declaration: id.clone(),
-                                generic_params: vec![],
-                                parameter_bounds: vec![],
-                                bounds: bounds
-                                    .iter()
-                                    .map(|bound| match bound {
-                                        ConstraintTarget::Standard(s) => {
-                                            ConstraintAbi::Standard(*s)
-                                        }
-                                        ConstraintTarget::Trait(t) => ConstraintAbi::Trait(
-                                            NominalAbiType::from_checked_type(t),
-                                        ),
-                                    })
-                                    .collect(),
-                            })
-                            .collect(),
-                        default_methods: contract
-                            .methods
-                            .iter()
-                            .filter(|m| m.has_default)
-                            .map(|m| m.slot)
-                            .collect(),
-                        generic_params: contract
-                            .generic_params
-                            .iter()
-                            .map(|p| GenericParameterAbi {
-                                owner: p.owner.clone(),
-                                position: p.position,
-                            })
-                            .collect(),
-                        bounds: vec![],
-                        supertraits: contract
-                            .supertraits
-                            .iter()
-                            .map(NominalAbiType::from_checked_type)
-                            .collect(),
-                        methods: contract
-                            .methods
-                            .iter()
-                            .map(|method| FunctionAbi {
-                                name: method.name.clone(),
-                                generic_params: method
-                                    .generic_params
-                                    .iter()
-                                    .skip(contract.generic_params.len())
-                                    .map(|p| GenericParameterAbi {
-                                        owner: p.owner.clone(),
-                                        position: p.position,
-                                    })
-                                    .collect(),
-                                bounds: standard_bounds(
-                                    method
-                                        .bounds
-                                        .iter()
-                                        .map(|(ty, bounds)| GenericBoundAbi {
-                                            ty: AbiType::from_checked_type(ty),
-                                            constraints: bounds
-                                                .iter()
-                                                .map(|bound| match bound {
-                                                    ConstraintTarget::Standard(s) => {
-                                                        ConstraintAbi::Standard(*s)
-                                                    }
-                                                    ConstraintTarget::Trait(t) => {
-                                                        ConstraintAbi::Trait(
-                                                            NominalAbiType::from_checked_type(t),
-                                                        )
-                                                    }
-                                                })
-                                                .collect(),
-                                        })
-                                        .collect(),
-                                ),
-                                params: method
-                                    .params
-                                    .iter()
-                                    .map(|param| ParameterAbi {
-                                        name: param.name.clone(),
-                                        ty: AbiType::from_checked_type(&param.ty),
-                                        mutable: false,
-                                    })
-                                    .collect(),
-                                return_type: AbiType::from_checked_type(&method.return_type),
-                            })
-                            .collect(),
-                    }
+                    contracts::trait_contract(kind).expect("valid generated standard contract")
                 })
                 .collect()
         })[kind as usize],
     )
-}
-
-fn standard_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
-    for bound in &mut bounds {
-        bound.constraints.sort();
-        bound.constraints.dedup();
-    }
-    bounds.retain(|bound| !bound.constraints.is_empty());
-    bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
-    bounds
 }
 
 /// Whether a canonical standard interface uses collection identity semantics.

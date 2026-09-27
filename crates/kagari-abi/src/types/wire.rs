@@ -1,13 +1,13 @@
 //! Bounded flat encoding keeps untrusted ABI type decoding off the Rust call stack.
 
 use crate::scalar::BuiltinType;
+use crate::standard::surface::StandardEnum;
 use crate::types::AbiType;
 use crate::types::NominalAbiType;
 use de::Error as DeError;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
 use kagari_common::range::RangeKind;
-use kagari_hir::builtin::surface::StandardEnum;
 use serde::ser::Error;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
@@ -445,7 +445,7 @@ mod tests {
                 occurrence: 0,
             }],
         };
-        let member = kagari_hir::types::associated_type_id(&trait_id, "Item");
+        let member = kagari_common::identity::associated_type_id(&trait_id, "Item");
         let interface = NominalAbiType {
             declaration: trait_id.clone(),
             arguments: vec![AbiType::Builtin(BuiltinType::Bool)],

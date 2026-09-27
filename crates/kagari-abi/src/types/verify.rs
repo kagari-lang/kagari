@@ -1,7 +1,12 @@
 //! Validate serialized semantic types independently of display strings.
 
+use crate::standard::declarations as standard_declarations;
+use kagari_common::identity;
+
 use crate::layout::LayoutValidationError;
 use crate::scalar::BuiltinType;
+use crate::standard::surface::StandardEnum as StandardEnumKind;
+use crate::standard::traits::StandardTrait;
 use crate::types::AbiType;
 use crate::types::ConstraintAbi;
 use crate::types::FunctionAbi;
@@ -23,11 +28,7 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
 use kagari_hir::aggregates::AggregateCatalog;
-use kagari_hir::builtin::declarations;
-use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
 use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTrait;
-use kagari_hir::types;
 use kagari_hir::types::GenericParameterType;
 use kagari_hir::types::TypeId;
 use kagari_hir::types::TypeSubstitution;
@@ -300,7 +301,7 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
                     .map_or("", |part| part.name.as_str());
                 !name.is_empty()
                     && members.insert(&member.declaration)
-                    && member.declaration == types::associated_const_id(&owner, name)
+                    && member.declaration == identity::associated_const_id(&owner, name)
                     && scalar_const_type(&member.ty)
                     && member
                         .default_value
@@ -319,7 +320,7 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
             ty.associated_types.iter().all(|member| {
                 members.insert(&member.declaration)
                     && member.declaration
-                        == types::associated_type_id(
+                        == identity::associated_type_id(
                             &owner,
                             member
                                 .declaration
@@ -377,7 +378,7 @@ fn required_methods_present(table: &InterfaceTableAbi, interface: &TraitAbi) -> 
             .methods
             .iter()
             .any(|actual| actual.name == method.name)
-            || declarations::native_trait_default(&instance.declaration, &method.name)
+            || standard_declarations::native_trait_default(&instance.declaration, &method.name)
     })
 }
 
@@ -459,11 +460,11 @@ fn families_valid(
             .map_or("", |part| part.name.as_str());
         !name.is_empty()
             && seen.insert(&family.declaration)
-            && family.declaration == types::associated_type_id(&interface.declaration, name)
+            && family.declaration == identity::associated_type_id(&interface.declaration, name)
             && !family.generic_params.is_empty()
             && parameters(
                 &family.generic_params,
-                &types::associated_type_id(&table.declaration, name),
+                &identity::associated_type_id(&table.declaration, name),
                 outer,
             )
             .is_some_and(|params| {
@@ -914,7 +915,7 @@ fn type_valid(
                     return false;
                 }
                 if *member
-                    != types::associated_type_id(
+                    != identity::associated_type_id(
                         &interface.declaration,
                         member.path.last().map_or("", |p| p.name.as_str()),
                     )
@@ -926,7 +927,7 @@ fn type_valid(
                 pending.extend(arguments);
                 for (binding, value) in &interface.associated_types {
                     if *binding
-                        != types::associated_type_id(
+                        != identity::associated_type_id(
                             &interface.declaration,
                             binding.path.last().map_or("", |part| part.name.as_str()),
                         )
@@ -994,11 +995,14 @@ fn type_valid(
                     let Some(kind) = StandardTrait::from_id(&ty.declaration) else {
                         return false;
                     };
-                    if ty.arguments.len() != kind.contract().generic_params.len()
-                        || ty
-                            .associated_types
-                            .keys()
-                            .any(|id| !kind.contract().associated_types.contains_key(id))
+                    if ty.arguments.len() != kind.declaration().generics.len()
+                        || ty.associated_types.keys().any(|id| {
+                            !kind
+                                .declaration()
+                                .associated_types
+                                .iter()
+                                .any(|member| member.item.identity() == *id)
+                        })
                     {
                         return false;
                     }
@@ -1013,7 +1017,7 @@ fn type_valid(
                 }
                 for (member, value) in &ty.associated_types {
                     if *member
-                        != types::associated_type_id(
+                        != identity::associated_type_id(
                             &ty.declaration,
                             member.path.last().map_or("", |p| p.name.as_str()),
                         )

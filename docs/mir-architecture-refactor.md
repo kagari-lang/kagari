@@ -759,6 +759,53 @@ portable artifacts. A04 replaces Cranelift's removed runtime/bytecode inputs and
 preserves its scalar behavior with actual code-memory ownership. A05 remains the
 full integration/feature/behavior gate. A01's checklist stays open.
 
+### A01 checkpoint: portable standard declaration contracts (2026-09-28)
+
+Moved the bundled standard declaration generator and its descriptor types/tables
+from HIR to ABI. HIR now supplies source-specific extension traits that interpret
+those shared descriptors as source declarations, inferred types and signatures.
+Consumers import descriptors from their actual ABI owner; the former ABI enum and
+native-default forwarding re-exports are removed. Associated member identity
+construction now belongs to `kagari-common::identity`.
+
+ABI standard trait templates and numeric intrinsic signatures expand directly from
+the generated descriptors, retaining binder ownership, receiver/associated-type
+projections, default slots, canonical associated member order and normalized bounds.
+The scalar conversion matrix and parser/error identities are shared ABI policy;
+HIR wraps their results in source types. Source binary-operator conversion moved
+to compiler lowering. Runtime's remaining standard-surface HIR import is removed.
+The declaration parser is an ABI **build dependency** only; normal production
+ABI dependencies remain common, serde, bincode and smallvec. This does not yet
+establish a compiling source-free execution graph.
+
+Validation and carried errors:
+
+- The relocated generator builds successfully. Its `standard_api.rs` is byte-for-byte
+  identical to both retained prior HIR generator outputs (SHA-256
+  `a7904b5cbd2388d1590f21141bfd8ebb48cd2c415e74d1eaa13406ba8a3bdcf6`).
+- `cargo test -p kagari-common`: 22 tests pass, including identity decoding bounds.
+- `uv run --locked scripts/check_structure.py`: 452 Rust files, zero violations,
+  zero exceptions. Moved macro paths, module ownership and descriptor imports were
+  also reviewed. `cargo fmt --all -- --check` and `git diff --check` pass.
+- Test inventory retains all 1,312 prior test functions and adds two portable
+  standard-template tests (1,314 total). The two new tests cannot run yet because
+  ABI still fails to compile; inventory is not behavioral execution evidence.
+- `cargo check -p kagari-abi --lib`: fails (exit 101), with 20 errors at this
+  checkpoint. Remaining E0432/E0433 HIR references are in host validation and
+  ABI type/interface validation; E0599 references still call the removed
+  `from_checked_type` during substitution/projection normalization. No errors
+  are reported in the new descriptor expansion or numeric modules at this attempt.
+  Downstream HIR/compiler consumers still need compilation-driven extension-trait
+  import cleanup once ABI builds. Workspace tests and clippy remain unavailable.
+
+A01 remains open. Its next unit replaces ABI/HIR round trips with bounded portable
+substitution and projection normalization, including associated families and
+linked method-contract proofs, then replaces host/native-interface HIR queries.
+Keep cancellation, depth/node limits, binder identities and linked validation;
+do not bypass those checks or restore HIR dependencies to executable crates.
+The previously recorded A02-A05 work and carried integration errors remain owned
+by those phases.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

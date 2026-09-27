@@ -1,7 +1,7 @@
 use super::associated;
 use super::{ResolvedTypeRef, TypeTable, TypeTarget};
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::declarations::Declarations;
 use crate::resolver::ResolvedName;
 use crate::types;
@@ -11,10 +11,13 @@ use hir::BodyOwner;
 use hir::HirOwner;
 use hir::TypeKind;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::surface::StandardModule;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity;
 use kagari_common::range::RangeKind;
-use surface::StandardEnum;
-use surface::StandardModule;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
@@ -306,7 +309,7 @@ pub(super) fn resolve_type_in(
             if reference.ty.is_unresolved()
                 && name.contains("::")
                 && bindings.is_empty()
-                && !(prelude && surface::standard_type_constructor(name).is_some())
+                && !(prelude && standard_surface::standard_type_constructor(name).is_some())
             {
                 let resolved =
                     associated::resolve_projection_name(module, name, args, context, table, cancel);
@@ -350,7 +353,7 @@ pub(super) fn resolve_type_in(
                         associated::members(module, context.declarations, &nominal.declaration);
                     let mut valid = true;
                     for (name, value) in resolved_bindings {
-                        let id = types::associated_type_id(&nominal.declaration, &name);
+                        let id = identity::associated_type_id(&nominal.declaration, &name);
                         valid &= members.contains(&name)
                             && associated::member_arity(
                                 module,

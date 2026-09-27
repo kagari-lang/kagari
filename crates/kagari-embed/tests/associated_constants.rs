@@ -269,7 +269,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
     record
         .associated_consts
         .push(kagari_abi::types::AssociatedConstAbi {
-            declaration: kagari_hir::types::associated_const_id(&identity, "VALUE"),
+            declaration: kagari_common::identity::associated_const_id(&identity, "VALUE"),
             ty: kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             default_value: Some("const-v1:i32:42".into()),
         });

@@ -1,202 +1,50 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
 
+use crate::builtin::declarations::{
+    ApiBoundSemantics, ApiImplementationSemantics, ApiTraitSemantics, ApiTypeSemantics,
+};
+use kagari_abi::numeric as scalar_numeric;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::traits::{StandardTrait, identity};
+use kagari_common::identity::associated_type_id;
+
 use kagari_common::collection::CollectionAccess::Mutable;
 
 use super::declarations;
 use super::numeric;
 use super::surface;
-use super::surface::STANDARD_TRAITS;
-use super::surface::StandardEnum;
-use super::surface::StandardModule;
 use crate::aggregates;
 use crate::aggregates::AggregateCatalog;
 use crate::aggregates::TraitSignature;
 use crate::typeck::ConstraintTarget;
 use crate::typeck::GenericBounds;
-use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
-};
+use kagari_abi::standard::surface::STANDARD_TRAITS;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_common::identity::DefinitionId;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StandardTrait {
-    Map,
-    MutableMap,
-    Set,
-    MutableSet,
-    List,
-    MutableList,
-    RangeBounds,
-    PartialEq,
-    Eq,
-    Hash,
-    Debug,
-    Display,
-    PartialOrd,
-    Ord,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Rem,
-    BitAnd,
-    BitOr,
-    BitXor,
-    Shl,
-    Shr,
-
-    Neg,
-    Not,
-    Index,
-    FromStr,
-    From,
-    Into,
-    TryFrom,
-    TryInto,
-    Iterator,
-    Iterable,
-    FromIterator,
-    Sum,
-    Product,
-    Fn,
+pub trait StandardTraitSemantics {
+    fn nominal(self) -> NominalType;
+    fn declaration_type(self) -> NominalType;
+    fn intrinsic_view(self, receiver: &TypeId) -> NominalType;
+    fn contract(self) -> &'static TraitSignature;
 }
-impl StandardTrait {
-    pub const ALL: [Self; 38] = [
-        Self::Map,
-        Self::MutableMap,
-        Self::Set,
-        Self::MutableSet,
-        Self::List,
-        Self::MutableList,
-        Self::RangeBounds,
-        Self::PartialEq,
-        Self::Eq,
-        Self::Hash,
-        Self::Debug,
-        Self::Display,
-        Self::PartialOrd,
-        Self::Ord,
-        Self::Add,
-        Self::Sub,
-        Self::Mul,
-        Self::Div,
-        Self::Rem,
-        Self::BitAnd,
-        Self::BitOr,
-        Self::BitXor,
-        Self::Shl,
-        Self::Shr,
-        Self::Neg,
-        Self::Not,
-        Self::Index,
-        Self::FromStr,
-        Self::From,
-        Self::Into,
-        Self::TryFrom,
-        Self::TryInto,
-        Self::Iterator,
-        Self::Iterable,
-        Self::FromIterator,
-        Self::Sum,
-        Self::Product,
-        Self::Fn,
-    ];
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Map => "Map",
-            Self::MutableMap => "MutableMap",
-            Self::Set => "Set",
-            Self::MutableSet => "MutableSet",
-            Self::List => "List",
-            Self::MutableList => "MutableList",
-            Self::RangeBounds => "RangeBounds",
-            Self::PartialEq => "PartialEq",
-            Self::Eq => "Eq",
-            Self::Hash => "Hash",
-            Self::Debug => "Debug",
-            Self::Display => "Display",
-            Self::PartialOrd => "PartialOrd",
-            Self::Ord => "Ord",
-            Self::Add => "Add",
-            Self::Sub => "Sub",
-            Self::Mul => "Mul",
-            Self::Div => "Div",
-            Self::Rem => "Rem",
-            Self::BitAnd => "BitAnd",
-            Self::BitOr => "BitOr",
-            Self::BitXor => "BitXor",
-            Self::Shl => "Shl",
-            Self::Shr => "Shr",
-
-            Self::Neg => "Neg",
-            Self::Not => "Not",
-            Self::Index => "Index",
-            Self::FromStr => "FromStr",
-            Self::From => "From",
-            Self::Into => "Into",
-            Self::TryFrom => "TryFrom",
-            Self::TryInto => "TryInto",
-            Self::Iterator => "Iterator",
-            Self::Iterable => "Iterable",
-            Self::FromIterator => "FromIterator",
-            Self::Sum => "Sum",
-            Self::Product => "Product",
-            Self::Fn => "Fn",
-        }
-    }
-    pub fn namespace(self) -> &'static str {
-        match self {
-            Self::List | Self::MutableList => "array",
-            Self::Map | Self::MutableMap => "map",
-            Self::Set | Self::MutableSet => "set",
-            Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
-            Self::Fn
-            | Self::RangeBounds
-            | Self::Add
-            | Self::Sub
-            | Self::Mul
-            | Self::Div
-            | Self::Rem
-            | Self::BitAnd
-            | Self::BitOr
-            | Self::BitXor
-            | Self::Shl
-            | Self::Shr
-            | Self::Neg
-            | Self::Not
-            | Self::Index => "ops",
-            Self::FromStr => "string",
-            Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
-            Self::Iterator | Self::Iterable | Self::FromIterator | Self::Sum | Self::Product => {
-                "iter"
-            }
-            Self::Hash => "hash",
-            Self::Debug | Self::Display => "fmt",
-        }
-    }
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| {
-            name == kind.name() || name == format!("std::{}::{}", kind.namespace(), kind.name())
-        })
-    }
-    pub fn from_id(id: &DefinitionId) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| &identity(*kind) == id)
-    }
-    pub fn nominal(self) -> NominalType {
+impl StandardTraitSemantics for StandardTrait {
+    fn nominal(self) -> NominalType {
         NominalType {
             declaration: identity(self),
             arguments: vec![],
             associated_types: Default::default(),
         }
     }
+
     /// Declaration view used by type syntax; callers supply concrete arguments.
-    pub fn declaration_type(self) -> NominalType {
+    fn declaration_type(self) -> NominalType {
         let mut ty = self.nominal();
         ty.arguments = self
             .contract()
@@ -207,57 +55,8 @@ impl StandardTrait {
             .collect();
         ty
     }
-    pub fn dynamic(self) -> bool {
-        self.collection() || matches!(self, Self::Index | Self::Iterable)
-    }
-    pub fn collection(self) -> bool {
-        matches!(
-            self,
-            Self::List
-                | Self::MutableList
-                | Self::Map
-                | Self::MutableMap
-                | Self::Set
-                | Self::MutableSet
-        )
-    }
-    pub fn iteration(self) -> bool {
-        matches!(self, Self::Iterator | Self::Iterable)
-    }
-    pub fn aggregation(self) -> bool {
-        matches!(self, Self::Sum | Self::Product)
-    }
-    pub fn conversion(self) -> bool {
-        matches!(
-            self,
-            Self::From | Self::Into | Self::TryFrom | Self::TryInto
-        )
-    }
-    pub fn reverse_conversion(self) -> bool {
-        matches!(self, Self::Into | Self::TryInto)
-    }
-    pub fn fallible_conversion(self) -> bool {
-        matches!(self, Self::TryFrom | Self::TryInto)
-    }
-    pub fn binary_operator(self) -> bool {
-        matches!(
-            self,
-            Self::Add
-                | Self::Sub
-                | Self::Mul
-                | Self::Div
-                | Self::Rem
-                | Self::BitAnd
-                | Self::BitOr
-                | Self::BitXor
-                | Self::Shl
-                | Self::Shr
-        )
-    }
-    pub fn operator(self) -> bool {
-        self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index | Self::Fn)
-    }
-    pub fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
+
+    fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
         let mut view = self.nominal();
         if self.binary_operator() {
             view.arguments.push(receiver.clone());
@@ -271,38 +70,19 @@ impl StandardTrait {
             view.arguments.push(TypeId::Builtin(BuiltinType::I32));
         }
         if let Some(output) = intrinsic_output(&view, receiver) {
-            view.associated_types.insert(
-                types::associated_type_id(&view.declaration, "Output"),
-                output,
-            );
+            view.associated_types
+                .insert(associated_type_id(&view.declaration, "Output"), output);
         }
         view
     }
-    pub fn host_implementable(self) -> bool {
-        matches!(self, Self::Debug | Self::Display)
-    }
-    pub fn equality_protocol(self) -> bool {
-        matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
-    }
-    pub fn contract(self) -> &'static TraitSignature {
+
+    fn contract(self) -> &'static TraitSignature {
         static CONTRACTS: OnceLock<Vec<TraitSignature>> = OnceLock::new();
         &CONTRACTS.get_or_init(|| Self::ALL.into_iter().map(build_contract).collect())
             [self as usize]
     }
 }
-pub(crate) fn identity(kind: StandardTrait) -> DefinitionId {
-    DefinitionId {
-        module: ModuleIdentity {
-            package: PackageId("kagari-std".into()),
-            path: vec![kind.namespace().into()],
-        },
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: kind.name().into(),
-            occurrence: 0,
-        }],
-    }
-}
+
 fn build_contract(kind: StandardTrait) -> TraitSignature {
     STANDARD_TRAITS
         .iter()
@@ -332,7 +112,7 @@ pub fn callable_signature(interface: &NominalType) -> Option<TypeId> {
     };
     let result = interface
         .associated_types
-        .get(&types::associated_type_id(&interface.declaration, "Output"))
+        .get(&associated_type_id(&interface.declaration, "Output"))
         .cloned()
         .unwrap_or(TypeId::Unknown);
     Some(TypeId::Function {
@@ -457,7 +237,7 @@ pub fn intrinsic_applies(
         return parsing_error(receiver).is_some_and(|error| {
             interface.arguments.is_empty()
                 && interface.associated_types.iter().all(|(id, ty)| {
-                    *id == types::associated_type_id(&interface.declaration, "Err") && *ty == error
+                    *id == associated_type_id(&interface.declaration, "Err") && *ty == error
                 })
         });
     }
@@ -547,7 +327,7 @@ pub fn intrinsic_applies(
         {
             if kind == StandardTrait::From
                 && interface.associated_types.is_empty()
-                && numeric::lossless_from(*source, *target)
+                && scalar_numeric::lossless_from(*source, *target)
             {
                 return true;
             }
@@ -555,8 +335,7 @@ pub fn intrinsic_applies(
                 && let Some(error) = numeric::try_error(*source, *target)
             {
                 return interface.associated_types.iter().all(|(member, ty)| {
-                    *member == types::associated_type_id(&interface.declaration, "Error")
-                        && *ty == error
+                    *member == associated_type_id(&interface.declaration, "Error") && *ty == error
                 });
             }
         }
@@ -569,7 +348,7 @@ pub fn intrinsic_applies(
             return false;
         };
         interface.associated_types.iter().all(|(member, ty)| {
-            *member == types::associated_type_id(&interface.declaration, "Output") && *ty == output
+            *member == associated_type_id(&interface.declaration, "Output") && *ty == output
         })
     } else {
         interface.arguments.is_empty()
@@ -754,7 +533,7 @@ pub fn intrinsic_holds(
 pub fn in_module(module: StandardModule, name: &str) -> Option<StandardTrait> {
     StandardTrait::ALL.into_iter().find(|kind| {
         kind.name() == name
-            && surface::standard_modules().iter().any(|spec| {
+            && standard_surface::standard_modules().iter().any(|spec| {
                 spec.kind == module && spec.path == format!("std::{}", kind.namespace())
             })
     })
@@ -777,13 +556,13 @@ pub fn conversion_requirement(
     let mut required = forward.nominal();
     required.arguments.push(receiver.clone());
     for (member, ty) in &interface.associated_types {
-        if *member != types::associated_type_id(&interface.declaration, "Error")
+        if *member != associated_type_id(&interface.declaration, "Error")
             || !kind.fallible_conversion()
         {
             return None;
         }
         required.associated_types.insert(
-            types::associated_type_id(&required.declaration, "Error"),
+            associated_type_id(&required.declaration, "Error"),
             ty.clone(),
         );
     }
@@ -833,13 +612,13 @@ pub fn iteration_outputs(
             .iter()
             .map(|(member, ty)| {
                 (
-                    types::associated_type_id(&id, member.path.last().unwrap().1),
+                    associated_type_id(&id, member.path.last().unwrap().1),
                     ty.instantiate(&arguments),
                 )
             })
             .collect();
         if kind != declared_kind {
-            outputs.insert(types::associated_type_id(&id, "Iter"), receiver.clone());
+            outputs.insert(associated_type_id(&id, "Iter"), receiver.clone());
         }
         return Some(outputs);
     }
@@ -866,7 +645,7 @@ pub fn iteration_outputs(
     if !available {
         return None;
     }
-    let member = types::associated_type_id(&iterator.declaration, "Item");
+    let member = associated_type_id(&iterator.declaration, "Item");
     let item = bounds
         .get(receiver)
         .into_iter()
@@ -889,8 +668,8 @@ pub fn iteration_outputs(
     let id = identity(kind);
     Some(
         [
-            (types::associated_type_id(&id, "Item"), item),
-            (types::associated_type_id(&id, "Iter"), receiver.clone()),
+            (associated_type_id(&id, "Item"), item),
+            (associated_type_id(&id, "Iter"), receiver.clone()),
         ]
         .into_iter()
         .collect(),
@@ -904,13 +683,13 @@ pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Optio
     {
         return None;
     }
-    let item = types::associated_type_id(&interface.declaration, "Item");
-    let iterator = types::associated_type_id(&interface.declaration, "Iter");
+    let item = associated_type_id(&interface.declaration, "Item");
+    let iterator = associated_type_id(&interface.declaration, "Iter");
     let mut required = StandardTrait::Iterator.nominal();
     for (member, ty) in &interface.associated_types {
         if *member == item {
             required.associated_types.insert(
-                types::associated_type_id(&required.declaration, "Item"),
+                associated_type_id(&required.declaration, "Item"),
                 ty.clone(),
             );
         } else if *member != iterator || ty != receiver {
@@ -954,8 +733,5 @@ pub fn parsing_error(receiver: &TypeId) -> Option<TypeId> {
     let TypeId::Builtin(kind) = receiver else {
         return None;
     };
-    (kind.number_type().is_some() || *kind == BuiltinType::Bool).then(|| TypeId::StandardEnum {
-        kind: StandardEnum::ParseError,
-        args: vec![],
-    })
+    scalar_numeric::parsing_error(*kind).map(|kind| TypeId::StandardEnum { kind, args: vec![] })
 }

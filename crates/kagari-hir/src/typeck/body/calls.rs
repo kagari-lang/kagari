@@ -1,7 +1,6 @@
 use crate::builtin::surface;
-use crate::builtin::surface::StandardTypeConstraint;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::builtin::traits::intrinsic_holds;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
@@ -23,6 +22,9 @@ use crate::types::GenericParameterType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::StandardTypeConstraint;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use std::iter;
@@ -330,7 +332,7 @@ impl<'a> BodyChecker<'a> {
         };
         let receiver_ty = self.infer_expr_type(*receiver, env);
         let receiver_kind = standard_method_receiver(&receiver_ty)?;
-        surface::standard_method(receiver_kind, name)
+        standard_surface::standard_method(receiver_kind, name)
             .map(|method| (method.intrinsic, *receiver, receiver_ty))
     }
 
@@ -410,7 +412,7 @@ impl<'a> BodyChecker<'a> {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
                         type_name: ty.display_name(),
-                        constraint: surface::standard_constraint_name(constraint).into(),
+                        constraint: standard_surface::standard_constraint_name(constraint).into(),
                         reason: constraints::standard_constraint_reason(constraint).into(),
                     })
                     .with_span(self.lowered.source_map.expr_span(span_expr)),

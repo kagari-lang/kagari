@@ -1,11 +1,9 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
 
 use crate::scalar::BuiltinType;
+use crate::standard::surface::StandardEnum;
 use crate::types::AbiType;
 use kagari_common::integer::IntegerOp;
-use kagari_hir::builtin::numeric;
-use kagari_hir::builtin::surface::StandardEnum;
-use kagari_hir::hir::BinaryOp;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,29 +14,6 @@ pub struct NumericOperation {
 }
 
 impl NumericOperation {
-    pub fn binary(op: BinaryOp, input: BuiltinType, rhs: BuiltinType) -> Option<Self> {
-        input.integer_layout()?;
-
-        let op = match op {
-            BinaryOp::Add => IntegerOp::CheckedAdd,
-            BinaryOp::Sub => IntegerOp::CheckedSub,
-            BinaryOp::Mul => IntegerOp::CheckedMul,
-            BinaryOp::Div => IntegerOp::CheckedDiv,
-            BinaryOp::Rem => IntegerOp::CheckedRem,
-            BinaryOp::BitAnd => IntegerOp::BitAnd,
-            BinaryOp::BitOr => IntegerOp::BitOr,
-            BinaryOp::BitXor => IntegerOp::BitXor,
-            BinaryOp::Shl => IntegerOp::Shl,
-            BinaryOp::Shr => IntegerOp::Shr,
-            _ => return None,
-        };
-        Some(Self {
-            op,
-            input,
-            rhs: Some(rhs),
-        })
-    }
-
     pub fn contract(self) -> Option<(AbiType, Option<AbiType>, AbiType)> {
         self.input.integer_layout()?;
         if self.op == IntegerOp::BitNot {
@@ -69,14 +44,17 @@ pub struct NumericConversion {
 impl NumericConversion {
     pub fn contract(self) -> Option<(AbiType, AbiType)> {
         if self.checked {
-            let error = numeric::try_error(self.source, self.target)?;
+            let error = conversion_error(self.source, self.target)?;
             return Some((
                 AbiType::Builtin(self.source),
                 AbiType::StandardEnum {
                     kind: StandardEnum::Result,
                     args: vec![
                         AbiType::Builtin(self.target),
-                        AbiType::from_checked_type(&error),
+                        AbiType::StandardEnum {
+                            kind: error,
+                            args: vec![],
+                        },
                     ],
                 },
             ));
@@ -85,4 +63,53 @@ impl NumericConversion {
             .can_cast_to(self.target)
             .then_some((AbiType::Builtin(self.source), AbiType::Builtin(self.target)))
     }
+}
+
+pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
+    if source == target {
+        return source.number_type().is_some() || source == BuiltinType::Bool;
+    }
+    if source == BuiltinType::Bool {
+        return target.integer_layout().is_some();
+    }
+    match target {
+        BuiltinType::F32 => matches!(
+            source,
+            BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8 | BuiltinType::U16
+        ),
+        BuiltinType::F64 => matches!(
+            source,
+            BuiltinType::I8
+                | BuiltinType::I16
+                | BuiltinType::I32
+                | BuiltinType::U8
+                | BuiltinType::U16
+                | BuiltinType::U32
+                | BuiltinType::F32
+        ),
+        BuiltinType::ISize => {
+            matches!(source, BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8)
+        }
+        BuiltinType::USize => matches!(source, BuiltinType::U8 | BuiltinType::U16),
+        _ if matches!(source, BuiltinType::ISize | BuiltinType::USize) => false,
+        _ => match (source.integer_layout(), target.integer_layout()) {
+            (Some((a, sa)), Some((b, sb))) => (sa == sb && a < b) || (!sa && sb && a < b),
+            _ => false,
+        },
+    }
+}
+
+/// Error type of the portable checked scalar conversion contract.
+pub fn conversion_error(source: BuiltinType, target: BuiltinType) -> Option<StandardEnum> {
+    if lossless_from(source, target) {
+        Some(StandardEnum::Infallible)
+    } else if source.integer_layout().is_some() && target.integer_layout().is_some() {
+        Some(StandardEnum::TryFromIntError)
+    } else {
+        None
+    }
+}
+
+pub fn parsing_error(kind: BuiltinType) -> Option<StandardEnum> {
+    (kind.number_type().is_some() || kind == BuiltinType::Bool).then_some(StandardEnum::ParseError)
 }

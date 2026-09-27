@@ -1,9 +1,11 @@
 use crate::builtin::surface;
-use crate::builtin::surface::StandardEnum;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::typeck::GenericBounds;
 use crate::typeck::associated;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::collection::CollectionAccess::Mutable;
 use kagari_common::collection::CollectionAccess::ReadOnly;
@@ -111,26 +113,6 @@ pub struct NominalType {
     pub declaration: DefinitionId,
     pub arguments: Vec<TypeId>,
     pub associated_types: BTreeMap<DefinitionId, TypeId>,
-}
-
-pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
-    let mut id = owner.clone();
-    id.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::AssociatedType,
-        name: name.to_owned(),
-        occurrence: 0,
-    });
-    id
-}
-
-pub fn associated_const_id(owner: &DefinitionId, name: &str) -> DefinitionId {
-    let mut id = owner.clone();
-    id.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Const,
-        name: name.to_owned(),
-        occurrence: 0,
-    });
-    id
 }
 
 impl NominalType {
@@ -245,17 +227,14 @@ impl TypeId {
             return None;
         };
         matches!(
-            crate::builtin::traits::StandardTrait::from_id(&interface.declaration),
-            Some(
-                crate::builtin::traits::StandardTrait::List
-                    | crate::builtin::traits::StandardTrait::MutableList
-            )
+            StandardTrait::from_id(&interface.declaration),
+            Some(StandardTrait::List | StandardTrait::MutableList)
         )
         .then(|| interface.arguments.first())
         .flatten()
     }
     pub fn writable_list(&self) -> bool {
-        matches!(self, Self::Trait(interface) if crate::builtin::traits::StandardTrait::from_id(&interface.declaration) == Some(crate::builtin::traits::StandardTrait::MutableList))
+        matches!(self, Self::Trait(interface) if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::MutableList))
     }
 
     /// Access is part of type identity; it never changes the underlying object.
@@ -957,7 +936,7 @@ impl TypeId {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        surface::builtin_type(name).map(Self::Builtin)
+        standard_surface::builtin_type(name).map(Self::Builtin)
     }
 
     pub fn display_name(&self) -> String {
@@ -994,7 +973,8 @@ impl TypeId {
                         output.push_str(&id.path.last().expect("host type identity").name)
                     }
                     Self::Builtin(ty) => output.push_str(
-                        surface::builtin_type_spec(*ty).map_or("<builtin>", |spec| spec.name),
+                        standard_surface::builtin_type_spec(*ty)
+                            .map_or("<builtin>", |spec| spec.name),
                     ),
                     Self::Tuple(items) => sequence(&mut pending, items, "(", ")"),
                     Self::Function { params, result } => {
@@ -1124,7 +1104,7 @@ impl TypeId {
         match self {
             Self::Inference(_) | Self::Unknown | Self::Error => false,
             Self::Builtin(ty) => {
-                surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
+                standard_surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
             }
             Self::Tuple(_)
             | Self::Function { .. }

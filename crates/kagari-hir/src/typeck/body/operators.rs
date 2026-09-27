@@ -1,7 +1,6 @@
 use crate::builtin::surface;
-use crate::builtin::surface::StandardTypeConstraint;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::builtin::traits::callable_signature;
 use crate::hir::BinaryOp;
 use crate::hir::ExprId;
@@ -19,9 +18,12 @@ use crate::types::NominalType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface::StandardTypeConstraint;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use kagari_common::cancellation::Cancelled;
+use kagari_common::identity;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(
@@ -239,7 +241,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 let (mut interface, output) = self.select_operator(ty, interface, env)?;
                 interface.associated_types.insert(
-                    types::associated_type_id(&interface.declaration, "Output"),
+                    identity::associated_type_id(&interface.declaration, "Output"),
                     output,
                 );
                 let signature = callable_signature(&interface)?;
@@ -275,7 +277,7 @@ impl<'a> BodyChecker<'a> {
             }
             if let Some(output) = traits::intrinsic_output(&interface, ty) {
                 interface.associated_types.insert(
-                    types::associated_type_id(&interface.declaration, "Output"),
+                    identity::associated_type_id(&interface.declaration, "Output"),
                     output,
                 );
             }

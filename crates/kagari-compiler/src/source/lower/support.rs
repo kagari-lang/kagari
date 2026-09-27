@@ -5,6 +5,7 @@ use hir::PrefixOp;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::NominalAbiType;
 use kagari_common::identity::DefinitionId;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::types::TypeId;
 use kagari_hir::{hir, resolver::ResolvedName};
 use kagari_mir::ValueBuffer;

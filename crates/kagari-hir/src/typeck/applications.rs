@@ -1,4 +1,5 @@
 //! Validate applied aggregate contracts from the shared checked catalog.
+use crate::builtin::traits::StandardTraitSemantics;
 
 use crate::builtin::traits::intrinsic_holds;
 
@@ -8,12 +9,12 @@ use super::constraints;
 use super::families;
 use super::{ConstraintTarget, GenericBounds, ModuleSignatures, TypeTable};
 use crate::DiagnosticBuffer;
-use crate::builtin::surface::StandardTypeConstraint;
-use crate::builtin::traits::StandardTrait;
 use crate::declarations::Declarations;
 use crate::host::HostDeclarations;
 use crate::types::TypeSubstitution;
 use crate::{aggregates::AggregateCatalog, lower::LoweredModule, types::TypeId};
+use kagari_abi::standard::surface::StandardTypeConstraint;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::identity::ModuleIdentity;
 use kagari_common::range::RangeKind;
 use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
@@ -182,7 +183,7 @@ pub(super) fn validate(
                             // Trait implementation identity needs complete members;
                             // standard constraint recovery belongs to the shared checker.
                             if actual.is_unresolved()
-                                && matches!(constraint, ConstraintTarget::Trait(t) if crate::builtin::traits::StandardTrait::from_id(&t.declaration).is_none())
+                                && matches!(constraint, ConstraintTarget::Trait(t) if StandardTrait::from_id(&t.declaration).is_none())
                             {
                                 continue;
                             }
@@ -426,28 +427,28 @@ pub(crate) fn validate_signatures(
                 continue;
             };
             if matches!(
-                crate::builtin::declarations::native_default_method(&method.id),
+                kagari_abi::standard::declarations::native_default_method(&method.id),
                 Some(
-                    crate::builtin::declarations::NativeDefaultMethod::Join
-                        | crate::builtin::declarations::NativeDefaultMethod::ListJoin
-                        | crate::builtin::declarations::NativeDefaultMethod::ListWindows
-                        | crate::builtin::declarations::NativeDefaultMethod::ListChunks
-                        | crate::builtin::declarations::NativeDefaultMethod::ListFirst
-                        | crate::builtin::declarations::NativeDefaultMethod::ListLast
-                        | crate::builtin::declarations::NativeDefaultMethod::ListContains
-                        | crate::builtin::declarations::NativeDefaultMethod::ListStartsWith
-                        | crate::builtin::declarations::NativeDefaultMethod::ListEndsWith
-                        | crate::builtin::declarations::NativeDefaultMethod::ListBinarySearch
-                        | crate::builtin::declarations::NativeDefaultMethod::SetUnion
-                        | crate::builtin::declarations::NativeDefaultMethod::SetIntersection
-                        | crate::builtin::declarations::NativeDefaultMethod::SetDifference
-                        | crate::builtin::declarations::NativeDefaultMethod::SetSymmetricDifference
-                        | crate::builtin::declarations::NativeDefaultMethod::SetIsSubset
-                        | crate::builtin::declarations::NativeDefaultMethod::SetIsSuperset
-                        | crate::builtin::declarations::NativeDefaultMethod::SetIsDisjoint
-                        | crate::builtin::declarations::NativeDefaultMethod::MapKeysView
-                        | crate::builtin::declarations::NativeDefaultMethod::MapValuesView
-                        | crate::builtin::declarations::NativeDefaultMethod::MapEntriesView
+                    kagari_abi::standard::declarations::NativeDefaultMethod::Join
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListJoin
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListWindows
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListChunks
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListFirst
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListLast
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListContains
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListStartsWith
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListEndsWith
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListBinarySearch
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetUnion
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIntersection
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetDifference
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetSymmetricDifference
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIsSubset
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIsSuperset
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIsDisjoint
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::MapKeysView
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::MapValuesView
+                        | kagari_abi::standard::declarations::NativeDefaultMethod::MapEntriesView
                 )
             ) {
                 diagnostics.push(

@@ -229,11 +229,11 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
     use kagari_abi::scalar::BuiltinType;
+    use kagari_abi::standard::surface::StandardTypeConstraint;
     use kagari_abi::types::AbiType;
     use kagari_abi::types::ConstraintAbi;
     use kagari_abi::types::GenericBoundAbi;
     use kagari_abi::types::PublicAbiItem;
-    use kagari_hir::builtin::surface::StandardTypeConstraint;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..10 {
@@ -358,8 +358,8 @@ fn complete_family_metadata_cannot_make_a_dynamic_interface() {
             Some((interface.declaration.clone(), table.declaration.clone()))
         })
         .unwrap();
-    let member = kagari_hir::types::associated_type_id(&interface, "Item");
-    let binder = kagari_hir::types::associated_type_id(&implementation, "Item");
+    let member = kagari_common::identity::associated_type_id(&interface, "Item");
+    let binder = kagari_common::identity::associated_type_id(&implementation, "Item");
     for item in &mut module.public_items {
         match item {
             PublicAbiItem::Trait(record) => record.associated_types.push(AssociatedTypeAbi {

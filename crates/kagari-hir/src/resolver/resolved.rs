@@ -1,5 +1,5 @@
 use crate::builtin::BuiltinFunction;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExportItem;
 use crate::hir::Module;
 use crate::hir::PatternId;
@@ -10,6 +10,9 @@ use crate::host::HostModuleId;
 use crate::host::HostTypeId;
 use crate::imports::ModuleImports;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::surface::StandardModule;
+use kagari_abi::standard::surface::StandardVariant;
+use kagari_abi::standard::traits::StandardTrait;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -51,8 +54,8 @@ pub enum ResolvedName {
     Param(ParamId),
     Local(LocalId),
     Module(ModuleId),
-    StandardModule(surface::StandardModule),
-    StandardVariant(surface::StandardVariant),
+    StandardModule(StandardModule),
+    StandardVariant(StandardVariant),
     StandardFunction(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
     Struct(StructId),
@@ -82,7 +85,7 @@ pub struct ResolvedNames {
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
-    pub(crate) pattern_variants: HashMap<PatternId, surface::StandardVariant>,
+    pub(crate) pattern_variants: HashMap<PatternId, StandardVariant>,
     closure_captures: HashMap<ExprId, Vec<ResolvedName>>,
 }
 

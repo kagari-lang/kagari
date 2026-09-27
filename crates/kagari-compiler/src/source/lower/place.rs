@@ -6,8 +6,10 @@ use kagari_abi::numeric::NumericOperation;
 use kagari_abi::operations::BinaryOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::NominalAbiType;
-use kagari_hir::builtin::traits::StandardTrait;
+use kagari_common::identity;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::types;
 use kagari_hir::{hir, types::TypeId};
 use kagari_mir::AggregateFieldRef;
@@ -203,7 +205,7 @@ impl FunctionLowerer<'_, '_> {
                     let mut read = StandardTrait::Index.nominal();
                     read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(
-                        types::associated_type_id(&read.declaration, "Output"),
+                        identity::associated_type_id(&read.declaration, "Output"),
                         item.clone(),
                     );
                     let write = if receiver.writable_list() {

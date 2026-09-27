@@ -1,12 +1,14 @@
+use crate::source::types;
 use crate::source::types::lower_type;
 use hir::Condition;
 use hir::StmtKind;
 use kagari_abi::numeric::NumericOperation;
 use kagari_abi::operations::IterOp;
 use kagari_abi::operations::StandardEnumOp;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
-use kagari_hir::builtin::surface::StandardEnum;
-use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::hir;
 use kagari_hir::typeck::ResolvedIteration;
 use kagari_hir::types::TypeId;
@@ -103,7 +105,7 @@ impl FunctionLowerer<'_, '_> {
                     self.analyzed.typed.type_table.expr_type(value),
                 ) {
                     (Some(op), Some(TypeId::Builtin(input)), Some(TypeId::Builtin(rhs))) => {
-                        NumericOperation::binary(op, input, rhs)
+                        types::lower_numeric_operation(op, input, rhs)
                     }
                     _ => None,
                 };

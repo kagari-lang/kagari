@@ -1,6 +1,6 @@
 use kagari_abi::operations::StandardEnumOp;
+use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
 use kagari_abi::types::AbiType;
-use kagari_abi::types::StandardEnumKind;
 use kagari_bytecode::EnumId;
 use kagari_bytecode::FieldRef;
 use kagari_bytecode::Register;

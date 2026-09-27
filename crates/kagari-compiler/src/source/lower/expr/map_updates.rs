@@ -3,7 +3,8 @@ use crate::source::lower::state::FunctionLowerer;
 use kagari_abi::operations::StandardEnumOp as Op;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_hir::{builtin::surface::StandardEnum, types::TypeId};
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_hir::types::TypeId;
 use kagari_mir::instruction::MirValue;
 
 impl FunctionLowerer<'_, '_> {

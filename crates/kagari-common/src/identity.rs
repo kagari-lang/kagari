@@ -123,6 +123,26 @@ impl DefinitionId {
     }
 }
 
+pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+    let mut id = owner.clone();
+    id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::AssociatedType,
+        name: name.to_owned(),
+        occurrence: 0,
+    });
+    id
+}
+
+pub fn associated_const_id(owner: &DefinitionId, name: &str) -> DefinitionId {
+    let mut id = owner.clone();
+    id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Const,
+        name: name.to_owned(),
+        occurrence: 0,
+    });
+    id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

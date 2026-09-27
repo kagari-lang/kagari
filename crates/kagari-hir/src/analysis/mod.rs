@@ -1,4 +1,5 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
+use crate::builtin::traits::StandardTraitSemantics;
 
 use crate::hir::ExportItem;
 

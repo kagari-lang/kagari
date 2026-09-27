@@ -8,6 +8,7 @@ use crate::types::TraitContract;
 use crate::layout::EnumLayout;
 use crate::layout::LayoutValidationError;
 use crate::layout::StructLayout;
+use crate::standard::traits::StandardTrait;
 use crate::types as abi;
 use crate::types::AbiType;
 use crate::types::ConstraintAbi;
@@ -21,7 +22,6 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::DefinitionId,
 };
-use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::host;
 use kagari_hir::host::HostDeclarations;
 use std::collections::BTreeMap;

@@ -6,12 +6,13 @@ use kagari_abi::operations::IterOp;
 use kagari_abi::operations::StandardEnumOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::declarations::NativeDefaultMethod;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
 use kagari_common::collection::CollectionAccess;
 use kagari_hir::builtin::traits;
-use kagari_hir::builtin::{
-    declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait,
-};
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::hir;
 use kagari_hir::types::TypeId;
 use kagari_mir::instruction::Instruction;

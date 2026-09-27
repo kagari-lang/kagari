@@ -1,5 +1,15 @@
 //! Public signatures compiled from the bundled declaration sources.
+
+use crate::builtin::traits::StandardTraitSemantics;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::declarations::{ApiBound, ApiImplementation, ApiItem, ApiTrait, ApiType};
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::surface::STANDARD_IMPLEMENTATIONS;
+use kagari_abi::standard::surface::STANDARD_ITEMS;
+use kagari_abi::standard::surface::STANDARD_SOURCES;
+use kagari_abi::standard::surface::StandardVariant;
+use kagari_abi::standard::traits as standard_traits;
+use kagari_common::identity;
 
 use crate::aggregates::MethodParameter;
 use crate::aggregates::MethodSignature;
@@ -7,180 +17,40 @@ use crate::hir::Writeability;
 use crate::typeck::ConstraintTarget;
 use crate::types::GenericParameterType;
 
-use super::surface::{self, StandardEnum};
-use super::traits;
-use super::traits::StandardTrait;
+use super::surface;
 use crate::aggregates::TraitSignature;
 use crate::declarations::Declaration;
 use crate::declarations::DeclarationId;
 use crate::resolver::ResolvedName;
 use crate::typeck::GenericBounds;
-use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::SourceFile;
 use kagari_common::Span;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::{DefinitionPathSegment, ModuleIdentity, PackageId};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 pub fn sources() -> &'static [SourceFile] {
     static SOURCES: OnceLock<Vec<SourceFile>> = OnceLock::new();
     SOURCES.get_or_init(|| {
-        surface::STANDARD_SOURCES
+        STANDARD_SOURCES
             .iter()
             .map(|(uri, text)| SourceFile::new(*uri, *text))
             .collect()
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiItem {
-    pub module: &'static str,
-    pub uri: &'static str,
-    pub path: &'static [(DefinitionKind, &'static str)],
-    pub start: usize,
-    pub end: usize,
-    pub documentation: &'static str,
-    pub signature: &'static str,
+pub trait ApiImplementationSemantics {
+    fn arguments(&self, receiver: &TypeId) -> Option<Arguments>;
+    fn applied_arguments(&self, receiver: &TypeId, interface: &NominalType) -> Option<Arguments>;
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiBound {
-    pub name: &'static str,
-    pub args: &'static [ApiType],
-    pub bindings: &'static [(&'static str, ApiType)],
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiAssociatedType {
-    pub item: ApiItem,
-    pub bounds: &'static [ApiBound],
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiMethod {
-    pub item: ApiItem,
-    pub native_default: Option<NativeDefaultMethod>,
-    pub generics: &'static [ApiGeneric],
-    pub bounds: &'static [(ApiType, &'static [ApiBound])],
-    pub params: &'static [ApiParameter],
-    pub result: ApiType,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiGeneric {
-    pub name: &'static str,
-    pub bounds: &'static [ApiBound],
-    pub projection_key: &'static str,
-}
-
-/// Native defaults retain ordinary trait identities and checked generic signatures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativeDefaultMethod {
-    Join,
-    ListJoin,
-    ListWindows,
-    ListChunks,
-    ListFirst,
-    ListLast,
-    ListContains,
-    ListStartsWith,
-    ListEndsWith,
-    ListBinarySearch,
-
-    SetUnion,
-    SetIntersection,
-    SetDifference,
-    SetSymmetricDifference,
-    SetIsSubset,
-    SetIsSuperset,
-    SetIsDisjoint,
-    MapKeysView,
-    MapValuesView,
-    MapEntriesView,
-    Collect,
-    Sum,
-    Product,
-    FlatMap,
-    Flatten,
-    TakeWhile,
-    SkipWhile,
-    Inspect,
-    Fuse,
-    FindMap,
-    Position,
-    Nth,
-    Last,
-    Reduce,
-    Min,
-    Max,
-    MinByKey,
-    MaxByKey,
-    MinBy,
-    MaxBy,
-
-    Map,
-    Filter,
-    FilterMap,
-    Take,
-    Skip,
-    Enumerate,
-    Zip,
-    Chain,
-    Find,
-    Any,
-    All,
-    Count,
-    Fold,
-    ForEach,
-    Partition,
-    GroupBy,
-}
-
-pub fn native_default_method(id: &DefinitionId) -> Option<NativeDefaultMethod> {
-    surface::STANDARD_TRAITS
-        .iter()
-        .flat_map(|t| t.methods)
-        .find(|m| m.item.identity() == *id)
-        .and_then(|m| m.native_default)
-}
-
-pub fn native_trait_default(interface: &DefinitionId, name: &str) -> bool {
-    surface::STANDARD_TRAITS
-        .iter()
-        .find(|t| t.item.identity() == *interface)
-        .is_some_and(|t| {
-            t.methods.iter().any(|m| {
-                m.item.path.last().is_some_and(|p| p.1 == name) && m.native_default.is_some()
-            })
-        })
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiTrait {
-    pub item: ApiItem,
-    pub generics: &'static [&'static str],
-    pub supertraits: &'static [ApiBound],
-    pub associated_types: &'static [ApiAssociatedType],
-    pub methods: &'static [ApiMethod],
-}
-
-/// An explicit native trait implementation read from the bundled source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiImplementation {
-    pub interface: &'static str,
-    pub trait_arguments: &'static [ApiType],
-    pub bounds: &'static [(ApiType, &'static [ApiBound])],
-    pub generics: &'static [&'static str],
-    pub target: ApiType,
-    pub associated_types: &'static [(ApiItem, ApiType)],
-    pub methods: &'static [ApiMethod],
-}
-
-impl ApiImplementation {
-    pub fn arguments(&self, receiver: &TypeId) -> Option<Arguments> {
+impl ApiImplementationSemantics for ApiImplementation {
+    fn arguments(&self, receiver: &TypeId) -> Option<Arguments> {
         let mut arguments = self
             .generics
             .iter()
@@ -195,11 +65,7 @@ impl ApiImplementation {
         .then_some(arguments)
     }
 
-    pub fn applied_arguments(
-        &self,
-        receiver: &TypeId,
-        interface: &NominalType,
-    ) -> Option<Arguments> {
+    fn applied_arguments(&self, receiver: &TypeId, interface: &NominalType) -> Option<Arguments> {
         if self.trait_declaration().item.identity() != interface.declaration
             || !interface.associated_types.is_empty()
             || self.trait_arguments.len() != interface.arguments.len()
@@ -220,42 +86,21 @@ impl ApiImplementation {
                 .all(|(a, b)| a.instantiate(&arguments) == *b))
         .then_some(arguments)
     }
-
-    pub fn trait_declaration(&self) -> &'static ApiTrait {
-        surface::STANDARD_TRAITS
-            .iter()
-            .find(|t| t.item.path.last().unwrap().1 == self.interface)
-            .expect("validated native trait declaration")
-    }
 }
 
 /// Explicit native implementations applicable to a checked receiver type.
 pub fn implementations(receiver: &TypeId) -> Vec<&'static ApiImplementation> {
-    surface::STANDARD_IMPLEMENTATIONS
+    STANDARD_IMPLEMENTATIONS
         .iter()
         .filter(|i| i.arguments(receiver).is_some())
         .collect()
 }
 
-impl ApiItem {
-    pub fn identity(&self) -> DefinitionId {
-        DefinitionId {
-            module: ModuleIdentity {
-                package: PackageId("kagari-std".into()),
-                path: vec![self.module.into()],
-            },
-            path: self
-                .path
-                .iter()
-                .map(|(kind, name)| DefinitionPathSegment {
-                    kind: *kind,
-                    name: (*name).into(),
-                    occurrence: 0,
-                })
-                .collect(),
-        }
-    }
-    pub fn declaration(&self) -> Declaration {
+pub trait ApiItemSemantics {
+    fn declaration(&self) -> Declaration;
+}
+impl ApiItemSemantics for ApiItem {
+    fn declaration(&self) -> Declaration {
         let source = sources()
             .iter()
             .find(|source| source.name() == self.uri)
@@ -275,34 +120,27 @@ pub fn item(id: &DeclarationId) -> Option<&'static ApiItem> {
     let DeclarationId::Definition(id) = id else {
         return None;
     };
-    surface::STANDARD_ITEMS
-        .iter()
-        .find(|item| item.identity() == *id)
+    STANDARD_ITEMS.iter().find(|item| item.identity() == *id)
 }
 
 pub fn declaration(id: &DeclarationId) -> Option<&'static Declaration> {
     static DECLARATIONS: OnceLock<Vec<Declaration>> = OnceLock::new();
     DECLARATIONS
-        .get_or_init(|| {
-            surface::STANDARD_ITEMS
-                .iter()
-                .map(ApiItem::declaration)
-                .collect()
-        })
+        .get_or_init(|| STANDARD_ITEMS.iter().map(ApiItem::declaration).collect())
         .iter()
         .find(|d| d.id == *id)
 }
 
 pub fn function(intrinsic: StandardIntrinsic) -> Option<&'static ApiItem> {
-    let api = surface::standard_function_by_intrinsic(intrinsic)?.api;
-    surface::STANDARD_ITEMS
+    let api = standard_surface::standard_function_by_intrinsic(intrinsic)?.api;
+    STANDARD_ITEMS
         .iter()
         .find(|item| item.uri == api.uri && item.start == api.start)
 }
 
-pub fn variant(variant: surface::StandardVariant) -> Option<&'static ApiItem> {
+pub fn variant(variant: StandardVariant) -> Option<&'static ApiItem> {
     let spec = variant.kind().spec();
-    surface::STANDARD_ITEMS.iter().find(|item| {
+    STANDARD_ITEMS.iter().find(|item| {
         item.path.len() == 2
             && item.path[0].1 == spec.name
             && item.path[1].1 == spec.variants[variant.index()].name
@@ -332,7 +170,7 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
         TypeId::StandardEnum { kind, .. } => kind.spec().name,
         _ => return None,
     };
-    surface::STANDARD_ITEMS
+    STANDARD_ITEMS
         .iter()
         .find(|item| item.path.len() == 1 && item.path[0].1 == name)
 }
@@ -349,40 +187,18 @@ pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
 
 pub type Arguments = BTreeMap<&'static str, TypeId>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ApiType {
-    Named(&'static str, &'static [ApiType]),
-    Array(&'static ApiType),
-    Tuple(&'static [ApiType]),
-    Function(&'static [ApiType], &'static ApiType),
-    Projection(&'static ApiType, &'static ApiBound, &'static str),
+pub trait ApiTypeSemantics {
+    fn instantiate(&self, arguments: &Arguments) -> TypeId;
+    fn infer(&self, actual: &TypeId, arguments: &mut Arguments);
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiParameter {
-    pub name: &'static str,
-    pub ty: ApiType,
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ApiFunction {
-    pub bounds: &'static [(ApiType, &'static [ApiBound])],
-    pub qualified_name: &'static str,
-    pub uri: &'static str,
-    pub start: usize,
-    pub end: usize,
-    pub documentation: &'static str,
-    pub signature: &'static str,
-    pub params: &'static [ApiParameter],
-    pub result: ApiType,
-}
-
-impl ApiType {
-    pub fn instantiate(&self, arguments: &Arguments) -> TypeId {
+impl ApiTypeSemantics for ApiType {
+    fn instantiate(&self, arguments: &Arguments) -> TypeId {
         match self {
             Self::Projection(receiver, bound, member) => {
                 let interface = bound.nominal(arguments);
                 TypeId::Projection {
                     receiver: Box::new(receiver.instantiate(arguments)),
-                    member: types::associated_type_id(&interface.declaration, member),
+                    member: identity::associated_type_id(&interface.declaration, member),
                     interface: Box::new(interface),
                     arguments: vec![],
                 }
@@ -410,7 +226,7 @@ impl ApiType {
                     return TypeId::Projection {
                         receiver: Box::new(TypeId::SelfType(interface.declaration.clone())),
                         interface: Box::new(interface.clone()),
-                        member: types::associated_type_id(&interface.declaration, member),
+                        member: identity::associated_type_id(&interface.declaration, member),
                         arguments: params.iter().map(|p| p.instantiate(arguments)).collect(),
                     };
                 }
@@ -421,20 +237,20 @@ impl ApiType {
                         return TypeId::Projection {
                             receiver: Box::new(arguments[owner].clone()),
                             interface: Box::new(interface.clone()),
-                            member: types::associated_type_id(&interface.declaration, "Item"),
+                            member: identity::associated_type_id(&interface.declaration, "Item"),
                             arguments: vec![],
                         };
                     }
                     return TypeId::Unknown;
                 }
-                if let Some(builtin) = surface::builtin_type(name) {
+                if let Some(builtin) = standard_surface::builtin_type(name) {
                     return TypeId::Builtin(builtin);
                 }
                 let types = params
                     .iter()
                     .map(|t| t.instantiate(arguments))
                     .collect::<Vec<_>>();
-                if surface::range_kind(name).is_some() {
+                if standard_surface::range_kind(name).is_some() {
                     return surface::standard_generic_type(name, types).unwrap_or(TypeId::Error);
                 }
                 if let Some(kind) = StandardTrait::from_name(name) {
@@ -482,26 +298,20 @@ impl ApiType {
     }
 
     /// Infer only declared parameters; concrete mismatches remain diagnostics.
-    pub fn infer(&self, actual: &TypeId, arguments: &mut Arguments) {
+    fn infer(&self, actual: &TypeId, arguments: &mut Arguments) {
         match (self, actual) {
             (Self::Named(name, params), TypeId::Trait(interface))
                 if StandardTrait::from_id(&interface.declaration).is_some_and(
                     |kind| match *name {
-                        "ArrayList" => matches!(
-                            kind,
-                            super::traits::StandardTrait::List
-                                | super::traits::StandardTrait::MutableList
-                        ),
-                        "LinkedHashMap" => matches!(
-                            kind,
-                            super::traits::StandardTrait::Map
-                                | super::traits::StandardTrait::MutableMap
-                        ),
-                        "LinkedHashSet" => matches!(
-                            kind,
-                            super::traits::StandardTrait::Set
-                                | super::traits::StandardTrait::MutableSet
-                        ),
+                        "ArrayList" => {
+                            matches!(kind, StandardTrait::List | StandardTrait::MutableList)
+                        }
+                        "LinkedHashMap" => {
+                            matches!(kind, StandardTrait::Map | StandardTrait::MutableMap)
+                        }
+                        "LinkedHashSet" => {
+                            matches!(kind, StandardTrait::Set | StandardTrait::MutableSet)
+                        }
                         _ => kind.name() == *name,
                     },
                 ) && params.len() == interface.arguments.len() =>
@@ -512,11 +322,8 @@ impl ApiType {
             }
             (Self::Array(item), TypeId::Trait(interface))
                 if matches!(
-                    super::traits::StandardTrait::from_id(&interface.declaration),
-                    Some(
-                        super::traits::StandardTrait::List
-                            | super::traits::StandardTrait::MutableList
-                    )
+                    StandardTrait::from_id(&interface.declaration),
+                    Some(StandardTrait::List | StandardTrait::MutableList)
                 ) =>
             {
                 if let [actual] = interface.arguments.as_slice() {
@@ -581,10 +388,13 @@ impl ApiType {
     }
 }
 
-impl ApiBound {
-    pub(crate) fn nominal(&self, arguments: &Arguments) -> NominalType {
+pub trait ApiBoundSemantics {
+    fn nominal(&self, arguments: &Arguments) -> NominalType;
+}
+impl ApiBoundSemantics for ApiBound {
+    fn nominal(&self, arguments: &Arguments) -> NominalType {
         let kind = StandardTrait::from_name(self.name).expect("standard trait bound");
-        let id = traits::identity(kind);
+        let id = standard_traits::identity(kind);
         NominalType {
             declaration: id.clone(),
             arguments: self.args.iter().map(|p| p.instantiate(arguments)).collect(),
@@ -593,7 +403,7 @@ impl ApiBound {
                 .iter()
                 .map(|(name, ty)| {
                     (
-                        types::associated_type_id(&id, name),
+                        identity::associated_type_id(&id, name),
                         ty.instantiate(arguments),
                     )
                 })
@@ -602,8 +412,11 @@ impl ApiBound {
     }
 }
 
-impl ApiTrait {
-    pub fn contract(&self) -> TraitSignature {
+pub trait ApiTraitSemantics {
+    fn contract(&self) -> TraitSignature;
+}
+impl ApiTraitSemantics for ApiTrait {
+    fn contract(&self) -> TraitSignature {
         let id = self.item.identity();
         let generics = self
             .generics
@@ -733,7 +546,7 @@ mod tests {
     use super::*;
     #[test]
     fn every_native_signature_instantiates_without_unresolved_public_types() {
-        for spec in surface::standard_functions() {
+        for spec in kagari_abi::standard::surface::standard_functions() {
             let arguments: Arguments = spec
                 .type_params
                 .iter()
@@ -777,7 +590,7 @@ mod tests {
                 vec![("Less", 0), ("Equal", 0), ("Greater", 0)],
             ),
         ] {
-            let spec = surface::standard_enum(name).unwrap();
+            let spec = kagari_abi::standard::surface::standard_enum(name).unwrap();
             assert_eq!(spec.arity, arity);
             assert_eq!(
                 spec.variants
@@ -791,7 +604,7 @@ mod tests {
     #[test]
     fn standard_declaration_locations_and_identities_are_unique() {
         let mut identities = std::collections::HashSet::new();
-        for item in surface::STANDARD_ITEMS {
+        for item in kagari_abi::standard::surface::STANDARD_ITEMS {
             assert!(identities.insert(item.identity()), "{:?}", item.path);
             let declaration = item.declaration();
             let source = sources()
@@ -802,8 +615,8 @@ mod tests {
             assert!(!item.documentation.is_empty());
         }
         assert_eq!(
-            surface::STANDARD_TRAITS.len(),
-            super::super::traits::StandardTrait::ALL.len()
+            kagari_abi::standard::surface::STANDARD_TRAITS.len(),
+            StandardTrait::ALL.len()
         );
     }
 }

@@ -15,6 +15,7 @@ use crate::types::TypeId;
 use crate::{typeck::ConstraintTarget, types::GenericParameterType};
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::cancellation::Cancelled;
+use kagari_common::identity;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::FileSpan;
 use kagari_common::identity::ModuleIdentity;
@@ -213,7 +214,7 @@ impl AggregateCatalog {
                         .iter()
                         .filter(|member| !member.generic_params.is_empty())
                         .filter_map(|member| {
-                            let id = types::associated_type_id(id, &member.name);
+                            let id = identity::associated_type_id(id, &member.name);
                             Some((
                                 id.clone(),
                                 signatures
@@ -227,7 +228,7 @@ impl AggregateCatalog {
                         .associated_consts
                         .iter()
                         .map(|member| {
-                            let identity = types::associated_const_id(id, &member.name);
+                            let identity = identity::associated_const_id(id, &member.name);
                             (
                                 identity.clone(),
                                 AssociatedConstSignature {
@@ -263,7 +264,7 @@ impl AggregateCatalog {
                         .associated_types
                         .iter()
                         .map(|member| {
-                            let member = types::associated_type_id(id, &member.name);
+                            let member = identity::associated_type_id(id, &member.name);
                             let bounds = signatures
                                 .type_table()
                                 .associated_bounds

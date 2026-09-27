@@ -1,5 +1,7 @@
 //! Access-flow validation runs after physical operand and layout validation.
 
+use kagari_abi::standard::surface as standard_surface;
+
 use crate::ModuleRef;
 
 use crate::BytecodeFunction;
@@ -16,6 +18,7 @@ use kagari_abi::operations::IterOp;
 use kagari_abi::operations::StandardEnumOp;
 use kagari_abi::scalar::BuiltinType as B;
 use kagari_abi::standard::StandardIntrinsic as S;
+use kagari_abi::standard::surface::StandardEnum;
 use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
@@ -27,7 +30,6 @@ use kagari_hir::builtin::surface;
 use kagari_hir::typeck::ScalarValue;
 use kagari_hir::types;
 use kagari_hir::types::TypeId;
-use surface::StandardEnum;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
@@ -722,7 +724,7 @@ pub(super) fn verify(
                                     args: vec![
                                         AbiType::Builtin(*ty),
                                         AbiType::StandardEnum {
-                                            kind: surface::StandardEnum::ParseError,
+                                            kind: kagari_abi::standard::surface::StandardEnum::ParseError,
                                             args: vec![],
                                         },
                                     ],
@@ -904,7 +906,8 @@ pub(super) fn verify(
                                     ));
                                 }
                             }
-                            if let Some(spec) = surface::standard_function_by_intrinsic(*intrinsic)
+                            if let Some(spec) =
+                                standard_surface::standard_function_by_intrinsic(*intrinsic)
                             {
                                 let mut bindings: Arguments = spec
                                     .type_params
@@ -920,7 +923,9 @@ pub(super) fn verify(
                                     spec.api.params.iter().zip(&facts).enumerate()
                                 {
                                     let mut expected = parameter.ty.instantiate(&bindings);
-                                    if index == 0 && surface::collection_read_method(*intrinsic) {
+                                    if index == 0
+                                        && standard_surface::collection_read_method(*intrinsic)
+                                    {
                                         expected = expected.read_only_view().unwrap_or(expected);
                                     }
                                     if expected.is_concrete()

@@ -371,8 +371,8 @@ fn main()->i32 {
 fn malformed_standard_enum_operations_are_rejected_before_execution() {
     use kagari_abi::operations::StandardEnumOp;
     use kagari_abi::scalar::BuiltinType;
+    use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
     use kagari_abi::types::AbiType;
-    use kagari_abi::types::StandardEnumKind;
     use kagari_bytecode::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(

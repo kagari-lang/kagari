@@ -1,7 +1,7 @@
 use crate::aggregates::ImplementationSearchError;
 use crate::builtin::declarations;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
 use crate::hir::TypeKind;
@@ -21,8 +21,10 @@ use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
+use kagari_common::identity;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_expr_with_coercion(
@@ -376,7 +378,7 @@ impl<'a> BodyChecker<'a> {
         let mut candidates = Vec::new();
         for interface in self.trait_bounds_for(&receiver, env) {
             if requested.as_ref().is_some_and(|requested| !matches!(requested, TypeId::Trait(required) if interface.satisfies(required))) { continue; }
-            let id = types::associated_const_id(&interface.declaration, &member);
+            let id = identity::associated_const_id(&interface.declaration, &member);
             if let Some(signature) = self
                 .aggregates
                 .trait_(&interface.declaration)

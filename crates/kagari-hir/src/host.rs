@@ -1,16 +1,17 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
+use crate::builtin::traits::StandardTraitSemantics;
 
 use kagari_common::host_interface::HostPathSegmentDeclaration;
 
 use crate::DiagnosticBuffer;
 use crate::aggregates::AggregateCatalog;
-use crate::builtin::surface::StandardEnum;
-use crate::builtin::surface::StandardTypeConstraint;
-use crate::builtin::traits::StandardTrait;
 use crate::resolver::ResolvedName;
 use crate::typeck;
 use crate::typeck::ConstraintTarget;
 use crate::types::TypeSubstitution;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::surface::StandardTypeConstraint;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::host_interface::HostFieldDeclaration;
 use kagari_common::host_interface::HostPathContract;
 use kagari_common::host_interface::HostPathDeclaration;

@@ -1,12 +1,15 @@
 //! Checked nominal contracts shared by local and imported member access.
 
+use crate::builtin::traits::StandardTraitSemantics;
+use kagari_common::identity;
+
 use crate::builtin::traits as builtin_traits;
-use crate::builtin::traits::StandardTrait;
 use crate::host::HostDeclarations;
 use crate::typeck::GenericBounds;
 use crate::types;
 use crate::types::GenericParameterType;
 use crate::types::NominalType;
+use kagari_abi::standard::traits::StandardTrait;
 use std::collections::HashMap;
 mod implementations;
 mod traits;
@@ -280,7 +283,10 @@ impl AggregateCatalog {
                 .filter_map(|member| {
                     let initializer = member.initializer?;
                     Some((
-                        types::associated_const_id(&contract.trait_type.declaration, &member.name),
+                        identity::associated_const_id(
+                            &contract.trait_type.declaration,
+                            &member.name,
+                        ),
                         declarations
                             .definition(ResolvedName::Const(initializer))?
                             .clone(),

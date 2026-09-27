@@ -35,7 +35,8 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
         StandardIntrinsic::ArrayJoin,
         StandardIntrinsic::ResultMap,
     ] {
-        let function = surface::standard_function_by_intrinsic(intrinsic).unwrap();
+        let function =
+            kagari_abi::standard::surface::standard_function_by_intrinsic(intrinsic).unwrap();
         assert_eq!(function.api.params[0].name, "self");
         let declaration = kagari_hir::builtin::declarations::function(intrinsic).unwrap();
         assert_eq!(declaration.path.len(), 2);
@@ -93,7 +94,7 @@ fn standard_api_documentation_examples_compile_and_execute() {
         .unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for item in surface::STANDARD_ITEMS {
+    for item in kagari_abi::standard::surface::STANDARD_ITEMS {
         let name = format!("{}::{:?}", item.module, item.path);
         let doc = item.documentation;
         if item.path.len() == 1 {
@@ -166,5 +167,9 @@ fn standard_api_documentation_examples_compile_and_execute() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert!(checked >= surface::standard_functions().len() + surface::STANDARD_TRAITS.len());
+    assert!(
+        checked
+            >= kagari_abi::standard::surface::standard_functions().len()
+                + kagari_abi::standard::surface::STANDARD_TRAITS.len()
+    );
 }

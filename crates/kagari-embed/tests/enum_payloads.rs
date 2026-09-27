@@ -4,6 +4,7 @@ use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_common::SourceFile;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine
@@ -246,7 +247,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     };
     assert_eq!(
         list.declaration,
-        kagari_hir::builtin::traits::StandardTrait::List
+        kagari_abi::standard::traits::StandardTrait::List
             .contract()
             .id
     );

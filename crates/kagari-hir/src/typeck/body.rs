@@ -1,3 +1,5 @@
+use crate::builtin::traits::StandardTraitSemantics;
+use kagari_abi::standard::surface as standard_surface;
 mod calls;
 mod constructors;
 mod host_access;
@@ -10,17 +12,17 @@ use super::applications;
 use super::completion;
 use super::solver::Solver;
 use crate::aggregates::AggregateCatalog;
-use crate::builtin::traits::StandardTrait;
 use crate::declarations::Declarations;
 use crate::hir::Condition;
 use crate::hir::ConstId;
 use crate::imports::ImportedFunctions;
 use crate::types;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::range::RangeKind;
 use std::mem;
-use surface::StandardEnum;
 mod conversions;
 mod iteration;
 mod numeric;
@@ -34,7 +36,6 @@ use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
 use crate::builtin::surface;
-use crate::builtin::surface::StandardMethodReceiver;
 use crate::hir::BlockId;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
@@ -53,6 +54,7 @@ use crate::typeck::ty::resolve_type_in;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::surface::StandardMethodReceiver;
 
 #[derive(Clone)]
 enum HostPathNode<Id> {
@@ -812,11 +814,8 @@ impl<'a> BodyChecker<'a> {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),
                     Some(TypeId::Trait(interface))
                         if matches!(
-                            crate::builtin::traits::StandardTrait::from_id(&interface.declaration),
-                            Some(
-                                crate::builtin::traits::StandardTrait::List
-                                    | crate::builtin::traits::StandardTrait::MutableList
-                            )
+                            StandardTrait::from_id(&interface.declaration),
+                            Some(StandardTrait::List | StandardTrait::MutableList)
                         ) =>
                     {
                         interface.arguments.first()
@@ -871,11 +870,8 @@ impl<'a> BodyChecker<'a> {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),
                     Some(TypeId::Trait(interface))
                         if matches!(
-                            crate::builtin::traits::StandardTrait::from_id(&interface.declaration),
-                            Some(
-                                crate::builtin::traits::StandardTrait::List
-                                    | crate::builtin::traits::StandardTrait::MutableList
-                            )
+                            StandardTrait::from_id(&interface.declaration),
+                            Some(StandardTrait::List | StandardTrait::MutableList)
                         ) =>
                     {
                         interface.arguments.first()
@@ -983,7 +979,7 @@ fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
 }
 
 fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
-    if let Some(spec) = surface::standard_function_by_intrinsic(intrinsic) {
+    if let Some(spec) = standard_surface::standard_function_by_intrinsic(intrinsic) {
         return spec.api.qualified_name;
     }
     match intrinsic {

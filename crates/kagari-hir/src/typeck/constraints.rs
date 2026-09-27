@@ -1,17 +1,18 @@
 use super::ty;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::builtin::traits::intrinsic_holds;
 use crate::declarations::Declarations;
 use hir::TypeKind;
+use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
 
-use crate::{
-    builtin::surface::{self, StandardTypeConstraint},
-    hir,
-    lower::LoweredModule,
-    types::TypeId,
-};
+use crate::builtin::surface;
+use crate::hir;
+use crate::lower::LoweredModule;
+use crate::types::TypeId;
+use kagari_abi::standard::surface::StandardTypeConstraint;
 
 use super::{
     ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget,
@@ -223,7 +224,7 @@ pub(super) fn resolve_constraint(
     // Standard constraints are a fallback, so a binder or explicit declaration
     // cannot resolve differently here and in an ordinary type annotation.
     let standard = (resolved.target.is_none() && context.declarations.names.lookup(name).is_none())
-        .then(|| surface::standard_constraint(name))
+        .then(|| standard_surface::standard_constraint(name))
         .flatten();
     let target = standard
         .map(ConstraintTarget::Standard)

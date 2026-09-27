@@ -12,6 +12,7 @@ use crate::value::Value;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::operations::IterOp;
 use kagari_abi::representation::ValueType;
+use kagari_abi::standard::declarations::native_trait_default;
 use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
@@ -157,7 +158,7 @@ impl Runtime {
                 .iter()
                 .find(|method| method.name == declared.name);
             let Some(method) = method else {
-                if abi::native_trait_default(&interface_type.declaration, &declared.name) {
+                if native_trait_default(&interface_type.declaration, &declared.name) {
                     methods.push(None);
                     continue;
                 }

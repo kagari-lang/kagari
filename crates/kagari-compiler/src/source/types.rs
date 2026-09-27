@@ -1,5 +1,9 @@
 //! Encode checked source types at the compiler boundary.
+use kagari_abi::numeric::NumericOperation;
+use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::{AbiType, NominalAbiType};
+use kagari_common::integer::IntegerOp;
+use kagari_hir::hir::BinaryOp;
 use kagari_hir::types::{NominalType, TypeId};
 pub(crate) fn lower_nominal_type(ty: &NominalType) -> NominalAbiType {
     NominalAbiType {
@@ -58,4 +62,30 @@ pub(crate) fn lower_type(ty: &TypeId) -> AbiType {
             unreachable!("non-concrete type reached concrete ABI encoding")
         }
     }
+}
+
+pub(crate) fn lower_numeric_operation(
+    op: BinaryOp,
+    input: BuiltinType,
+    rhs: BuiltinType,
+) -> Option<NumericOperation> {
+    input.integer_layout()?;
+    let op = match op {
+        BinaryOp::Add => IntegerOp::CheckedAdd,
+        BinaryOp::Sub => IntegerOp::CheckedSub,
+        BinaryOp::Mul => IntegerOp::CheckedMul,
+        BinaryOp::Div => IntegerOp::CheckedDiv,
+        BinaryOp::Rem => IntegerOp::CheckedRem,
+        BinaryOp::BitAnd => IntegerOp::BitAnd,
+        BinaryOp::BitOr => IntegerOp::BitOr,
+        BinaryOp::BitXor => IntegerOp::BitXor,
+        BinaryOp::Shl => IntegerOp::Shl,
+        BinaryOp::Shr => IntegerOp::Shr,
+        _ => return None,
+    };
+    Some(NumericOperation {
+        op,
+        input,
+        rhs: Some(rhs),
+    })
 }

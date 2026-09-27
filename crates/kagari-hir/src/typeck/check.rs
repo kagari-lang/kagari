@@ -1,5 +1,6 @@
 use crate::typeck::check::constants::validate_const_initializers;
 use crate::typeck::check::trait_surface::validate_trait_surface;
+use kagari_abi::standard::surface as standard_surface;
 mod constants;
 mod trait_surface;
 use super::ConstraintTarget;
@@ -30,7 +31,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::AnalysisResult;
 use crate::builtin::surface;
-use crate::builtin::surface::StandardTypeConstraint;
 use crate::hir::FunctionKind;
 use crate::lower::LoweredModule;
 use crate::resolver::ResolvedName;
@@ -53,6 +53,7 @@ use crate::typeck::ty::resolve_type;
 use crate::typeck::ty::resolve_type_in;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface::StandardTypeConstraint;
 
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,
@@ -779,7 +780,7 @@ pub(super) fn validate_standard_constraint_type(
     diagnostics.push(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
             type_name: display_type_id(ty),
-            constraint: surface::standard_constraint_name(constraint).to_owned(),
+            constraint: standard_surface::standard_constraint_name(constraint).to_owned(),
             reason: constraints::standard_constraint_reason(constraint).to_owned(),
         })
         .with_span(span),

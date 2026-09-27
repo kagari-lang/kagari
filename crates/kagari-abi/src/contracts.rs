@@ -1,12 +1,10 @@
+use crate::numeric;
 use crate::operations::BinaryOp;
 use crate::operations::UnaryOp;
 use crate::representation::ValueType;
 use crate::standard::StandardIntrinsic;
-use crate::types::AbiType;
+use crate::standard::surface;
 use kagari_common::host_interface::HostFunctionDeclaration;
-use kagari_hir::builtin::surface;
-use kagari_hir::builtin::traits;
-use kagari_hir::types::TypeId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractError {
@@ -234,7 +232,7 @@ pub(crate) fn verify_intrinsic(
         StandardIntrinsic::ParseNumber(ty) | StandardIntrinsic::ParseRadix(ty) => {
             if !matches!(intrinsic, StandardIntrinsic::ParseNumber(_))
                 && ty.integer_layout().is_none()
-                || traits::parsing_error(&TypeId::Builtin(ty)).is_none()
+                || numeric::parsing_error(ty).is_none()
             {
                 return Err(ContractError::Intrinsic {
                     intrinsic,
@@ -259,14 +257,26 @@ pub(crate) fn verify_intrinsic(
                 expect_arg_ty(
                     args,
                     index,
-                    AbiType::from_checked_type(&parameter.ty.instantiate(&arguments))
+                    parameter
+                        .ty
+                        .resolve(&arguments)
+                        .ok_or(ContractError::Intrinsic {
+                            intrinsic,
+                            reason: "invalid numeric parameter descriptor",
+                        })?
                         .representation(),
                     "numeric parameter",
                 )?;
             }
             verify_call_dst(
                 dst,
-                AbiType::from_checked_type(&spec.api.result.instantiate(&arguments))
+                spec.api
+                    .result
+                    .resolve(&arguments)
+                    .ok_or(ContractError::Intrinsic {
+                        intrinsic,
+                        reason: "invalid numeric result descriptor",
+                    })?
                     .representation(),
             )?;
         }

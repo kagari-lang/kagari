@@ -1,5 +1,6 @@
 use crate::source::lower::support::lower_scalar;
 use crate::source::types::{lower_nominal_type, lower_type};
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 mod aggregates;
 mod calls;
 mod patterns;
@@ -11,10 +12,10 @@ use hir::ExprKind;
 use kagari_abi::numeric::NumericConversion;
 use kagari_abi::operations::StandardEnumOp;
 use kagari_abi::operations::UnaryOp;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
 use kagari_common::collection::CollectionAccess;
-use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::resolver::ResolvedName;
 use kagari_hir::typeck::CallTarget as TypeckCallTarget;
 use kagari_hir::typeck::ResolvedInterfaceImplementation;
@@ -440,7 +441,7 @@ impl FunctionLowerer<'_, '_> {
                 let residual = if matches!(
                     &ty,
                     kagari_hir::types::TypeId::StandardEnum {
-                        kind: kagari_hir::builtin::surface::StandardEnum::Result,
+                        kind: kagari_abi::standard::surface::StandardEnum::Result,
                         ..
                     }
                 ) {

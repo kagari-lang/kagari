@@ -1,8 +1,10 @@
 //! Declaration and binding identities owned by one semantic analysis.
 
+use crate::builtin::traits::StandardTraitSemantics;
+use kagari_common::identity;
+
 use crate::builtin::declarations;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
 use crate::hir::ConstOwner;
 use crate::hir::FieldId;
 use crate::hir::GenericParam;
@@ -19,6 +21,7 @@ use crate::resolver::NameTable;
 use crate::source_map::SourceMap;
 use crate::types;
 use crate::types::GenericParameterType;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::cancellation::CancellationToken;
 use std::sync::Arc;
 use std::{
@@ -496,7 +499,7 @@ impl Declarations {
         {
             for member in members {
                 builder.generic_params(
-                    &types::associated_type_id(&owner, &member.name),
+                    &identity::associated_type_id(&owner, &member.name),
                     &member.generic_params,
                     map,
                 );

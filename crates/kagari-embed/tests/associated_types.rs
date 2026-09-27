@@ -226,10 +226,10 @@ fn trait_inputs_and_associated_outputs_remain_distinct() {
 
 #[test]
 fn tampered_associated_schemas_and_bounds_are_rejected() {
+    use kagari_abi::standard::surface::StandardTypeConstraint;
     use kagari_abi::types::AbiType;
     use kagari_abi::types::ConstraintAbi;
     use kagari_abi::types::PublicAbiItem;
-    use kagari_hir::builtin::surface::StandardTypeConstraint;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..3 {

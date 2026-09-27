@@ -6,6 +6,7 @@ use crate::typeck::ScalarValue;
 use crate::typeck::body::BodyChecker;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::surface as standard_surface;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use kagari_common::literal;
@@ -19,7 +20,7 @@ impl BodyChecker<'_> {
         negative: bool,
     ) -> TypeId {
         let (_, suffix) = literal::numeric_literal_parts(&literal.text);
-        let suffix = suffix.and_then(surface::builtin_type);
+        let suffix = suffix.and_then(standard_surface::builtin_type);
         let fallback = if literal.kind == LiteralKind::Float {
             BuiltinType::F64
         } else {

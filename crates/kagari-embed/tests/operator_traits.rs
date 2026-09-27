@@ -2,6 +2,7 @@ use crate::BytecodeArtifact;
 use crate::ExecutionContext;
 use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -311,9 +312,9 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
+    use kagari_abi::standard::traits::StandardTrait;
     use kagari_abi::types::AbiType;
     use kagari_abi::types::PublicAbiItem;
-    use kagari_hir::builtin::traits::StandardTrait;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

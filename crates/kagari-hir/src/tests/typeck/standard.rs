@@ -1,4 +1,5 @@
 use super::*;
+use crate::builtin::traits::StandardTraitSemantics;
 use kagari_abi::standard::StandardIntrinsic;
 
 #[test]
@@ -67,37 +68,39 @@ fn main(value: String) -> usize {
 
 #[test]
 fn exposes_stdlib_standard_builtin_surface_metadata() {
-    assert!(surface::builtin_type("String").is_some());
-    assert!(surface::builtin_type("usize").is_some());
-    assert!(surface::builtin_type("str").is_none());
+    assert!(kagari_abi::standard::surface::builtin_type("String").is_some());
+    assert!(kagari_abi::standard::surface::builtin_type("usize").is_some());
+    assert!(kagari_abi::standard::surface::builtin_type("str").is_none());
 
-    let option = surface::standard_enum("Option").expect("Option should be standard");
+    let option =
+        kagari_abi::standard::surface::standard_enum("Option").expect("Option should be standard");
     assert_eq!(option.arity, 1);
     assert_eq!(option.variants[0].name, "Some");
     assert_eq!(option.variants[1].name, "None");
 
-    let result = surface::standard_enum("Result").expect("Result should be standard");
+    let result =
+        kagari_abi::standard::surface::standard_enum("Result").expect("Result should be standard");
     assert_eq!(result.arity, 2);
     assert_eq!(result.variants[0].name, "Ok");
     assert_eq!(result.variants[1].name, "Err");
     assert_eq!(
-        surface::standard_type_constructor("LinkedHashMap")
+        kagari_abi::standard::surface::standard_type_constructor("LinkedHashMap")
             .expect("Map should be standard")
             .arity,
         2
     );
     assert_eq!(
-        surface::standard_type_constructor("LinkedHashSet")
+        kagari_abi::standard::surface::standard_type_constructor("LinkedHashSet")
             .expect("Set should be standard")
             .arity,
         1
     );
-    assert!(surface::standard_module("std::array").is_some());
-    assert!(surface::standard_module("std::map").is_some());
-    assert!(surface::standard_module("std::set").is_some());
-    assert!(surface::standard_module("std::string").is_some());
-    assert!(surface::standard_module("std::iter").is_some());
-    assert!(surface::standard_module("std::fs").is_none());
+    assert!(kagari_abi::standard::surface::standard_module("std::array").is_some());
+    assert!(kagari_abi::standard::surface::standard_module("std::map").is_some());
+    assert!(kagari_abi::standard::surface::standard_module("std::set").is_some());
+    assert!(kagari_abi::standard::surface::standard_module("std::string").is_some());
+    assert!(kagari_abi::standard::surface::standard_module("std::iter").is_some());
+    assert!(kagari_abi::standard::surface::standard_module("std::fs").is_none());
 
     assert!(surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::U64
@@ -111,48 +114,86 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
     assert!(!surface::supports_hash_key(&TypeId::Builtin(
         BuiltinType::F64
     )));
-    let map_get = surface::standard_function(surface::StandardModule::Map, "LinkedHashMap::get")
-        .expect("std::map::LinkedHashMap::get should be standard");
+    let map_get = kagari_abi::standard::surface::standard_function(
+        kagari_abi::standard::surface::StandardModule::Map,
+        "LinkedHashMap::get",
+    )
+    .expect("std::map::LinkedHashMap::get should be standard");
     assert_eq!(map_get.intrinsic, StandardIntrinsic::MapGet);
     assert_eq!(
         map_get.constraints[0].constraint,
-        surface::StandardTypeConstraint::HashKey
+        kagari_abi::standard::surface::StandardTypeConstraint::HashKey
     );
     assert_eq!(
-        surface::standard_function(surface::StandardModule::String, "String::slice")
-            .expect("std::string::String::slice should be standard")
-            .arity,
+        kagari_abi::standard::surface::standard_function(
+            kagari_abi::standard::surface::StandardModule::String,
+            "String::slice"
+        )
+        .expect("std::string::String::slice should be standard")
+        .arity,
         3
     );
     assert!(
-        surface::standard_function(surface::StandardModule::Option, "Option::and_then").is_some()
+        kagari_abi::standard::surface::standard_function(
+            kagari_abi::standard::surface::StandardModule::Option,
+            "Option::and_then"
+        )
+        .is_some()
     );
     assert!(
-        surface::standard_function(surface::StandardModule::Result, "Result::map_err").is_some()
+        kagari_abi::standard::surface::standard_function(
+            kagari_abi::standard::surface::StandardModule::Result,
+            "Result::map_err"
+        )
+        .is_some()
     );
-    assert!(surface::standard_function(surface::StandardModule::Math, "clamp").is_some());
-    assert!(surface::standard_function(surface::StandardModule::Debug, "panic").is_some());
+    assert!(
+        kagari_abi::standard::surface::standard_function(
+            kagari_abi::standard::surface::StandardModule::Math,
+            "clamp"
+        )
+        .is_some()
+    );
+    assert!(
+        kagari_abi::standard::surface::standard_function(
+            kagari_abi::standard::surface::StandardModule::Debug,
+            "panic"
+        )
+        .is_some()
+    );
     assert_eq!(
-        surface::standard_method(surface::StandardMethodReceiver::Map, "insert")
-            .expect("Map.insert should be standard")
-            .intrinsic,
+        kagari_abi::standard::surface::standard_method(
+            kagari_abi::standard::surface::StandardMethodReceiver::Map,
+            "insert"
+        )
+        .expect("Map.insert should be standard")
+        .intrinsic,
         StandardIntrinsic::MapInsert
     );
-    assert!(surface::standard_method(surface::StandardMethodReceiver::Set, "difference").is_none());
-    let difference = crate::builtin::traits::StandardTrait::Set
+    assert!(
+        kagari_abi::standard::surface::standard_method(
+            kagari_abi::standard::surface::StandardMethodReceiver::Set,
+            "difference"
+        )
+        .is_none()
+    );
+    let difference = kagari_abi::standard::traits::StandardTrait::Set
         .contract()
         .methods
         .iter()
         .find(|method| method.name == "difference")
         .expect("Set interface default");
     assert_eq!(
-        crate::builtin::declarations::native_default_method(&difference.id),
-        Some(crate::builtin::declarations::NativeDefaultMethod::SetDifference)
+        kagari_abi::standard::declarations::native_default_method(&difference.id),
+        Some(kagari_abi::standard::declarations::NativeDefaultMethod::SetDifference)
     );
     assert_eq!(
-        surface::standard_method(surface::StandardMethodReceiver::String, "len_chars")
-            .expect("String.len_chars should be standard")
-            .arity,
+        kagari_abi::standard::surface::standard_method(
+            kagari_abi::standard::surface::StandardMethodReceiver::String,
+            "len_chars"
+        )
+        .expect("String.len_chars should be standard")
+        .arity,
         0
     );
 }
@@ -178,14 +219,14 @@ fn sized(value: usize) -> usize { value }
     assert_eq!(
         typed.functions[0].return_type,
         TypeId::StandardEnum {
-            kind: surface::StandardEnum::Option,
+            kind: kagari_abi::standard::surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         }
     );
     assert_eq!(
         typed.functions[1].return_type,
         TypeId::StandardEnum {
-            kind: surface::StandardEnum::Result,
+            kind: kagari_abi::standard::surface::StandardEnum::Result,
             args: vec![
                 TypeId::Builtin(BuiltinType::I32),
                 TypeId::Builtin(BuiltinType::String),
@@ -336,7 +377,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
             StandardIntrinsic::MapKeys
         ))
     );
-    let mut list = crate::builtin::traits::StandardTrait::List.nominal();
+    let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
     list.arguments.push(TypeId::Builtin(BuiltinType::String));
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
@@ -366,7 +407,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     assert_eq!(
         typed.type_table.expr_type(popped_tail),
         Some(TypeId::StandardEnum {
-            kind: surface::StandardEnum::Option,
+            kind: kagari_abi::standard::surface::StandardEnum::Option,
             args: vec![TypeId::Builtin(BuiltinType::I32)],
         })
     );

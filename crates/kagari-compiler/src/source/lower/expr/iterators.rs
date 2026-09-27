@@ -6,16 +6,15 @@ use kagari_abi::operations::IterOp;
 use kagari_abi::operations::StandardEnumOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::collection::CollectionAccess::Mutable;
-use kagari_hir::{
-    builtin::{
-        surface::StandardEnum,
-        traits::{self, StandardTrait},
-    },
-    types::{TypeId, associated_type_id},
-};
+use kagari_common::identity::associated_type_id;
+use kagari_hir::builtin::traits;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
+use kagari_hir::types::TypeId;
 use kagari_mir::instruction::Constant;
 use kagari_mir::instruction::Instruction;
 use kagari_mir::instruction::MirValue;

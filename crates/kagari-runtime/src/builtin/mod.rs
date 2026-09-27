@@ -1,4 +1,4 @@
-use kagari_hir::builtin::surface;
+use kagari_abi::standard::surface;
 pub mod standard;
 
 use kagari_abi::standard::StandardIntrinsic;

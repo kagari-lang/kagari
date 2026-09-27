@@ -107,7 +107,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
             position: 0,
         },
         constraints: vec![ConstraintAbi::Standard(
-            kagari_hir::builtin::surface::StandardTypeConstraint::HashKey,
+            crate::standard::surface::StandardTypeConstraint::HashKey,
         )],
     });
     implemented.bounds.push(GenericBoundAbi {

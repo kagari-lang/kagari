@@ -2,6 +2,7 @@ use crate::BytecodeArtifact;
 use crate::ExecutionContext;
 use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -199,10 +200,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                     let AbiType::Trait(trait_type) = &mut table.trait_type else {
                         panic!("trait");
                     };
-                    trait_type.declaration = kagari_hir::builtin::traits::StandardTrait::Hash
-                        .contract()
-                        .id
-                        .clone();
+                    trait_type.declaration = StandardTrait::Hash.contract().id.clone();
                 }
                 3 => table.methods.clear(),
                 _ => {
@@ -659,9 +657,9 @@ pub fn make()->LinkedHashMap<Key,i32> {val m:LinkedHashMap<Key,i32> = LinkedHash
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
+    use kagari_abi::standard::traits::StandardTrait;
     use kagari_abi::types::AbiType;
     use kagari_abi::types::PublicAbiItem;
-    use kagari_hir::builtin::traits::StandardTrait;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

@@ -1,5 +1,5 @@
 use crate::aggregates::FieldSignature;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
 use crate::hir::PlaceId;
@@ -12,6 +12,7 @@ use crate::typeck::completion;
 use crate::typeck::ty::display_type_id;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 use kagari_common::collection::CollectionAccess;

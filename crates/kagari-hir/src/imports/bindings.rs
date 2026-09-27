@@ -1,5 +1,8 @@
 //! Resolve facade targets once, before declaration/name/signature consumers run.
 
+use crate::builtin::traits::StandardTraitSemantics;
+use kagari_abi::standard::surface as standard_surface;
+
 use crate::builtin::surface;
 use crate::builtin::traits;
 use crate::host::HostDeclarations;
@@ -117,13 +120,17 @@ impl ModuleImports {
                     self.resolve_member(namespace, member, hosts)
                 }
                 ResolvedName::HostModule(module) => hosts.resolve_name_in(module, member),
-                ResolvedName::StandardModule(module) => surface::standard_function(module, member)
-                    .map(|f| ResolvedName::StandardFunction(f.intrinsic))
-                    .or_else(|| {
-                        surface::standard_variant_in_module(module, member)
-                            .map(ResolvedName::StandardVariant)
-                    })
-                    .or_else(|| traits::in_module(module, member).map(ResolvedName::StandardTrait)),
+                ResolvedName::StandardModule(module) => {
+                    standard_surface::standard_function(module, member)
+                        .map(|f| ResolvedName::StandardFunction(f.intrinsic))
+                        .or_else(|| {
+                            standard_surface::standard_variant_in_module(module, member)
+                                .map(ResolvedName::StandardVariant)
+                        })
+                        .or_else(|| {
+                            traits::in_module(module, member).map(ResolvedName::StandardTrait)
+                        })
+                }
                 _ => None,
             },
         }

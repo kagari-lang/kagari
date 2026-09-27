@@ -2,7 +2,7 @@ use crate::aggregates::AggregateCatalog;
 use crate::builtin::declarations;
 use crate::builtin::numeric;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::declarations::Declarations;
 use crate::resolver::ResolvedName;
 use crate::typeck;
@@ -15,8 +15,11 @@ use crate::types::AssociatedTypeFamily;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;
 use crate::types::{GenericParameterType, NominalType};
+use kagari_abi::standard::declarations as standard_declarations;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::cancellation::Cancelled;
+use kagari_common::identity;
 use kagari_common::identity::DefinitionId;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -329,7 +332,7 @@ impl AggregateCatalog {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
                 && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromStr)
-                && *member == types::associated_type_id(&interface.declaration, "Err")
+                && *member == identity::associated_type_id(&interface.declaration, "Err")
                 && let Some(error) = traits::parsing_error(receiver)
             {
                 return Some(error);
@@ -337,7 +340,7 @@ impl AggregateCatalog {
 
             if arguments.is_empty()
                 && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::TryFrom)
-                && *member == types::associated_type_id(&interface.declaration, "Error")
+                && *member == identity::associated_type_id(&interface.declaration, "Error")
                 && let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
                     (receiver, interface.arguments.as_slice())
             {
@@ -354,19 +357,19 @@ impl AggregateCatalog {
                 return Some(output.clone());
             }
             if arguments.is_empty()
-                && *member == types::associated_type_id(&interface.declaration, "Error")
+                && *member == identity::associated_type_id(&interface.declaration, "Error")
                 && let Some((required, target)) =
                     traits::conversion_requirement(interface, receiver)
             {
                 return Some(TypeId::Projection {
                     receiver: Box::new(target),
-                    member: types::associated_type_id(&required.declaration, "Error"),
+                    member: identity::associated_type_id(&required.declaration, "Error"),
                     interface: Box::new(required),
                     arguments: vec![],
                 });
             }
             if arguments.is_empty()
-                && *member == types::associated_type_id(&interface.declaration, "Output")
+                && *member == identity::associated_type_id(&interface.declaration, "Output")
                 && let Some(output) = traits::intrinsic_output(interface, receiver)
             {
                 return Some(output);
@@ -504,7 +507,7 @@ impl AggregateCatalog {
                                 return None;
                             }
                             Some((
-                                types::associated_type_id(
+                                identity::associated_type_id(
                                     &trait_type.declaration,
                                     &member.path.last()?.name,
                                 ),
@@ -558,7 +561,7 @@ impl AggregateCatalog {
                 self.trait_method(method)
                     .filter(|method| {
                         method.has_default
-                            && declarations::native_default_method(&method.id).is_none()
+                            && standard_declarations::native_default_method(&method.id).is_none()
                     })
                     .map(|_| {
                         let mut target = implementation.id.clone();
@@ -589,7 +592,7 @@ impl AggregateCatalog {
             .iter()
             .find(|method| method.id.path.last() == Some(&name))?;
         (method.has_default
-            && declarations::native_default_method(&method.id).is_none()
+            && standard_declarations::native_default_method(&method.id).is_none()
             && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
@@ -604,7 +607,7 @@ impl AggregateCatalog {
             .filter_map(|method| {
                 implementation.methods.get(&method.id).cloned().or_else(|| {
                     (method.has_default
-                        && declarations::native_default_method(&method.id).is_none())
+                        && standard_declarations::native_default_method(&method.id).is_none())
                     .then(|| {
                         let mut target = implementation.id.clone();
                         target

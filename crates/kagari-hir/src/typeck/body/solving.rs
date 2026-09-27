@@ -1,6 +1,6 @@
 use crate::builtin::declarations;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::BlockId;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;
@@ -16,6 +16,7 @@ use crate::types::GenericParameterType;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::DiagnosticKind;
 

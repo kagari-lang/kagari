@@ -1,4 +1,5 @@
 //! Associated types are declaration-owned projections, never diagnostic names.
+use crate::builtin::traits::StandardTraitSemantics;
 
 use kagari_common::DiagnosticKind;
 
@@ -9,7 +10,6 @@ use super::{
     ty::{TypeContext, resolve_named_type, resolve_type_in},
 };
 use crate::aggregates;
-use crate::builtin::traits::StandardTrait;
 use crate::declarations::Declarations;
 use crate::lower::LoweredModule;
 use crate::resolver::ResolvedName;
@@ -19,6 +19,7 @@ use crate::{
     hir,
     types::{NominalType, TypeId, associated_type_id},
 };
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use smallvec::SmallVec;
