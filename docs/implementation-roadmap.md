@@ -81,7 +81,7 @@ and GC tracing of keys. See [contracts](spec/builtins.md) and
 [standard-traits.kgr](../examples/syntax/standard-traits.kgr). Artifact format 51,
 runtime ABI v51 and KHI v11 reject old products. Protocol interface boxing
 and generalized propagation remain separate later checkpoints. Error origins
-and stacks are completed in E01–E03; Iterator/IntoIterator are completed in B08 below.
+and stacks are completed in E01–E03; Iterator/Iterable are completed in B08 below.
 
 Completed equality checkpoint: object identity operators `===`/`!==`, checked
 from syntax through IR and VM, with artifact format 52 and runtime ABI v52.
@@ -132,7 +132,7 @@ RHS overload selection and resource cleanup after operator traps/budget exhausti
 ## Conversion and iteration protocols
 
 - [x] B07: explicit From/Into and TryFrom/TryInto, static conversion calls, derived reverse bounds and associated errors.
-- [x] B08: Iterator/IntoIterator contracts, custom for loops and native collection integration.
+- [x] B08: Iterator/Iterable contracts, custom for loops and native collection integration.
 - [x] B09: conformance, examples, resource cleanup and workspace validation.
 
 Each checkpoint uses a Conventional Commit. Conversions are explicit; reverse
@@ -319,7 +319,7 @@ Commit. No compatibility aliases are retained.
 
 - [x] I01: source-owned inherent methods and associated functions in generic impl
   blocks; remove method attributes and migrate native API calls and queries.
-- [ ] I02: unify Iterable/Iterator and iter, including derived iterator identity,
+- [x] I02: unify Iterable/Iterator and iter, including derived iterator identity,
   for-loop conversion, associated outputs and user-defined protocols.
 - [ ] I03: FromIterator and target-directed collect for all six collection types
   and user-defined collections; fresh shallow construction and checked key insertion.
@@ -337,3 +337,12 @@ flatten, sum/product and Result/Option collection lifting remain follow-up work.
 I01 validation: HIR and embedding tests passed, including executable standard API
 examples, native declaration navigation, removed-export rejection, receiver access
 and concrete Array<String> method checks. Workspace check and git diff --check passed.
+
+I02 replaces IntoIterator/into_iter with the canonical Iterable/iter protocol and
+associated Iter type. Iterable is no longer resolved as a sealed source constraint.
+Collection calls create independent progress; iterator calls preserve aliases and
+position. Existing native-helper predicates are internal and will disappear with
+the old helpers in I05. KBC/runtime ABI v65 rejects earlier artifacts.
+Iteration, conversion, declaration examples and embedding tests passed; the HIR
+recovery assertion now recognizes ordinary trait-bound diagnostics. git diff --check
+passed.

@@ -147,7 +147,7 @@ impl<T> Iterator for Wrapper<T>{type Item=T;fn next(self)->Option<T>{if self.con
             "root",
             r#"
 use pkg::model::Wrapper;
-fn total<I:IntoIterator<Item=i32>>(values:I)->i32{var n=0;for x in values{n+=x;}n}
+fn total<I:Iterable<Item=i32>>(values:I)->i32{var n=0;for x in values{n+=x;}n}
 fn main()->i32 {val a:Wrapper<i32> = 42.into();total(a)}
 "#,
         ),

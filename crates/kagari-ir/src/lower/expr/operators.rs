@@ -73,7 +73,7 @@ impl FunctionLowerer<'_, '_> {
         }
         use crate::module::{abi::AbiType, instruction::CursorOp};
         let cursor_op = match StandardTrait::from_id(&interface.declaration) {
-            Some(StandardTrait::IntoIterator)
+            Some(StandardTrait::Iterable)
                 if matches!(
                     ty,
                     TypeId::Array(_, _)
@@ -146,7 +146,7 @@ impl FunctionLowerer<'_, '_> {
                 ))
             }
         } else {
-            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::IntoIterator) {
+            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Iterable) {
                 return Ok(args[0]);
             }
             if let Some(protocol) = StandardTrait::from_id(&interface.declaration)

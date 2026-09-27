@@ -54,7 +54,7 @@ impl AggregateCatalog {
         let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
         if protocol.iteration() {
             let other = if protocol == StandardTrait::Iterator {
-                StandardTrait::IntoIterator
+                StandardTrait::Iterable
             } else {
                 StandardTrait::Iterator
             };
@@ -65,7 +65,7 @@ impl AggregateCatalog {
                         &implementation.for_type,
                     )
             }) {
-                return Some("Iterator already supplies identity IntoIterator");
+                return Some("Iterator already supplies identity Iterable");
             }
         }
         if protocol.reverse_conversion() {
@@ -232,7 +232,7 @@ impl AggregateCatalog {
                     }
                 }
             }
-            if protocol == StandardTrait::IntoIterator
+            if protocol == StandardTrait::Iterable
                 && self.standard_holds(StandardTrait::Iterator, ty, visiting, budget)?
             {
                 return Ok(true);

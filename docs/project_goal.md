@@ -593,7 +593,7 @@ trait Iterator {
 }
 ```
 
-This replaces the earlier generic Iterator<T> proposal. Iterator, IntoIterator,
+This replaces the earlier generic Iterator<T> proposal. Iterator, Iterable,
 From/Into and TryFrom/TryInto use the declaration-owned standard protocols in
 [builtins](spec/builtins.md). Standard protocols currently use static dispatch;
 this does not introduce Rust lifetime syntax or `dyn` syntax.

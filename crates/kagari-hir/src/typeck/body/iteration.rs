@@ -3,7 +3,7 @@ use crate::builtin::traits::StandardTrait;
 use crate::types::{NominalType, associated_type_id};
 impl BodyChecker<'_> {
     pub(super) fn add_iterator_view(&self, receiver: &TypeId, views: &mut Vec<NominalType>) {
-        for kind in [StandardTrait::Iterator, StandardTrait::IntoIterator] {
+        for kind in [StandardTrait::Iterator, StandardTrait::Iterable] {
             if matches!(
                 receiver,
                 TypeId::Cursor(_)
@@ -25,7 +25,7 @@ impl BodyChecker<'_> {
         }
         if views
             .iter()
-            .any(|n| n.declaration == StandardTrait::IntoIterator.contract().id)
+            .any(|n| n.declaration == StandardTrait::Iterable.contract().id)
         {
             return;
         }
@@ -48,11 +48,11 @@ impl BodyChecker<'_> {
                     arguments: vec![],
                 })
             });
-        let mut into = StandardTrait::IntoIterator.nominal();
+        let mut into = StandardTrait::Iterable.nominal();
         into.associated_types
             .insert(associated_type_id(&into.declaration, "Item"), item);
         into.associated_types.insert(
-            associated_type_id(&into.declaration, "IntoIter"),
+            associated_type_id(&into.declaration, "Iter"),
             receiver.clone(),
         );
         views.push(into);
@@ -64,7 +64,7 @@ impl BodyChecker<'_> {
         env: &BodyTypeEnv,
     ) -> Option<TypeId> {
         let (interface, iterator) =
-            self.select_operator(receiver, StandardTrait::IntoIterator.nominal(), env)?;
+            self.select_operator(receiver, StandardTrait::Iterable.nominal(), env)?;
         let member = associated_type_id(&interface.declaration, "Item");
         let item = interface
             .associated_types

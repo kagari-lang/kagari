@@ -86,6 +86,7 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
                 matches!(
                     diagnostic.kind,
                     kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                        | kagari_common::DiagnosticKind::GenericBoundNotSatisfied { .. }
                 )
             })
             .count();

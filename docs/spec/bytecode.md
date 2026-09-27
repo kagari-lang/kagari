@@ -904,6 +904,6 @@ traversal. Runtime operations check handle ownership, generation, source revisio
 and item ABI; creation traces the shallow snapshot and retains its code version.
 For loops additionally hold frame-owned BeginIteration/EndIteration guards;
 frame unwinding and root-session cleanup release the corresponding guards.
-Custom Iterator/IntoIterator methods are ordinary static calls. The existing JIT
+Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
 uses its normal interpreter fallback for unsupported cursor/control-flow bodies.
 The semantic contract is in [builtins](builtins.md#iteration-protocols).

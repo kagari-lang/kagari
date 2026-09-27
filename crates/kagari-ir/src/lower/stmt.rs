@@ -266,7 +266,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             fact.into_interface,
             receiver,
-            &StandardTrait::IntoIterator.contract().methods[0].id,
+            &StandardTrait::Iterable.contract().methods[0].id,
             &[source],
         )?;
         let concrete_iterator = self

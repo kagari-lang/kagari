@@ -107,7 +107,7 @@ pub fn for_each<I: Iterable>(value: I, callback: fn(I::Item) -> ()) -> ();
 ///
 /// ```kgr
 /// fn main() {
-///     val cursor = [7].into_iter();
+///     val cursor = [7].iter();
 ///     std::debug::assert(cursor.next() == Some(7), "first");
 ///     std::debug::assert(cursor.next() == None, "end");
 /// }
@@ -119,11 +119,14 @@ pub trait Iterator {
     fn next(self) -> Option<Self::Item>;
 }
 
-/// Conversion into an iterator for a for loop.
+/// Obtain an iterator without transferring ownership of the source.
 ///
-/// The associated IntoIter must implement Iterator with the same Item. Native collections
+/// The associated Iter must implement Iterator with the same Item. Native collections
 /// produce guarded cursors. An Iterator can itself be used as an iterable under the
 /// standard derived rule. Custom iterators define their own consistency behavior.
+/// Calling iter on a collection creates fresh progress; calling it on an iterator
+/// returns the same stateful iterator. Aliases share progress. Neither operation
+/// deep-copies elements or invalidates the source.
 ///
 /// # Examples
 ///
@@ -134,18 +137,18 @@ pub trait Iterator {
 ///     std::debug::assert(total == 6, "iteration");
 /// }
 /// ```
-pub trait IntoIterator {
+pub trait Iterable {
     /// The item yielded by the iterator.
     type Item;
     /// The resulting iterator type.
-    type IntoIter: Iterator<Item = Self::Item>;
+    type Iter: Iterator<Item = Self::Item>;
     /// Create or obtain the iterator.
-    fn into_iter(self) -> Self::IntoIter;
+    fn iter(self) -> Self::Iter;
 }
 
 /// A native iterator retaining its source and current position.
 ///
-/// Obtain a cursor through `into_iter` on a native collection or string. It implements
+/// Obtain a cursor through `iter` on a native collection or string. It implements
 /// `Iterator` and yields `Some(item)` until exhausted. Array and set items are
 /// elements, map items are `(key, value)` tuples, and string items are one-scalar
 /// strings. Yielded object references keep their identity.
@@ -158,7 +161,7 @@ pub trait IntoIterator {
 /// # Examples
 ///
 /// ```kgr
-/// val cursor = [7].into_iter();
+/// val cursor = [7].iter();
 /// std::debug::assert(cursor.next() == Some(7), "first item");
 /// std::debug::assert(cursor.next() == None, "exhausted");
 /// ```

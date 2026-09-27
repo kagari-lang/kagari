@@ -580,7 +580,6 @@ pub fn standard_method(
 
 pub fn standard_constraint(name: &str) -> Option<StandardTypeConstraint> {
     match name {
-        "Iterable" => Some(StandardTypeConstraint::Iterable),
         "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
         "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
         _ => None,

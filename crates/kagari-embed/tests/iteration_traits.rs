@@ -49,8 +49,8 @@ fn custom_iterators_and_iterables_use_static_calls() {
 struct Counter {var value:i32,val end:i32}
 impl Iterator for Counter {type Item=i32;fn next(self)->Option<i32>{if self.value>=self.end {None}else{val value=self.value;self.value+=1;Some(value)}}}
 struct Range {val start:i32,val end:i32}
-impl IntoIterator for Range {type Item=i32;type IntoIter=Counter;fn into_iter(self)->Counter{Counter{value:self.start,end:self.end}}}
-fn sum<C:IntoIterator<Item=i32>>(values:C)->i32 {var total=0;for value in values {if value==0 {continue;}total+=value;if total==42 {break;}}total}
+impl Iterable for Range {type Item=i32;type Iter=Counter;fn iter(self)->Counter{Counter{value:self.start,end:self.end}}}
+fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {if value==0 {continue;}total+=value;if total==42 {break;}}total}
 fn main()->i32 {val a=Range{start:0,end:7};val b=Counter{value:0,end:7};sum(a)+sum(b)}
 "#,
     );
@@ -60,10 +60,10 @@ fn main()->i32 {val a=Range{start:0,end:7};val b=Counter{value:0,end:7};sum(a)+s
 fn native_iterators_support_generic_bounds_and_unicode() {
     execute(
         r#"
-fn sum<C:IntoIterator<Item=i32>>(values:C)->i32 {var total=0;for value in values {total+=value;}total}
+fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {total+=value;}total}
 fn first<I:Iterator<Item=i32>>(values:I)->i32 {match values.next(){Some(x)=>x,None=>0}}
 fn main()->i32 {
-    val a=[20,22]; val cursor:Cursor<i32> =a.into_iter();
+    val a=[20,22]; val cursor:Cursor<i32> =a.iter();
     std::debug::assert_eq(first(cursor),20,"next");
     std::debug::assert_eq(first(cursor),22,"shared cursor");
     std::debug::assert_eq(first(cursor),0,"exhausted");
@@ -73,7 +73,7 @@ fn main()->i32 {
     std::debug::assert_eq(total,42,"map");
     val values:MutableSet<i32> =MutableSet::new();values.insert(20);values.insert(22);
     std::debug::assert_eq(sum(values),42,"set");
-    var count=0;for ch in "中😀".into_iter(){count+=1;}
+    var count=0;for ch in "中😀".iter(){count+=1;}
     std::debug::assert_eq(count,2,"unicode");
     sum([20,22])
 }
@@ -86,7 +86,7 @@ fn breaking_native_loops_releases_guards_and_allows_resuming() {
     execute(
         r#"
 fn main()->i32 {
-    val a=[20,22]; val cursor=a.into_iter();var total=0;
+    val a=[20,22]; val cursor=a.iter();var total=0;
     for value in cursor {total+=value;break;}
     for value in cursor {total+=value;}
     a.push(1);
@@ -124,7 +124,7 @@ fn native_guards_release_on_failure_and_cursor_handles_survive_gc() {
                 r#"
 fn fail()->i32{val a=[20];for x in a {a.push(1);}0}
 fn nested()->i32{val a=[20];for x in a {for y in a {break;}a.push(1);}0}
-fn manual()->i32{val a=[20];val c=a.into_iter();c.next();a.push(1);0}
+fn manual()->i32{val a=[20];val c=a.iter();c.next();a.push(1);0}
 fn trap()->i32{val a=[20];for x in a {return x/0;}0}
 fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
 "#,
@@ -226,10 +226,10 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
 fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
     for source in [
         "struct C{} impl Iterator for C {type Item=i32;fn next(self)->i32 {42}}",
-        "struct C{} impl IntoIterator for C {type Item=i32;type IntoIter=i32;fn into_iter(self)->i32 {42}}",
-        "struct C{} impl Iterator for C {type Item=i32;fn next(self)->Option<i32>{None}} impl IntoIterator for C {type Item=i32;type IntoIter=C;fn into_iter(self)->C {self}}",
-        "struct C{} impl Iterator for C {type Item=String;fn next(self)->Option<String>{None}} struct R{} impl IntoIterator for R {type Item=i32;type IntoIter=C;fn into_iter(self)->C{C{}}}",
-        "fn take<T:IntoIterator<Item=String>>(x:T){} fn main(){take([42]);}",
+        "struct C{} impl Iterable for C {type Item=i32;type Iter=i32;fn iter(self)->i32 {42}}",
+        "struct C{} impl Iterator for C {type Item=i32;fn next(self)->Option<i32>{None}} impl Iterable for C {type Item=i32;type Iter=C;fn iter(self)->C {self}}",
+        "struct C{} impl Iterator for C {type Item=String;fn next(self)->Option<String>{None}} struct R{} impl Iterable for R {type Item=i32;type Iter=C;fn iter(self)->C{C{}}}",
+        "fn take<T:Iterable<Item=String>>(x:T){} fn main(){take([42]);}",
     ] {
         assert!(
             KagariEngine::default()
@@ -252,24 +252,58 @@ struct Counter{var value:i32}
 impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{if self.value>0 {val n=self.value;self.value=0;Some(n)}else{None}}}
 fn consume<T:Iterator<Item=i32>>(it:T)->i32{var total=0;for value in it {total+=value;}total}
 struct Wrap<T>{val inner:T}
-impl<T:Iterator<Item=i32>> IntoIterator for Wrap<T>{type Item=i32;type IntoIter=T;fn into_iter(self)->T{self.inner}}
+impl<T:Iterator<Item=i32>> Iterable for Wrap<T>{type Item=i32;type Iter=T;fn iter(self)->T{self.inner}}
 fn main()->i32 {val a=Wrap{inner:Counter{value:21}};var total=consume(Counter{value:21});for value in a {total+=value;}total}
 "#,
     );
 }
 
 #[test]
-fn derived_into_iterator_satisfies_nested_impl_bounds() {
+fn derived_iterable_satisfies_nested_impl_bounds() {
     execute(
         r#"
 struct Counter{var value:i32}
 impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{if self.value>0 {val n=self.value;self.value=0;Some(n)}else{None}}}
 trait Sum{fn sum(self)->i32;}
 struct Wrap<T>{val inner:T}
-impl<T:IntoIterator<Item=i32>> Sum for Wrap<T>{fn sum(self)->i32{var total=0;for x in self.inner {total+=x;}total}}
+impl<T:Iterable<Item=i32>> Sum for Wrap<T>{fn sum(self)->i32{var total=0;for x in self.inner {total+=x;}total}}
 fn main()->i32{Wrap{inner:Counter{value:42}}.sum()}
 "#,
     );
+}
+
+#[test]
+fn iter_creates_fresh_collection_progress_but_preserves_iterator_aliases() {
+    execute(
+        r#"
+fn main()->i32 {
+    val values=[20,22]; val first=values.iter(); val second=values.iter();
+    val alias=first.iter();
+    std::debug::assert_eq(first.next(),Some(20),"first step");
+    std::debug::assert_eq(alias.next(),Some(22),"shared progress");
+    std::debug::assert_eq(second.next(),Some(20),"independent progress");
+    std::debug::assert_eq(alias.next(),None,"exhausted");
+    std::debug::assert_eq(second.next(),Some(22),"second step");
+    std::debug::assert_eq(second.next(),None,"second exhausted");
+    values.push(42); values[2]
+}
+"#,
+    );
+    for source in [
+        "fn main(){[1].into_iter();}",
+        "fn consume<I:IntoIterator>(values:I){}",
+    ] {
+        assert!(
+            KagariEngine::default()
+                .compile_to_artifact(
+                    SourceFile::new("removed-iterator-api.kgr", source),
+                    Default::default(),
+                    Default::default(),
+                )
+                .is_err(),
+            "{source}"
+        );
+    }
 }
 
 #[test]
@@ -333,7 +367,7 @@ struct Calls{var source:i32,var into:i32,var next:i32}
 struct Range{val calls:Calls}
 struct Counter{val calls:Calls}
 fn make(calls:Calls)->Range{calls.source+=1;Range{calls}}
-impl IntoIterator for Range{type Item=i32;type IntoIter=Counter;fn into_iter(self)->Counter{self.calls.into+=1;Counter{calls:self.calls}}}
+impl Iterable for Range{type Item=i32;type Iter=Counter;fn iter(self)->Counter{self.calls.into+=1;Counter{calls:self.calls}}}
 impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{self.calls.next+=1;Some(21)}}
 fn main()->i32{val calls=Calls{source:0,into:0,next:0};var total=0;for x in make(calls){total+=x;if total==42 {break;}}std::debug::assert_eq(calls.source,1,"source once");std::debug::assert_eq(calls.into,1,"into once");std::debug::assert_eq(calls.next,2,"no next after break");total}
 "#,

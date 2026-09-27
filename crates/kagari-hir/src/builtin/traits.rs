@@ -31,7 +31,7 @@ pub enum StandardTrait {
     TryFrom,
     TryInto,
     Iterator,
-    IntoIterator,
+    Iterable,
 }
 impl StandardTrait {
     pub const ALL: [Self; 21] = [
@@ -55,7 +55,7 @@ impl StandardTrait {
         Self::TryFrom,
         Self::TryInto,
         Self::Iterator,
-        Self::IntoIterator,
+        Self::Iterable,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -79,7 +79,7 @@ impl StandardTrait {
             Self::TryFrom => "TryFrom",
             Self::TryInto => "TryInto",
             Self::Iterator => "Iterator",
-            Self::IntoIterator => "IntoIterator",
+            Self::Iterable => "Iterable",
         }
     }
     pub fn namespace(self) -> &'static str {
@@ -94,7 +94,7 @@ impl StandardTrait {
             | Self::Not
             | Self::Index => "ops",
             Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
-            Self::Iterator | Self::IntoIterator => "iter",
+            Self::Iterator | Self::Iterable => "iter",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -127,7 +127,7 @@ impl StandardTrait {
         ty
     }
     pub fn iteration(self) -> bool {
-        matches!(self, Self::Iterator | Self::IntoIterator)
+        matches!(self, Self::Iterator | Self::Iterable)
     }
     pub fn conversion(self) -> bool {
         matches!(
@@ -462,13 +462,13 @@ pub fn iteration_outputs(
 ) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
     let native_item = match receiver {
         TypeId::Cursor(item) => Some((**item).clone()),
-        TypeId::Array(item, _) | TypeId::Set(item, _) if kind == StandardTrait::IntoIterator => {
+        TypeId::Array(item, _) | TypeId::Set(item, _) if kind == StandardTrait::Iterable => {
             Some((**item).clone())
         }
-        TypeId::Map { key, value, .. } if kind == StandardTrait::IntoIterator => {
+        TypeId::Map { key, value, .. } if kind == StandardTrait::Iterable => {
             Some(TypeId::Tuple(vec![(**key).clone(), (**value).clone()]))
         }
-        TypeId::Builtin(BuiltinType::String) if kind == StandardTrait::IntoIterator => {
+        TypeId::Builtin(BuiltinType::String) if kind == StandardTrait::Iterable => {
             Some(receiver.clone())
         }
         _ => None,
@@ -479,15 +479,15 @@ pub fn iteration_outputs(
             crate::types::associated_type_id(&id, "Item"),
             item.clone(),
         )]);
-        if kind == StandardTrait::IntoIterator {
+        if kind == StandardTrait::Iterable {
             outputs.insert(
-                crate::types::associated_type_id(&id, "IntoIter"),
+                crate::types::associated_type_id(&id, "Iter"),
                 TypeId::Cursor(Box::new(item)),
             );
         }
         return Some(outputs);
     }
-    if kind != StandardTrait::IntoIterator {
+    if kind != StandardTrait::Iterable {
         return None;
     }
     let iterator = StandardTrait::Iterator.nominal();
@@ -535,7 +535,7 @@ pub fn iteration_outputs(
         [
             (crate::types::associated_type_id(&id, "Item"), item),
             (
-                crate::types::associated_type_id(&id, "IntoIter"),
+                crate::types::associated_type_id(&id, "Iter"),
                 receiver.clone(),
             ),
         ]
@@ -544,15 +544,15 @@ pub fn iteration_outputs(
     )
 }
 
-/// Identity IntoIterator's proof obligation, for recursive searches using one budget.
+/// Identity Iterable's proof obligation, for recursive searches using one budget.
 pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Option<NominalType> {
-    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::IntoIterator)
+    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::Iterable)
         || !interface.arguments.is_empty()
     {
         return None;
     }
     let item = crate::types::associated_type_id(&interface.declaration, "Item");
-    let iterator = crate::types::associated_type_id(&interface.declaration, "IntoIter");
+    let iterator = crate::types::associated_type_id(&interface.declaration, "Iter");
     let mut required = StandardTrait::Iterator.nominal();
     for (member, ty) in &interface.associated_types {
         if *member == item {

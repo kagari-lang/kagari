@@ -14,20 +14,20 @@ impl Iterator for Counter {
     }
 }
 struct Range { val start: i32, val end: i32 }
-impl IntoIterator for Range {
+impl Iterable for Range {
     type Item = i32;
-    type IntoIter = Counter;
-    fn into_iter(self) -> Counter {
+    type Iter = Counter;
+    fn iter(self) -> Counter {
         Counter { current: self.start, end: self.end }
     }
 }
-fn sum<C: IntoIterator<Item = i32>>(values: C) -> i32 {
+fn sum<C: Iterable<Item = i32>>(values: C) -> i32 {
     var total = 0;
     for value in values { total += value; }
     total
 }
 fn main() -> i32 {
     val range = Range { start: 0, end: 7 };
-    val cursor: Cursor<i32> = [20, 1].into_iter();
+    val cursor: Cursor<i32> = [20, 1].iter();
     sum(range) + sum(cursor)
 }

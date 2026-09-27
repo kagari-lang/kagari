@@ -142,7 +142,7 @@ queries and clear operations do not invoke equality/hash callbacks.
 The standard declarations include `std::cmp::{PartialEq, Eq, PartialOrd, Ord}`,
 `std::hash::Hash`, `std::fmt::{Debug, Display}`, and
 `std::ops::{Add, Sub, Mul, Div, Rem, Neg, Not, Index}`,
-`std::convert::{From, Into, TryFrom, TryInto}` and `std::iter::{Iterator, IntoIterator}`.
+`std::convert::{From, Into, TryFrom, TryInto}` and `std::iter::{Iterator, Iterable}`.
 Their short names are available in the prelude;
 normal declarations and imports shadow them. Aliases and wildcard imports retain
 the declaration identity. `Eq` extends `PartialEq`. These are ordinary trait
@@ -629,31 +629,31 @@ See [conversions.kgr](../../examples/syntax/conversions.kgr).
 
 ## Iteration protocols
 
-`std::iter::{Iterator, IntoIterator}` are static-only prelude traits:
+`std::iter::{Iterator, Iterable}` are static-only prelude traits:
 
 ```kagari
 trait Iterator {
     type Item;
     fn next(self) -> Option<Self::Item>;
 }
-trait IntoIterator {
+trait Iterable {
     type Item;
-    type IntoIter: Iterator<Item = Self::Item>;
-    fn into_iter(self) -> Self::IntoIter;
+    type Iter: Iterator<Item = Self::Item>;
+    fn iter(self) -> Self::Iter;
 }
 ```
 
-`for pattern in expression` evaluates the expression once, calls `into_iter`
+`for pattern in expression` evaluates the expression once, calls `iter`
 once, and repeatedly calls `next`. Some supplies the next item; None ends the
 loop. Continue proceeds to the next call; break and return perform normal resource
 cleanup. The next call is an ordinary script call for custom iterators, with the
 same budget, GC roots, trap behavior and pinned code versions as other methods.
-An Iterator automatically implements identity IntoIterator, including under generic
-bounds. It cannot also declare a conflicting IntoIterator implementation.
+An Iterator automatically implements identity Iterable, including under generic
+bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
 
-Arrays, Map, Set and String implement IntoIterator using the opaque shared
-`Cursor<Item>` type. Cursor implements Iterator and identity IntoIterator.
+Arrays, Map, Set and String implement Iterable using the opaque shared
+`Cursor<Item>` type. Cursor implements Iterator and identity Iterable.
 Array/Set items are elements, Map items are `(key, value)` tuples in insertion
 order, and String items are single Unicode scalars represented as String.
 Cursor construction takes a shallow snapshot, preserving existing native for-loop
@@ -664,7 +664,7 @@ reset, exact-length or fused-iterator promise is imposed on its implementation.
 
 Native cursors reject structural modification of their source while actively
 iterating. For-loop guards end on exhaustion, break, return or failed execution;
-nested loops retain independent guards. Direct into_iter/next use keeps its guard
+nested loops retain independent guards. Direct iter/next use keeps its guard
 until None or the end of the root execution session. Root-session cleanup also
 runs after trap, cancellation and budget exhaustion, independently of GC timing.
 A rooted Cursor can survive between calls and resume. Resuming after its source

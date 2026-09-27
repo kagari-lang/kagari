@@ -20,7 +20,7 @@ not a slice, fixed-size array, or Rust borrow. An array literal produces a new
 An explicit `[T]` annotation therefore removes write access through that binding.
 
 These are native access types over shared storage, not user-implementable
-collection interfaces. Existing Iterator/IntoIterator protocols remain the
+collection interfaces. Existing Iterator/Iterable protocols remain the
 extension point for custom iteration. General collection-interface hierarchies
 and generic variance are separate features.
 
