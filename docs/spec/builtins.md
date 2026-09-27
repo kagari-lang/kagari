@@ -725,8 +725,8 @@ advance a source or invoke a callback; zip/chain obtain the other iterator once.
 Callbacks receive Item values, including shared object references, without borrowed
 parameter syntax. enumerate emits (usize, Item). zip steps left before right and
 can consume one unmatched left item. chain permanently switches sides at the first
-None and remains exhausted after both sides end. Other adapters do not add a fused
-iterator guarantee to a custom source. Aliases share adapter state and progress.
+None and remains exhausted after both sides end. map, filter, filter_map, skip,
+inspect, enumerate and zip do not add a fused guarantee to a custom source. Aliases share adapter state and progress.
 
 find, any and all stop at the decisive item; empty any is false and empty all is
 true. count uses checked usize accumulation. fold starts with the supplied value
@@ -746,3 +746,56 @@ partial output after failure, but prior callback side effects remain.
 
 The old native-only std::iter free functions have been removed. Use collection
 methods for direct size/index access and iterator methods for traversal.
+
+
+## Iterator extensions
+
+`flat_map<I: Iterable>` and `flatten` lazily expand one level, exhausting each inner
+iterator before requesting the next outer item. Empty inner iterables are skipped.
+`flatten` requires `Self::Item: Iterable`; its output is the associated Item of that
+inner iterable. The first outer None permanently ends these adapters. Active inner
+state, callbacks and captures stay rooted across executions. Native inner guards
+are released before switching to the next source; terminal short-circuiting closes
+both the current inner and outer native guards. User iterators retain their own
+consistency contract.
+
+`take_while` consumes the first rejected item and then remains ended; the first
+source None also ends it permanently. `skip_while`
+stops invoking its predicate after the first rejection. `inspect` runs its unit
+callback once for each yielded item, only when requested. `fuse` never advances its
+source after the first None. Aliases share each adapter's state.
+
+`find_map` stops at the first Some callback result. `position` returns a checked
+usize index relative to the remaining traversal. `nth` skips the requested number
+of items and consumes the following item; out-of-range calls exhaust the source.
+`last` traverses to the first None. `reduce` initializes from the first item and
+returns None on empty input. `min/max` require Item: Ord; `min_by/max_by` use an
+Ordering callback. Key variants require K: Ord and evaluate the key once per item.
+Minima retain the first equal item and maxima retain the last equal item. All these
+terminal operations release native guards, preserve completed effects, and leave
+unvisited items available through aliases after short-circuiting.
+
+`Sum<T>` and `Product<T>` each declare a generic Iterable constructor. Iterator
+sum/product select the destination from the expected result type. Native numeric
+implementations accumulate left to right in the same type, using zero/one for
+empty input and the engine's checked integer arithmetic. Script nominal types can
+implement these protocols with their own result representation and identity.
+
+`Result<C,E>: FromIterator<Result<T,E>>` and
+`Option<C>: FromIterator<Option<T>>` require C: FromIterator<T>. Collection stops
+at the first Err/None without requesting the next item. Error payloads and their
+original diagnostic stacks are preserved. Successful payloads are buffered in
+fresh shallow storage; only after successful exhaustion is C::from_iter called,
+exactly once. Empty input still calls the constructor. Failure skips destination
+construction. Buffer allocation, source and destination failures follow ordinary
+trap cleanup; prior side effects are not rolled back. Wrapper composition is
+recursive, subject to the trait search limits. Error types must match exactly;
+collection does not introduce implicit error conversion or general Try semantics.
+
+The native Iterable and FromIterator relationships are declared in the collection
+SDK files; Result/Option lifting is declared in their respective files. Compiler
+queries and trait matching read this metadata. The sealed intrinsic binding owns
+execution, and standard trait defaults retain a single canonical contract rather
+than requiring every implementation to satisfy every conditional default method.
+
+See [iterator-extensions.kgr](../../examples/syntax/iterator-extensions.kgr).

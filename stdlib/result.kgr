@@ -179,3 +179,23 @@ impl<T, E> Result<T, E> {
     #[intrinsic(ResultAndThen)]
     pub fn and_then<U>(self, callback: fn(T) -> Result<U, E>) -> Result<U, E>;
 }
+
+/// Collect successful payloads, stopping at the first failure.
+impl<T, E, C: FromIterator<T>> FromIterator<Result<T, E>> for Result<C, E> {
+    /// Buffer successful items and construct C only after successful exhaustion.
+    ///
+    /// The first Err or None stops traversal without reading subsequent items.
+    /// An Err retains its original diagnostic stack. On failure C::from_iter is
+    /// not called; on success it is called once, including for empty input.
+    /// Source side effects are not rolled back, and referenced items remain shared.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val items: Array<Result<i32, String>> = [Ok(20), Ok(22)];
+    /// val result: Result<Array<i32>, String> = items.iter().collect();
+    /// std::debug::assert_eq(result.map(|x| x[0] + x[1]), Ok(42), "success");
+    /// ```
+    #[intrinsic(ResultFromIterator)]
+    fn from_iter<I: Iterable<Item = Result<T, E>>>(source: I) -> Self;
+}

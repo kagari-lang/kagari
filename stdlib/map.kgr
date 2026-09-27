@@ -347,3 +347,67 @@ impl<K: Eq + Hash, V> MutableMap<K, V> {
     #[intrinsic(MapClear)]
     pub fn clear(self) -> MutableMap<K, V>;
 }
+
+/// Produce a fresh iterator over this shared source.
+impl<K: Eq + Hash, V> Iterable for Map<K, V> {
+    /// The value yielded at each traversal position.
+    type Item = (K, V);
+    /// The native iterator retaining this source and its current position.
+    type Iter = Iter<(K, V)>;
+    /// Begin a new traversal without copying elements or transferring ownership.
+    ///
+    /// Native collection guards prevent structural mutation during traversal.
+    /// Strings yield one Unicode scalar string at a time.
+    #[intrinsic(CollectionIter)]
+    fn iter(self) -> Iter<(K, V)>;
+}
+
+/// Construct fresh shallow storage from an iterable source.
+impl<K: Eq + Hash, V> FromIterator<(K, V)> for Map<K, V> {
+    /// Collect the source in traversal order into a fresh collection.
+    ///
+    /// Referenced objects retain identity. Sets discard equal duplicates; maps
+    /// keep the last value for each equal key. Source and key-operation failures
+    /// propagate without rolling back completed callback effects.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Map<i32, i32> = [(1, 20), (2, 22)].iter().collect();
+    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
+    /// ```
+    #[intrinsic(CollectionFromIterator)]
+    fn from_iter<I: Iterable<Item = (K, V)>>(source: I) -> Self;
+}
+
+/// Produce a fresh iterator over this shared source.
+impl<K: Eq + Hash, V> Iterable for MutableMap<K, V> {
+    /// The value yielded at each traversal position.
+    type Item = (K, V);
+    /// The native iterator retaining this source and its current position.
+    type Iter = Iter<(K, V)>;
+    /// Begin a new traversal without copying elements or transferring ownership.
+    ///
+    /// Native collection guards prevent structural mutation during traversal.
+    /// Strings yield one Unicode scalar string at a time.
+    #[intrinsic(CollectionIter)]
+    fn iter(self) -> Iter<(K, V)>;
+}
+
+/// Construct fresh shallow storage from an iterable source.
+impl<K: Eq + Hash, V> FromIterator<(K, V)> for MutableMap<K, V> {
+    /// Collect the source in traversal order into a fresh collection.
+    ///
+    /// Referenced objects retain identity. Sets discard equal duplicates; maps
+    /// keep the last value for each equal key. Source and key-operation failures
+    /// propagate without rolling back completed callback effects.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: MutableMap<i32, i32> = [(1, 20), (2, 22)].iter().collect();
+    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
+    /// ```
+    #[intrinsic(CollectionFromIterator)]
+    fn from_iter<I: Iterable<Item = (K, V)>>(source: I) -> Self;
+}

@@ -10,6 +10,9 @@ pub fn native_implementation(
     implementations: &mut String,
 ) {
     let interface = def.trait_ref().unwrap();
+    if interface.path_text().as_deref() != Some("Iterator") {
+        return super::implementations::declaration(def, module, uri, text, items, implementations);
+    }
     let target = def.target_type().unwrap();
     let generics = def.generic_params().unwrap().params().collect::<Vec<_>>();
     assert_eq!(generics.len(), 1, "native iterator generic arity");
@@ -73,7 +76,7 @@ pub fn native_implementation(
     let generics = vec![parameter];
     let target = ty(target);
     writeln!(implementations,
-        "super::declarations::ApiImplementation{{interface:\"Iterator\",generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
+        "super::declarations::ApiImplementation{{interface:\"Iterator\",trait_arguments:&[],bounds:&[],generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
     ).unwrap();
 }
 
@@ -130,7 +133,7 @@ pub fn bound(node: ast::TraitRef) -> String {
         .join(",");
     format!("ApiBound{{name:{name:?},args:&[{args}],bindings:&[{bindings}]}}")
 }
-fn bounds(list: Option<ast::TraitBoundList>) -> String {
+pub fn bounds(list: Option<ast::TraitBoundList>) -> String {
     list.into_iter()
         .flat_map(|l| l.bounds().collect::<Vec<_>>())
         .map(bound)

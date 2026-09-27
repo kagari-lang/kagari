@@ -2411,6 +2411,22 @@ impl<'a> BodyChecker<'a> {
         } = ty
             && let Some(contract) = self.aggregates.trait_(&interface.declaration)
         {
+            let mut applied = (**interface).clone();
+            for bound in env
+                .generic_bounds
+                .get(receiver.as_ref())
+                .into_iter()
+                .flatten()
+            {
+                if let super::ConstraintTarget::Trait(available) = bound
+                    && available.declaration == applied.declaration
+                    && available.arguments == applied.arguments
+                {
+                    applied
+                        .associated_types
+                        .extend(available.associated_types.clone());
+                }
+            }
             let mut substitution: crate::types::TypeSubstitution = contract
                 .generic_params
                 .iter()
@@ -2438,7 +2454,13 @@ impl<'a> BodyChecker<'a> {
                             super::ConstraintTarget::Standard(*value)
                         }
                         super::ConstraintTarget::Trait(value) => {
-                            super::ConstraintTarget::Trait(value.instantiate(&substitution))
+                            let TypeId::Trait(value) = TypeId::Trait(value.clone())
+                                .instantiate(&substitution)
+                                .with_associated_types(&applied)
+                            else {
+                                unreachable!("associated trait bound");
+                            };
+                            super::ConstraintTarget::Trait(value)
                         }
                     }),
             );

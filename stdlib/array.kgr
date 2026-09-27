@@ -296,3 +296,67 @@ impl Array<String> {
     #[intrinsic(ArrayJoin)]
     pub fn join(self, separator: String) -> String;
 }
+
+/// Produce a fresh iterator over this shared source.
+impl<T> Iterable for Array<T> {
+    /// The value yielded at each traversal position.
+    type Item = T;
+    /// The native iterator retaining this source and its current position.
+    type Iter = Iter<T>;
+    /// Begin a new traversal without copying elements or transferring ownership.
+    ///
+    /// Native collection guards prevent structural mutation during traversal.
+    /// Strings yield one Unicode scalar string at a time.
+    #[intrinsic(CollectionIter)]
+    fn iter(self) -> Iter<T>;
+}
+
+/// Construct fresh shallow storage from an iterable source.
+impl<T> FromIterator<T> for Array<T> {
+    /// Collect the source in traversal order into a fresh collection.
+    ///
+    /// Referenced objects retain identity. Sets discard equal duplicates; maps
+    /// keep the last value for each equal key. Source and key-operation failures
+    /// propagate without rolling back completed callback effects.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [20, 22].iter().collect();
+    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
+    /// ```
+    #[intrinsic(CollectionFromIterator)]
+    fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
+}
+
+/// Produce a fresh iterator over this shared source.
+impl<T> Iterable for MutableArray<T> {
+    /// The value yielded at each traversal position.
+    type Item = T;
+    /// The native iterator retaining this source and its current position.
+    type Iter = Iter<T>;
+    /// Begin a new traversal without copying elements or transferring ownership.
+    ///
+    /// Native collection guards prevent structural mutation during traversal.
+    /// Strings yield one Unicode scalar string at a time.
+    #[intrinsic(CollectionIter)]
+    fn iter(self) -> Iter<T>;
+}
+
+/// Construct fresh shallow storage from an iterable source.
+impl<T> FromIterator<T> for MutableArray<T> {
+    /// Collect the source in traversal order into a fresh collection.
+    ///
+    /// Referenced objects retain identity. Sets discard equal duplicates; maps
+    /// keep the last value for each equal key. Source and key-operation failures
+    /// propagate without rolling back completed callback effects.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: MutableArray<i32> = [20, 22].iter().collect();
+    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
+    /// ```
+    #[intrinsic(CollectionFromIterator)]
+    fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
+}

@@ -330,20 +330,22 @@ pub fn intrinsic_applies(
             }
             return false;
         }
-        let Some(item) = collection_item(receiver) else {
-            return false;
-        };
-        if interface.arguments.as_slice() != [item] || !interface.associated_types.is_empty() {
-            return false;
-        }
-        return match receiver {
-            TypeId::Map { key, .. } | TypeId::Set(key, _) => {
-                intrinsic_holds(StandardTrait::Eq, key, catalog, bounds)
-                    && intrinsic_holds(StandardTrait::Hash, key, catalog, bounds)
-            }
-            _ => true,
-        };
+        return super::declarations::implementations(receiver)
+            .into_iter()
+            .any(|implementation| {
+                let Some(arguments) = implementation.applied_arguments(receiver, interface) else {
+                    return false;
+                };
+                implementation.bounds.iter().all(|(target, constraints)| {
+                    let actual = target.instantiate(&arguments);
+                    constraints.iter().all(|constraint| {
+                        let required = constraint.nominal(&arguments);
+                        intrinsic_applies(&required, &actual, catalog, bounds)
+                    })
+                })
+            });
     }
+
     if kind.iteration() {
         return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {
             interface.arguments.is_empty()
@@ -388,42 +390,25 @@ pub fn lifted_collection_requirement(
     interface: &NominalType,
     receiver: &TypeId,
 ) -> Option<(NominalType, TypeId)> {
-    use super::surface::StandardEnum;
-    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::FromIterator)
-        || !interface.associated_types.is_empty()
-    {
+    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::FromIterator) {
         return None;
     }
-    let [
-        TypeId::StandardEnum {
-            kind: input,
-            args: items,
-        },
-    ] = interface.arguments.as_slice()
-    else {
-        return None;
-    };
-    let TypeId::StandardEnum {
-        kind: output,
-        args: targets,
-    } = receiver
-    else {
-        return None;
-    };
-    if input != output
-        || !matches!(
-            (input, items.as_slice(), targets.as_slice()),
-            (StandardEnum::Option, [_], [_]) | (StandardEnum::Result, [_, _], [_, _])
-        )
-    {
-        return None;
+    for implementation in super::declarations::implementations(receiver) {
+        let Some(arguments) = implementation.applied_arguments(receiver, interface) else {
+            continue;
+        };
+        for (target, constraints) in implementation.bounds {
+            for constraint in *constraints {
+                if constraint.name == "FromIterator" {
+                    return Some((
+                        constraint.nominal(&arguments),
+                        target.instantiate(&arguments),
+                    ));
+                }
+            }
+        }
     }
-    if *input == StandardEnum::Result && items[1] != targets[1] {
-        return None;
-    }
-    let mut required = StandardTrait::FromIterator.nominal();
-    required.arguments.push(items[0].clone());
-    Some((required, targets[0].clone()))
+    None
 }
 
 pub fn ordering_type(optional: bool) -> TypeId {
@@ -598,10 +583,15 @@ pub fn iteration_outputs(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
-    if let TypeId::Iter(_) = receiver {
-        let implementation = super::declarations::implementations(receiver)
-            .into_iter()
-            .find(|i| i.interface == "Iterator")?;
+    let declared_kind = if matches!(receiver, TypeId::Iter(_)) && kind == StandardTrait::Iterable {
+        StandardTrait::Iterator
+    } else {
+        kind
+    };
+    if let Some(implementation) = super::declarations::implementations(receiver)
+        .into_iter()
+        .find(|i| i.interface == declared_kind.name())
+    {
         let arguments = implementation.arguments(receiver)?;
         let id = identity(kind);
         let mut outputs: std::collections::BTreeMap<_, _> = implementation
@@ -614,36 +604,10 @@ pub fn iteration_outputs(
                 )
             })
             .collect();
-        if kind == StandardTrait::Iterable {
+        if kind != declared_kind {
             outputs.insert(
                 crate::types::associated_type_id(&id, "Iter"),
                 receiver.clone(),
-            );
-        }
-        return Some(outputs);
-    }
-    let native_item = match receiver {
-        TypeId::Array(item, _) | TypeId::Set(item, _) if kind == StandardTrait::Iterable => {
-            Some((**item).clone())
-        }
-        TypeId::Map { key, value, .. } if kind == StandardTrait::Iterable => {
-            Some(TypeId::Tuple(vec![(**key).clone(), (**value).clone()]))
-        }
-        TypeId::Builtin(BuiltinType::String) if kind == StandardTrait::Iterable => {
-            Some(receiver.clone())
-        }
-        _ => None,
-    };
-    if let Some(item) = native_item {
-        let id = identity(kind);
-        let mut outputs = std::collections::BTreeMap::from([(
-            crate::types::associated_type_id(&id, "Item"),
-            item.clone(),
-        )]);
-        if kind == StandardTrait::Iterable {
-            outputs.insert(
-                crate::types::associated_type_id(&id, "Iter"),
-                TypeId::Iter(Box::new(item)),
             );
         }
         return Some(outputs);

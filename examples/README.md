@@ -28,6 +28,7 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | Half-open and inclusive integer ranges | [ranges.kgr](syntax/ranges.kgr) | `42` |
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Lazy adapters, short-circuit terminals, FromIterator, collect, partition and group_by | [collection-pipelines.kgr](syntax/collection-pipelines.kgr) | `42` |
+| Nested iteration, aggregation, ordered extrema and fallible collection | [iterator-extensions.kgr](syntax/iterator-extensions.kgr) | `42` |
 | Struct fields, shorthand initialization, inherent methods, enum payloads, tuples, arrays and assignment targets | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
 | Display/Debug string interpolation, literal braces, nested holes and join | [string-interpolation.kgr](syntax/string-interpolation.kgr) | `42` |

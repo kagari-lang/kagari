@@ -130,6 +130,8 @@ pub struct ApiTrait {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiImplementation {
     pub interface: &'static str,
+    pub trait_arguments: &'static [ApiType],
+    pub bounds: &'static [(ApiType, &'static [ApiBound])],
     pub generics: &'static [&'static str],
     pub target: ApiType,
     pub associated_types: &'static [(ApiItem, ApiType)],
@@ -144,7 +146,32 @@ impl ApiImplementation {
             .map(|name| (*name, TypeId::Unknown))
             .collect();
         self.target.infer(receiver, &mut arguments);
+        arguments.insert("Self", receiver.clone());
         (self.target.instantiate(&arguments) == *receiver).then_some(arguments)
+    }
+
+    pub fn applied_arguments(
+        &self,
+        receiver: &TypeId,
+        interface: &crate::types::NominalType,
+    ) -> Option<Arguments> {
+        if self.trait_declaration().item.identity() != interface.declaration
+            || !interface.associated_types.is_empty()
+            || self.trait_arguments.len() != interface.arguments.len()
+        {
+            return None;
+        }
+        let mut arguments = self.arguments(receiver)?;
+        for (declared, actual) in self.trait_arguments.iter().zip(&interface.arguments) {
+            declared.infer(actual, &mut arguments);
+        }
+        (self.target.instantiate(&arguments) == *receiver
+            && self
+                .trait_arguments
+                .iter()
+                .zip(&interface.arguments)
+                .all(|(a, b)| a.instantiate(&arguments) == *b))
+        .then_some(arguments)
     }
 
     pub fn trait_declaration(&self) -> &'static ApiTrait {
@@ -399,7 +426,12 @@ impl ApiType {
     pub fn infer(&self, actual: &TypeId, arguments: &mut Arguments) {
         match (self, actual) {
             (Self::Named(name, []), actual) if arguments.contains_key(name) => {
-                arguments.get_mut(name).unwrap().recover_from(actual);
+                let argument = arguments.get_mut(name).unwrap();
+                if *argument == TypeId::Unknown {
+                    *argument = actual.clone();
+                } else {
+                    argument.recover_from(actual);
+                }
             }
             (Self::Array(element), TypeId::Array(actual, _)) => element.infer(actual, arguments),
             (Self::Named("Array" | "MutableArray", [element]), TypeId::Array(actual, _)) => {
@@ -448,7 +480,7 @@ impl ApiType {
 }
 
 impl ApiBound {
-    fn nominal(&self, arguments: &Arguments) -> crate::types::NominalType {
+    pub(crate) fn nominal(&self, arguments: &Arguments) -> crate::types::NominalType {
         let kind =
             super::traits::StandardTrait::from_name(self.name).expect("standard trait bound");
         let id = super::traits::identity(kind);

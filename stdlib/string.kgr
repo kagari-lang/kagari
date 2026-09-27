@@ -132,3 +132,17 @@ impl String {
     #[intrinsic(StringSlice)]
     pub fn slice(self, start: usize, end: usize) -> Option<String>;
 }
+
+/// Produce a fresh iterator over this shared source.
+impl Iterable for String {
+    /// The value yielded at each traversal position.
+    type Item = String;
+    /// The native iterator retaining this source and its current position.
+    type Iter = Iter<String>;
+    /// Begin a new traversal without copying elements or transferring ownership.
+    ///
+    /// Native collection guards prevent structural mutation during traversal.
+    /// Strings yield one Unicode scalar string at a time.
+    #[intrinsic(CollectionIter)]
+    fn iter(self) -> Iter<String>;
+}

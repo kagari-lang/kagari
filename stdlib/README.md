@@ -15,7 +15,7 @@ Runtime-native functions intentionally have no Kagari body.
 | [string](string.kgr) | Immutable UTF-8 strings, byte ranges and scalar iteration |
 | [option](option.kgr) | Optional values, mapping, fallbacks and conversion to Result |
 | [result](result.kgr) | Recoverable errors, propagation and preserved error origins |
-| [iter](iter.kgr) | Iterator, Iterable, native Iter and collection helpers |
+| [iter](iter.kgr) | Iterator, Iterable, FromIterator, Sum/Product and lazy pipelines |
 | [math](math.kgr) | Checked numeric helpers and floating-point operations |
 | [debug](debug.kgr) | Assertions, traps and host-routed logging |
 | [cmp](cmp.kgr) | PartialEq, Eq, PartialOrd, Ord and Ordering |
@@ -34,7 +34,9 @@ Generic impl parameters describe the receiver; method generics describe addition
 types introduced by that operation. Free functions such as `std::math::min` remain
 at module scope.
 
-Native trait implementations are also declared explicitly where available:
+Native collection Iterable/FromIterator implementations are declared in their
+respective files. Result and Option declare fallible collection implementations.
+The concrete iterator also declares its protocol explicitly:
 `impl<T> Iterator for Iter<T>` supplies `Item` and the native `next` method.
 Its `map`, `filter` and `collect` methods are defaults declared on `Iterator`.
 

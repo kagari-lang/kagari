@@ -168,3 +168,22 @@ impl<T> Option<T> {
     #[intrinsic(OptionOkOrElse)]
     pub fn ok_or_else<E>(self, callback: fn() -> E) -> Result<T, E>;
 }
+
+/// Collect successful payloads, stopping at the first failure.
+impl<T, C: FromIterator<T>> FromIterator<Option<T>> for Option<C> {
+    /// Buffer successful items and construct C only after successful exhaustion.
+    ///
+    /// The first Err or None stops traversal without reading subsequent items.
+    /// An Err retains its original diagnostic stack. On failure C::from_iter is
+    /// not called; on success it is called once, including for empty input.
+    /// Source side effects are not rolled back, and referenced items remain shared.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val result: Option<Array<i32>> = [Some(20), Some(22)].iter().collect();
+    /// std::debug::assert_eq(result.map(|x| x[0] + x[1]), Some(42), "success");
+    /// ```
+    #[intrinsic(OptionFromIterator)]
+    fn from_iter<I: Iterable<Item = Option<T>>>(source: I) -> Self;
+}

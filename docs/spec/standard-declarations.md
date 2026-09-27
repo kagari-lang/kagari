@@ -106,3 +106,13 @@ member; the implementation catalog provides the concrete implementation location
 Native method declarations retain where predicates and qualified associated-type
 projections. For example, Iterator::min requires Self::Item: Ord; this obligation
 is checked at call sites and retained in portable method contracts.
+
+
+Collection SDK files explicitly declare Iterable and FromIterator implementations
+for Array/MutableArray, Map/MutableMap and Set/MutableSet; String declares Iterable.
+Result and Option declare their conditional FromIterator implementations. Generic
+arguments, key constraints, destination bounds, associated outputs and member
+locations come from those declarations. The build validates the supported native
+signatures and intrinsic bindings. Static constructors do not appear as instance
+completion candidates. Iterable inheritance through a generic associated Iter
+retains the originating Item equality constraints.

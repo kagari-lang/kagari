@@ -297,6 +297,24 @@ fn adapter_traps_budgets_and_changed_sources_leave_runtime_usable() {
         struct Forever {}
         impl Iterator for Forever { type Item=i32; fn next(self)->Option<i32>{Some(1)} }
         fn exhaust(){ Forever{}.filter(|x|false).count(); }
+        fn inner_trap(){ [1].iter().flat_map(|x| [x].iter().map(|y| y / 0)).count(); }
+        fn inner_structural(){ val a=[1]; [a].iter().flatten().inspect(|x| { a.push(2); }).count(); }
+        fn sum_overflow()->i32 { [2147483647, 1].iter().sum() }
+        fn product_overflow()->i32 { [2147483647, 2].iter().product() }
+        fn narrow_sum_overflow()->i8 {
+            val empty: MutableArray<i8> = MutableArray::new();
+            val one: i8 = empty.iter().product();
+            val values: MutableArray<i8> = MutableArray::new();
+            var index = 0;
+            while index < 128 { values.push(one); index += 1; }
+            values.iter().sum()
+        }
+        fn narrow_product_overflow()->u8 {
+            val empty: MutableArray<u8> = MutableArray::new();
+            val one: u8 = empty.iter().product();
+            val two: u8 = [one, one].iter().sum();
+            [two, two, two, two, two, two, two, two].iter().product()
+        }
         fn healthy()->i32 {42}
     "#,
             ),
@@ -307,7 +325,18 @@ fn adapter_traps_budgets_and_changed_sources_leave_runtime_usable() {
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(artifact, Default::default()).unwrap();
-    for entry in ["trap", "structural", "changed", "exhaust"] {
+    for entry in [
+        "trap",
+        "structural",
+        "changed",
+        "exhaust",
+        "inner_trap",
+        "inner_structural",
+        "sum_overflow",
+        "product_overflow",
+        "narrow_sum_overflow",
+        "narrow_product_overflow",
+    ] {
         let mut options = context.clone();
         if entry == "exhaust" {
             options.resources.max_instruction_steps = Some(150);
@@ -350,7 +379,7 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
                 "retained-pipeline.kgr",
                 r#"
         struct Offset { val value: i32 }
-        fn make()->Iter<i32>{val offset=Offset{value:1};[19,21].iter().map(|x|x+offset.value)}
+        fn make()->Iter<i32>{val offset=Offset{value:1};[[19,21]].iter().flatten().map(|x|x+offset.value)}
         fn read(iter:Iter<i32>)->i32 {iter.next().unwrap_or(0)}
         fn main(){print("read");}
     "#,
@@ -670,6 +699,8 @@ impl Sum<i32> for Total {
     }
 }
 fn aggregate<I: Iterator<Item = i32>>(source: I) -> Total { source.sum() }
+fn iterable_sum<I: Iterable<Item = i32>>(source: I) -> i32 { source.iter().map(|x| x).sum() }
+fn iterable_fold<I: Iterable<Item = i32>>(source: I) -> i32 { source.iter().fold(0, |a, b| a + b) }
 fn main() -> i32 {
     val empty: MutableArray<i32> = MutableArray::new();
     val zero: i32 = empty.iter().sum();
@@ -688,6 +719,8 @@ fn main() -> i32 {
     val unsigned: MutableArray<u8> = MutableArray::new();
     val unsigned_one: u8 = unsigned.iter().product();
     std::debug::assert_eq(f"{unsigned_one}", "1", "unsigned identity");
+    std::debug::assert_eq(iterable_sum([20, 22]), 42, "associated bounds on iterable");
+    std::debug::assert_eq(iterable_fold([20, 22]), 42, "associated callback types");
     val total = aggregate([20, 22].iter());
     std::debug::assert_eq(Total::sum([20, 22]).value, 42, "qualified aggregate");
     total.value

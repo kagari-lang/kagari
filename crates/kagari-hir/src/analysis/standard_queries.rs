@@ -181,12 +181,19 @@ impl FileAnalysis {
             .filter_map(|method| declarations::function(method.intrinsic))
             .collect();
         for implementation in declarations::implementations(&ty) {
-            candidates.extend(implementation.methods.iter().map(|m| &m.item));
+            candidates.extend(
+                implementation
+                    .methods
+                    .iter()
+                    .filter(|m| m.params.first().is_some_and(|p| p.name == "self"))
+                    .map(|m| &m.item),
+            );
             candidates.extend(
                 implementation
                     .trait_declaration()
                     .methods
                     .iter()
+                    .filter(|m| m.params.first().is_some_and(|p| p.name == "self"))
                     .filter(|method| {
                         !implementation
                             .methods
@@ -266,6 +273,70 @@ mod tests {
                 .item
                 .signature
                 .contains("intrinsic(IterNext)")
+        );
+    }
+
+    #[test]
+    fn collection_implementation_catalog_retains_constraints_and_source_members() {
+        use crate::builtin::{surface::StandardEnum, traits::StandardTrait};
+        let integer = TypeId::Builtin(crate::types::BuiltinType::I32);
+        let string = TypeId::Builtin(crate::types::BuiltinType::String);
+        let target = TypeId::Map {
+            key: Box::new(integer.clone()),
+            value: Box::new(string.clone()),
+            access: CollectionAccess::ReadOnly,
+        };
+        let implementations = declarations::implementations(&target);
+        assert_eq!(implementations.len(), 2);
+        let collect = implementations
+            .iter()
+            .find(|i| i.interface == "FromIterator")
+            .unwrap();
+        let mut interface = StandardTrait::FromIterator.nominal();
+        interface
+            .arguments
+            .push(TypeId::Tuple(vec![integer.clone(), string.clone()]));
+        let arguments = collect.applied_arguments(&target, &interface).unwrap();
+        assert_eq!(collect.bounds[0].0.instantiate(&arguments), integer);
+        assert_eq!(
+            collect.bounds[0]
+                .1
+                .iter()
+                .map(|b| b.name)
+                .collect::<Vec<_>>(),
+            ["Eq", "Hash"]
+        );
+        let method = &collect.methods[0].item;
+        assert_eq!(method.uri, "kagari://std/map.kgr");
+        assert!(method.signature.contains("CollectionFromIterator"));
+        assert_eq!(
+            declarations::declaration(&DeclarationId::Definition(method.identity())),
+            Some(&method.declaration())
+        );
+
+        let result = TypeId::StandardEnum {
+            kind: StandardEnum::Result,
+            args: vec![target, string.clone()],
+        };
+        let mut interface = StandardTrait::FromIterator.nominal();
+        interface.arguments.push(TypeId::StandardEnum {
+            kind: StandardEnum::Result,
+            args: vec![TypeId::Tuple(vec![integer, string.clone()]), string],
+        });
+        let implementation = declarations::implementations(&result)[0];
+        let arguments = implementation
+            .applied_arguments(&result, &interface)
+            .unwrap();
+        assert_eq!(implementation.bounds[0].1[0].name, "FromIterator");
+        assert!(
+            implementation.bounds[0]
+                .0
+                .instantiate(&arguments)
+                .is_concrete()
+        );
+        assert_eq!(
+            implementation.methods[0].item.uri,
+            "kagari://std/result.kgr"
         );
     }
 

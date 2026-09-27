@@ -332,7 +332,7 @@ Commit. No compatibility aliases are retained.
 
 Kagari uses iter without ownership transfer; callbacks receive ordinary values.
 group_by is a Kagari extension returning MutableMap<K, MutableArray<T>>. flat_map,
-flatten, sum/product and Result/Option collection lifting remain follow-up work.
+flatten, sum/product and Result/Option collection lifting are covered by J01-J06 below.
 
 I01 validation: HIR and embedding tests passed, including executable standard API
 examples, native declaration navigation, removed-export rejection, receiver access
@@ -422,7 +422,7 @@ workspace/all-targets clippy with warnings denied and `git diff --check` passed.
 - [x] J03: lazy flat_map/flatten with dynamically retained inner iterators.
 - [x] J04: Sum/Product protocols and target-directed numeric/user-defined aggregation.
 - [x] J05: Result/Option FromIterator lifting with short-circuiting and preserved error origins.
-- [ ] J06: explicit native collection Iterable/FromIterator declarations, examples and final validation.
+- [x] J06: explicit native collection Iterable/FromIterator declarations, examples and final validation.
 
 Fallible collection first buffers successful items, then invokes the destination's
 FromIterator only after the source ends successfully. A failure returns immediately
@@ -451,3 +451,17 @@ J05 validates Result/Option lifting into native and user destinations, nested
 wrappers, generic destination bounds, empty inputs and unconsumed source tails.
 Original Err stack metadata survives collection and GC. Iterator, error-trace
 and executable documentation tests passed across source/artifact/JIT routes.
+
+J06 moves native collection and fallible wrapper implementation facts into their
+SDK declarations, including generic key and destination constraints. API queries
+retain concrete member locations. Associated iterator bounds preserve their
+originating Item equalities, and tolerant analysis retains collection shape even
+when element types are erroneous. Narrow integer aggregates check the destination
+range before updating the accumulator.
+
+Final validation: 1,217 workspace tests passed, including 38 standalone examples
+and 158 executable API documentation blocks. Tests cover lazy nested state across
+GC and host reentry, native guard cleanup, short-circuiting, original Err stacks,
+custom destinations and numeric overflow. Formatting, workspace/all-targets clippy
+with warnings denied and `git diff --check` passed. KBC/runtime ABI v76 rejects
+earlier products.
