@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: planned; no implementation phase is complete.
+Status: A00 prerequisite pending; no implementation phase is complete.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -11,6 +11,10 @@ order; older descriptions of the monolithic IR crate and bytecode-fed native
 backend are the implementation being replaced, not alternative target designs.
 
 ## Objective and Scope
+
+First correct the existing project's source structure and pass every CI check.
+This is the mandatory A00 prerequisite, not work deferred to final integration.
+Do not begin MIR or crate-boundary migration until A00 has passed its exit gate.
 
 Evolve the existing typed IR into Kagari MIR and establish one verified execution
 contract for bytecode generation and native compilation. Preserve the implemented
@@ -28,13 +32,17 @@ add LLVM dependencies, or implement LLVM/JIT/AOT tooling in this track.
 
 ## Execution Rules
 
-- Work through A01-A05 in order. Each phase is a substantial architectural unit,
+- Work through A00-A05 in order. A00 establishes a clean, passing starting point
+  before any architectural migration. Each phase is a substantial unit,
   not a queue of one-file checkpoints. Several coherent commits may share a phase.
 - Replace old models directly. No compatibility wrappers, deprecated re-exports,
   dual lowering paths, old artifact readers, or migration adapters.
-- Intermediate commits and A01-A04 phase transitions may fail compilation and
-  tests. A green workspace is not a prerequisite for a structural move or commit.
-  Do not build temporary compatibility scaffolding to make a checkpoint green.
+- A00 cleanup commits may contain unresolved findings, but A00 cannot close and
+  A01 cannot start until every CI check passes. Do not carry pre-existing failures
+  from A00 into the migration phases.
+- After A00 passes, intermediate commits and A01-A04 phase transitions may fail
+  compilation and tests. Do not build temporary compatibility scaffolding to make
+  a migration checkpoint green. This allowance does not waive the A00 exit gate.
 - Record broken commands, representative diagnostics, their cause, and the next
   owning phase in the progress ledger. Distinguish expected unfinished wiring
   from unexpected failures. Continue work that resolves them instead of treating
@@ -45,8 +53,8 @@ add LLVM dependencies, or implement LLVM/JIT/AOT tooling in this track.
   diagnostics, returning fake success, or leaving production `todo!()` stubs.
 - Run focused checks when the affected units can build. Attempt relevant checks
   at phase boundaries and record unavailable validation honestly. Run
-  `git diff --check` for every checkpoint. Full workspace checks are mandatory at
-  A05, when no known build or test failures may remain.
+  `git diff --check` for every checkpoint. Full workspace and structure checks are
+  mandatory at both A00 and A05; neither may close with known failures.
 - Use Conventional Commits with `Architecture-Step: Axx` trailers. Mark breaking
   public API/format changes with `!` and describe them. If a commit leaves the
   build broken, record that in its body and the ledger.
@@ -220,6 +228,44 @@ must refer to the same concrete functions, layouts and dependency identities.
 
 ## Ordered Phases
 
+### A00 — Correct Existing Structure and Pass CI
+
+- Start with the full [structure audit](structure-checks.md) and resolve every
+  existing finding: production wildcard imports, verbose paths at use sites,
+  repeated parent traversal, misplaced re-exports and oversized source/test files.
+- Treat LOC and re-export placement as design defaults. Where a cohesive file or
+  deliberate API boundary is demonstrably preferable, record a reviewed, bounded
+  exception with concrete evidence under the structure-check policy. Do not split
+  code or remove a useful re-export merely to satisfy a number or filename rule.
+- Replace globs with explicit imports, import from actual owners, and keep only
+  intentional facade exports. Split oversized files by responsibility using normal
+  module boundaries. Do not hide code in macros, string fixtures or ignored files,
+  add forwarding layers, widen visibility, or weaken checks to reduce findings.
+- Keep the current crate graph and execution model during this cleanup. Preserve
+  language behavior and useful test coverage; update consumers directly where
+  import/module paths change. MIR extraction and new crate ownership start at A01.
+- Run checker regression tests and all commands used by the `structure` and
+  `rust` CI jobs, plus `git diff --check`, on the completed cleanup revision:
+
+  ```text
+  uv run --locked scripts/check_structure.py --self-test
+  uv run --locked scripts/check_structure.py
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace
+  git diff --check
+  ```
+
+- Fix any formatting, lint, build or test failures uncovered by these gates.
+  Record the validated revision, commands and results in the ledger. Record hosted
+  CI status when available; do not report pending or failed CI as passing or reuse
+  results from an earlier revision with different code.
+
+Phase exit: every finding is fixed or covered by a justified, narrowly bounded
+exception; the checker, checker tests and every CI gate pass for the cleanup
+revision. No pre-existing failure is deferred. Only then may A01
+start. Commit coherent cleanup checkpoints with `Architecture-Step: A00` trailers.
+
 ### A01 — Extract Contracts and Establish Crate Ownership
 
 - Freeze a migration inventory of current files, public entrypoints, generated
@@ -292,8 +338,12 @@ passing every test through the interpreter does not count as completing this pha
   to assert the new architecture.
 - Audit handwritten Rust against [AGENTS.md](../AGENTS.md#imports-and-module-paths):
   explicit production imports/re-exports, no deep parent traversal, readable paths
-  at use sites, proper module ownership and justified structural exceptions. Review
-  test/generated-code exemptions in context; a successful build is not this audit.
+  at use sites and proper module ownership. Review test-only classification and
+  macro-generated code in context; a successful build is not this audit.
+- Pass the [strict structure checker](structure-checks.md) again to catch migration
+  regressions. A00 owns pre-existing cleanup; A05 owns final migration clearance.
+  Revalidate documented exceptions against the new ownership boundaries. No
+  grandfathering baseline or blanket suppression is permitted at any phase.
 - Finish specifications, crate/layout documentation, CLI, SDK examples and feature
   recipes. Keep the roadmap and goal guide pointing to one active plan.
 - Run the final acceptance matrix and workspace gates. Record performance and
@@ -330,6 +380,7 @@ Required behavioral coverage:
 Final commands, using the default target directory and default parallelism:
 
 ```text
+uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -351,16 +402,29 @@ must not be the sole record needed to resume the goal.
 
 ## Progress Ledger
 
+- [ ] A00 — Existing structure cleanup and passing CI prerequisite.
 - [ ] A01 — Contracts and crate ownership.
 - [ ] A02 — MIR, analyses and compiler lowering.
 - [ ] A03 — Runtime, artifacts and embedding.
 - [ ] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
-Current state: planning only. No code migration has started.
+Current state: the checker and CI gate are implemented; A00 source cleanup has not
+started. No MIR/crate migration has started. A01 is gated on passing A00.
+
+Pre-migration structural audit (2026-09-27):
+`uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
+exited 1 with 2,975 findings: 2,833 qualified paths, 92 wildcard imports,
+22 re-export locations, 9 repeated parent traversals and 19 oversized files.
+There were no parse errors. This is a debt record, not a suppression baseline.
+A00 owns all these findings and must fix or justify them before A01. No exceptions
+have been added for the existing findings. CI reports the
+outstanding violations as failures; acceptance of a failing cleanup checkpoint
+does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
+| A00 | Strict checker with bounded LOC/re-export exceptions, regression suite and CI gate implemented; source cleanup pending | Checker: 32 tests pass; full audit: exit 1, 2,975 findings, no active exceptions; Rust CI gates not rerun for this tooling change | A00 fixes or justifies all findings and verifies every CI gate before A01 |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -375,13 +439,18 @@ the first unfinished phase or its explicitly carried integration work.
 ## Goal Prompt
 
 ```text
-/goal Implement docs/mir-architecture-refactor.md through A01-A05 in order.
+/goal Implement docs/mir-architecture-refactor.md through A00-A05 in order.
+First finish A00: correct the existing source structure and pass the checker,
+checker tests, formatting, workspace clippy, workspace tests and diff checks.
+Allow narrowly bounded LOC/re-export exceptions only with concrete design evidence;
+do not add a grandfathering baseline or force unhelpful splits to satisfy a metric.
+Do not start A01 or any MIR/crate migration before every A00 CI gate passes.
 Reach the documented thirteen-crate architecture, preserving Kagari semantics
 and migrating the existing Cranelift subset to verified MIR. LLVM and expanded
 JIT coverage are deferred. Do not add compatibility layers or obsolete readers.
-Intermediate phases/commits may fail compilation or tests: record errors and
-their owning follow-up phase, then continue the direct migration. Commit coherent
-work using Conventional Commits with Architecture-Step: Axx trailers and keep
+After A00 passes, A01-A04 phases/commits may fail compilation or tests: record
+errors and their owning follow-up phase, then continue the direct migration.
+Commit coherent work using Conventional Commits with Architecture-Step: Axx trailers and keep
 the progress ledger current. Use the default Cargo target directory/parallelism
 and the configured O1 profile. Complete the goal only after A05 resolves all
 carried errors and passes the documented final checks and acceptance matrix.

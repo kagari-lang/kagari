@@ -1,0 +1,3 @@
+# Deliberate structural exceptions only; no grandfathered findings.
+# See docs/structure-checks.md for the schema and evidence requirements.
+# Add [[exceptions]] tables when a specific design is justified in review.

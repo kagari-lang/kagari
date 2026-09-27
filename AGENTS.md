@@ -35,16 +35,17 @@ build policy.
 
 - Split code by crate and module responsibility. Keep `lib.rs` and facades focused
   on public entrypoints and orchestration, not accumulated feature implementations.
-- Treat 1200 effective lines of code (LOC) as the ordinary handwritten
-  implementation/test file review threshold. Exclude blank lines and comment-only
-  lines, including Rust documentation comments and block comments. Count a line
+- Use 1200 effective lines of code (LOC) as the default Rust file size threshold.
+  Exclude blank lines and comment-only lines, including Rust documentation comments
+  and block comments. Count a line
   containing both code and a comment once. Recognize comments lexically: comment
   markers inside string literals are not comments. Do not use raw file line counts
   as effective LOC.
-- When a changed file exceeds 1200 effective LOC, split at meaningful boundaries
-  or record a specific reason in the active plan's ledger or architecture docs.
-  Generated output and cohesive exhaustive tables/fixtures can justify exceptions;
-  exceptions do not authorize unrelated growth.
+- Split oversized files at meaningful responsibility boundaries. A cohesive
+  exhaustive table, generated source or fixture may justify keeping a larger file
+  if splitting would reduce clarity or correctness. Document that reasoning and a
+  bounded LOC exception under the structure-check policy; size alone is not proof
+  that a split improves the design. Tests and tracked generated sources are checked.
 - Review affected files as their responsibilities change and record unresolved
   structural debt in the active plan. Keep unrelated refactoring outside task scope.
 - Use normal Rust `mod` boundaries for handwritten source. Reserve `include!` for
@@ -97,6 +98,12 @@ build policy.
 - Do not introduce forwarding modules, broad re-exports, widened visibility or
   compatibility aliases just to shorten imports. Import from the actual owner or
   fix the responsibility boundary. Keep intentional public facades explicit.
+- Place explicit production re-exports (`pub use`, including restricted visibility)
+  in `lib.rs`, `mod.rs` or the library root declared in Cargo by default. A flat
+  module or another deliberate API boundary may justify a documented exception
+  for its exact declaration. Ordinary implementation files import from owners
+  directly. Neither location nor an exception justifies unnecessary re-exports
+  or broader visibility.
 
 ### Structural Review at Checkpoints
 
@@ -109,15 +116,20 @@ Review changed handwritten Rust modules before each implementation checkpoint:
    replace them with explicit imports or short module qualification as appropriate.
 3. Check module ownership, visibility/re-export growth, handwritten `include!`,
    unjustified `#[path]`, effective LOC and large functions mixing responsibilities.
-4. Record any justified exception or existing debt in the active plan with its
-   reason and follow-up owner. Resolve new violations in the changed code; do not
-   hide them with broad lint allowances or claim that formatting checks catch them.
+4. Run `uv run --locked scripts/check_structure.py`. Record existing debt in the
+   active plan with its reason and follow-up owner. The check covers the whole
+   repository without a grandfathering baseline. Resolve findings or justify a
+   narrowly scoped LOC/re-export exception with evidence in code review; a generic
+   debt entry is not an exemption. Never use blanket allowances to make CI green.
 
-Text searches are useful audit inputs, not a complete Rust-aware checker: imports
-may span multiple lines, contain nested groups, or appear inside string fixtures.
-Review results in context. Apply structural review as modules change, and perform
-full audits at the milestones specified by the active plan. Import/path review
-does not require a successful build.
+The [structure checker](docs/structure-checks.md) parses Rust syntax and checks
+imports, paths, re-export placement and effective LOC without building the
+workspace. Its documented scope excludes macro expansion and semantic name
+resolution. Review macro token trees, module ownership and unnecessary public
+surface manually; a passing syntax check does not replace architectural review.
+The [exception policy](scripts/structure-exceptions.toml) records justified cases;
+the checker validates scope and limits but cannot prove the design rationale.
+When changing the checker, run its `--self-test` suite as well.
 
 ### Replacement and Migration
 
@@ -180,6 +192,7 @@ does not require a successful build.
 Final architecture validation includes the plan's feature/behavior matrix and:
 
 ```text
+uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace

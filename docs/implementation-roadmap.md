@@ -1,11 +1,13 @@
 # Kagari Implementation Roadmap
 
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) is the
-active architecture execution plan. A01–A05 replace the existing IR/backend crate
-boundaries with the documented thirteen-crate layout. LLVM and expanded JIT
+active architecture execution plan. A00 first corrects the existing project
+structure and passes all CI gates; A01 must not begin before that prerequisite
+passes. A01–A05 then replace the existing IR/backend crate boundaries with the
+documented thirteen-crate layout. LLVM and expanded JIT
 coverage are deferred; the existing Cranelift subset must migrate to verified MIR.
-Intermediate checkpoints may fail compilation/tests when errors and follow-up
-owners are recorded. Use Conventional Commits with `Architecture-Step: Axx`;
+After A00 passes, A01–A04 checkpoints may fail compilation/tests when errors and
+follow-up owners are recorded. Use Conventional Commits with `Architecture-Step: Axx`;
 the final integration phase must restore all required checks and behavior.
 
 [Foundation refactor](foundation-refactor.md) records the completed R01–R18 track.
