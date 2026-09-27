@@ -26,6 +26,71 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
+    /// Reopening an indexed adapter must validate and protect its retained source.
+    pub(crate) fn resume_iter(&self, value: &Value) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let session = self.resources.active_session().ok_or_else(invalid)?;
+        let mut pending = vec![value.clone()];
+        let mut visited = std::collections::HashSet::new();
+        while let Some(value) = pending.pop() {
+            self.resources.consume_instruction_steps(1)?;
+            let Value::GcHandle(id) = value else {
+                return Err(invalid());
+            };
+            if !visited.insert(id) {
+                continue;
+            }
+            let (source, revision, needs_guard) = {
+                let objects = self.objects.borrow();
+                let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, id) else {
+                    return Err(invalid());
+                };
+                (
+                    iter.source.clone(),
+                    iter.revision,
+                    iter.guard.is_none() && iter.loops.get() == 0,
+                )
+            };
+            if let Value::Tuple(fields) = source {
+                for dependency in fields.into_iter().skip(1) {
+                    match dependency {
+                        Value::GcHandle(_) => pending.push(dependency),
+                        Value::Array(slot) => {
+                            let Some(Value::Enum(value)) = self.array_get(slot, 0) else {
+                                return Err(invalid());
+                            };
+                            let snapshot = self.enum_snapshot(value).ok_or_else(invalid)?;
+                            if snapshot.tag == crate::value::EnumTag::OptionSome {
+                                pending.extend(snapshot.fields);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
+            if self.collection_revision(&source) != Some(revision) {
+                return Err(invalid());
+            }
+            if needs_guard {
+                session
+                    .iter_guards
+                    .borrow_mut()
+                    .try_reserve(1)
+                    .map_err(|_| self.resource_limit("iterator registry"))?;
+                let guard = self.begin_collection_iteration(&source)?;
+                let mut objects = self.objects.borrow_mut();
+                let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
+                    return Err(invalid());
+                };
+                iter.guard = Some(guard);
+                iter.session = Rc::downgrade(&session);
+                session.iter_guards.borrow_mut().insert(id);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn new_script_iter(
         &self,
         source: &Value,

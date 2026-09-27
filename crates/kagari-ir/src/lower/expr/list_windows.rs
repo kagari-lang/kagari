@@ -128,6 +128,7 @@ impl FunctionLowerer<'_, '_> {
             else_block: done,
         });
         self.switch_to_block(work);
+        self.emit_intrinsic(StandardIntrinsic::IterResume, &[args[3]], ValueType::Unit);
         let end = self.sort_bound(start, args[1], args[4])?;
         let count = self.query_binary(BinaryOp::Sub, end, start, ValueType::U64);
         let storage = TypeId::Array(

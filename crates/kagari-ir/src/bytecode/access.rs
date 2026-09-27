@@ -815,6 +815,14 @@ pub(super) fn verify(
                                     return Err(invalid());
                                 }
                             }
+                            if *intrinsic == S::IterResume
+                                && !matches!(
+                                    facts.first().and_then(|f| f.ty.as_ref()),
+                                    Some(AbiType::Iter(_))
+                                )
+                            {
+                                return Err(invalid());
+                            }
                             if *intrinsic == S::ArrayRemoveRangePrepare {
                                 let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
                                 else {

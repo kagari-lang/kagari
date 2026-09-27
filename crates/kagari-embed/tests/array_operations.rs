@@ -251,6 +251,14 @@ fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
         ("val iter = a.windows(0usize);", vec![1, 2, 3]),
         ("val iter = a.chunks(0usize);", vec![1, 2, 3]),
         ("val iter = a.windows(2usize); a.push(4);", vec![1, 2, 3]),
+        (
+            "val iter = a.windows(2usize); val prefix: ArrayList<List<i32>> = iter.take(1usize).collect(); iter.next(); a.push(4);",
+            vec![1, 2, 3],
+        ),
+        (
+            "val iter = a.windows(2usize); val prefix: ArrayList<List<i32>> = iter.take(1usize).collect(); a.push(4); iter.next();",
+            vec![1, 2, 3, 4],
+        ),
         ("a.retain(|n| { a[0usize] = 9; true });", vec![1, 2, 3]),
         ("a.retain(|n| { a.fill(9); true });", vec![1, 2, 3]),
         ("a.sort_by(|x, y| { a.push(9); x.cmp(y) });", vec![1, 2, 3]),

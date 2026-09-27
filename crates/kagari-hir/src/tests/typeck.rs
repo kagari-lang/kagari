@@ -581,11 +581,16 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
             .intrinsic,
         surface::StandardIntrinsic::MapInsert
     );
+    assert!(surface::standard_method(surface::StandardMethodReceiver::Set, "difference").is_none());
+    let difference = crate::builtin::traits::StandardTrait::Set
+        .contract()
+        .methods
+        .iter()
+        .find(|method| method.name == "difference")
+        .expect("Set interface default");
     assert_eq!(
-        surface::standard_method(surface::StandardMethodReceiver::Set, "difference")
-            .expect("Set.difference should be standard")
-            .arity,
-        1
+        crate::builtin::declarations::native_default_method(&difference.id),
+        Some(crate::builtin::declarations::NativeDefaultMethod::SetDifference)
     );
     assert_eq!(
         surface::standard_method(surface::StandardMethodReceiver::String, "len_chars")

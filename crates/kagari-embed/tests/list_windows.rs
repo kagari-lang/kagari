@@ -81,6 +81,11 @@ fn main() -> i32 {
     std::debug::assert(reads.is_empty(), "no eager reads");
     val snapshots: ArrayList<List<i32>> = lazy.collect();
     std::debug::assert(reads.len() == 4usize && snapshots.len() == 2usize, "custom list");
+    val resumed = values.windows(2usize);
+    val head: ArrayList<List<i32>> = resumed.take(1usize).collect();
+    std::debug::assert(resumed.next().unwrap_or([])[0usize] == 8, "reopen unchanged source");
+    val tail: ArrayList<List<i32>> = resumed.collect();
+    std::debug::assert(head.len() == 1usize && tail.len() == 1usize, "remaining windows");
     val prefix: ArrayList<List<i32>> = values.windows(2usize).take(1usize).collect();
     values.push(5);
     std::debug::assert(prefix.len() == 1usize, "early close");

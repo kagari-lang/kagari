@@ -1442,7 +1442,7 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
 fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
     for body in [
         "keys.union(LinkedHashSet::new());",
-        "std::set::LinkedHashSet::intersection(keys, LinkedHashSet::new());",
+        "val readonly: Set<i32> = keys; readonly.intersection(LinkedHashSet::new());",
         "result.unwrap_or(Marker { value: 7 });",
         "std::result::Result::unwrap_or(result, Marker { value: 7 });",
     ] {

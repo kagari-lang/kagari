@@ -244,6 +244,7 @@ pub enum StandardIntrinsic {
     ArrayDedup,
     ArrayReplaceStorage,
     CollectionRetainStorage,
+    IterResume,
     CollectionMutationBegin,
     CollectionMutationEnd,
     MapGetOrInsertWith,

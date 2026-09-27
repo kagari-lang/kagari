@@ -709,4 +709,20 @@ C08 validation: lazy snapshot timing, independent slots/shared objects, custom
 List indexed traversal, zero/oversized windows, short chunks, fused exhaustion and
 early-close guard release pass through source/artifact/JIT fallback. Range removal
 covers readonly results, live aliases, empty/full/prefix/inclusive ranges and
-failure without target modification. Current KBC/runtime ABI is v99.
+failure without target modification. This checkpoint used KBC/runtime ABI v99.
+The final iterator-resumption audit advances the format and runtime ABI to v100.
+
+Final completion audit: all S01-S05 and C01-C08 checkpoints are implemented and
+committed independently. Window/chunk resumption validates source revisions and
+restores guards after early closure. Native API query tests now recognize FromStr
+implementations and Set algebra's interface-owned declarations. Current KBC and
+runtime ABI versions are v100; old artifacts are rejected without compatibility.
+
+Validation covers 1,305 passing tests, including Rust doctests and the executable
+SDK documentation test. The initial full workspace run passed every SDK example
+(source and encoded artifact execution) before exposing two outdated HIR metadata
+assertions. After updating only those assertions, the final workspace run passed
+1,304 tests and skipped that one already-passing, unchanged documentation test.
+Formatting, workspace/all-targets clippy with warnings denied, and git diff checks
+also passed. Logs are under target/stdlib-completion-workspace.log,
+target/stdlib-completion-final.log and target/stdlib-completion-clippy.log.

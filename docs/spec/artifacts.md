@@ -713,3 +713,10 @@ removal preparation. Lazy steps are verified script-backed iterators retaining
 source guards and producing readonly List interfaces. Range removal prepares its
 readonly result before a typed storage commit, including any interface allocation.
 Previous formats are rejected before execution.
+
+## Resuming indexed adapters (v100)
+
+KBC/runtime ABI v100 adds a typed private iterator-resume operation. Before a
+window/chunk step reads source slots, it validates retained native source revisions
+and reestablishes source guards released by early pipeline closure. A structurally
+changed source traps; unchanged sources can continue from the saved position.

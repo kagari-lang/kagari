@@ -387,7 +387,11 @@ mod tests {
                 .item
                 .identity()
         );
-        assert!(declarations::implementations(&item_type).is_empty());
+        assert!(
+            declarations::implementations(&item_type)
+                .iter()
+                .all(|implementation| implementation.interface != "Iterator")
+        );
 
         let text = "fn main() { val values: Iter<i32> = [20,22].iter(); values. }";
         let mut sources = SourceDatabase::default();

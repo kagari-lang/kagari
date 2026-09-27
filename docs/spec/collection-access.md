@@ -246,6 +246,8 @@ len/iter but does not read element values. Native source structural guards remai
 active until exhaustion, explicit iterator closure or session cleanup. Ordinary
 slot replacement is visible to later snapshots without changing previous ones.
 Custom List implementations must keep indexed reads and iteration consistent.
+Resuming after early closure validates native source revisions and restores guards;
+a structurally changed source is rejected before reading the next snapshot.
 
 ArrayList.remove_range resolves RangeBounds once, validates the interval, prepares
 both remaining slots and the readonly removed List, then commits immediately.

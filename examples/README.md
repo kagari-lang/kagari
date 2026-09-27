@@ -25,17 +25,17 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | `Ordering`, `PartialOrd`/`Ord`, custom and generic comparisons | [ordering.kgr](syntax/ordering.kgr) | `42` |
 | `Add`/`Sub`/`Mul`/`Div`/`Rem`, `Neg`/`Not`, different operand and result types | [operators.kgr](syntax/operators.kgr) | `42` |
 | Read-only `Index`, generic access and shared returned objects | [index.kgr](syntax/index.kgr) | `42` |
-| `Option`/`Result` constructors, patterns, `?`, explicit conversion and error mapping | [result-option.kgr](syntax/result-option.kgr) | `42` |
+| `Option`/`Result` constructors, propagation, lazy combinations, flattening and transposition | [result-option.kgr](syntax/result-option.kgr) | `42` |
 | `val`, `var`, `while`, `loop`, `if`, `continue`, `break` and loop values | [control-flow.kgr](syntax/control-flow.kgr) | `42` |
 | Block expressions, independent block statements, and block `match` arms | [blocks.kgr](syntax/blocks.kgr) | `42` |
-| Value-only repeat arrays, per-element initialization, fill and overlap-safe copying | [array-operations.kgr](syntax/array-operations.kgr) | `42` |
+| Array initialization, bulk copying, prepared sorting/filtering, lazy chunks and immediate range removal | [array-operations.kgr](syntax/array-operations.kgr) | `42` |
 | Lazy integer ranges, open bounds and range-based copying | [ranges.kgr](syntax/ranges.kgr) | `42` |
 | `for` over Array, Map, Set and String | [for-collections.kgr](syntax/for-collections.kgr) | `42` |
 | Lazy adapters, short-circuit terminals, FromIterator, collect, partition and group_by | [collection-pipelines.kgr](syntax/collection-pipelines.kgr) | `42` |
 | Nested iteration, aggregation, ordered extrema and fallible collection | [iterator-extensions.kgr](syntax/iterator-extensions.kgr) | `42` |
 | Struct fields, shorthand initialization, inherent methods, enum payloads, tuples, arrays and assignment targets | [data-model.kgr](syntax/data-model.kgr) | `42` |
 | Arithmetic (including `%`), comparison, unary and short-circuit logical operators | [expressions.kgr](syntax/expressions.kgr) | `42` |
-| Display/Debug string interpolation, literal braces, nested holes and join | [string-interpolation.kgr](syntax/string-interpolation.kgr) | `42` |
+| String interpolation, joining, Unicode queries, lazy splitting and typed parsing | [string-interpolation.kgr](syntax/string-interpolation.kgr) | `42` |
 | Numeric bases and separators, exponents, escaped strings, and nested block comments | [literals-and-comments.kgr](syntax/literals-and-comments.kgr) | `42` |
 | Literal, wildcard, binding, nested tuple, struct and enum `match` patterns | [match.kgr](syntax/match.kgr) | `42` |
 | Guarded `match` arms and pattern-bound guard names | [match-guards.kgr](syntax/match-guards.kgr) | `42` |

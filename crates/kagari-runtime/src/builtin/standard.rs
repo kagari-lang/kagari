@@ -55,6 +55,13 @@ pub fn invoke_with_callbacks(
         | ArrayDedup => Err(BuiltinError::new(
             "collection callback requires static lowering",
         )),
+        IterResume => {
+            gc.resume_iter(
+                args.first()
+                    .ok_or_else(|| BuiltinError::new("missing iterator"))?,
+            )?;
+            Ok(Value::Unit)
+        }
         StringParse => Err(BuiltinError::new("parse requires static dispatch")),
         ParseNumber(ty) => crate::parsing::parse(gc, ty, args, false).map_err(Into::into),
         ParseRadix(ty) => crate::parsing::parse(gc, ty, args, true).map_err(Into::into),

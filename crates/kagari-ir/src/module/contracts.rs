@@ -184,7 +184,7 @@ pub(crate) fn verify_intrinsic(
         MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
         ArrayRemoveRangePrepare => 3,
         ArrayReplaceStorage | CollectionRetainStorage => 2,
-        KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd => 1,
+        KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd | IterResume => 1,
         KeyCandidates => 2,
         KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
         KeySetInsert => 4,
@@ -281,7 +281,7 @@ pub(crate) fn verify_intrinsic(
             expect_arg_ty(args, 1, ValueType::HeapObject, "prepared collection")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd => {
+        KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd | IterResume => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "key lookup collection")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
