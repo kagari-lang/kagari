@@ -1,10 +1,13 @@
 //! Validate serialized semantic types independently of display strings.
+use crate::types::matching;
+use crate::types::substitution::{TypeSubstitution, TypeTransformError, normalize_projections};
 
 use crate::standard::declarations as standard_declarations;
 use kagari_common::identity;
 
 use crate::layout::LayoutValidationError;
 use crate::scalar::BuiltinType;
+use crate::standard::native;
 use crate::standard::surface::StandardEnum as StandardEnumKind;
 use crate::standard::traits::StandardTrait;
 use crate::types::AbiType;
@@ -27,11 +30,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
-use kagari_hir::aggregates::AggregateCatalog;
-use kagari_hir::builtin::traits;
-use kagari_hir::types::GenericParameterType;
-use kagari_hir::types::TypeId;
-use kagari_hir::types::TypeSubstitution;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::iter;
@@ -43,14 +41,13 @@ fn native_bridge_valid(table: &InterfaceTableAbi) -> bool {
         return false;
     };
     !table.host_bridge
+        && table.trait_type.within_wire_limits()
+        && table.for_type.within_wire_limits()
         && table.generic_params.is_empty()
         && table.bounds.is_empty()
         && table.trait_type.is_concrete()
         && table.for_type.is_concrete()
-        && traits::native_interface_applies(
-            &applied.to_checked_type(),
-            &table.for_type.to_checked_type(),
-        )
+        && native::interface_applies(applied, &table.for_type)
 }
 
 fn scalar_const_type(ty: &AbiType) -> bool {
@@ -84,11 +81,11 @@ fn scalar_const_valid(ty: &AbiType, value: &str) -> bool {
     }
 }
 
-pub(crate) fn concrete_type_valid(ty: &AbiType, cancel: &CancellationToken) -> bool {
+pub fn concrete_type_valid(ty: &AbiType, cancel: &CancellationToken) -> bool {
     type_valid(ty, &Parameters::new(), None, cancel)
 }
 
-pub(crate) fn validate(
+pub fn validate(
     items: &[PublicAbiItem],
     module: &ModuleIdentity,
     cancel: &CancellationToken,
@@ -224,7 +221,7 @@ pub(crate) fn validate(
     Ok(())
 }
 
-pub(crate) fn validate_trait_contracts(
+pub fn validate_trait_contracts(
     contracts: &[TraitContract],
     items: &[PublicAbiItem],
     module: &ModuleIdentity,
@@ -382,7 +379,7 @@ fn required_methods_present(table: &InterfaceTableAbi, interface: &TraitAbi) -> 
     })
 }
 
-pub(crate) fn interface_contract_matches(
+pub fn interface_contract_matches(
     table: &InterfaceTableAbi,
     interface: &TraitAbi,
     cancel: &CancellationToken,
@@ -416,7 +413,7 @@ pub(crate) fn interface_contract_matches(
         })
 }
 
-pub(crate) fn interface_constants_match(table: &InterfaceTableAbi, interface: &TraitAbi) -> bool {
+pub fn interface_constants_match(table: &InterfaceTableAbi, interface: &TraitAbi) -> bool {
     {
         let mut names = HashSet::new();
         table.associated_consts.iter().all(|member| {
@@ -474,7 +471,7 @@ fn families_valid(
     })
 }
 
-pub(crate) fn interface_families_match(
+pub fn interface_families_match(
     table: &InterfaceTableAbi,
     interface: &TraitAbi,
     cancel: &CancellationToken,
@@ -501,71 +498,20 @@ pub(crate) fn interface_families_match(
         if member.generic_params.len() != family.generic_params.len() {
             return false;
         }
-        let mut substitution: TypeSubstitution = instance
-            .arguments
+        let actual_parameters = family
+            .generic_params
             .iter()
-            .enumerate()
-            .map(|(position, value)| {
-                (
-                    GenericParameterType {
-                        owner: instance.declaration.clone(),
-                        position,
-                        name: String::new(),
-                    },
-                    value.to_checked_type(),
-                )
-            })
-            .chain(
-                member
-                    .generic_params
-                    .iter()
-                    .zip(&family.generic_params)
-                    .map(|(expected, actual)| {
-                        (
-                            GenericParameterType {
-                                owner: expected.owner.clone(),
-                                position: expected.position,
-                                name: String::new(),
-                            },
-                            TypeId::Generic(GenericParameterType {
-                                owner: actual.owner.clone(),
-                                position: actual.position,
-                                name: String::new(),
-                            }),
-                        )
-                    }),
-            )
-            .collect();
-        substitution.insert_receiver(
-            instance.declaration.clone(),
-            table.for_type.to_checked_type(),
-        );
-        let expected = member
-            .parameter_bounds
-            .iter()
-            .map(|bound| GenericBoundAbi {
-                ty: AbiType::from_checked_type(
-                    &bound.ty.to_checked_type().instantiate(&substitution),
-                ),
-                constraints: bound
-                    .constraints
-                    .iter()
-                    .map(|constraint| match constraint {
-                        ConstraintAbi::Standard(value) => ConstraintAbi::Standard(*value),
-                        ConstraintAbi::Trait(value) => {
-                            let AbiType::Trait(value) = AbiType::from_checked_type(
-                                &AbiType::Trait(value.clone())
-                                    .to_checked_type()
-                                    .instantiate(&substitution),
-                            ) else {
-                                unreachable!("trait bound")
-                            };
-                            ConstraintAbi::Trait(value)
-                        }
-                    })
-                    .collect(),
-            })
+            .map(GenericParameterAbi::as_type)
             .collect::<Vec<_>>();
+        let mut substitution =
+            TypeSubstitution::for_owner(&instance.declaration, &instance.arguments);
+        for (expected, actual) in member.generic_params.iter().zip(&actual_parameters) {
+            substitution.bind(&expected.owner, expected.position, actual);
+        }
+        substitution.bind_receiver(&instance.declaration, &table.for_type);
+        let Ok(expected) = substitution.apply_bounds(&member.parameter_bounds, cancel) else {
+            return false;
+        };
         cancel.check().is_ok()
             && family.bounds.iter().all(|bound| {
                 expected.iter().any(|required| {
@@ -591,27 +537,30 @@ fn same_method_contract(
     {
         return false;
     }
-    let Some(signature) = table.checked_signature() else {
-        return false;
-    };
-    let Some(catalog) = AggregateCatalog::from_implementation_signatures([signature]) else {
-        return false;
+    let normalize = |ty: &AbiType| {
+        normalize_projections(
+            ty,
+            &|interface, receiver, member, arguments| {
+                matching::projection_output(table, interface, receiver, member, arguments, cancel)
+            },
+            cancel,
+        )
     };
     method_contract_matches(
         declared,
         implemented,
         instance,
         table,
-        &catalog,
+        &normalize,
         true,
         cancel,
     )
 }
 
-pub(crate) fn interface_methods_match(
+pub fn interface_methods_match(
     table: &InterfaceTableAbi,
     interface: &TraitAbi,
-    catalog: &AggregateCatalog,
+    normalize: &dyn Fn(&AbiType) -> Result<AbiType, TypeTransformError>,
     cancel: &CancellationToken,
 ) -> bool {
     let AbiType::Trait(instance) = &table.trait_type else {
@@ -629,7 +578,7 @@ pub(crate) fn interface_methods_match(
                         implemented,
                         instance,
                         table,
-                        catalog,
+                        normalize,
                         false,
                         cancel,
                     )
@@ -642,7 +591,7 @@ fn method_contract_matches(
     implemented: &FunctionAbi,
     instance: &NominalAbiType,
     table: &InterfaceTableAbi,
-    catalog: &AggregateCatalog,
+    normalize: &dyn Fn(&AbiType) -> Result<AbiType, TypeTransformError>,
     defer_projection: bool,
     cancel: &CancellationToken,
 ) -> bool {
@@ -651,110 +600,77 @@ fn method_contract_matches(
     {
         return false;
     }
-    let mut substitution: TypeSubstitution = instance
-        .arguments
+    let actual_parameters = implemented
+        .generic_params
         .iter()
-        .enumerate()
-        .map(|(position, argument)| {
-            (
-                GenericParameterType {
-                    owner: instance.declaration.clone(),
-                    position,
-                    name: String::new(),
-                },
-                argument.to_checked_type(),
-            )
-        })
-        .collect();
-    substitution.extend(
-        declared
-            .generic_params
-            .iter()
-            .zip(&implemented.generic_params)
-            .map(|(expected, actual)| {
-                (
-                    GenericParameterType {
-                        owner: expected.owner.clone(),
-                        position: expected.position,
-                        name: String::new(),
-                    },
-                    TypeId::Generic(GenericParameterType {
-                        owner: actual.owner.clone(),
-                        position: actual.position,
-                        name: String::new(),
-                    }),
-                )
-            }),
-    );
+        .map(GenericParameterAbi::as_type)
+        .collect::<Vec<_>>();
+    let mut parameters = TypeSubstitution::for_owner(&instance.declaration, &instance.arguments);
+    for (expected, actual) in declared.generic_params.iter().zip(&actual_parameters) {
+        parameters.bind(&expected.owner, expected.position, actual);
+    }
+    let mut receiver = TypeSubstitution::default();
+    receiver.bind_receiver(&instance.declaration, &table.for_type);
     let expected = |ty: &AbiType| {
-        catalog.normalize_type(
-            &ty.to_checked_type()
-                .with_self(&instance.declaration, &table.for_type.to_checked_type())
-                .instantiate(&substitution),
-        )
+        let ty = receiver.apply(ty, cancel)?;
+        let ty = parameters.apply(&ty, cancel)?;
+        normalize(&ty)
     };
-    let actual = |ty: &AbiType| catalog.normalize_type(&ty.to_checked_type());
-    // A module-only shape check cannot normalize outputs supplied by a dependency.
-    // The linked verifier repeats the full comparison with its complete catalog.
-    if defer_projection
-        && iter::once(expected(&declared.return_type))
-            .chain(iter::once(actual(&implemented.return_type)))
-            .chain(declared.params.iter().map(|p| expected(&p.ty)))
-            .chain(implemented.params.iter().map(|p| actual(&p.ty)))
-            .any(|ty| ty.contains_projection() && !ty.is_unresolved())
-    {
+    let actual = |ty: &AbiType| normalize(ty);
+    let signatures = iter::once(expected(&declared.return_type))
+        .chain(iter::once(actual(&implemented.return_type)))
+        .chain(declared.params.iter().map(|p| expected(&p.ty)))
+        .chain(implemented.params.iter().map(|p| actual(&p.ty)))
+        .collect::<Result<Vec<_>, _>>();
+    let Ok(signatures) = signatures else {
+        return false;
+    };
+    // Dependency projections are rechecked with the complete linked resolver.
+    if defer_projection && signatures.iter().any(AbiType::contains_projection) {
         return true;
     }
-    let bounds = |function: &FunctionAbi, normalize: &dyn Fn(&AbiType) -> TypeId| {
-        function
-            .bounds
-            .iter()
-            .map(|bound| {
-                let mut constraints = bound
-                    .constraints
-                    .iter()
-                    .map(|constraint| {
-                        Some(match constraint {
-                            ConstraintAbi::Standard(value) => ConstraintAbi::Standard(*value),
-                            ConstraintAbi::Trait(value) => {
-                                let normalized = normalize(&AbiType::Trait(value.clone()));
-                                if normalized.is_unresolved() {
-                                    return None;
+    let bounds =
+        |function: &FunctionAbi,
+         normalize: &dyn Fn(&AbiType) -> Result<AbiType, TypeTransformError>| {
+            function
+                .bounds
+                .iter()
+                .map(|bound| {
+                    let mut constraints = bound
+                        .constraints
+                        .iter()
+                        .map(|constraint| {
+                            Some(match constraint {
+                                ConstraintAbi::Standard(value) => ConstraintAbi::Standard(*value),
+                                ConstraintAbi::Trait(value) => {
+                                    let AbiType::Trait(value) =
+                                        normalize(&AbiType::Trait(value.clone())).ok()?
+                                    else {
+                                        return None;
+                                    };
+                                    ConstraintAbi::Trait(value)
                                 }
-                                let AbiType::Trait(value) = AbiType::from_checked_type(&normalized)
-                                else {
-                                    return None;
-                                };
-                                ConstraintAbi::Trait(value)
-                            }
+                            })
                         })
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                constraints.sort();
-                let target = normalize(&bound.ty);
-                if target.is_unresolved() {
-                    return None;
-                }
-                Some((AbiType::from_checked_type(&target), constraints))
-            })
-            .collect::<Option<BTreeMap<_, _>>>()
-    };
+                        .collect::<Option<Vec<_>>>()?;
+                    constraints.sort();
+                    Some((normalize(&bound.ty).ok()?, constraints))
+                })
+                .collect::<Option<BTreeMap<_, _>>>()
+        };
     cancel.check().is_ok()
         && bounds(declared, &expected)
             .is_some_and(|declared| Some(declared) == bounds(implemented, &actual))
-        && !expected(&declared.return_type).is_unresolved()
-        && !actual(&implemented.return_type).is_unresolved()
-        && expected(&declared.return_type) == actual(&implemented.return_type)
+        && signatures[0] == signatures[1]
         && declared
             .params
             .iter()
             .zip(&implemented.params)
-            .all(|(declared, implemented)| {
+            .enumerate()
+            .all(|(index, (left, right))| {
                 cancel.check().is_ok()
-                    && declared.mutable == implemented.mutable
-                    && !expected(&declared.ty).is_unresolved()
-                    && !actual(&implemented.ty).is_unresolved()
-                    && expected(&declared.ty) == actual(&implemented.ty)
+                    && left.mutable == right.mutable
+                    && signatures[2 + index] == signatures[2 + declared.params.len() + index]
             })
 }
 

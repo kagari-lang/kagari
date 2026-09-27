@@ -1,4 +1,5 @@
 use crate::source::lower::support::lower_scalar;
+use crate::source::types::raise_type;
 use crate::source::types::{lower_nominal_type, lower_type};
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 mod aggregates;
@@ -476,7 +477,7 @@ impl FunctionLowerer<'_, '_> {
                     });
                     dst
                 } else {
-                    self.standard_enum_op(&output.to_checked_type(), StandardEnumOp::Make(1), None)?
+                    self.standard_enum_op(&raise_type(&output), StandardEnumOp::Make(1), None)?
                 };
                 self.set_terminator(Terminator::Return(Some(residual)));
                 self.switch_to_block(success);

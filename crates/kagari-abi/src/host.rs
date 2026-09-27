@@ -8,29 +8,30 @@ use crate::types::TraitContract;
 use crate::layout::EnumLayout;
 use crate::layout::LayoutValidationError;
 use crate::layout::StructLayout;
+use crate::standard::surface::StandardTypeConstraint;
 use crate::standard::traits::StandardTrait;
 use crate::types as abi;
 use crate::types::AbiType;
 use crate::types::ConstraintAbi;
 use crate::types::PublicAbiItem;
+use crate::types::substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES};
 use kagari_common::host_interface::HostInterface;
 use kagari_common::host_interface::HostTraitImplementationDeclaration;
 use kagari_common::host_interface::HostTypeDeclaration;
+use kagari_common::host_interface::HostValueType;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::ModuleIdentity;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::DefinitionId,
 };
-use kagari_hir::host;
-use kagari_hir::host::HostDeclarations;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::slice;
 
 /// Check host method tables against the defining module's executable trait
 /// contracts, including declarations absent from its public ABI.
-pub(crate) fn trait_bindings_match(
+pub fn trait_bindings_match(
     interface: &HostInterface,
     module: &ModuleIdentity,
     items: &[PublicAbiItem],
@@ -126,7 +127,7 @@ fn host_trait_matches(
             .expect("validated output schema");
         for constraint in &member.bounds {
             if let ConstraintAbi::Standard(standard) = constraint
-                && !host::satisfies_standard_constraint(&output.ty, *standard)
+                && !satisfies_standard_constraint(&output.ty, *standard)
             {
                 return Ok(false);
             }
@@ -146,7 +147,7 @@ fn host_trait_matches(
         for constraint in &bound.constraints {
             cancel.check()?;
             if let ConstraintAbi::Standard(standard) = constraint
-                && !host::satisfies_standard_constraint(argument, *standard)
+                && !satisfies_standard_constraint(argument, *standard)
             {
                 return Ok(false);
             }
@@ -302,7 +303,7 @@ fn matches_host_type(
     Ok(true)
 }
 
-pub(crate) fn references(
+pub fn references(
     items: &[PublicAbiItem],
     structures: &[StructLayout],
     enums: &[EnumLayout],
@@ -367,7 +368,7 @@ pub(crate) fn references(
     Ok(result)
 }
 
-pub(crate) fn validate(
+pub fn validate(
     interface: &HostInterface,
     items: &[PublicAbiItem],
     structures: &[StructLayout],
@@ -398,7 +399,7 @@ pub(crate) fn validate(
     }
 }
 
-pub(crate) fn host_bridge_implementation<'a>(
+pub fn host_bridge_implementation<'a>(
     table: &InterfaceTableAbi,
     interface: &'a HostInterface,
 ) -> Option<(
@@ -413,7 +414,115 @@ pub(crate) fn host_bridge_implementation<'a>(
     };
     let host = interface.types.iter().find(|host| &host.id == id)?;
     let implementation = host.trait_implementations.iter().find(|implementation| {
-        HostDeclarations::trait_type(implementation) == applied.to_checked_type()
+        implementation.trait_id == applied.declaration
+            && implementation.trait_arguments.len() == applied.arguments.len()
+            && implementation
+                .trait_arguments
+                .iter()
+                .zip(&applied.arguments)
+                .all(|(expected, actual)| AbiType::from_host_type(expected) == *actual)
+            && implementation.associated_types.len() == applied.associated_types.len()
+            && implementation.associated_types.iter().all(|output| {
+                applied
+                    .associated_types
+                    .get(&output.declaration)
+                    .is_some_and(|actual| AbiType::from_host_type(&output.ty) == *actual)
+            })
     })?;
     Some((host, implementation))
+}
+
+/// Intrinsic standard constraints of portable host values. Collections use shared
+/// identity; tuple/Option/Result equality and hashing recurse into their payloads.
+/// Nominal host objects need declared trait implementations, not this fallback.
+pub fn satisfies_standard_constraint(
+    ty: &HostValueType,
+    constraint: StandardTypeConstraint,
+) -> bool {
+    if matches!(
+        constraint,
+        StandardTypeConstraint::OrderedNumber | StandardTypeConstraint::SignedNumber
+    ) {
+        return matches!(
+            ty,
+            HostValueType::I32 | HostValueType::I64 | HostValueType::F32 | HostValueType::F64
+        );
+    }
+    let mut remaining = MAX_TYPE_NODES;
+    let mut pending = vec![(ty, 1usize)];
+    while let Some((ty, depth)) = pending.pop() {
+        if remaining == 0 || depth > MAX_TYPE_DEPTH {
+            return false;
+        }
+        remaining -= 1;
+        match ty {
+            HostValueType::Opaque(_) => return false,
+            HostValueType::F32 | HostValueType::F64
+                if constraint == StandardTypeConstraint::HashKey =>
+            {
+                return false;
+            }
+            HostValueType::Tuple(items) => {
+                if items.len() > remaining {
+                    return false;
+                }
+                pending.extend(items.iter().map(|ty| (ty, depth + 1)));
+            }
+            HostValueType::Option(ty) => pending.push((ty, depth + 1)),
+            HostValueType::Result { ok, error } => {
+                pending.extend([(ok.as_ref(), depth + 1), (error.as_ref(), depth + 1)])
+            }
+            HostValueType::Unit
+            | HostValueType::Bool
+            | HostValueType::I32
+            | HostValueType::I64
+            | HostValueType::F32
+            | HostValueType::F64
+            | HostValueType::String
+            | HostValueType::Array(_, _)
+            | HostValueType::Map { .. }
+            | HostValueType::Set(_, _) => {}
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_common::collection::CollectionAccess;
+
+    #[test]
+    fn host_standard_constraints_distinguish_payload_and_collection_identity() {
+        let float = HostValueType::F64;
+        assert!(satisfies_standard_constraint(
+            &float,
+            StandardTypeConstraint::Comparable
+        ));
+        assert!(!satisfies_standard_constraint(
+            &float,
+            StandardTypeConstraint::HashKey
+        ));
+        assert!(!satisfies_standard_constraint(
+            &HostValueType::Option(Box::new(float.clone())),
+            StandardTypeConstraint::HashKey
+        ));
+        let array = HostValueType::Array(Box::new(float), CollectionAccess::ReadOnly);
+        assert!(satisfies_standard_constraint(
+            &array,
+            StandardTypeConstraint::HashKey
+        ));
+        assert!(satisfies_standard_constraint(
+            &HostValueType::Tuple(vec![array, HostValueType::I32]),
+            StandardTypeConstraint::Comparable
+        ));
+        assert!(!satisfies_standard_constraint(
+            &HostValueType::Bool,
+            StandardTypeConstraint::SignedNumber
+        ));
+        assert!(satisfies_standard_constraint(
+            &HostValueType::F32,
+            StandardTypeConstraint::SignedNumber
+        ));
+    }
 }

@@ -1,6 +1,5 @@
 use super::constraints;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::EnumId;
 use crate::hir::GenericParamId;
 use crate::hir::StructId;

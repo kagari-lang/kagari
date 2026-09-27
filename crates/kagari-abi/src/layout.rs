@@ -32,7 +32,7 @@ pub struct EnumVariantLayout {
 }
 
 /// Compare executable instances to validated public declarations after substitution.
-pub(crate) fn struct_abi_matches(
+pub fn struct_abi_matches(
     layouts: &[StructLayout],
     identity: &ModuleIdentity,
     items: &[PublicAbiItem],
@@ -74,7 +74,7 @@ pub(crate) fn struct_abi_matches(
     Ok(true)
 }
 
-pub(crate) fn enum_abi_matches(
+pub fn enum_abi_matches(
     layouts: &[EnumLayout],
     identity: &ModuleIdentity,
     items: &[PublicAbiItem],
@@ -151,7 +151,7 @@ fn public_templates<'a>(
     Ok(templates)
 }
 
-pub(crate) fn validate_enum_layouts(
+pub fn validate_enum_layouts(
     layouts: &[EnumLayout],
     structures: &[StructLayout],
     cancel: &CancellationToken,
@@ -311,7 +311,7 @@ pub struct StructFieldLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LayoutValidationError {
+pub enum LayoutValidationError {
     Invalid,
     Limit {
         resource: &'static str,
@@ -319,7 +319,7 @@ pub(crate) enum LayoutValidationError {
     },
     Cancelled,
 }
-pub(crate) fn validate_layouts(
+pub fn validate_layouts(
     layouts: &[StructLayout],
     cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {

@@ -1,6 +1,6 @@
+use crate::builtin::declarations::ApiBoundSemantics;
 use crate::builtin::declarations::ApiTypeSemantics;
 use crate::builtin::declarations::Arguments;
-use crate::builtin::surface;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExprId;

@@ -1,4 +1,3 @@
-use crate::builtin::surface;
 use crate::hir::ExprId;
 use crate::hir::Literal;
 use crate::hir::LiteralKind;

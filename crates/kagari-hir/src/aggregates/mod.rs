@@ -6,7 +6,6 @@ use kagari_common::identity;
 use crate::builtin::traits as builtin_traits;
 use crate::host::HostDeclarations;
 use crate::typeck::GenericBounds;
-use crate::types;
 use crate::types::GenericParameterType;
 use crate::types::NominalType;
 use kagari_abi::standard::traits::StandardTrait;

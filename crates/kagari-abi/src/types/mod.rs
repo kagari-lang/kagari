@@ -1,26 +1,26 @@
+pub mod matching;
+pub mod substitution;
+pub mod verify;
+mod wire;
+
 use crate::representation::ValueType;
 use crate::scalar::BuiltinType;
 use crate::standard::contracts;
 use crate::standard::surface::StandardEnum as StandardEnumKind;
+use crate::types::substitution::{TypeSubstitution, resolve_associated_outputs};
 use bincode::DefaultOptions;
 use bincode::Options;
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::HostValueType;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::ModuleIdentity;
 use kagari_common::range::RangeKind;
-use kagari_hir::aggregates::ImplementationSignature;
 
 use crate::standard::surface::StandardTypeConstraint;
 use crate::standard::traits::StandardTrait;
-use kagari_hir::typeck::ConstraintTarget;
-use kagari_hir::types::AssociatedTypeFamily;
-use kagari_hir::types::AssociatedTypeParameters;
 
-use kagari_hir::types::GenericParameterType;
-use kagari_hir::types::NominalType;
-use kagari_hir::types::TypeId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -153,24 +153,6 @@ pub struct NominalAbiType {
     pub associated_types: BTreeMap<DefinitionId, AbiType>,
 }
 
-impl NominalAbiType {
-    pub(crate) fn to_checked_type(&self) -> NominalType {
-        NominalType {
-            associated_types: self
-                .associated_types
-                .iter()
-                .map(|(id, ty)| (id.clone(), ty.to_checked_type()))
-                .collect(),
-            declaration: self.declaration.clone(),
-            arguments: self
-                .arguments
-                .iter()
-                .map(AbiType::to_checked_type)
-                .collect(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AbiType {
     Projection {
@@ -212,52 +194,34 @@ pub enum AbiType {
 }
 
 impl AbiType {
-    pub(crate) fn to_checked_type(&self) -> TypeId {
-        match self {
-            Self::Projection {
-                receiver,
-                interface,
-                member,
-                arguments,
-            } => TypeId::Projection {
-                arguments: arguments.iter().map(AbiType::to_checked_type).collect(),
-                receiver: Box::new(receiver.to_checked_type()),
-                interface: Box::new(interface.to_checked_type()),
-                member: member.clone(),
-            },
-            Self::Host(id) => TypeId::Host(id.clone()),
-            Self::SelfType(id) => TypeId::SelfType(id.clone()),
-            Self::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
-                owner: owner.clone(),
-                position: *position,
-                name: String::new(),
-            }),
-            Self::Builtin(ty) => TypeId::Builtin(*ty),
-            Self::Tuple(types) => TypeId::Tuple(types.iter().map(Self::to_checked_type).collect()),
-            Self::Function { params, result } => TypeId::Function {
-                params: params.iter().map(Self::to_checked_type).collect(),
-                result: Box::new(result.to_checked_type()),
-            },
-            Self::Range(ty, kind) => TypeId::Range(Box::new(ty.to_checked_type()), *kind),
-            Self::Iter(ty) => TypeId::Iter(Box::new(ty.to_checked_type())),
-            Self::Array(ty, access) => TypeId::Array(Box::new(ty.to_checked_type()), *access),
-            Self::Map { key, value, access } => TypeId::Map {
-                key: Box::new(key.to_checked_type()),
-                value: Box::new(value.to_checked_type()),
-                access: *access,
-            },
-            Self::Set(ty, access) => TypeId::Set(Box::new(ty.to_checked_type()), *access),
-            Self::Struct(ty) => TypeId::Struct(ty.to_checked_type()),
-            Self::Enum(ty) => TypeId::Enum(ty.to_checked_type()),
-            Self::Trait(ty) => TypeId::Trait(ty.to_checked_type()),
-            Self::StandardEnum { kind, args } => TypeId::StandardEnum {
-                kind: *kind,
-                args: args.iter().map(Self::to_checked_type).collect(),
-            },
+    pub fn contains_projection(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Projection { .. } => return true,
+                Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values());
+                }
+                Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
+                    pending.extend(items)
+                }
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::Host(_) | Self::Builtin(_) | Self::SelfType(_) | Self::Parameter { .. } => {}
+            }
         }
+        false
     }
 
-    pub(crate) fn from_host_type(ty: &HostValueType) -> Self {
+    pub fn from_host_type(ty: &HostValueType) -> Self {
         match ty {
             HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
             HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
@@ -329,68 +293,10 @@ impl AbiType {
     }
 
     pub(crate) fn instantiate(&self, owner: &DefinitionId, arguments: &[AbiType]) -> Option<Self> {
-        let nominal = |ty: &NominalAbiType| -> Option<NominalAbiType> {
-            Some(NominalAbiType {
-                associated_types: ty
-                    .associated_types
-                    .iter()
-                    .map(|(id, ty)| Some((id.clone(), ty.instantiate(owner, arguments)?)))
-                    .collect::<Option<_>>()?,
-                declaration: ty.declaration.clone(),
-                arguments: ty
-                    .arguments
-                    .iter()
-                    .map(|ty| ty.instantiate(owner, arguments))
-                    .collect::<Option<_>>()?,
-            })
-        };
-        Some(match self {
-            Self::Projection { .. } => return None,
-            Self::Parameter {
-                owner: parameter_owner,
-                position,
-            } if owner == parameter_owner => arguments.get(*position)?.clone(),
-            Self::Parameter { .. } | Self::SelfType(_) => return None,
-            Self::Builtin(_) | Self::Host(_) => self.clone(),
-            Self::Tuple(types) => Self::Tuple(
-                types
-                    .iter()
-                    .map(|ty| ty.instantiate(owner, arguments))
-                    .collect::<Option<_>>()?,
-            ),
-            Self::Function { params, result } => Self::Function {
-                params: params
-                    .iter()
-                    .map(|ty| ty.instantiate(owner, arguments))
-                    .collect::<Option<_>>()?,
-                result: Box::new(result.instantiate(owner, arguments)?),
-            },
-            Self::Range(ty, kind) => {
-                Self::Range(Box::new(ty.instantiate(owner, arguments)?), *kind)
-            }
-            Self::Iter(ty) => Self::Iter(Box::new(ty.instantiate(owner, arguments)?)),
-            Self::Array(ty, access) => {
-                Self::Array(Box::new(ty.instantiate(owner, arguments)?), *access)
-            }
-            Self::Set(ty, access) => {
-                Self::Set(Box::new(ty.instantiate(owner, arguments)?), *access)
-            }
-            Self::Map { key, value, access } => Self::Map {
-                key: Box::new(key.instantiate(owner, arguments)?),
-                value: Box::new(value.instantiate(owner, arguments)?),
-                access: *access,
-            },
-            Self::StandardEnum { kind, args } => Self::StandardEnum {
-                kind: *kind,
-                args: args
-                    .iter()
-                    .map(|ty| ty.instantiate(owner, arguments))
-                    .collect::<Option<_>>()?,
-            },
-            Self::Struct(ty) => Self::Struct(nominal(ty)?),
-            Self::Enum(ty) => Self::Enum(nominal(ty)?),
-            Self::Trait(ty) => Self::Trait(nominal(ty)?),
-        })
+        let result = TypeSubstitution::for_owner(owner, arguments)
+            .apply(self, &CancellationToken::default())
+            .ok()?;
+        result.is_concrete().then_some(result)
     }
 }
 
@@ -462,62 +368,6 @@ pub struct InterfaceTableAbi {
 }
 
 impl InterfaceTableAbi {
-    pub(crate) fn checked_signature(&self) -> Option<ImplementationSignature> {
-        let AbiType::Trait(trait_type) = &self.trait_type else {
-            return None;
-        };
-        let parameter = |param: &GenericParameterAbi| GenericParameterType {
-            owner: param.owner.clone(),
-            position: param.position,
-            name: String::new(),
-        };
-        let bounds = |bounds: &[GenericBoundAbi]| {
-            bounds
-                .iter()
-                .map(|bound| {
-                    (
-                        bound.ty.to_checked_type(),
-                        bound
-                            .constraints
-                            .iter()
-                            .map(|constraint| match constraint {
-                                ConstraintAbi::Standard(value) => {
-                                    ConstraintTarget::Standard(*value)
-                                }
-                                ConstraintAbi::Trait(value) => {
-                                    ConstraintTarget::Trait(value.to_checked_type())
-                                }
-                            })
-                            .collect(),
-                    )
-                })
-                .collect()
-        };
-        Some(ImplementationSignature {
-            id: self.declaration.clone(),
-            trait_type: trait_type.to_checked_type(),
-            for_type: self.for_type.to_checked_type(),
-            generic_params: self.generic_params.iter().map(parameter).collect(),
-            bounds: bounds(&self.bounds),
-            methods: Default::default(),
-            associated_type_families: self
-                .associated_type_families
-                .iter()
-                .map(|family| {
-                    (
-                        family.declaration.clone(),
-                        AssociatedTypeFamily {
-                            inputs: AssociatedTypeParameters {
-                                parameters: family.generic_params.iter().map(parameter).collect(),
-                                bounds: bounds(&family.bounds),
-                            },
-                            value: family.value.to_checked_type(),
-                        },
-                    )
-                })
-                .collect(),
-        })
-    }
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// The verifier separately proves template validity, bounds and method slots.
     pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
@@ -527,24 +377,11 @@ impl InterfaceTableAbi {
             return None;
         }
         let apply = |ty: &AbiType| ty.instantiate(&self.declaration, arguments);
-        let substitution = self
-            .generic_params
-            .iter()
-            .zip(arguments)
-            .map(|(parameter, argument)| {
-                (
-                    GenericParameterType {
-                        owner: parameter.owner.clone(),
-                        position: parameter.position,
-                        name: String::new(),
-                    },
-                    argument.to_checked_type(),
-                )
-            })
-            .collect();
-        let family_apply = |ty: &AbiType| {
-            AbiType::from_checked_type(&ty.to_checked_type().instantiate(&substitution))
-        };
+        let cancel = CancellationToken::default();
+        let mut substitution = TypeSubstitution::default();
+        for (parameter, argument) in self.generic_params.iter().zip(arguments) {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
         let methods = self
             .methods
             .iter()
@@ -576,31 +413,8 @@ impl InterfaceTableAbi {
                     Some(AssociatedTypeFamilyAbi {
                         declaration: family.declaration.clone(),
                         generic_params: family.generic_params.clone(),
-                        bounds: family
-                            .bounds
-                            .iter()
-                            .map(|bound| GenericBoundAbi {
-                                ty: family_apply(&bound.ty),
-                                constraints: bound
-                                    .constraints
-                                    .iter()
-                                    .map(|constraint| match constraint {
-                                        ConstraintAbi::Standard(value) => {
-                                            ConstraintAbi::Standard(*value)
-                                        }
-                                        ConstraintAbi::Trait(value) => {
-                                            let AbiType::Trait(value) =
-                                                family_apply(&AbiType::Trait(value.clone()))
-                                            else {
-                                                unreachable!("trait constraint")
-                                            };
-                                            ConstraintAbi::Trait(value)
-                                        }
-                                    })
-                                    .collect(),
-                            })
-                            .collect(),
-                        value: family_apply(&family.value),
+                        bounds: substitution.apply_bounds(&family.bounds, &cancel).ok()?,
+                        value: substitution.apply(&family.value, &cancel).ok()?,
                     })
                 })
                 .collect::<Option<_>>()?,
@@ -621,7 +435,7 @@ impl InterfaceTableAbi {
 /// The physical call contract of a method on a concrete applied interface.
 /// The first argument is the boxed receiver; the runtime unwraps it only after
 /// checking the interface identity and selected method slot.
-pub(crate) fn interface_method_types(
+pub fn interface_method_types(
     owner: &ModuleIdentity,
     public_items: &[PublicAbiItem],
     trait_contracts: &[TraitContract],
@@ -636,7 +450,7 @@ pub(crate) fn interface_method_types(
     ))
 }
 
-pub(crate) fn interface_method_semantics(
+pub fn interface_method_semantics(
     owner: &ModuleIdentity,
     public_items: &[PublicAbiItem],
     trait_contracts: &[TraitContract],
@@ -691,23 +505,15 @@ pub(crate) fn interface_method_semantics(
     {
         return None;
     }
+    let cancel = CancellationToken::default();
+    let mut substitution = TypeSubstitution::default();
+    for (parameter, argument) in trait_abi.generic_params.iter().zip(&interface.arguments) {
+        substitution.bind(&parameter.owner, parameter.position, argument);
+    }
     let instantiated = |ty: &AbiType| {
-        let interface = interface.to_checked_type();
-        let substitution = trait_abi
-            .generic_params
-            .iter()
-            .map(|parameter| GenericParameterType {
-                owner: parameter.owner.clone(),
-                position: parameter.position,
-                name: String::new(),
-            })
-            .zip(interface.arguments.iter().cloned())
-            .collect();
-        let ty = ty
-            .to_checked_type()
-            .instantiate(&substitution)
-            .with_associated_types(&interface);
-        ty.is_concrete().then(|| AbiType::from_checked_type(&ty))
+        let ty = substitution.apply(ty, &cancel).ok()?;
+        let ty = resolve_associated_outputs(&ty, interface, &cancel).ok()?;
+        ty.is_concrete().then_some(ty)
     };
     let mut params = vec![AbiType::Trait(interface.clone())];
     params.extend(
@@ -736,8 +542,6 @@ pub struct ConcreteFunctionIdentity {
     pub arguments: Vec<AbiType>,
 }
 
-mod wire;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericParameterAbi {
     pub owner: DefinitionId,
@@ -758,8 +562,6 @@ pub enum ConstraintAbi {
 }
 
 pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
-
-pub(crate) mod verify;
 
 /// Canonical standard contracts are engine-owned, never supplied by an artifact.
 pub fn standard_trait_contract(id: &DefinitionId) -> Option<&'static TraitAbi> {

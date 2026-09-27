@@ -1,5 +1,4 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
-use crate::builtin::traits::StandardTraitSemantics;
 
 use kagari_common::host_interface::HostPathSegmentDeclaration;
 
@@ -10,7 +9,6 @@ use crate::typeck;
 use crate::typeck::ConstraintTarget;
 use crate::types::TypeSubstitution;
 use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::surface::StandardTypeConstraint;
 use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::host_interface::HostFieldDeclaration;
 use kagari_common::host_interface::HostPathContract;
@@ -30,6 +28,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::types::NominalType;
 use crate::types::TypeId;
+use kagari_abi::host::satisfies_standard_constraint;
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span,
@@ -671,12 +670,4 @@ pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
             _ => unreachable!("composite handled above"),
         }),
     }
-}
-
-/// Reuse the language's standard-bound rule for portable host type arguments.
-pub fn satisfies_standard_constraint(
-    ty: &HostValueType,
-    constraint: StandardTypeConstraint,
-) -> bool {
-    typeck::type_satisfies_standard_constraint(&signature_type(ty), constraint, &Default::default())
 }

@@ -162,7 +162,7 @@ mod tests {
     #[test]
     fn every_generated_trait_expands_into_a_portable_contract() {
         for kind in StandardTrait::ALL {
-            let contract = trait_contract(kind).expect(kind.name());
+            let contract = trait_contract(kind).unwrap_or_else(|| panic!("{}", kind.name()));
             assert_eq!(contract.methods.len(), kind.declaration().methods.len());
             assert_eq!(
                 contract.generic_params.len(),

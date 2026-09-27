@@ -30,7 +30,6 @@ use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
 use crate::AnalysisResult;
-use crate::builtin::surface;
 use crate::hir::FunctionKind;
 use crate::lower::LoweredModule;
 use crate::resolver::ResolvedName;

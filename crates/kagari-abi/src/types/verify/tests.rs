@@ -170,3 +170,116 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &cancel,
     ));
 }
+
+#[test]
+fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
+    let module = ModuleIdentity::single_file("caller.kgr");
+    let interface_id = owner(&module, &[], DefinitionKind::Trait, "Read");
+    let dependency_id = owner(
+        &ModuleIdentity::single_file("dependency.kgr"),
+        &[],
+        DefinitionKind::Trait,
+        "Value",
+    );
+    let member = identity::associated_type_id(&dependency_id, "Item");
+    let receiver = AbiType::Builtin(BuiltinType::I32);
+    let dependency_view = NominalAbiType {
+        declaration: dependency_id,
+        arguments: vec![],
+        associated_types: BTreeMap::new(),
+    };
+    let declared = FunctionAbi {
+        name: "read".into(),
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: AbiType::Projection {
+            receiver: Box::new(receiver.clone()),
+            interface: Box::new(dependency_view.clone()),
+            member: member.clone(),
+            arguments: vec![],
+        },
+    };
+    let mut implemented = FunctionAbi {
+        return_type: AbiType::Builtin(BuiltinType::Bool),
+        ..declared.clone()
+    };
+    let view = NominalAbiType {
+        declaration: interface_id,
+        arguments: vec![],
+        associated_types: BTreeMap::new(),
+    };
+    let table = InterfaceTableAbi {
+        name: "Read".into(),
+        declaration: owner(&module, &[], DefinitionKind::Impl, ""),
+        generic_params: vec![],
+        bounds: vec![],
+        for_type: receiver.clone(),
+        trait_type: AbiType::Trait(view.clone()),
+        associated_consts: vec![],
+        associated_type_families: vec![],
+        methods: vec![],
+        host_bridge: false,
+        native_bridge: false,
+    };
+    let dependency = InterfaceTableAbi {
+        trait_type: AbiType::Trait(NominalAbiType {
+            associated_types: [(member, receiver.clone())].into(),
+            ..dependency_view
+        }),
+        ..table.clone()
+    };
+    let cancel = CancellationToken::default();
+    assert!(same_method_contract(
+        &declared,
+        &implemented,
+        &view,
+        &table,
+        &cancel
+    ));
+    let normalize = |ty: &AbiType| {
+        normalize_projections(
+            ty,
+            &|interface, receiver, member, arguments| {
+                matching::projection_output(
+                    &dependency,
+                    interface,
+                    receiver,
+                    member,
+                    arguments,
+                    &cancel,
+                )
+            },
+            &cancel,
+        )
+    };
+    assert!(!method_contract_matches(
+        &declared,
+        &implemented,
+        &view,
+        &table,
+        &normalize,
+        false,
+        &cancel
+    ));
+    implemented.return_type = receiver;
+    assert!(method_contract_matches(
+        &declared,
+        &implemented,
+        &view,
+        &table,
+        &normalize,
+        false,
+        &cancel
+    ));
+    cancel.cancel();
+    assert!(!method_contract_matches(
+        &declared,
+        &implemented,
+        &view,
+        &table,
+        &normalize,
+        false,
+        &cancel
+    ));
+}

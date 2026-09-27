@@ -1,5 +1,4 @@
 use super::ty;
-use crate::builtin::traits::StandardTraitSemantics;
 use crate::builtin::traits::intrinsic_holds;
 use crate::declarations::Declarations;
 use hir::TypeKind;

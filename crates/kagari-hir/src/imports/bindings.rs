@@ -1,9 +1,7 @@
 //! Resolve facade targets once, before declaration/name/signature consumers run.
 
-use crate::builtin::traits::StandardTraitSemantics;
 use kagari_abi::standard::surface as standard_surface;
 
-use crate::builtin::surface;
 use crate::builtin::traits;
 use crate::host::HostDeclarations;
 use crate::imports::ImportTarget;

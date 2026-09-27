@@ -18,8 +18,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::vec::IntoIter;
 
-const MAX_DEPTH: usize = 64;
-const MAX_NODES: usize = 4_096;
+use crate::types::substitution::{MAX_TYPE_DEPTH as MAX_DEPTH, MAX_TYPE_NODES as MAX_NODES};
 
 #[derive(Serialize, Deserialize)]
 enum Node {
@@ -56,7 +55,7 @@ enum Node {
 }
 
 impl AbiType {
-    pub(crate) fn within_wire_limits(&self) -> bool {
+    pub fn within_wire_limits(&self) -> bool {
         self.wire_nodes().is_ok()
     }
 

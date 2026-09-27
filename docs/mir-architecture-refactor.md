@@ -806,6 +806,69 @@ do not bypass those checks or restore HIR dependencies to executable crates.
 The previously recorded A02-A05 work and carried integration errors remain owned
 by those phases.
 
+### A01 checkpoint: source-free ABI validation (2026-09-28)
+
+ABI now builds without HIR imports or checked-source type conversions. Its
+substitution engine replaces one binder layer, preserves foreign method/family
+binders, substitutes receiver owners explicitly, and bounds cancellation, identity
+paths, traversal work, output depth and output node counts. It shares the existing
+64-depth/4,096-node wire limits. Concrete interface instantiation rejects remaining
+symbolic types; associated family templates retain their own parameters and bounds.
+
+Portable projection normalization resolves embedded and applied associated outputs
+and accepts a checked dependency lookup. Cyclic and oversized expansions fail
+explicitly. Portable implementation matching checks repeated binder consistency,
+requested associated outputs and family application. Module-local method checks
+use the current implementation's outputs and may defer dependency projections;
+linked method checks require a supplied complete resolver and compare normalized
+signatures and bounds. A new test demonstrates that local deferral does not make
+a corrupted dependency-supplied result pass the linked comparison.
+
+Host trait bridges now match portable host declarations directly. Intrinsic host
+standard constraints are shared ABI policy. Native collection, indexing and
+iteration capabilities are validated without source analysis, with generated
+standard-implementation fixtures checking their associated outputs. Source-only
+ABI-to-HIR conversion lives in compiler lowering, and its existing source callers
+were updated. Removed the old HIR implementation-signature reconstruction entrypoint.
+MIR/bytecode consumers now use public ABI validation entrypoints from their actual
+owners; internal helpers and generated descriptor expansion remain private.
+
+Validation and carried errors:
+
+- `cargo test -p kagari-abi -p kagari-hir`: 19 ABI and 353 HIR tests pass. After
+  tightening matching-input bounds, `cargo test -p kagari-abi` again passes all
+  19 tests. This includes generated standard contracts, wire corruption checks,
+  alpha-renaming, repeated binders, associated families, cancellation, depth/node
+  expansion limits, projection cycles, native access invariance, host constraints
+  and dependency-projection comparison. Existing HIR semantic tests are preserved.
+- `cargo clippy -p kagari-abi -p kagari-hir --all-targets -- -D warnings`: passes.
+  Fixed the source descriptor extension-trait imports and unused imports exposed
+  once ABI built; no frontend dependency was restored to execution crates.
+- `uv run --locked scripts/check_structure.py`: 456 Rust files, zero findings and
+  zero exceptions. Reviewed new module boundaries, cross-crate API visibility,
+  production imports and bounded transformation control flow. Formatting and
+  `git diff --check` pass. Test inventory retains every prior test and adds twelve
+  behavioral/boundary cases (1,326 `#[test]` functions total).
+- `cargo check --workspace --all-targets`: still fails (exit 101), now past ABI and
+  HIR. The latest attempt reports 11 MIR errors and 64 bytecode library errors
+  (65 for its test target). Representative failures: E0432/E0433 for old HIR
+  imports in MIR program inheritance and bytecode access/trait verification;
+  E0599 for removed checked-type/signature conversions; stale ABI helper owners,
+  restricted visibility and old module paths from extraction. These are carried
+  migration errors, not successful workspace validation. Compiler/runtime/native
+  integration failures remain incompletely enumerated behind these crates.
+
+The previous 20 ABI compilation errors are resolved. A01 remains open because
+MIR and bytecode still query source analysis. The next substantial unit replaces
+`kagari-bytecode::trait_bounds`' source catalog with portable linked proofs:
+implementation uniqueness/ownership, intrinsic/native capabilities, associated
+families and bounds, supertrait closure, and complete projection normalization.
+Use the new ABI matching/substitution operations, retain proof/cancellation budgets,
+and supply that resolver to linked method checks. Share portable ancestry with MIR
+rather than restoring HIR. Bytecode access and descriptor argument matching also
+need portable operations. A02 still owns concrete source-request handoff and MIR
+analysis seals; the recorded A03-A05 work and final behavior matrix remain open.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

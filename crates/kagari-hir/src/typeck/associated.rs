@@ -17,10 +17,11 @@ use crate::types::AssociatedTypeFamily;
 use crate::types::AssociatedTypeParameters;
 use crate::{
     hir,
-    types::{NominalType, TypeId, associated_type_id},
+    types::{NominalType, TypeId},
 };
 use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::Diagnostic;
+use kagari_common::identity::associated_type_id;
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use smallvec::SmallVec;
 use std::cell::RefCell;

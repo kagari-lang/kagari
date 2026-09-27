@@ -1,6 +1,6 @@
 use crate::builtin::declarations;
+use crate::builtin::declarations::{ApiImplementationSemantics, ApiTypeSemantics};
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::BlockId;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;

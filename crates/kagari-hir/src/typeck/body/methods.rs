@@ -1,5 +1,6 @@
 use crate::aggregates::ImplementationSearchError;
 use crate::builtin::declarations;
+use crate::builtin::declarations::{ApiImplementationSemantics, ApiTypeSemantics};
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExprId;
@@ -17,7 +18,6 @@ use crate::typeck::inference;
 use crate::typeck::ty;
 use crate::typeck::ty::TypeContext;
 use crate::typeck::ty::resolve_type_in;
-use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;

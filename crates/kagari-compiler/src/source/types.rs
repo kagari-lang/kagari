@@ -4,7 +4,7 @@ use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::{AbiType, NominalAbiType};
 use kagari_common::integer::IntegerOp;
 use kagari_hir::hir::BinaryOp;
-use kagari_hir::types::{NominalType, TypeId};
+use kagari_hir::types::{GenericParameterType, NominalType, TypeId};
 pub(crate) fn lower_nominal_type(ty: &NominalType) -> NominalAbiType {
     NominalAbiType {
         associated_types: ty
@@ -88,4 +88,61 @@ pub(crate) fn lower_numeric_operation(
         input,
         rhs: Some(rhs),
     })
+}
+
+pub(crate) fn raise_nominal_type(ty: &NominalAbiType) -> NominalType {
+    NominalType {
+        associated_types: ty
+            .associated_types
+            .iter()
+            .map(|(id, ty)| (id.clone(), raise_type(ty)))
+            .collect(),
+        declaration: ty.declaration.clone(),
+        arguments: ty.arguments.iter().map(raise_type).collect(),
+    }
+}
+
+pub(crate) fn raise_type(ty: &AbiType) -> TypeId {
+    match ty {
+        AbiType::Projection {
+            receiver,
+            interface,
+            member,
+            arguments,
+        } => TypeId::Projection {
+            arguments: arguments.iter().map(raise_type).collect(),
+            receiver: Box::new(raise_type(receiver)),
+            interface: Box::new(raise_nominal_type(interface)),
+            member: member.clone(),
+        },
+        AbiType::Host(id) => TypeId::Host(id.clone()),
+        AbiType::SelfType(id) => TypeId::SelfType(id.clone()),
+        AbiType::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
+            owner: owner.clone(),
+            position: *position,
+            name: String::new(),
+        }),
+        AbiType::Builtin(ty) => TypeId::Builtin(*ty),
+        AbiType::Tuple(types) => TypeId::Tuple(types.iter().map(raise_type).collect()),
+        AbiType::Function { params, result } => TypeId::Function {
+            params: params.iter().map(raise_type).collect(),
+            result: Box::new(raise_type(result)),
+        },
+        AbiType::Range(ty, kind) => TypeId::Range(Box::new(raise_type(ty)), *kind),
+        AbiType::Iter(ty) => TypeId::Iter(Box::new(raise_type(ty))),
+        AbiType::Array(ty, access) => TypeId::Array(Box::new(raise_type(ty)), *access),
+        AbiType::Map { key, value, access } => TypeId::Map {
+            key: Box::new(raise_type(key)),
+            value: Box::new(raise_type(value)),
+            access: *access,
+        },
+        AbiType::Set(ty, access) => TypeId::Set(Box::new(raise_type(ty)), *access),
+        AbiType::Struct(ty) => TypeId::Struct(raise_nominal_type(ty)),
+        AbiType::Enum(ty) => TypeId::Enum(raise_nominal_type(ty)),
+        AbiType::Trait(ty) => TypeId::Trait(raise_nominal_type(ty)),
+        AbiType::StandardEnum { kind, args } => TypeId::StandardEnum {
+            kind: *kind,
+            args: args.iter().map(raise_type).collect(),
+        },
+    }
 }

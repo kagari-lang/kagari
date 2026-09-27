@@ -1,4 +1,5 @@
 use crate::source::types::lower_type;
+use crate::source::types::raise_type;
 use crate::tests::common::bytecode_ok;
 use bincode::Options;
 use kagari_abi::scalar::BuiltinType;
@@ -212,7 +213,7 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
                 access,
             },
         ] {
-            let checked = ty.to_checked_type();
+            let checked = raise_type(&ty);
             assert_eq!(checked.collection_access(), Some(access));
             assert_eq!(lower_type(&checked), ty);
             let bytes = codec().serialize(&ty).unwrap();
@@ -228,9 +229,7 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
             },
         ] {
             assert_eq!(
-                AbiType::from_host_type(&host)
-                    .to_checked_type()
-                    .collection_access(),
+                raise_type(&AbiType::from_host_type(&host)).collection_access(),
                 Some(access)
             );
         }

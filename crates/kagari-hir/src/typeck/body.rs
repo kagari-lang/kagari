@@ -35,7 +35,6 @@ use std::collections::{HashMap, HashSet};
 use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
-use crate::builtin::surface;
 use crate::hir::BlockId;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;

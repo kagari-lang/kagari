@@ -1,6 +1,4 @@
-use crate::builtin::surface;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
 use crate::builtin::traits::intrinsic_holds;
 use crate::hir::ExprId;
 use crate::hir::ExprKind;

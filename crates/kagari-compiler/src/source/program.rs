@@ -1,6 +1,7 @@
 use crate::MirLoweringError;
 use crate::MirLoweringOptions;
 use crate::source::lower;
+use crate::source::types::raise_type;
 use kagari_abi::contracts;
 use kagari_abi::representation::ValueType;
 use kagari_abi::types as abi;
@@ -154,7 +155,7 @@ pub fn lower_program_to_mir(
                         &module.identity,
                         ConcreteFunctionIdentity {
                             declaration: implementation.clone(),
-                            arguments: arguments.iter().map(AbiType::to_checked_type).collect(),
+                            arguments: arguments.iter().map(raise_type).collect(),
                         },
                     )),
                     _ => None,

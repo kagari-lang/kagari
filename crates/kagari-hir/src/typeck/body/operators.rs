@@ -13,7 +13,6 @@ use crate::typeck::body::BodyChecker;
 use crate::typeck::completion;
 use crate::typeck::constraints;
 use crate::typeck::ty::display_type_id;
-use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;

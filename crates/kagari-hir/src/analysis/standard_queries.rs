@@ -1,6 +1,10 @@
 //! Standard API queries consume checked semantic targets and the bundled source catalog.
 
-use crate::builtin::declarations::{ApiItemSemantics, ApiTypeSemantics};
+#[cfg(test)]
+use crate::builtin::declarations::ApiItemSemantics;
+use crate::builtin::declarations::ApiTypeSemantics;
+use crate::builtin::declarations::{ApiBoundSemantics, ApiImplementationSemantics};
+#[cfg(test)]
 use crate::builtin::traits::StandardTraitSemantics;
 use kagari_abi::standard::surface as standard_surface;
 use kagari_abi::standard::surface::STANDARD_TRAITS;
@@ -11,7 +15,6 @@ use kagari_abi::standard::traits::StandardTrait;
 use crate::analysis::FileAnalysis;
 use crate::builtin::declarations;
 use crate::builtin::declarations::Arguments;
-use crate::builtin::surface;
 use crate::builtin::traits;
 use crate::declarations::Declaration;
 use crate::declarations::DeclarationId;

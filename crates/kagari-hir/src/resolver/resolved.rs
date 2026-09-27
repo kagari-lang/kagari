@@ -1,5 +1,4 @@
 use crate::builtin::BuiltinFunction;
-use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::ExportItem;
 use crate::hir::Module;
 use crate::hir::PatternId;
@@ -17,7 +16,6 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::builtin::surface;
 use crate::hir::{
     ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, ParamId, PlaceId, StructId, TraitId,
 };

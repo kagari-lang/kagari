@@ -4,7 +4,6 @@ use crate::builtin::traits;
 use crate::builtin::traits::StandardTraitSemantics;
 use crate::declarations::Declarations;
 use crate::resolver::ResolvedName;
-use crate::types;
 use crate::types::NominalType;
 use crate::{builtin::surface, hir, types::TypeId};
 use hir::BodyOwner;

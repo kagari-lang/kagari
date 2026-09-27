@@ -1,5 +1,4 @@
 use crate::aggregates::AggregateCatalog;
-use crate::builtin::declarations;
 use crate::builtin::numeric;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTraitSemantics;
@@ -10,7 +9,6 @@ use crate::typeck::ConstraintTarget;
 use crate::typeck::GenericBounds;
 use crate::typeck::ModuleSignatures;
 use crate::typeck::associated;
-use crate::types;
 use crate::types::AssociatedTypeFamily;
 use crate::types::TypeId;
 use crate::types::TypeSubstitution;

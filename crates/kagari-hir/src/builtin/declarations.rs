@@ -31,7 +31,6 @@ use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::SourceFile;
 use kagari_common::Span;
 use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::DefinitionId;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 

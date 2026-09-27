@@ -19,7 +19,6 @@ use crate::imports::ModuleImports;
 use crate::resolver::DeclarationNames;
 use crate::resolver::NameTable;
 use crate::source_map::SourceMap;
-use crate::types;
 use crate::types::GenericParameterType;
 use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::cancellation::CancellationToken;

@@ -1,6 +1,5 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 
-use crate::builtin::traits::StandardTraitSemantics;
 use kagari_abi::standard::StandardIntrinsic;
 use kagari_abi::standard::surface as standard_surface;
 use kagari_abi::standard::surface::StandardVariant;
@@ -10,7 +9,6 @@ use crate::hir::FunctionKind;
 use crate::hir::ModuleId;
 use crate::resolver::ResolvedName;
 use crate::{
-    builtin::surface,
     hir::{ExportItem, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,

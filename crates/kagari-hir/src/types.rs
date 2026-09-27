@@ -1,4 +1,3 @@
-use crate::builtin::surface;
 use crate::builtin::traits::StandardTraitSemantics;
 use crate::typeck::GenericBounds;
 use crate::typeck::associated;
@@ -10,8 +9,6 @@ use kagari_common::collection::CollectionAccess;
 use kagari_common::collection::CollectionAccess::Mutable;
 use kagari_common::collection::CollectionAccess::ReadOnly;
 use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::DefinitionPathSegment;
 use kagari_common::range::RangeKind;
 use std::collections::BTreeMap;
 use std::collections::HashMap;

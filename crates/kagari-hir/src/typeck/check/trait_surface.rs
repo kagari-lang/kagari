@@ -14,7 +14,6 @@ use crate::typeck::check::validate_standard_constraint_type;
 use crate::typeck::constraints;
 use crate::typeck::ty::display_type;
 use crate::typeck::ty::display_type_id;
-use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use kagari_abi::standard::traits::StandardTrait;

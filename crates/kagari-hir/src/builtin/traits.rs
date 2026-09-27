@@ -23,6 +23,7 @@ use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::standard::surface::STANDARD_TRAITS;
 use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::standard::surface::StandardModule;
 use kagari_common::identity::DefinitionId;
 use std::collections::BTreeMap;
 use std::collections::HashSet;

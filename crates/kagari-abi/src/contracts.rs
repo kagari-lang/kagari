@@ -23,14 +23,14 @@ pub enum ContractError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeHelperKind {
+pub enum RuntimeHelperKind {
     TypeOf,
     GetField,
     SetField,
     SetIndex,
 }
 
-pub(crate) fn verify_runtime_helper_call(
+pub fn verify_runtime_helper_call(
     dst: Option<ValueType>,
     helper: RuntimeHelperKind,
     args: &[ValueType],
@@ -78,7 +78,7 @@ pub(crate) fn verify_runtime_helper_call(
     }
 }
 
-pub(crate) fn verify_host_call(
+pub fn verify_host_call(
     dst: Option<ValueType>,
     declaration: &HostFunctionDeclaration,
     args: &[ValueType],
@@ -103,7 +103,7 @@ pub(crate) fn verify_host_call(
     verify_call_dst(dst, ValueType::from_host_type(&declaration.return_type))
 }
 
-pub(crate) fn expect_type(
+pub fn expect_type(
     found: ValueType,
     expected: ValueType,
     context: &'static str,
@@ -119,7 +119,7 @@ pub(crate) fn expect_type(
     }
 }
 
-pub(crate) fn unary_result(op: UnaryOp, operand: ValueType) -> Result<ValueType, ContractError> {
+pub fn unary_result(op: UnaryOp, operand: ValueType) -> Result<ValueType, ContractError> {
     match op {
         UnaryOp::Neg if numeric(operand) && operand != ValueType::U64 => Ok(operand),
         UnaryOp::Not if operand == ValueType::Bool => Ok(ValueType::Bool),
@@ -129,7 +129,7 @@ pub(crate) fn unary_result(op: UnaryOp, operand: ValueType) -> Result<ValueType,
     }
 }
 
-pub(crate) fn binary_result(
+pub fn binary_result(
     op: BinaryOp,
     lhs: ValueType,
     rhs: ValueType,
@@ -174,7 +174,7 @@ fn numeric(ty: ValueType) -> bool {
         ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::F32 | ValueType::F64
     )
 }
-pub(crate) fn verify_intrinsic(
+pub fn verify_intrinsic(
     dst: Option<ValueType>,
     intrinsic: StandardIntrinsic,
     args: &[ValueType],
@@ -772,7 +772,7 @@ pub(crate) fn verify_intrinsic(
     Ok(())
 }
 
-pub(crate) fn verify_call_dst(
+pub fn verify_call_dst(
     dst: Option<ValueType>,
     return_type: ValueType,
 ) -> Result<(), ContractError> {

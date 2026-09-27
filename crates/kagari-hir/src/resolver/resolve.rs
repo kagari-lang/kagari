@@ -1,8 +1,6 @@
 use super::NameResolution;
 use crate::builtin::BuiltinFunction;
-use crate::builtin::surface;
 use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
 use crate::hir::Condition;
 use crate::hir::PatternId;
 use crate::hir::{

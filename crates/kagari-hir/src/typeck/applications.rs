@@ -1,5 +1,4 @@
 //! Validate applied aggregate contracts from the shared checked catalog.
-use crate::builtin::traits::StandardTraitSemantics;
 
 use crate::builtin::traits::intrinsic_holds;
 

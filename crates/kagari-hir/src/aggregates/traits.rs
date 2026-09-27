@@ -8,7 +8,6 @@ use crate::lower::LoweredModule;
 use crate::resolver::ResolvedName;
 use crate::typeck::GenericBounds;
 use crate::typeck::ModuleSignatures;
-use crate::types;
 use crate::types::AssociatedTypeParameters;
 use crate::types::NominalType;
 use crate::types::TypeId;

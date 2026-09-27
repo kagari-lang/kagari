@@ -11,7 +11,6 @@ use crate::typeck::body::BodyChecker;
 use crate::typeck::ty;
 use crate::typeck::ty::TypeContext;
 use crate::typeck::ty::resolve_type_in;
-use crate::types;
 use crate::types::NominalType;
 use crate::types::TypeId;
 use kagari_abi::scalar::BuiltinType;
