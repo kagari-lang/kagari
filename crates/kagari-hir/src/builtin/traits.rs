@@ -1,5 +1,7 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
 
+use kagari_common::collection::CollectionAccess::Mutable;
+
 use super::declarations;
 use super::numeric;
 use super::surface;
@@ -927,7 +929,6 @@ pub fn native_interface_applies(interface: &NominalType, receiver: &TypeId) -> b
 
 /// The default concrete storage family corresponding to a collection capability.
 pub fn collection_storage(interface: &NominalType) -> Option<TypeId> {
-    use kagari_common::collection::CollectionAccess::Mutable;
     match (
         StandardTrait::from_id(&interface.declaration)?,
         interface.arguments.as_slice(),

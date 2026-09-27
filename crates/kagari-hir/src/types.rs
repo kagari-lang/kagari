@@ -1,8 +1,11 @@
 use crate::builtin::surface;
 use crate::builtin::surface::StandardEnum;
+use crate::builtin::traits::StandardTrait;
 use crate::typeck::GenericBounds;
 use crate::typeck::associated;
 use kagari_common::collection::CollectionAccess;
+use kagari_common::collection::CollectionAccess::Mutable;
+use kagari_common::collection::CollectionAccess::ReadOnly;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::DefinitionPathSegment;
@@ -231,18 +234,18 @@ pub enum TypeId {
 impl TypeId {
     /// Canonical read-only interface for a native collection or collection view.
     pub fn collection_view(&self) -> Option<Self> {
-        use crate::builtin::traits::StandardTrait as S;
         let (kind, arguments) = match self {
-            Self::Array(item, _) => (S::List, vec![item.as_ref().clone()]),
-            Self::Map { key, value, .. } => {
-                (S::Map, vec![key.as_ref().clone(), value.as_ref().clone()])
-            }
-            Self::Set(item, _) => (S::Set, vec![item.as_ref().clone()]),
+            Self::Array(item, _) => (StandardTrait::List, vec![item.as_ref().clone()]),
+            Self::Map { key, value, .. } => (
+                StandardTrait::Map,
+                vec![key.as_ref().clone(), value.as_ref().clone()],
+            ),
+            Self::Set(item, _) => (StandardTrait::Set, vec![item.as_ref().clone()]),
             Self::Trait(interface) => (
-                match S::from_id(&interface.declaration)? {
-                    S::List | S::MutableList => S::List,
-                    S::Map | S::MutableMap => S::Map,
-                    S::Set | S::MutableSet => S::Set,
+                match StandardTrait::from_id(&interface.declaration)? {
+                    StandardTrait::List | StandardTrait::MutableList => StandardTrait::List,
+                    StandardTrait::Map | StandardTrait::MutableMap => StandardTrait::Map,
+                    StandardTrait::Set | StandardTrait::MutableSet => StandardTrait::Set,
                     _ => return None,
                 },
                 interface.arguments.clone(),
@@ -288,7 +291,6 @@ impl TypeId {
 
     /// Only the outer collection access is weakened. Type arguments stay invariant.
     pub fn read_only_view(&self) -> Option<Self> {
-        use CollectionAccess::ReadOnly;
         Some(match self {
             Self::Array(item, _) => Self::Array(item.clone(), ReadOnly),
             Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
@@ -302,7 +304,6 @@ impl TypeId {
     }
 
     pub fn can_weaken_to(&self, target: &Self) -> bool {
-        use CollectionAccess::{Mutable, ReadOnly};
         self.collection_access() == Some(Mutable)
             && target.collection_access() == Some(ReadOnly)
             && self
@@ -1183,7 +1184,6 @@ impl BuiltinType {
 
 impl BuiltinType {
     pub fn number_type(self) -> Option<NumberType> {
-        use kagari_common::numeric::NumberType;
         match self {
             Self::F32 => Some(NumberType::F32),
             Self::F64 => Some(NumberType::F64),

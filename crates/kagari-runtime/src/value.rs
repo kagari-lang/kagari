@@ -255,7 +255,6 @@ impl MapKey {
         &self.value
     }
     pub fn script_hash(&self) -> i64 {
-        use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish() as i64
@@ -290,22 +289,21 @@ pub enum Value {
 
 impl Value {
     pub fn has_representation(&self, ty: ValueType) -> bool {
-        use kagari_ir::module::ValueType as T;
         matches!(
             (self, ty),
-            (Self::Unit, T::Unit)
-                | (Self::Bool(_), T::Bool)
-                | (Self::I32(_), T::I32)
-                | (Self::I64(_), T::I64)
-                | (Self::U64(_), T::U64)
-                | (Self::F32(_), T::F32)
-                | (Self::F64(_), T::F64)
-                | (Self::Str(_), T::Str)
+            (Self::Unit, ValueType::Unit)
+                | (Self::Bool(_), ValueType::Bool)
+                | (Self::I32(_), ValueType::I32)
+                | (Self::I64(_), ValueType::I64)
+                | (Self::U64(_), ValueType::U64)
+                | (Self::F32(_), ValueType::F32)
+                | (Self::F64(_), ValueType::F64)
+                | (Self::Str(_), ValueType::Str)
                 | (
                     Self::HostRoot(_)
                         | Self::HostPathView(_)
                         | Self::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)),
-                    T::HostHandle
+                    ValueType::HostHandle
                 )
                 | (
                     Self::Range(_)
@@ -319,7 +317,7 @@ impl Value {
                         | Self::Interface(_)
                         | Self::Closure(_)
                         | Self::Cell(_),
-                    T::HeapObject
+                    ValueType::HeapObject
                 )
         )
     }

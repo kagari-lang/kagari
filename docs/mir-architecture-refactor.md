@@ -426,7 +426,7 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | `ec0bf1a` foundation imports; `2cf5fb3` test modules; `957b691` enum dispatch; explicit paths across all crates | Checker: 32 tests pass; full audit: exit 1, 71 remaining findings, no exceptions; workspace clippy and 1,315 tests pass at explicit-path checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
+| A00 | `ec0bf1a` foundation imports; `2cf5fb3` test modules; `957b691` enum dispatch; `ed10ba2` explicit paths; parent/local imports cleaned | Checker: 32 tests pass; full audit: exit 1, 29 remaining findings, no exceptions; workspace clippy and 810 focused tests pass at parent/local-import checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -530,6 +530,28 @@ Validation:
   this fresh audit includes those fixes and supersedes that intermediate count.
 - Remaining A00 work also includes moving unjustified function-local imports to
   module scope while reviewing ownership, followed by the complete A00 exit gates.
+
+### A00 checkpoint: dependency ownership (2026-09-28)
+
+Checkpoint commit subject: `refactor: replace inherited and local production imports`.
+Removed all remaining production globs, importing from concrete owners without
+adding forwarding exports or widening visibility. Moved 120 function-local
+production imports to module scope and replaced opaque local aliases with owner
+names or existing meaningful aliases. Test-only dependencies are imported in their
+test modules. Hoisting one import exposed an equivalent nested-if simplification;
+clippy's let-chain rewrite preserves its short-circuit evaluation order.
+
+Validation:
+
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo test -p kagari-hir -p kagari-ir -p kagari-runtime -p kagari-vm`:
+  810 tests pass; doc tests pass. Full workspace tests last passed at `ed10ba2`;
+  A00 exit will rerun all gates on the final cleanup revision.
+- Manual/syntax review finds no remaining function-local production imports.
+- `cargo fmt --all -- --check` and `git diff --check`: pass.
+- `uv run --locked scripts/check_structure.py --json`: exit 1, 29 findings:
+  18 re-export locations and 11 oversized files. Zero production glob, qualified
+  path, repeated-parent, parse-error findings or exceptions. A00 remains active.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

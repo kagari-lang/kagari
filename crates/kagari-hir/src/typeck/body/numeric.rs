@@ -1,6 +1,13 @@
-use super::*;
+use crate::builtin::surface;
+use crate::hir::ExprId;
 use crate::hir::Literal;
+use crate::hir::LiteralKind;
 use crate::typeck::ScalarValue;
+use crate::typeck::body::BodyChecker;
+use crate::types::BuiltinType;
+use crate::types::TypeId;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
 use kagari_common::literal;
 
 impl BodyChecker<'_> {

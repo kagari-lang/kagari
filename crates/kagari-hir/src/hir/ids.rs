@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 macro_rules! id_newtype {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,7 +23,6 @@ pub struct HirArenaId(u64);
 
 impl Default for HirArenaId {
     fn default() -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
         static NEXT_ARENA: AtomicU64 = AtomicU64::new(1);
         Self(
             NEXT_ARENA

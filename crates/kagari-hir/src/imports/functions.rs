@@ -1,12 +1,20 @@
 //! Imported call contracts are projections of independently checked signatures.
 
-use super::*;
 use crate::aggregates::AggregateCatalog;
+use crate::hir::ExportItem;
 use crate::hir::FunctionId;
+use crate::imports::ImportTarget;
+use crate::imports::ModuleImports;
+use crate::imports::SourceImport;
 use crate::{
     PreparedAnalysis, declarations::Declaration, resolver::ResolvedName, typeck::TypedFunction,
 };
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::FileId;
+use kagari_common::identity::Revision;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceFunctionId {

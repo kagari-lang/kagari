@@ -1,6 +1,14 @@
 //! Guards prevent callbacks from modifying prepared mutation targets through aliases.
 
-use super::*;
+use crate::error::RuntimeError;
+use crate::error::RuntimeErrorKind;
+use crate::gc::CollectionIteration;
+use crate::gc::GcHeap;
+use crate::gc::GcObjectKind;
+use crate::gc::HeapObject;
+use crate::gc::HeapObjectId;
+use crate::value::Value;
+use indexmap::IndexMap;
 use kagari_ir::builtin::surface::StandardIntrinsic;
 
 impl GcHeap {
@@ -9,7 +17,6 @@ impl GcHeap {
         operation: StandardIntrinsic,
         args: &[Value],
     ) -> Result<(), RuntimeError> {
-        use kagari_ir::builtin::surface::StandardIntrinsic;
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid prepared collection");
         let [target, Value::Array(buffer)] = args else {

@@ -1,6 +1,17 @@
 //! Validate serialized semantic types independently of display strings.
 
-use super::*;
+use crate::module::abi::AbiType;
+use crate::module::abi::ConstraintAbi;
+use crate::module::abi::FunctionAbi;
+use crate::module::abi::GenericBoundAbi;
+use crate::module::abi::GenericParameterAbi;
+use crate::module::abi::InterfaceTableAbi;
+use crate::module::abi::NominalAbiType;
+use crate::module::abi::PublicAbiItem;
+use crate::module::abi::TraitAbi;
+use crate::module::abi::TraitContract;
+use crate::module::abi::TypeAbi;
+use crate::module::abi::TypeAbiKind;
 use crate::module::layout::LayoutValidationError;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
@@ -12,9 +23,11 @@ use kagari_common::{
 };
 use kagari_hir::aggregates::AggregateCatalog;
 use kagari_hir::builtin::declarations;
+use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
 use kagari_hir::builtin::traits;
 use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::types;
+use kagari_hir::types::BuiltinType;
 use kagari_hir::types::GenericParameterType;
 use kagari_hir::types::TypeId;
 use kagari_hir::types::TypeSubstitution;
@@ -1030,6 +1043,7 @@ fn type_valid(
 mod tests {
     use super::*;
     use crate::bytecode::{BytecodeVerificationError, verify_module};
+    use crate::module::abi::ParameterAbi;
 
     #[test]
     fn interface_method_contract_substitutes_self_and_method_binders_inside_containers() {

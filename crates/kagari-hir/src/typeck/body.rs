@@ -10,10 +10,14 @@ use super::solver::Solver;
 use super::ty;
 use crate::aggregates::AggregateCatalog;
 use crate::aggregates::FieldSignature;
+use crate::aggregates::ImplementationSearchError;
 use crate::builtin::declarations;
 use crate::builtin::declarations::ApiType;
+use crate::builtin::declarations::Arguments;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::callable_signature;
+use crate::builtin::traits::intrinsic_holds;
 use crate::declarations::Declarations;
 use crate::hir::Condition;
 use crate::hir::ConstId;
@@ -36,7 +40,10 @@ use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface;
 use kagari_common::host_interface::HostFieldDeclaration;
 use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_common::host_interface::HostPathSegmentDeclaration;
+use kagari_common::host_interface::PathAccess;
 use kagari_common::identity::DefinitionId;
+use kagari_common::range::RangeKind;
 use std::iter;
 use std::mem;
 use surface::StandardEnum;
@@ -60,7 +67,7 @@ use crate::{
     hir::pattern::PatternBound,
     hir::{
         BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
-        PlaceKind, PrefixOp, StmtId, StmtKind,
+        PlaceKind, StmtId, StmtKind,
     },
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
@@ -952,7 +959,6 @@ impl<'a> BodyChecker<'a> {
                 end,
                 inclusive,
             } => {
-                use kagari_common::range::RangeKind;
                 let kind = RangeKind::from_parts(start.is_some(), end.is_some(), *inclusive)
                     .unwrap_or(RangeKind::Full);
                 let mut element = match expected {
@@ -1550,7 +1556,6 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
         env: &BodyTypeEnv,
     ) -> TypeId {
-        use crate::aggregates::ImplementationSearchError;
         if let Some(target @ TypeId::Function { .. }) = expected
             && !matches!(source, TypeId::Function { .. })
             && let Some((interface, signature)) = self.callable_contract(&source, env)
@@ -2061,7 +2066,7 @@ impl<'a> BodyChecker<'a> {
         let ExprKind::Call { callee, .. } = self.lowered.module.expr(call_expr).kind else {
             unreachable!("standard call expression");
         };
-        use crate::builtin::declarations::Arguments;
+
         let Some(spec) = surface::standard_function_by_intrinsic(intrinsic) else {
             return TypeId::Error;
         };
@@ -2715,8 +2720,15 @@ impl<'a> BodyChecker<'a> {
                 .unwrap_or_default();
             if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
             {
-                use crate::builtin::traits::StandardTrait as S;
-                bounds.extend([S::PartialEq, S::Eq, S::Hash, S::Debug].map(|kind| kind.nominal()));
+                bounds.extend(
+                    [
+                        StandardTrait::PartialEq,
+                        StandardTrait::Eq,
+                        StandardTrait::Hash,
+                        StandardTrait::Debug,
+                    ]
+                    .map(|kind| kind.nominal()),
+                );
             }
             return bounds;
         }
@@ -3610,7 +3622,6 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn infer_host_path_read(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> Option<TypeId> {
-        use kagari_common::host_interface::HostPathSegmentDeclaration as Segment;
         let mut root = expr_id;
         let mut steps = Vec::new();
         loop {
@@ -3664,13 +3675,17 @@ impl<'a> BodyChecker<'a> {
                     .zip(&declaration.segments)
                     .zip(&contract.segments)
                 {
-                    if let (HostPathNode::Member { node, .. }, Segment::Field(id)) =
-                        (step, declared)
+                    if let (
+                        HostPathNode::Member { node, .. },
+                        HostPathSegmentDeclaration::Field(id),
+                    ) = (step, declared)
                     {
                         self.type_table.insert_expr_field(*node, id.clone());
                     }
-                    if let (HostPathNode::Index { argument, .. }, Segment::Index(index)) =
-                        (step, declared)
+                    if let (
+                        HostPathNode::Index { argument, .. },
+                        HostPathSegmentDeclaration::Index(index),
+                    ) = (step, declared)
                     {
                         dynamic_arguments.push((index.slot, *argument));
                     }
@@ -3736,7 +3751,6 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        use kagari_common::host_interface::{HostPathSegmentDeclaration as Segment, PathAccess};
         let mut root = place_id;
         let mut steps = Vec::new();
         loop {
@@ -3790,13 +3804,17 @@ impl<'a> BodyChecker<'a> {
                     .zip(&declaration.segments)
                     .zip(&contract.segments)
                 {
-                    if let (HostPathNode::Member { node, .. }, Segment::Field(id)) =
-                        (step, declared)
+                    if let (
+                        HostPathNode::Member { node, .. },
+                        HostPathSegmentDeclaration::Field(id),
+                    ) = (step, declared)
                     {
                         self.type_table.insert_place_field(*node, id.clone());
                     }
-                    if let (HostPathNode::Index { argument, .. }, Segment::Index(index)) =
-                        (step, declared)
+                    if let (
+                        HostPathNode::Index { argument, .. },
+                        HostPathSegmentDeclaration::Index(index),
+                    ) = (step, declared)
                     {
                         dynamic_arguments.push((index.slot, *argument));
                     }
@@ -3927,7 +3945,6 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn callable_contract(&self, ty: &TypeId, env: &BodyTypeEnv) -> Option<(NominalType, TypeId)> {
-        use crate::builtin::traits::{StandardTrait, callable_signature};
         let mut candidates = self
             .trait_bounds_for(ty, env)
             .into_iter()
@@ -4596,7 +4613,6 @@ impl<'a> BodyChecker<'a> {
             constraint,
             StandardTypeConstraint::HashKey | StandardTypeConstraint::Comparable
         ) {
-            use crate::builtin::traits::{StandardTrait, intrinsic_holds};
             let protocols: &[StandardTrait] = if constraint == StandardTypeConstraint::HashKey {
                 &[StandardTrait::Eq, StandardTrait::Hash]
             } else {

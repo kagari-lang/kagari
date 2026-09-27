@@ -1,5 +1,7 @@
 //! Validate applied aggregate contracts from the shared checked catalog.
 
+use crate::builtin::traits::intrinsic_holds;
+
 use super::check;
 use super::check::MethodComparison;
 use super::constraints;
@@ -54,26 +56,24 @@ pub(super) fn validate(
             TypeId::Set(key, _) => Some(key.as_ref()),
             _ => None,
         };
-        if let Some(key) = key {
-            use crate::builtin::traits::{StandardTrait, intrinsic_holds};
-            if super::type_satisfies_standard_constraint(
+        if let Some(key) = key
+            && super::type_satisfies_standard_constraint(
                 key,
                 StandardTypeConstraint::HashKey,
                 bounds,
-            ) && [StandardTrait::Eq, StandardTrait::Hash]
+            )
+            && [StandardTrait::Eq, StandardTrait::Hash]
                 .into_iter()
                 .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))
-            {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                        type_name: key.display_name(),
-                        constraint: "Eq + Hash".into(),
-                        reason: "every key component must support stable equality and hashing"
-                            .into(),
-                    })
-                    .with_span(span),
-                );
-            }
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                    type_name: key.display_name(),
+                    constraint: "Eq + Hash".into(),
+                    reason: "every key component must support stable equality and hashing".into(),
+                })
+                .with_span(span),
+            );
         }
         match ty {
             TypeId::Projection {

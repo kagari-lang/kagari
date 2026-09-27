@@ -1,5 +1,8 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
 
+use crate::module::abi::StandardEnumKind;
+use kagari_common::identity::DefinitionKind;
+
 use super::PublicAbiItem;
 use super::TypeAbiKind;
 use super::abi::AbiType;
@@ -151,7 +154,6 @@ pub(crate) fn validate_enum_layouts(
     structures: &[StructLayout],
     cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
-    use kagari_common::identity::DefinitionKind;
     let mut pending = structures
         .iter()
         .flat_map(|s| {
@@ -209,7 +211,7 @@ pub(crate) fn validate_enum_layouts(
         cancel
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
-        use super::abi::{AbiType, StandardEnumKind};
+
         match ty {
             AbiType::Projection { .. } | AbiType::Parameter { .. } | AbiType::SelfType(_) => {
                 return Err(LayoutValidationError::Invalid);
@@ -319,8 +321,6 @@ pub(crate) fn validate_layouts(
     layouts: &[StructLayout],
     cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
-    use kagari_common::identity::DefinitionKind;
-    use std::collections::HashSet;
     let limit = |count: usize, resource| {
         if count <= u32::MAX as usize {
             Ok(())

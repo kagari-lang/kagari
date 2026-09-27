@@ -1,9 +1,11 @@
 use crate::module::abi::AbiType;
 use crate::module::instruction::IterOp;
+use crate::module::instruction::StandardEnumOp;
 use crate::module::numeric::NumericOperation;
 use hir::Condition;
 use hir::StmtKind;
 use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::hir;
 use kagari_hir::typeck::ResolvedIteration;
 use kagari_hir::types::TypeId;
@@ -270,8 +272,6 @@ impl FunctionLowerer<'_, '_> {
         body: hir::BlockId,
         fact: ResolvedIteration,
     ) -> Result<(), IrLoweringError> {
-        use crate::module::instruction::StandardEnumOp;
-        use kagari_hir::builtin::traits::StandardTrait;
         let receiver = self
             .analyzed
             .typed

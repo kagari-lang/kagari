@@ -1,7 +1,12 @@
 //! Standard API queries consume checked semantic targets and the bundled source catalog.
 
-use super::*;
+use crate::builtin::surface::StandardMethodReceiver;
+use crate::builtin::traits::StandardTrait;
+
+use crate::analysis::FileAnalysis;
 use crate::builtin::traits;
+use crate::hir::ExprKind;
+use crate::types::TypeId;
 use crate::{
     builtin::{
         declarations::{self, ApiItem, Arguments},
@@ -134,7 +139,6 @@ impl FileAnalysis {
     /// Native method candidates for a complete or incomplete member expression.
     /// Trait-method completion can compose these with the lexical trait scope.
     pub fn standard_method_completions(&self, offset: usize) -> Vec<&'static ApiItem> {
-        use surface::StandardMethodReceiver as Receiver;
         let Some(ty) = self.member_receiver_type(offset) else {
             return Vec::new();
         };
@@ -143,26 +147,26 @@ impl FileAnalysis {
             .filter(|method| {
                 matches!(
                     (&ty, method.receiver),
-                    (TypeId::Array(_, _), Receiver::Array)
-                        | (TypeId::Map { .. }, Receiver::Map)
-                        | (TypeId::Set(_, _), Receiver::Set)
+                    (TypeId::Array(_, _), StandardMethodReceiver::Array)
+                        | (TypeId::Map { .. }, StandardMethodReceiver::Map)
+                        | (TypeId::Set(_, _), StandardMethodReceiver::Set)
                         | (
                             TypeId::Builtin(crate::types::BuiltinType::String),
-                            Receiver::String
+                            StandardMethodReceiver::String
                         )
                         | (
                             TypeId::StandardEnum {
                                 kind: surface::StandardEnum::Option,
                                 ..
                             },
-                            Receiver::Option,
+                            StandardMethodReceiver::Option,
                         )
                         | (
                             TypeId::StandardEnum {
                                 kind: surface::StandardEnum::Result,
                                 ..
                             },
-                            Receiver::Result,
+                            StandardMethodReceiver::Result,
                         )
                 )
             })
@@ -294,7 +298,6 @@ impl FileAnalysis {
                     });
                 }
                 constraints.iter().all(|constraint| {
-                    use crate::builtin::traits::{self, StandardTrait};
                     let Some(kind @ (StandardTrait::Iterator | StandardTrait::Iterable)) =
                         StandardTrait::from_name(constraint.name)
                     else {
@@ -323,6 +326,7 @@ impl FileAnalysis {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -597,6 +601,7 @@ mod tests {
 #[cfg(test)]
 mod trait_tests {
     use super::*;
+    use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
     fn iterator_defaults_navigate_to_source_and_expose_checked_signatures() {
@@ -683,6 +688,7 @@ mod trait_tests {
 #[cfg(test)]
 mod interpolation_queries {
     use super::*;
+    use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
@@ -772,6 +778,7 @@ mod interpolation_queries {
 #[cfg(test)]
 mod collection_access_tests {
     use super::*;
+    use crate::analysis::AnalysisDatabase;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {

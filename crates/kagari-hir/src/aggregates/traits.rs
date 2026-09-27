@@ -1,12 +1,27 @@
-use super::*;
+use crate::aggregates::AggregateCatalog;
+use crate::aggregates::ImplementationSearchError;
+use crate::declarations::Declaration;
+use crate::declarations::DeclarationId;
+use crate::declarations::Declarations;
+use crate::hir::Writeability;
+use crate::lower::LoweredModule;
+use crate::resolver::ResolvedName;
 use crate::typeck::GenericBounds;
+use crate::typeck::ModuleSignatures;
 use crate::types;
 use crate::types::AssociatedTypeParameters;
 use crate::types::NominalType;
+use crate::types::TypeId;
 use crate::{typeck::ConstraintTarget, types::GenericParameterType};
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
+use kagari_common::identity::DefinitionId;
 use kagari_common::identity::FileSpan;
+use kagari_common::identity::ModuleIdentity;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodParameter {
@@ -327,21 +342,23 @@ pub fn trait_inheritance_closure(
     cancel: &CancellationToken,
     lookup: &impl Fn(&DefinitionId) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
 ) -> Result<Vec<NominalType>, super::ImplementationSearchError> {
-    use super::ImplementationSearchError as Error;
     let mut result = Vec::new();
     let mut seen = HashSet::new();
     let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];
     while let Some((applied, mut path)) = pending.pop() {
-        cancel.check().map_err(|_| Error::Cancelled)?;
+        cancel
+            .check()
+            .map_err(|_| ImplementationSearchError::Cancelled)?;
         if path.contains(&applied.declaration) || path.len() >= 64 || result.len() >= 4096 {
-            return Err(Error::LimitExceeded);
+            return Err(ImplementationSearchError::LimitExceeded);
         }
         if !seen.insert(applied.clone()) {
             continue;
         }
-        let (parameters, supertraits) = lookup(&applied.declaration).ok_or(Error::LimitExceeded)?;
+        let (parameters, supertraits) =
+            lookup(&applied.declaration).ok_or(ImplementationSearchError::LimitExceeded)?;
         if parameters.len() != applied.arguments.len() {
-            return Err(Error::LimitExceeded);
+            return Err(ImplementationSearchError::LimitExceeded);
         }
         let substitution = parameters
             .into_iter()

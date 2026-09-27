@@ -194,7 +194,6 @@ impl FunctionLowerer<'_, '_> {
                     )?
                     .remove(0);
                 if let Some(item) = receiver.list_item() {
-                    use kagari_hir::builtin::traits::StandardTrait;
                     let mut read = StandardTrait::Index.nominal();
                     read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(

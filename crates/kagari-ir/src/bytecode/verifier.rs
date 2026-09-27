@@ -5,10 +5,12 @@ use super::trait_bounds;
 use crate::bytecode::PathRecord;
 use crate::module::BinaryOp as IrBinaryOp;
 use crate::module::InterfaceTableAbi;
+use crate::module::PublicAbiItem;
 use crate::module::StructFieldLayout;
 use crate::module::UnaryOp as IrUnaryOp;
 use crate::module::abi;
 use crate::module::abi::AbiType;
+use crate::module::abi::NominalAbiType;
 use crate::module::abi::verify;
 use crate::module::contracts;
 use crate::module::contracts::ContractError;
@@ -317,7 +319,6 @@ pub(super) fn verify_module_with_program(
 }
 
 fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerificationError> {
-    use crate::module::{PublicAbiItem, abi::AbiType};
     let declared = module
         .public_items
         .iter()
@@ -537,7 +538,6 @@ fn instantiate_method_type(
     method_owner: &DefinitionId,
     method_arguments: &[AbiType],
 ) -> Option<AbiType> {
-    use crate::module::abi::{AbiType, NominalAbiType};
     let child = |ty: &AbiType| {
         instantiate_method_type(
             ty,
@@ -923,7 +923,6 @@ fn verify_instruction(
             module: target,
             implementation,
         } => {
-            use crate::module::PublicAbiItem;
             expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;
             let target_module = if let Some(program) = program {
                 program
@@ -1447,7 +1446,6 @@ fn verify_call(
 }
 
 fn contract_error(function: &BytecodeFunction, error: ContractError) -> BytecodeVerificationError {
-    use crate::module::contracts::ContractError;
     match error {
         ContractError::TypeMismatch {
             context,
@@ -1635,21 +1633,20 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
 }
 
 fn ir_binary_op(op: BinaryOp) -> IrBinaryOp {
-    use crate::module::BinaryOp as Ir;
     match op {
-        BinaryOp::Numeric(op) => Ir::Numeric(op),
-        BinaryOp::Add => Ir::Add,
-        BinaryOp::Sub => Ir::Sub,
-        BinaryOp::Mul => Ir::Mul,
-        BinaryOp::Div => Ir::Div,
-        BinaryOp::Rem => Ir::Rem,
-        BinaryOp::Eq => Ir::Eq,
-        BinaryOp::NotEq => Ir::NotEq,
-        BinaryOp::IdentityEq => Ir::IdentityEq,
-        BinaryOp::IdentityNotEq => Ir::IdentityNotEq,
-        BinaryOp::Lt => Ir::Lt,
-        BinaryOp::Gt => Ir::Gt,
-        BinaryOp::Le => Ir::Le,
-        BinaryOp::Ge => Ir::Ge,
+        BinaryOp::Numeric(op) => IrBinaryOp::Numeric(op),
+        BinaryOp::Add => IrBinaryOp::Add,
+        BinaryOp::Sub => IrBinaryOp::Sub,
+        BinaryOp::Mul => IrBinaryOp::Mul,
+        BinaryOp::Div => IrBinaryOp::Div,
+        BinaryOp::Rem => IrBinaryOp::Rem,
+        BinaryOp::Eq => IrBinaryOp::Eq,
+        BinaryOp::NotEq => IrBinaryOp::NotEq,
+        BinaryOp::IdentityEq => IrBinaryOp::IdentityEq,
+        BinaryOp::IdentityNotEq => IrBinaryOp::IdentityNotEq,
+        BinaryOp::Lt => IrBinaryOp::Lt,
+        BinaryOp::Gt => IrBinaryOp::Gt,
+        BinaryOp::Le => IrBinaryOp::Le,
+        BinaryOp::Ge => IrBinaryOp::Ge,
     }
 }

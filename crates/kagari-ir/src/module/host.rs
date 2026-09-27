@@ -29,7 +29,6 @@ pub(crate) fn trait_bindings_match(
     contracts: &[super::TraitContract],
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    use kagari_common::identity::DefinitionKind;
     for host in &interface.types {
         cancel.check()?;
         for implementation in &host.trait_implementations {
@@ -367,24 +366,27 @@ pub(crate) fn validate(
     enums: &[EnumLayout],
     cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
-    use super::layout::LayoutValidationError as Error;
-    cancel.check().map_err(|_| Error::Cancelled)?;
-    interface.validate().map_err(|_| Error::Invalid)?;
+    cancel
+        .check()
+        .map_err(|_| LayoutValidationError::Cancelled)?;
+    interface
+        .validate()
+        .map_err(|_| LayoutValidationError::Invalid)?;
     if items.iter().any(|item| {
         matches!(item, PublicAbiItem::InterfaceTable(table)
             if table.host_bridge && host_bridge_implementation(table, interface).is_none())
     }) {
-        return Err(Error::Invalid);
+        return Err(LayoutValidationError::Invalid);
     }
     let ids: BTreeSet<_> = interface.types.iter().map(|ty| &ty.id).collect();
     if references(items, structures, enums, cancel)
-        .map_err(|_| Error::Cancelled)?
+        .map_err(|_| LayoutValidationError::Cancelled)?
         .iter()
         .all(|id| ids.contains(id))
     {
         Ok(())
     } else {
-        Err(Error::Invalid)
+        Err(LayoutValidationError::Invalid)
     }
 }
 

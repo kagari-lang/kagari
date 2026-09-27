@@ -1,8 +1,19 @@
 //! Versioned fixed-width encoding of resolved path contracts, independent of slots.
 
-use super::*;
+use kagari_common::host_interface::HostPathContract;
+use kagari_common::host_interface::HostPathInput;
+use kagari_common::host_interface::HostPathSegmentContract;
+use kagari_ir::bytecode::BytecodeInstruction;
+
+use crate::error::RuntimeError;
+use crate::host::HostPathDescriptorRegistration;
+use crate::host::HostPathSegment;
+use crate::host::HostRegistry;
+use crate::metadata::AbiFingerprint;
+use crate::metadata::PathAccess;
 use crate::metadata::TypeRegistry;
 use crate::module::LinkedHostBindings;
+use kagari_common::host_interface::HostValueType;
 use kagari_ir::bytecode::BytecodeModule;
 use kagari_ir::module::ValueType;
 
@@ -48,18 +59,17 @@ impl HostRegistry {
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         for function in &module.functions {
             for instruction in &function.instructions {
-                use kagari_ir::bytecode::BytecodeInstruction as I;
                 let (path, args) = match instruction {
-                    I::ReadPath {
+                    BytecodeInstruction::ReadPath {
                         path, dynamic_args, ..
                     }
-                    | I::SetPath {
+                    | BytecodeInstruction::SetPath {
                         path, dynamic_args, ..
                     }
-                    | I::ModifyPath {
+                    | BytecodeInstruction::ModifyPath {
                         path, dynamic_args, ..
                     }
-                    | I::MakePathView {
+                    | BytecodeInstruction::MakePathView {
                         path, dynamic_args, ..
                     } => (path, dynamic_args),
                     _ => continue,
@@ -102,9 +112,6 @@ impl HostRegistry {
         segments: &[HostPathSegment],
         types: &TypeRegistry,
     ) -> Result<AbiFingerprint, RuntimeError> {
-        use kagari_common::host_interface::{
-            HostPathContract, HostPathInput, HostPathSegmentContract,
-        };
         let portable_type = |id| {
             self.host_type(id)
                 .map(|info| HostValueType::Opaque(info.declaration.id.clone()))

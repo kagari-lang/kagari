@@ -7,6 +7,7 @@ use crate::gc::GcHeap;
 use crate::metadata::TypeRegistry;
 use crate::metadata::Visibility;
 use crate::numeric;
+use crate::value::EnumTag;
 use crate::value::EphemeralValue;
 use kagari_common::host_interface;
 use kagari_common::host_interface::HostIndexSegmentDeclaration;
@@ -1321,7 +1322,6 @@ fn host_value_matches(
     value: &Value,
     ty: &HostValueType,
 ) -> Result<bool, RuntimeError> {
-    use crate::value::EnumTag;
     let heap = runtime.gc();
     let mut pending = vec![(value.clone(), ty)];
     while let Some((value, ty)) = pending.pop() {

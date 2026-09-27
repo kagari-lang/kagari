@@ -1,6 +1,14 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
+use crate::module::instruction::BinaryOp;
+use crate::module::instruction::Constant;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp as Op;
+use crate::module::instruction::Terminator;
+use crate::module::types::ValueType;
 use kagari_common::collection::CollectionAccess;
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{
     builtin::{surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},

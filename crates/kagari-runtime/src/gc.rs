@@ -463,8 +463,6 @@ impl GcHeap {
     }
 
     pub(crate) fn matches_abi(&self, value: &Value, ty: &AbiType, owner: &LoadedModule) -> bool {
-        use crate::value::EnumTag;
-        use kagari_ir::module::abi::AbiType;
         let mut pending = vec![(value.clone(), ty)];
         while let Some((value, ty)) = pending.pop() {
             match (value, ty) {
@@ -861,7 +859,6 @@ impl GcHeap {
         end: Bound<usize>,
         destination: usize,
     ) -> Result<(), RuntimeError> {
-        use std::ops::Bound;
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(target)?;
         let invalid = || {

@@ -160,7 +160,6 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
         depth: usize,
         out: &mut Output,
     ) -> Option<()> {
-        use std::fmt::Write;
         if depth > 64 || out.failed || !gc.validate_value(value) {
             return None;
         }

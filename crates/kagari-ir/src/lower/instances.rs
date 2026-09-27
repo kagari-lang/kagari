@@ -1,4 +1,8 @@
+use crate::module::abi::AbiType;
+use crate::module::abi::FunctionAbi;
 use crate::module::abi::InterfaceTableAbi;
+use crate::module::abi::NominalAbiType;
+use crate::module::abi::ParameterAbi;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::DefinitionPathSegment;
@@ -397,7 +401,7 @@ impl<'a> InstancePlanner<'a> {
         {
             return Ok(id.clone());
         }
-        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+
         let base = self.module.lowered.module.impls.len();
         let occurrence =
             u32::try_from(base + self.host_interfaces.len() + self.native_tables.len())
@@ -421,10 +425,6 @@ impl<'a> InstancePlanner<'a> {
         interface: &NominalType,
         span: Span,
     ) -> Result<DefinitionId, IrLoweringError> {
-        use crate::module::abi::{
-            AbiType, FunctionAbi, InterfaceTableAbi, NominalAbiType, ParameterAbi,
-        };
-        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
         self.check()?;
         let concrete = AbiType::from_checked_type(receiver);
         let applied = AbiType::Trait(NominalAbiType::from_checked_type(interface));

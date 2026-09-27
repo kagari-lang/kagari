@@ -1,12 +1,20 @@
 //! Nominal type imports are built from declarations, before signature checking.
 
-use super::*;
+use crate::hir::ExportItem;
+use crate::imports::ImportTarget;
+use crate::imports::ModuleImports;
+use crate::imports::SourceImport;
 use crate::typeck;
 use crate::types::NominalType;
 use crate::{DeclaredAnalysis, declarations::Declaration, resolver::ResolvedName, types::TypeId};
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::FileId;
+use kagari_common::identity::Revision;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceTypeId {

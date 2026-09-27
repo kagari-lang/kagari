@@ -1,17 +1,31 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
+use crate::module::abi::AbiType;
 use crate::module::abi::NominalAbiType;
+use crate::module::instruction::BinaryOp;
+use crate::module::instruction::CallTarget;
+use crate::module::instruction::Constant;
+use crate::module::instruction::Instruction;
 use crate::module::instruction::InterfaceCallContract;
+use crate::module::instruction::IrValue;
+use crate::module::instruction::IterOp;
 use crate::module::instruction::SourceFunctionContract;
+use crate::module::instruction::StandardEnumOp;
+use crate::module::instruction::Terminator;
 use crate::module::instruction::UnaryOp;
+use crate::module::instruction::ValueBuffer;
 use crate::module::numeric::NumericConversion;
 use crate::module::numeric::NumericOperation;
+use crate::module::types::ValueType;
 use hir::BinaryOp as HirBinaryOp;
 use kagari_common::identity::DefinitionId;
+use kagari_common::integer::IntegerOp;
 use kagari_hir::builtin::declarations;
 use kagari_hir::builtin::declarations::NativeDefaultMethod;
 use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::builtin::traits;
+use kagari_hir::hir;
 use kagari_hir::typeck::CallTarget as HirCallTarget;
 use kagari_hir::types::BuiltinType;
 use kagari_hir::types::NominalType;
@@ -22,7 +36,7 @@ use std::slice;
 impl FunctionLowerer<'_, '_> {
     pub(super) fn check_integer_range(&mut self, value: IrValue, target: &TypeId) {
         let representation = value.ty;
-        use kagari_hir::types::BuiltinType;
+
         let range = match target {
             TypeId::Builtin(BuiltinType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX))),
             TypeId::Builtin(BuiltinType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX))),
@@ -224,7 +238,6 @@ impl FunctionLowerer<'_, '_> {
         }
 
         if let TypeId::Builtin(input) = &ty {
-            use kagari_common::integer::IntegerOp;
             let op = match StandardTrait::from_id(&interface.declaration) {
                 Some(StandardTrait::BitAnd) => Some(IntegerOp::BitAnd),
                 Some(StandardTrait::BitOr) => Some(IntegerOp::BitOr),
@@ -472,7 +485,7 @@ impl FunctionLowerer<'_, '_> {
             });
             return Ok(dst);
         }
-        use crate::module::{abi::AbiType, instruction::IterOp};
+
         if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::RangeBounds)
             && matches!(ty, TypeId::Range(_, _))
         {
@@ -679,7 +692,7 @@ impl FunctionLowerer<'_, '_> {
             });
             return Ok(dst);
         }
-        use crate::module::instruction::StandardEnumOp;
+
         let value = self.lower_selected_operator(site, args)?;
         let optional = traits::ordering_type(true);
         let ordering = traits::ordering_type(false);

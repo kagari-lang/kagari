@@ -1,7 +1,19 @@
-use super::*;
+use crate::builtin::surface::StandardTypeConstraint;
 use crate::builtin::traits::StandardTrait;
+use crate::hir::BinaryOp;
+use crate::hir::ExprId;
+use crate::hir::ExprKind;
+use crate::hir::LiteralKind;
+use crate::hir::PrefixOp;
+use crate::typeck::BodyTypeEnv;
+use crate::typeck::body::BodyChecker;
 use crate::typeck::completion;
 use crate::typeck::constraints;
+use crate::typeck::ty::display_type_id;
+use crate::types::BuiltinType;
+use crate::types::TypeId;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(

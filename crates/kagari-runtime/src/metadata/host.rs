@@ -1,8 +1,25 @@
 //! Build reflection metadata from portable declarations, then commit once.
 
-use super::*;
+use crate::error::RuntimeError;
 use crate::host::{HostRegistry, HostTypeInfo, HostTypeRegistration};
+use crate::metadata::AbiFingerprint;
+use crate::metadata::FieldInfo;
+use crate::metadata::FieldMetadataId;
+use crate::metadata::MethodInfo;
+use crate::metadata::MethodMetadataId;
+use crate::metadata::MethodOrigin;
+use crate::metadata::ParameterInfo;
+use crate::metadata::TypeId;
+use crate::metadata::TypeInfo;
+use crate::metadata::TypeKind;
+use crate::metadata::TypeRegistry;
+use crate::metadata::TypeRegistryInner;
+use crate::metadata::VariantInfo;
+use crate::metadata::VariantMetadataId;
+use kagari_common::host_interface::PathAccess;
+use kagari_common::host_interface::Visibility;
 use kagari_common::{host_interface::HostValueType, identity::DefinitionId};
+use std::collections::HashMap;
 use std::fmt::Display;
 
 impl TypeRegistry {
@@ -116,8 +133,7 @@ fn intern(
     nominal: &HashMap<DefinitionId, TypeId>,
     ty: &HostValueType,
 ) -> Result<TypeId, RuntimeError> {
-    use HostValueType as T;
-    if let T::Opaque(id) = ty {
+    if let HostValueType::Opaque(id) = ty {
         return nominal.get(id).copied().ok_or_else(|| {
             RuntimeError::metadata_conflict(format!("missing host member type {id:?}"))
         });
@@ -126,13 +142,13 @@ fn intern(
         return Ok(*id);
     }
     let scalar = match ty {
-        T::Unit => Some("()"),
-        T::Bool => Some("bool"),
-        T::I32 => Some("i32"),
-        T::I64 => Some("i64"),
-        T::F32 => Some("f32"),
-        T::F64 => Some("f64"),
-        T::String => Some("String"),
+        HostValueType::Unit => Some("()"),
+        HostValueType::Bool => Some("bool"),
+        HostValueType::I32 => Some("i32"),
+        HostValueType::I64 => Some("i64"),
+        HostValueType::F32 => Some("f32"),
+        HostValueType::F64 => Some("f64"),
+        HostValueType::String => Some("String"),
         _ => None,
     };
     if let Some(name) = scalar
@@ -149,7 +165,7 @@ fn intern(
     let mut fields = Vec::new();
     let mut variants = Vec::new();
     let kind = match ty {
-        T::Tuple(elements) => {
+        HostValueType::Tuple(elements) => {
             for (slot, element) in elements.iter().enumerate() {
                 fields.push(FieldInfo {
                     id: FieldMetadataId::new(slot),
@@ -164,20 +180,20 @@ fn intern(
             }
             TypeKind::Tuple
         }
-        T::Array(element, _) | T::Set(element, _) => {
+        HostValueType::Array(element, _) | HostValueType::Set(element, _) => {
             intern(inner, nominal, element)?;
-            if matches!(ty, T::Array(_, _)) {
+            if matches!(ty, HostValueType::Array(_, _)) {
                 TypeKind::Array
             } else {
                 TypeKind::Set
             }
         }
-        T::Map { key, value, .. } => {
+        HostValueType::Map { key, value, .. } => {
             intern(inner, nominal, key)?;
             intern(inner, nominal, value)?;
             TypeKind::Map
         }
-        T::Option(element) => {
+        HostValueType::Option(element) => {
             variants.push(VariantInfo {
                 id: VariantMetadataId::new(0),
                 name: "None".into(),
@@ -192,7 +208,7 @@ fn intern(
             });
             TypeKind::Enum
         }
-        T::Result { ok, error } => {
+        HostValueType::Result { ok, error } => {
             for (slot, name, payload) in [(0, "Ok", ok), (1, "Err", error)] {
                 variants.push(VariantInfo {
                     id: VariantMetadataId::new(slot),

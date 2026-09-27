@@ -3,6 +3,7 @@ use super::ModuleRef;
 use crate::bytecode::BytecodeVerificationError;
 use crate::module::ConcreteFunctionIdentity;
 use crate::module::EnumLayout;
+use crate::module::PublicAbiItem;
 use crate::module::StructLayout;
 use crate::module::abi;
 use crate::module::abi::AbiType;
@@ -12,6 +13,8 @@ use crate::program::VerifiedIrProgram;
 use kagari_common::host_interface::HostFunctionDeclaration;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::DefinitionPathSegment;
 use kagari_common::identity::ModuleIdentity;
 use kagari_common::line_index::PositionEncoding;
 use std::collections::HashMap;
@@ -144,8 +147,6 @@ fn collect_interface_tables(
     ir: &VerifiedIrModule,
     program: Option<&VerifiedIrProgram>,
 ) -> Vec<InterfaceTableRecord> {
-    use crate::module::{PublicAbiItem, abi::AbiType};
-    use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
     let mut tables: Vec<_> = ir
         .abi
         .public_items

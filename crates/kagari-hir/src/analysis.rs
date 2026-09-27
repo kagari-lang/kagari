@@ -1,5 +1,7 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+use crate::hir::ExportItem;
+
 use crate::AnalysisPolicy;
 use crate::builtin::declarations;
 use crate::declarations::Declaration;
@@ -241,7 +243,6 @@ impl FileAnalysis {
     }
     /// Portable host documentation has no synthetic source-file location.
     pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
-        use crate::{resolver::ResolvedName, typeck::TypeTarget};
         let facts = self.result.facts();
         if let Some(target) =
             type_reference_target_at(&facts.lowered, &facts.typed.type_table, offset)
@@ -875,7 +876,6 @@ impl AnalysisSnapshot {
     }
 
     pub fn source_import_at(&self, file: FileId, offset: usize) -> Option<SourceImport> {
-        use crate::imports::ImportTarget;
         let facts = self.analysis_at(file, offset)?.result.facts();
         let expression = facts
             .lowered
@@ -916,7 +916,7 @@ impl AnalysisSnapshot {
         if let Some(declaration) = self.analysis_at(file, offset)?.definition_at(offset) {
             return Some(declaration);
         }
-        use crate::{hir::ExportItem, resolver::ResolvedName};
+
         let ImportTarget::Source(target) = self
             .graph
             .resolve_export(self.source_import_at(file, offset)?, &Default::default())

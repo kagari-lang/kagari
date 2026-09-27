@@ -1,5 +1,9 @@
 //! Source-owned native collection implementations with sealed execution bindings.
-use super::*;
+use crate::api;
+use crate::attribute;
+use crate::ty;
+use kagari_syntax::ast;
+use std::fmt::Write;
 
 pub fn declaration(
     def: &ast::ImplBlock,

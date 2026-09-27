@@ -1,7 +1,11 @@
-use super::*;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
+use crate::hir::ExprId;
+use crate::typeck::BodyTypeEnv;
 use crate::typeck::ResolvedIteration;
+use crate::typeck::body::BodyChecker;
+use crate::types::BuiltinType;
+use crate::types::TypeId;
 use crate::types::{NominalType, associated_type_id};
 use kagari_common::range::RangeKind;
 impl BodyChecker<'_> {

@@ -151,13 +151,12 @@ fn binary(
     lhs: ScalarValue,
     rhs: ScalarValue,
 ) -> Option<Result<ScalarValue, &'static str>> {
-    use kagari_common::integer::IntegerOp as Bit;
     let bit = match op {
-        BinaryOp::BitAnd => Some(Bit::BitAnd),
-        BinaryOp::BitOr => Some(Bit::BitOr),
-        BinaryOp::BitXor => Some(Bit::BitXor),
-        BinaryOp::Shl => Some(Bit::Shl),
-        BinaryOp::Shr => Some(Bit::Shr),
+        BinaryOp::BitAnd => Some(IntegerOp::BitAnd),
+        BinaryOp::BitOr => Some(IntegerOp::BitOr),
+        BinaryOp::BitXor => Some(IntegerOp::BitXor),
+        BinaryOp::Shl => Some(IntegerOp::Shl),
+        BinaryOp::Shr => Some(IntegerOp::Shr),
         _ => None,
     };
     if let Some(op) = bit {

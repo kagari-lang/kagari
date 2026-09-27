@@ -22,22 +22,21 @@ pub enum ValueType {
 
 impl ValueType {
     pub fn from_host_type(ty: &HostValueType) -> Self {
-        use kagari_common::host_interface::HostValueType as Host;
         match ty {
-            Host::Unit => Self::Unit,
-            Host::Bool => Self::Bool,
-            Host::I32 => Self::I32,
-            Host::I64 => Self::I64,
-            Host::F32 => Self::F32,
-            Host::F64 => Self::F64,
-            Host::String => Self::Str,
-            Host::Opaque(_) => Self::HostHandle,
-            Host::Tuple(_)
-            | Host::Array(_, _)
-            | Host::Map { .. }
-            | Host::Set(_, _)
-            | Host::Option(_)
-            | Host::Result { .. } => Self::HeapObject,
+            HostValueType::Unit => Self::Unit,
+            HostValueType::Bool => Self::Bool,
+            HostValueType::I32 => Self::I32,
+            HostValueType::I64 => Self::I64,
+            HostValueType::F32 => Self::F32,
+            HostValueType::F64 => Self::F64,
+            HostValueType::String => Self::Str,
+            HostValueType::Opaque(_) => Self::HostHandle,
+            HostValueType::Tuple(_)
+            | HostValueType::Array(_, _)
+            | HostValueType::Map { .. }
+            | HostValueType::Set(_, _)
+            | HostValueType::Option(_)
+            | HostValueType::Result { .. } => Self::HeapObject,
         }
     }
     pub fn from_type_id(type_id: &TypeId) -> Self {

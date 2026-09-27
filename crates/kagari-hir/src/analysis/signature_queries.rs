@@ -1,9 +1,15 @@
 //! Signature queries consume declarations without running any body analysis.
 
-use super::*;
+use crate::AnalysisResult;
 use crate::DiagnosticBuffer;
 use crate::PreparedAnalysis;
 use crate::aggregates::AggregateCatalog;
+use crate::analysis::AnalysisDatabase;
+use crate::analysis::declaration_queries::DeclarationSnapshot;
+use crate::analysis::declaration_queries::FileDeclarations;
+use crate::analysis::type_at_in;
+use crate::analysis::type_reference_at;
+use crate::analysis::type_reference_target_at;
 use crate::declarations::Declaration;
 use crate::declarations::Declarations;
 use crate::imports::FunctionCatalog;
@@ -12,9 +18,18 @@ use crate::imports::ModuleGraph;
 use crate::imports::TypeCatalog;
 use crate::typeck::ModuleSignatures;
 use crate::typeck::TypeTarget;
+use crate::types::TypeId;
 use kagari_common::Diagnostic;
+use kagari_common::SourceFile;
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
 use kagari_common::host_interface::HostTypeDeclaration;
+use kagari_common::identity::FileId;
+use kagari_common::identity::Revision;
+use kagari_common::source_database::SourceSnapshot;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;

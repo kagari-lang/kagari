@@ -1,5 +1,7 @@
 //! Associated types are declaration-owned projections, never diagnostic names.
 
+use kagari_common::DiagnosticKind;
+
 use super::constraints;
 use super::ty;
 use super::{
@@ -30,7 +32,6 @@ pub(super) fn prepare(
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
-    use kagari_common::{Diagnostic, DiagnosticKind};
     let error = |item: &hir::AssociatedType, reason: &str| {
         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
             name: item.name.clone(),

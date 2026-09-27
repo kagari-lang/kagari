@@ -1,6 +1,17 @@
-use super::*;
+use crate::builtin::surface;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::ExprId;
+use crate::hir::ExprKind;
 use crate::hir::PatternId;
+use crate::hir::PatternKind;
+use crate::resolver::ResolvedName;
+use crate::typeck::BodyTypeEnv;
+use crate::typeck::CallTarget;
+use crate::typeck::body::BodyChecker;
 use crate::typeck::completion;
+use crate::types::TypeId;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
 use surface::StandardEnum;
 
 impl BodyChecker<'_> {
@@ -292,7 +303,6 @@ impl BodyChecker<'_> {
                 args: target_args,
             } if target == *kind && target_args.len() == kind.spec().arity => {
                 if *kind == StandardEnum::Result {
-                    use crate::builtin::traits::StandardTrait;
                     let source = args[1].clone();
                     let target = target_args[1].clone();
                     if self.solving {

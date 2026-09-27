@@ -7,6 +7,7 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
 use kagari_hir::host::HostDeclarations;
+use kagari_hir::imports::ModuleOrderError;
 use kagari_hir::{
     LanguageFeatureProfile,
     analysis::{
@@ -223,7 +224,7 @@ impl KagariEngine {
             message: "file is absent from this source snapshot".into(),
         })?;
         let source = analysis.source();
-        use kagari_hir::imports::ModuleOrderError;
+
         let program = snapshot
             .check_program(file, cancel)
             .map_err(|error| match error {

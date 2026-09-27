@@ -7,6 +7,7 @@ use crate::decode_limits::MAX_NESTED_RECORDS;
 use crate::decode_limits::MAX_TABLE_RECORDS;
 use crate::module::EffectSet;
 use crate::module::FunctionAbi;
+use crate::module::PublicAbiItem;
 use crate::module::abi::AbiType;
 use crate::module::abi::AssociatedTypeAbi;
 use crate::module::abi::ConstraintAbi;
@@ -591,7 +592,6 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
         }
     }
     for item in &module.public_items {
-        use crate::module::PublicAbiItem;
         let valid = match item {
             PublicAbiItem::Function(item) => {
                 add(item.generic_params.len())
@@ -729,7 +729,6 @@ fn function_abi_identity_limit(function: &FunctionAbi) -> bool {
 }
 
 fn module_abi_type_limit(module: &BytecodeModule) -> bool {
-    use crate::module::PublicAbiItem;
     let valid = |ty: &AbiType| ty.within_wire_limits();
     module.interface_tables.iter().all(|table| {
         table.declaration.within_path_limit()

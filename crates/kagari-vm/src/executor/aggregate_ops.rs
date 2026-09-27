@@ -1,6 +1,7 @@
 use kagari_ir::bytecode::EnumId;
 use kagari_ir::bytecode::{FieldRef, Register, StructId};
 use kagari_ir::module::abi::AbiType;
+use kagari_ir::module::abi::StandardEnumKind;
 use kagari_ir::module::instruction::StandardEnumOp;
 use kagari_runtime::RuntimeErrorKind;
 use kagari_runtime::value::EnumTag;
@@ -260,11 +261,6 @@ impl Executor<'_> {
         ty: &AbiType,
         op: StandardEnumOp,
     ) -> Result<Value, VmError> {
-        use kagari_ir::module::{
-            abi::{AbiType, StandardEnumKind},
-            instruction::StandardEnumOp,
-        };
-        use kagari_runtime::value::EnumTag;
         let AbiType::StandardEnum { kind, args } = ty else {
             return Err(VmError::TypeMismatch("standard enum type"));
         };

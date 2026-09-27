@@ -77,7 +77,7 @@ impl TraceValue {
             return Self::Opaque("trace value budget".into());
         }
         *remaining -= 1;
-        use crate::value::Value;
+
         match value {
             Value::Range(value) => Self::Opaque(format!("{value:?}")),
             Value::Unit => Self::Unit,

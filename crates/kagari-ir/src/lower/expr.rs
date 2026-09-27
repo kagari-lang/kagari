@@ -6,8 +6,10 @@ use crate::module::abi::NominalAbiType;
 use crate::module::ids::BlockId;
 use crate::module::ids::LocalId;
 use crate::module::instruction::InterfaceCallContract;
+use crate::module::instruction::IterOp;
 use crate::module::instruction::SourceFunctionContract;
 use crate::module::instruction::StandardEnumOp;
+use crate::module::instruction::StringIterKind;
 use crate::module::instruction::UnaryOp;
 use crate::module::numeric::NumericConversion;
 use hir::BinaryOp as HirBinaryOp;
@@ -22,6 +24,7 @@ use kagari_hir::declarations::DeclarationId;
 use kagari_hir::resolver::ResolvedName;
 use kagari_hir::typeck::CallTarget as TypeckCallTarget;
 use kagari_hir::typeck::ResolvedHostPath;
+use kagari_hir::typeck::ResolvedInterfaceImplementation;
 use kagari_hir::typeck::ScalarValue;
 use kagari_hir::types::BuiltinType;
 use kagari_hir::types::NominalType;
@@ -169,7 +172,7 @@ impl FunctionLowerer<'_, '_> {
                 .cloned()
             {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
-                use kagari_hir::typeck::ResolvedInterfaceImplementation;
+
                 if matches!(
                     coercion.implementation,
                     ResolvedInterfaceImplementation::Upcast
@@ -423,7 +426,6 @@ impl FunctionLowerer<'_, '_> {
             ExprKind::Name { .. } => self.lower_name_expr(expr_id),
             ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
             ExprKind::Propagate { expr } => {
-                use crate::module::instruction::StandardEnumOp;
                 let value = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
                     return Ok(value);
@@ -965,7 +967,6 @@ impl FunctionLowerer<'_, '_> {
         bindings: &mut Vec<(LocalId, IrValue)>,
     ) -> Result<(), IrLoweringError> {
         if let Some(variant) = self.analyzed.typed.type_table.standard_pattern(pattern) {
-            use crate::module::instruction::StandardEnumOp;
             let cond = self.standard_enum_op(
                 expected,
                 StandardEnumOp::Test(variant.index() as u32),
@@ -1503,7 +1504,6 @@ impl FunctionLowerer<'_, '_> {
         expr: hir::ExprId,
         args: &[hir::ExprId],
     ) -> Result<IrValue, IrLoweringError> {
-        use kagari_hir::typeck::CallTarget as SemanticCallTarget;
         let call = self
             .analyzed
             .typed
@@ -1518,7 +1518,7 @@ impl FunctionLowerer<'_, '_> {
             .protocol_receiver(expr)
             .cloned()
         {
-            let SemanticCallTarget::TraitMethod { method, interface } = call.target else {
+            let TypeckCallTarget::TraitMethod { method, interface } = call.target else {
                 return Err(IrLoweringError::MissingBinding("conversion target"));
             };
             let mut values = Vec::new();
@@ -1542,7 +1542,7 @@ impl FunctionLowerer<'_, '_> {
             );
         }
 
-        if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
+        if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
             && StandardTrait::from_id(&interface.declaration).is_some_and(|kind| {
                 kind.operator()
                     || kind.collection()
@@ -1594,7 +1594,7 @@ impl FunctionLowerer<'_, '_> {
             }
             return self.lower_selected_operator(expr, &values);
         }
-        if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
+        if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
             && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
             && protocol.equality_protocol()
         {
@@ -1622,222 +1622,222 @@ impl FunctionLowerer<'_, '_> {
             }
             return self.lower_protocol(protocol, &ty, &values, 0);
         }
-        let (target, impl_arguments, linked_trait_target) =
-            if let SemanticCallTarget::TraitMethod { method, interface } = call.target {
-                let receiver = call
-                    .receiver
-                    .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
-                let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(receiver)
-                    .ok_or(IrLoweringError::MissingExprType(receiver))?;
-                let mut types = self
-                    .planner
-                    .arguments(&[ty], &self.instance.substitution, span)?;
-                let ty = types.pop().expect("receiver type");
-                let interface = NominalType {
-                    associated_types: interface
-                        .associated_types
-                        .iter()
-                        .map(|(id, ty)| {
-                            let mut types = self.planner.arguments(
-                                slice::from_ref(ty),
-                                &self.instance.substitution,
-                                span,
-                            )?;
-                            Ok((id.clone(), types.pop().expect("associated type")))
-                        })
-                        .collect::<Result<_, IrLoweringError>>()?,
-                    declaration: interface.declaration,
-                    arguments: self.planner.arguments(
-                        &interface.arguments,
-                        &self.instance.substitution,
-                        span,
-                    )?,
-                };
-                if matches!(&ty, kagari_hir::types::TypeId::Trait(child)
+        let (target, impl_arguments, linked_trait_target) = if let TypeckCallTarget::TraitMethod {
+            method,
+            interface,
+        } = call.target
+        {
+            let receiver = call
+                .receiver
+                .ok_or(IrLoweringError::MissingBinding("trait receiver"))?;
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(receiver)
+                .ok_or(IrLoweringError::MissingExprType(receiver))?;
+            let mut types = self
+                .planner
+                .arguments(&[ty], &self.instance.substitution, span)?;
+            let ty = types.pop().expect("receiver type");
+            let interface = NominalType {
+                associated_types: interface
+                    .associated_types
+                    .iter()
+                    .map(|(id, ty)| {
+                        let mut types = self.planner.arguments(
+                            slice::from_ref(ty),
+                            &self.instance.substitution,
+                            span,
+                        )?;
+                        Ok((id.clone(), types.pop().expect("associated type")))
+                    })
+                    .collect::<Result<_, IrLoweringError>>()?,
+                declaration: interface.declaration,
+                arguments: self.planner.arguments(
+                    &interface.arguments,
+                    &self.instance.substitution,
+                    span,
+                )?,
+            };
+            if matches!(&ty, kagari_hir::types::TypeId::Trait(child)
                     if self.analyzed.aggregates.trait_closure(child, &ty, &self.planner.options.cancel)
                         .is_ok_and(|parents| parents.contains(&interface)))
+            {
+                let trait_contract = self
+                    .planner
+                    .catalog
+                    .trait_(&interface.declaration)
+                    .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
+                let method_contract = self
+                    .planner
+                    .catalog
+                    .trait_method(&method)
+                    .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
+                if method_contract.generic_params.len() != trait_contract.generic_params.len()
+                    || !call.type_arguments.is_empty()
                 {
-                    let trait_contract = self
-                        .planner
-                        .catalog
-                        .trait_(&interface.declaration)
-                        .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
-                    let method_contract = self
-                        .planner
-                        .catalog
-                        .trait_method(&method)
-                        .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
-                    if method_contract.generic_params.len() != trait_contract.generic_params.len()
-                        || !call.type_arguments.is_empty()
-                    {
-                        return Err(IrLoweringError::UnsupportedExpr(
-                            "interface method requires static specialization",
-                        ));
-                    }
-                    (
-                        SemanticCallTarget::TraitMethod {
-                            method,
-                            interface: interface.clone(),
+                    return Err(IrLoweringError::UnsupportedExpr(
+                        "interface method requires static specialization",
+                    ));
+                }
+                (
+                    TypeckCallTarget::TraitMethod {
+                        method,
+                        interface: interface.clone(),
+                    },
+                    Vec::new(),
+                    Some(CallTarget::InterfaceMethod(Box::new(
+                        InterfaceCallContract {
+                            interface: NominalAbiType::from_checked_type(&interface),
+                            method_slot: u32::try_from(method_contract.slot).map_err(|_| {
+                                IrLoweringError::UnsupportedExpr("interface method slot overflow")
+                            })?,
                         },
-                        Vec::new(),
-                        Some(CallTarget::InterfaceMethod(Box::new(
-                            InterfaceCallContract {
-                                interface: NominalAbiType::from_checked_type(&interface),
-                                method_slot: u32::try_from(method_contract.slot).map_err(|_| {
-                                    IrLoweringError::UnsupportedExpr(
-                                        "interface method slot overflow",
-                                    )
-                                })?,
-                            },
-                        ))),
-                    )
-                } else if let Some(host_method) = self
-                    .analyzed
-                    .names
-                    .hosts
-                    .trait_method_binding(&method, &interface, &ty)
-                {
-                    (
-                        SemanticCallTarget::HostFunction(host_method),
-                        Vec::new(),
-                        None,
-                    )
-                } else if let Some((implementation, impl_arguments)) = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .implementation_method(&method, &interface, &ty)
-                {
-                    (
-                        SemanticCallTarget::Function(implementation),
-                        impl_arguments,
-                        None,
-                    )
-                } else if self
+                    ))),
+                )
+            } else if let Some(host_method) = self
+                .analyzed
+                .names
+                .hosts
+                .trait_method_binding(&method, &interface, &ty)
+            {
+                (
+                    TypeckCallTarget::HostFunction(host_method),
+                    Vec::new(),
+                    None,
+                )
+            } else if let Some((implementation, impl_arguments)) = self
+                .analyzed
+                .typed
+                .type_table
+                .implementation_method(&method, &interface, &ty)
+            {
+                (
+                    TypeckCallTarget::Function(implementation),
+                    impl_arguments,
+                    None,
+                )
+            } else if self
+                .planner
+                .catalog
+                .implementation_method(&method, &interface, &ty)
+                .is_none()
+                && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+                && traits::intrinsic_holds(
+                    protocol,
+                    &ty,
+                    Some(self.planner.catalog),
+                    &Default::default(),
+                )
+            {
+                let intrinsic = match protocol {
+                    StandardTrait::PartialOrd => StandardIntrinsic::ValuePartialCmp,
+                    StandardTrait::Ord => StandardIntrinsic::ValueCmp,
+                    StandardTrait::PartialEq => StandardIntrinsic::ValueEq,
+                    StandardTrait::Hash => StandardIntrinsic::ValueHash,
+                    StandardTrait::Debug => StandardIntrinsic::ValueDebug,
+                    StandardTrait::Display => StandardIntrinsic::ValueDisplay,
+                    StandardTrait::Eq => unreachable!("marker trait has no methods"),
+                    _ => unreachable!("operator protocol handled above"),
+                };
+                (
+                    TypeckCallTarget::TraitMethod { method, interface },
+                    Vec::new(),
+                    Some(CallTarget::StandardIntrinsic(intrinsic)),
+                )
+            } else {
+                let (implementation, impl_arguments) = self
                     .planner
                     .catalog
                     .implementation_method(&method, &interface, &ty)
-                    .is_none()
-                    && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
-                    && traits::intrinsic_holds(
-                        protocol,
-                        &ty,
-                        Some(self.planner.catalog),
-                        &Default::default(),
-                    )
-                {
-                    use kagari_hir::builtin::{surface::StandardIntrinsic, traits::StandardTrait};
-                    let intrinsic = match protocol {
-                        StandardTrait::PartialOrd => StandardIntrinsic::ValuePartialCmp,
-                        StandardTrait::Ord => StandardIntrinsic::ValueCmp,
-                        StandardTrait::PartialEq => StandardIntrinsic::ValueEq,
-                        StandardTrait::Hash => StandardIntrinsic::ValueHash,
-                        StandardTrait::Debug => StandardIntrinsic::ValueDebug,
-                        StandardTrait::Display => StandardIntrinsic::ValueDisplay,
-                        StandardTrait::Eq => unreachable!("marker trait has no methods"),
-                        _ => unreachable!("operator protocol handled above"),
-                    };
-                    (
-                        SemanticCallTarget::TraitMethod { method, interface },
-                        Vec::new(),
-                        Some(CallTarget::StandardIntrinsic(intrinsic)),
-                    )
-                } else {
-                    let (implementation, impl_arguments) = self
-                        .planner
-                        .catalog
-                        .implementation_method(&method, &interface, &ty)
-                        .ok_or(IrLoweringError::UnsupportedExpr(
-                            "interface dispatch requires linked implementation tables",
-                        ))?;
-                    let trait_contract = self
-                        .planner
-                        .catalog
-                        .trait_(&interface.declaration)
-                        .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
-                    let method_contract = self
-                        .planner
-                        .catalog
-                        .trait_method(&method)
-                        .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
-                    let method_params =
-                        &method_contract.generic_params[trait_contract.generic_params.len()..];
-                    let method_arguments = self.planner.arguments(
-                        &call.type_arguments,
-                        &self.instance.substitution,
-                        span,
-                    )?;
-                    if method_params.len() != method_arguments.len() {
-                        return Err(IrLoweringError::MissingBinding(
-                            "checked trait method type arguments",
-                        ));
-                    }
-                    let substitution = trait_contract
-                        .generic_params
-                        .iter()
-                        .cloned()
-                        .zip(interface.arguments.iter().cloned())
-                        .chain(
-                            method_params
-                                .iter()
-                                .cloned()
-                                .zip(method_arguments.iter().cloned()),
-                        )
-                        .collect();
-                    let params = method_contract
-                        .params
-                        .iter()
-                        .map(|param| {
-                            let ty = param
-                                .ty
-                                .with_self(&method_contract.owner, &ty)
-                                .instantiate(&substitution);
-                            self.planner.value_type(&ty, &Default::default(), span)
-                        })
-                        .collect::<Result<_, _>>()?;
-                    let return_type = self.planner.value_type(
-                        &method_contract
-                            .return_type
-                            .with_self(&method_contract.owner, &ty)
-                            .instantiate(&substitution),
-                        &Default::default(),
-                        span,
-                    )?;
-                    let arguments = impl_arguments
-                        .into_iter()
-                        .chain(method_arguments)
-                        .collect::<Vec<_>>();
-                    let linked = if implementation.module
-                        == *self.planner.owner().lowered.source.module_identity()
-                    {
-                        CallTarget::Function(self.planner.enqueue_declaration(
-                            &implementation,
-                            arguments.clone(),
-                            span,
-                        )?)
-                    } else {
-                        CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                            declaration: implementation.clone(),
-                            arguments,
-                            params,
-                            return_type,
-                        }))
-                    };
-                    (
-                        SemanticCallTarget::TraitMethod { method, interface },
-                        Vec::new(),
-                        Some(linked),
-                    )
+                    .ok_or(IrLoweringError::UnsupportedExpr(
+                        "interface dispatch requires linked implementation tables",
+                    ))?;
+                let trait_contract = self
+                    .planner
+                    .catalog
+                    .trait_(&interface.declaration)
+                    .ok_or(IrLoweringError::MissingBinding("trait contract"))?;
+                let method_contract = self
+                    .planner
+                    .catalog
+                    .trait_method(&method)
+                    .ok_or(IrLoweringError::MissingBinding("trait method contract"))?;
+                let method_params =
+                    &method_contract.generic_params[trait_contract.generic_params.len()..];
+                let method_arguments = self.planner.arguments(
+                    &call.type_arguments,
+                    &self.instance.substitution,
+                    span,
+                )?;
+                if method_params.len() != method_arguments.len() {
+                    return Err(IrLoweringError::MissingBinding(
+                        "checked trait method type arguments",
+                    ));
                 }
-            } else {
-                (call.target, Vec::new(), None)
-            };
+                let substitution = trait_contract
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(interface.arguments.iter().cloned())
+                    .chain(
+                        method_params
+                            .iter()
+                            .cloned()
+                            .zip(method_arguments.iter().cloned()),
+                    )
+                    .collect();
+                let params = method_contract
+                    .params
+                    .iter()
+                    .map(|param| {
+                        let ty = param
+                            .ty
+                            .with_self(&method_contract.owner, &ty)
+                            .instantiate(&substitution);
+                        self.planner.value_type(&ty, &Default::default(), span)
+                    })
+                    .collect::<Result<_, _>>()?;
+                let return_type = self.planner.value_type(
+                    &method_contract
+                        .return_type
+                        .with_self(&method_contract.owner, &ty)
+                        .instantiate(&substitution),
+                    &Default::default(),
+                    span,
+                )?;
+                let arguments = impl_arguments
+                    .into_iter()
+                    .chain(method_arguments)
+                    .collect::<Vec<_>>();
+                let linked = if implementation.module
+                    == *self.planner.owner().lowered.source.module_identity()
+                {
+                    CallTarget::Function(self.planner.enqueue_declaration(
+                        &implementation,
+                        arguments.clone(),
+                        span,
+                    )?)
+                } else {
+                    CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                        declaration: implementation.clone(),
+                        arguments,
+                        params,
+                        return_type,
+                    }))
+                };
+                (
+                    TypeckCallTarget::TraitMethod { method, interface },
+                    Vec::new(),
+                    Some(linked),
+                )
+            }
+        } else {
+            (call.target, Vec::new(), None)
+        };
         let (callee, args) = match target {
-            SemanticCallTarget::TerminatingCallee => {
+            TypeckCallTarget::TerminatingCallee => {
                 let callee = call.receiver.ok_or(IrLoweringError::MissingBinding(
                     "checked terminating callee",
                 ))?;
@@ -1849,13 +1849,13 @@ impl FunctionLowerer<'_, '_> {
                 }
                 return Ok(value);
             }
-            SemanticCallTarget::RuntimeHelper(helper) => {
+            TypeckCallTarget::RuntimeHelper(helper) => {
                 match self.lower_runtime_helper_call(helper, args)? {
                     ControlFlow::Continue(call) => call,
                     ControlFlow::Break(value) => return Ok(value),
                 }
             }
-            SemanticCallTarget::Value => {
+            TypeckCallTarget::Value => {
                 let receiver = call
                     .receiver
                     .ok_or(IrLoweringError::MissingBinding("closure callee"))?;
@@ -1904,7 +1904,7 @@ impl FunctionLowerer<'_, '_> {
                     ControlFlow::Break(value) => return Ok(value),
                 }
                 let target = match target {
-                    SemanticCallTarget::Function(id) => {
+                    TypeckCallTarget::Function(id) => {
                         let arguments = self.planner.arguments(
                             &impl_arguments
                                 .iter()
@@ -1958,7 +1958,7 @@ impl FunctionLowerer<'_, '_> {
                             }))
                         }
                     }
-                    SemanticCallTarget::SourceFunction(id) => {
+                    TypeckCallTarget::SourceFunction(id) => {
                         let imported =
                             self.analyzed.imported_functions.target(id).ok_or(
                                 IrLoweringError::MissingBinding("source function contract"),
@@ -1984,7 +1984,7 @@ impl FunctionLowerer<'_, '_> {
                             return_type,
                         }))
                     }
-                    SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                    TypeckCallTarget::StandardIntrinsic(intrinsic) => {
                         if matches!(
                             intrinsic,
                             StandardIntrinsic::ArrayRetain
@@ -2057,7 +2057,6 @@ impl FunctionLowerer<'_, '_> {
                         }
 
                         if intrinsic == StandardIntrinsic::StringParse {
-                            use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
                             let output = self
                                 .analyzed
                                 .typed
@@ -2079,7 +2078,6 @@ impl FunctionLowerer<'_, '_> {
                             );
                         }
 
-                        use crate::module::instruction::{IterOp, StringIterKind};
                         let string_iteration = match intrinsic {
                             StandardIntrinsic::StringBytes => Some(StringIterKind::Bytes),
                             StandardIntrinsic::StringCharIndices => {
@@ -2156,7 +2154,6 @@ impl FunctionLowerer<'_, '_> {
                             StandardIntrinsic::ArrayCopyWithin
                                 | StandardIntrinsic::ArrayRemoveRange
                         ) {
-                            use kagari_hir::builtin::traits::StandardTrait;
                             let input = args[usize::from(call.receiver.is_none())];
                             let source = self
                                 .analyzed
@@ -2331,7 +2328,7 @@ impl FunctionLowerer<'_, '_> {
                         }
                         CallTarget::StandardIntrinsic(intrinsic)
                     }
-                    SemanticCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(
+                    TypeckCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(
                         self.analyzed
                             .names
                             .hosts
@@ -2339,12 +2336,12 @@ impl FunctionLowerer<'_, '_> {
                             .ok_or(IrLoweringError::MissingBinding("host declaration"))?
                             .clone(),
                     )),
-                    SemanticCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
+                    TypeckCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
                         IrLoweringError::MissingBinding("imported implementation contract"),
                     )?,
-                    SemanticCallTarget::TerminatingCallee
-                    | SemanticCallTarget::RuntimeHelper(_)
-                    | SemanticCallTarget::Value => {
+                    TypeckCallTarget::TerminatingCallee
+                    | TypeckCallTarget::RuntimeHelper(_)
+                    | TypeckCallTarget::Value => {
                         unreachable!()
                     }
                 };

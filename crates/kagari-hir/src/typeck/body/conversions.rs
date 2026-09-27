@@ -1,10 +1,21 @@
-use super::*;
+use crate::builtin::surface;
 use crate::builtin::traits;
 use crate::builtin::traits::{StandardTrait, conversion_requirement};
+use crate::hir::ExprId;
+use crate::hir::ExprKind;
 use crate::hir::TypeKind;
+use crate::typeck::BodyTypeEnv;
+use crate::typeck::CallTarget;
+use crate::typeck::body::BodyChecker;
 use crate::typeck::ty;
+use crate::typeck::ty::TypeContext;
+use crate::typeck::ty::resolve_type_in;
 use crate::types;
+use crate::types::BuiltinType;
 use crate::types::NominalType;
+use crate::types::TypeId;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
 use surface::StandardEnum;
 
 impl BodyChecker<'_> {

@@ -5,6 +5,7 @@ use crate::{
 };
 use kagari_common::literal;
 use kagari_common::numeric;
+use kagari_common::numeric::Number;
 
 /// A checked scalar fact shared by literals, const evaluation and code generation.
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +133,6 @@ impl ScalarValue {
 
 impl ScalarValue {
     pub fn cast_numeric(self, target: BuiltinType) -> Option<Self> {
-        use kagari_common::numeric::Number;
         let TypeId::Builtin(source) = self.ty() else {
             return None;
         };

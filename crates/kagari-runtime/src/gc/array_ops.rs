@@ -1,4 +1,9 @@
-use super::*;
+use crate::error::RuntimeError;
+use crate::error::RuntimeErrorKind;
+use crate::gc::GcHeap;
+use crate::gc::HeapObject;
+use crate::gc::HeapObjectId;
+use crate::value::Value;
 use std::ops::Bound;
 
 fn invalid() -> RuntimeError {
@@ -15,7 +20,6 @@ impl GcHeap {
         start: Bound<usize>,
         end: Bound<usize>,
     ) -> Result<Value, RuntimeError> {
-        use std::ops::Bound;
         self.ensure_execution_allowed()?;
         let length = self.array_len(target).ok_or_else(invalid)?;
         let start = match start {

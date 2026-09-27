@@ -1,5 +1,7 @@
 //! Immutable integer range values; cursor state belongs to each iterator.
 
+use crate::value::EnumTag;
+
 use crate::gc::GcHeap;
 use crate::numeric;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
@@ -67,7 +69,7 @@ impl RangeValue {
         } else {
             self.kind.has_start().then(|| self.endpoint(self.start))
         };
-        use crate::value::EnumTag;
+
         let tag = match value {
             None => EnumTag::BoundUnbounded,
             Some(_) if upper && !self.kind.inclusive() => EnumTag::BoundExcluded,
@@ -123,8 +125,6 @@ pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
 }
 
 pub(crate) fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeError> {
-    use crate::value::EnumTag;
-    use std::ops::Bound;
     let Value::Enum(id) = value else {
         return Err(invalid());
     };

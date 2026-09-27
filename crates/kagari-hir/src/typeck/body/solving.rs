@@ -1,12 +1,23 @@
-use super::*;
 use crate::builtin::declarations;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
+use crate::hir::BlockId;
+use crate::hir::ExprId;
+use crate::hir::ExprKind;
+use crate::hir::TypeKind;
 use crate::hir::TypeRefId;
+use crate::typeck::BodyTypeEnv;
+use crate::typeck::body::BodyChecker;
+use crate::typeck::ty::TypeContext;
+use crate::typeck::ty::display_type;
+use crate::typeck::ty::resolve_type_in;
 use crate::typeck::{completion, inference};
 use crate::types::GenericParameterType;
 use crate::types::NominalType;
+use crate::types::TypeId;
 use crate::types::TypeSubstitution;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
 
 impl BodyChecker<'_> {
     pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {
@@ -96,7 +107,6 @@ impl BodyChecker<'_> {
     }
 
     pub(super) fn prepare_annotation_holes(&mut self, ty: TypeRefId) {
-        use crate::hir::TypeKind;
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
             if self.cancel.check().is_err() {

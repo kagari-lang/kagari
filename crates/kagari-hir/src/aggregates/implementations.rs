@@ -1,18 +1,27 @@
-use super::*;
+use crate::aggregates::AggregateCatalog;
 use crate::builtin::declarations;
 use crate::builtin::numeric;
 use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use crate::resolver::ResolvedName;
 use crate::typeck;
 use crate::typeck::ConstraintTarget;
 use crate::typeck::GenericBounds;
+use crate::typeck::ModuleSignatures;
 use crate::typeck::associated;
 use crate::types;
 use crate::types::AssociatedTypeFamily;
+use crate::types::TypeId;
 use crate::types::TypeSubstitution;
 use crate::types::{GenericParameterType, NominalType};
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
+use kagari_common::identity::DefinitionId;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::iter;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImplementationSearchError {
@@ -61,7 +70,6 @@ impl AggregateCatalog {
         &self,
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
-        use crate::builtin::traits::StandardTrait;
         let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
         if protocol.iteration() {
             let other = if protocol == StandardTrait::Iterator {
@@ -184,7 +192,6 @@ impl AggregateCatalog {
         visiting: &mut HashSet<(NominalType, TypeId)>,
         budget: &mut SearchBudget<'_>,
     ) -> Result<bool, ImplementationSearchError> {
-        use crate::builtin::traits::StandardTrait;
         budget.check_candidate()?;
         if visiting.contains(&(protocol.nominal(), ty.clone())) {
             return Ok(false);

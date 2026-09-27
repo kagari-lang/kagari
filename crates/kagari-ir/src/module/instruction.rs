@@ -775,7 +775,6 @@ pub enum StandardEnumOp {
 }
 impl StandardEnumOp {
     pub fn contract(self, ty: &AbiType) -> Option<(Option<super::ValueType>, super::ValueType)> {
-        use super::{ValueType, abi::AbiType};
         if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
             return None;
         }
@@ -812,7 +811,6 @@ pub enum IterOp {
 }
 impl IterOp {
     pub fn contract(self, ty: &AbiType) -> Option<(Option<super::ValueType>, super::ValueType)> {
-        use super::{ValueType, abi::AbiType};
         if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
             return None;
         }
@@ -853,7 +851,6 @@ impl IterOp {
     }
 
     pub fn closure_item(ty: &AbiType) -> Option<&AbiType> {
-        use super::abi::AbiType;
         let AbiType::Tuple(fields) = ty else {
             return None;
         };
@@ -900,7 +897,6 @@ pub fn range_operands_valid(
     start: Option<ValueType>,
     end: Option<ValueType>,
 ) -> bool {
-    use super::abi::AbiType;
     let AbiType::Range(item, kind) = ty else {
         return false;
     };
@@ -911,7 +907,6 @@ pub fn range_operands_valid(
 }
 
 pub fn range_bound_valid(range: &AbiType, bound: &AbiType) -> bool {
-    use super::abi::{AbiType, StandardEnumKind};
     let (
         AbiType::Range(item, kind),
         AbiType::StandardEnum {
@@ -942,7 +937,6 @@ pub enum StringIterKind {
 }
 impl StringIterKind {
     pub fn source_type(self) -> AbiType {
-        use super::abi::{AbiType, BuiltinType};
         let string = AbiType::Builtin(BuiltinType::String);
         AbiType::Tuple(match self {
             Self::Split => vec![string.clone(), string],
@@ -951,7 +945,6 @@ impl StringIterKind {
         })
     }
     pub fn item_type(self) -> AbiType {
-        use super::abi::{AbiType, BuiltinType};
         match self {
             Self::Bytes => AbiType::Builtin(BuiltinType::U8),
             Self::CharIndices => AbiType::Tuple(vec![

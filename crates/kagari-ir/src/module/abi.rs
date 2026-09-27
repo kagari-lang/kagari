@@ -1,9 +1,11 @@
 use super::ValueType;
 use super::function::FunctionInstance;
 use bincode::DefaultOptions;
+use bincode::Options;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::HostValueType;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::ModuleIdentity;
 use kagari_common::range::RangeKind;
 use kagari_hir::aggregates::ImplementationSignature;
@@ -20,6 +22,7 @@ use kagari_hir::types::NominalType;
 use kagari_hir::types::TypeId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,8 +65,6 @@ impl PublicAbiItem {
 
     pub fn fingerprint_name(&self) -> String {
         if let Self::InterfaceTable(table) = self {
-            use bincode::Options;
-            use std::fmt::Write;
             let encoded = DefaultOptions::new()
                 .with_fixint_encoding()
                 .with_little_endian()
@@ -227,7 +228,6 @@ pub enum AbiType {
 
 impl AbiType {
     pub(crate) fn to_checked_type(&self) -> TypeId {
-        use kagari_hir::types::{GenericParameterType, TypeId};
         match self {
             Self::Projection {
                 receiver,
@@ -273,29 +273,34 @@ impl AbiType {
     }
 
     pub(crate) fn from_host_type(ty: &HostValueType) -> Self {
-        use kagari_common::host_interface::HostValueType as Host;
         match ty {
-            Host::Unit => Self::Builtin(BuiltinType::Unit),
-            Host::Bool => Self::Builtin(BuiltinType::Bool),
-            Host::I32 => Self::Builtin(BuiltinType::I32),
-            Host::I64 => Self::Builtin(BuiltinType::I64),
-            Host::F32 => Self::Builtin(BuiltinType::F32),
-            Host::F64 => Self::Builtin(BuiltinType::F64),
-            Host::String => Self::Builtin(BuiltinType::String),
-            Host::Opaque(id) => Self::Host(id.clone()),
-            Host::Tuple(types) => Self::Tuple(types.iter().map(Self::from_host_type).collect()),
-            Host::Array(ty, access) => Self::Array(Box::new(Self::from_host_type(ty)), *access),
-            Host::Map { key, value, access } => Self::Map {
+            HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
+            HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
+            HostValueType::I32 => Self::Builtin(BuiltinType::I32),
+            HostValueType::I64 => Self::Builtin(BuiltinType::I64),
+            HostValueType::F32 => Self::Builtin(BuiltinType::F32),
+            HostValueType::F64 => Self::Builtin(BuiltinType::F64),
+            HostValueType::String => Self::Builtin(BuiltinType::String),
+            HostValueType::Opaque(id) => Self::Host(id.clone()),
+            HostValueType::Tuple(types) => {
+                Self::Tuple(types.iter().map(Self::from_host_type).collect())
+            }
+            HostValueType::Array(ty, access) => {
+                Self::Array(Box::new(Self::from_host_type(ty)), *access)
+            }
+            HostValueType::Map { key, value, access } => Self::Map {
                 key: Box::new(Self::from_host_type(key)),
                 value: Box::new(Self::from_host_type(value)),
                 access: *access,
             },
-            Host::Set(ty, access) => Self::Set(Box::new(Self::from_host_type(ty)), *access),
-            Host::Option(ty) => Self::StandardEnum {
+            HostValueType::Set(ty, access) => {
+                Self::Set(Box::new(Self::from_host_type(ty)), *access)
+            }
+            HostValueType::Option(ty) => Self::StandardEnum {
                 kind: StandardEnumKind::Option,
                 args: vec![Self::from_host_type(ty)],
             },
-            Host::Result { ok, error } => Self::StandardEnum {
+            HostValueType::Result { ok, error } => Self::StandardEnum {
                 kind: StandardEnumKind::Result,
                 args: vec![Self::from_host_type(ok), Self::from_host_type(error)],
             },
@@ -311,7 +316,6 @@ impl AbiType {
     }
 
     pub(crate) fn from_checked_type(ty: &TypeId) -> Self {
-        use kagari_hir::types::TypeId;
         match ty {
             TypeId::Projection {
                 receiver,
@@ -709,7 +713,6 @@ pub(crate) fn interface_method_semantics(
     interface: &NominalAbiType,
     slot: usize,
 ) -> Option<(Vec<AbiType>, AbiType)> {
-    use kagari_common::identity::DefinitionKind;
     let path = &interface.declaration.path;
     if (interface.declaration.module != *owner
         && standard_trait_contract(&interface.declaration).is_none())
@@ -843,7 +846,6 @@ pub(crate) mod verify;
 
 /// Canonical standard contracts are engine-owned, never supplied by an artifact.
 pub fn standard_trait_contract(id: &DefinitionId) -> Option<&'static TraitAbi> {
-    use kagari_hir::builtin::traits::StandardTrait;
     static CONTRACTS: OnceLock<Vec<TraitAbi>> = OnceLock::new();
     let kind = StandardTrait::from_id(id)?;
     Some(

@@ -2,10 +2,13 @@ use host::HostCallContext;
 use kagari_common::host_interface::HostPassingStyle;
 use kagari_common::host_interface::HostPathDeclaration;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::DefinitionPathSegment;
 use kagari_ir::bytecode;
 use kagari_ir::bytecode::ArtifactFingerprint;
 use kagari_ir::bytecode::BinaryOp;
 use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::module::PublicAbiItem;
 use kagari_ir::module::ValueType;
 use kagari_ir::module::abi;
 use kagari_ir::module::abi::AbiType;
@@ -495,8 +498,6 @@ impl Runtime {
         table_index: usize,
         data: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
-        use kagari_ir::module::{PublicAbiItem, abi::AbiType};
         let invalid = || RuntimeError::module_validation("invalid interface implementation table");
         if !implementation.belongs_to(self.host.owner()) {
             return Err(invalid());
@@ -813,7 +814,6 @@ impl Runtime {
         source: &NominalAbiType,
         target: &NominalAbiType,
     ) -> Result<value::Value, RuntimeError> {
-        use kagari_ir::module::{PublicAbiItem, abi::AbiType};
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
         let Value::Interface(id) = value else {

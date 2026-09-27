@@ -1,5 +1,13 @@
-use super::*;
+use crate::lower::IrLoweringError;
 use crate::lower::instances::IteratorInstance;
+use crate::lower::state::FunctionLowerer;
+use crate::module::instruction::BinaryOp;
+use crate::module::instruction::CallTarget;
+use crate::module::instruction::Constant;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
+use crate::module::instruction::Terminator;
+use crate::module::types::ValueType;
 use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},

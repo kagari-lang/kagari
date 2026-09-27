@@ -17,7 +17,6 @@ use kagari_hir::{
 
 // Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
 fn const_abi_value(value: &ScalarValue) -> String {
-    use kagari_hir::typeck::ScalarValue;
     match value {
         ScalarValue::Unit => "const-v1:unit".to_owned(),
         ScalarValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),

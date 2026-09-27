@@ -49,7 +49,6 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
             Some(ty)
         } else if let Some(binding) = context.declarations.names.lookup(name) {
             binding.target().and_then(|resolved| {
-                use crate::resolver::ResolvedName;
                 if let ResolvedName::StandardModule(
                     kind @ (StandardModule::ParseError
                     | StandardModule::TryFromIntError

@@ -1,4 +1,8 @@
-use super::*;
+use crate::error::RuntimeError;
+use crate::error::RuntimeErrorKind;
+use crate::gc::GcHeap;
+use crate::value::Value;
+use indexmap::IndexMap;
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid capacity receiver")

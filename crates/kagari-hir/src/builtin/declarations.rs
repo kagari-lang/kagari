@@ -1,5 +1,11 @@
 //! Public signatures compiled from the bundled declaration sources.
 
+use crate::aggregates::MethodParameter;
+use crate::aggregates::MethodSignature;
+use crate::hir::Writeability;
+use crate::typeck::ConstraintTarget;
+use crate::types::GenericParameterType;
+
 use super::surface::{self, StandardEnum};
 use super::traits;
 use super::traits::StandardTrait;
@@ -16,6 +22,7 @@ use kagari_common::Span;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionPathSegment, ModuleIdentity, PackageId};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
@@ -230,7 +237,6 @@ pub fn implementations(receiver: &TypeId) -> Vec<&'static ApiImplementation> {
 
 impl ApiItem {
     pub fn identity(&self) -> DefinitionId {
-        use kagari_common::identity::*;
         DefinitionId {
             module: ModuleIdentity {
                 package: PackageId("kagari-std".into()),
@@ -248,7 +254,6 @@ impl ApiItem {
         }
     }
     pub fn declaration(&self) -> Declaration {
-        use crate::declarations::*;
         let source = sources()
             .iter()
             .find(|source| source.name() == self.uri)
@@ -331,7 +336,6 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
 }
 
 pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
-    use crate::resolver::ResolvedName;
     let item = match name {
         ResolvedName::StandardFunction(intrinsic) => function(intrinsic)?,
         ResolvedName::StandardVariant(kind) => variant(kind)?,
@@ -598,12 +602,6 @@ impl ApiBound {
 
 impl ApiTrait {
     pub fn contract(&self) -> TraitSignature {
-        use crate::{
-            aggregates::{MethodParameter, MethodSignature, TraitSignature},
-            hir::Writeability,
-            typeck::ConstraintTarget,
-            types::{GenericParameterType, NominalType},
-        };
         let id = self.item.identity();
         let generics = self
             .generics

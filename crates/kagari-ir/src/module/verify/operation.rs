@@ -1,4 +1,5 @@
 use super::{Context, IrVerificationError, IrVerificationErrorKind as Error};
+use crate::module::PublicAbiItem;
 use crate::module::abi::AbiType;
 use crate::module::instruction;
 use crate::module::{
@@ -316,7 +317,6 @@ pub(super) fn verify(
             implementation,
             arguments,
         } => {
-            use crate::module::PublicAbiItem;
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             let table = module.abi.public_items.iter().find_map(|item| match item {
                 PublicAbiItem::InterfaceTable(table) if &table.declaration == implementation => {

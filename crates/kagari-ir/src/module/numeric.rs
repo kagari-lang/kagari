@@ -18,7 +18,7 @@ pub struct NumericOperation {
 impl NumericOperation {
     pub fn binary(op: BinaryOp, input: BuiltinType, rhs: BuiltinType) -> Option<Self> {
         input.integer_layout()?;
-        use kagari_hir::hir::BinaryOp;
+
         let op = match op {
             BinaryOp::Add => IntegerOp::CheckedAdd,
             BinaryOp::Sub => IntegerOp::CheckedSub,

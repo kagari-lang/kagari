@@ -1,9 +1,18 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
+use crate::module::instruction::BinaryOp;
+use crate::module::instruction::Constant;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
+use crate::module::instruction::Terminator;
+use crate::module::types::ValueType;
 use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},
 };
 use kagari_common::collection::CollectionAccess;
+use kagari_common::collection::CollectionAccess::Mutable;
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{
     builtin::{
         surface::StandardEnum,
@@ -240,7 +249,6 @@ impl FunctionLowerer<'_, '_> {
     }
 
     pub(super) fn collection_new(&mut self, target: &TypeId) -> Result<IrValue, IrLoweringError> {
-        use kagari_common::collection::CollectionAccess::Mutable;
         let (new, mutable) = match target {
             TypeId::Array(item, _) => (
                 StandardIntrinsic::ArrayListNew,

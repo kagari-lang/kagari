@@ -1,11 +1,23 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
 use crate::module::abi::NominalAbiType;
+use crate::module::instruction::BinaryOp;
+use crate::module::instruction::CallTarget;
+use crate::module::instruction::Constant;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
 use crate::module::instruction::SourceFunctionContract;
 use crate::module::instruction::StandardEnumOp;
+use crate::module::instruction::Terminator;
+use crate::module::instruction::ValueBuffer;
+use crate::module::types::ValueType;
 use bincode::DefaultOptions;
+use bincode::Options;
 use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
 use std::collections::HashSet;
+use std::fmt::Write;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> bool {
@@ -366,8 +378,6 @@ impl FunctionLowerer<'_, '_> {
             }
             // Declaration identity, not the current slot, survives variant reordering.
             let tag = if let TypeId::Enum(nominal) = ty {
-                use bincode::Options;
-                use std::fmt::Write;
                 let declaration = &self
                     .planner
                     .catalog

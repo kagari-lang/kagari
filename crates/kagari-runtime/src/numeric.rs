@@ -5,6 +5,7 @@ use kagari_common::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
 use kagari_common::integer;
 use kagari_common::integer::IntegerMethod;
 use kagari_common::numeric;
+use kagari_common::numeric::Number;
 use kagari_ir::bytecode::{BinaryOp, UnaryOp};
 use kagari_ir::module::ValueType;
 use kagari_ir::module::abi::AbiType;
@@ -140,8 +141,7 @@ pub fn integer_method(
     let (bits, signed) = ty.integer_layout().ok_or_else(|| {
         RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer receiver required")
     })?;
-    use kagari_common::integer::IntegerMethod;
-    use kagari_ir::module::abi::BuiltinType;
+
     let rhs_ty = match operation {
         IntegerMethod::RotateLeft | IntegerMethod::RotateRight => BuiltinType::U32,
         IntegerMethod::WrappingAddSigned if signed => {
@@ -172,7 +172,6 @@ pub fn integer_method(
         _ => Value::I64(value as i64),
     };
     if operation.checked() {
-        use crate::value::EnumTag;
         let (tag, payload) = if overflow {
             (EnumTag::OptionNone, vec![])
         } else {
@@ -191,7 +190,6 @@ pub fn convert(
     conversion: NumericConversion,
     value: Value,
 ) -> Result<Value, RuntimeError> {
-    use kagari_common::numeric::Number;
     let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
     conversion.contract().ok_or_else(fail)?;
     if !value.has_representation(AbiType::Builtin(conversion.source).representation()) {

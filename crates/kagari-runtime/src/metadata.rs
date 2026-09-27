@@ -197,15 +197,14 @@ impl TypeRegistry {
             .public_abi_fingerprints
             .insert(registration.abi_fingerprint);
         if registration.kind == TypeKind::Primitive {
-            use kagari_common::host_interface::HostValueType as T;
             let portable = match registration.name.as_str() {
-                "()" => Some(T::Unit),
-                "bool" => Some(T::Bool),
-                "i32" => Some(T::I32),
-                "i64" => Some(T::I64),
-                "f32" => Some(T::F32),
-                "f64" => Some(T::F64),
-                "String" => Some(T::String),
+                "()" => Some(HostValueType::Unit),
+                "bool" => Some(HostValueType::Bool),
+                "i32" => Some(HostValueType::I32),
+                "i64" => Some(HostValueType::I64),
+                "f32" => Some(HostValueType::F32),
+                "f64" => Some(HostValueType::F64),
+                "String" => Some(HostValueType::String),
                 _ => None,
             };
             if let Some(portable) = portable {

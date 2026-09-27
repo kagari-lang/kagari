@@ -1,5 +1,6 @@
 use super::ty;
 use crate::builtin::traits::StandardTrait;
+use crate::builtin::traits::intrinsic_holds;
 use crate::declarations::Declarations;
 use hir::TypeKind;
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
@@ -369,7 +370,6 @@ pub fn type_satisfies_standard_constraint(
     constraint: StandardTypeConstraint,
     bounds: &super::GenericBounds,
 ) -> bool {
-    use crate::builtin::traits::{StandardTrait, intrinsic_holds};
     match constraint {
         StandardTypeConstraint::HashKey => {
             intrinsic_holds(StandardTrait::Eq, ty, None, bounds)

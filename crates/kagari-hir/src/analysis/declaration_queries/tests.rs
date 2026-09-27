@@ -1,4 +1,5 @@
 use super::*;
+use crate::analysis::AnalysisSnapshot;
 use crate::declarations::DeclarationId;
 use kagari_common::{
     DiagnosticKind,

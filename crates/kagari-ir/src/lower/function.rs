@@ -6,6 +6,7 @@ use hir::ExprKind;
 use kagari_hir::AnalyzedModule;
 use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::builtin::traits::callable_signature;
 use kagari_hir::hir;
 use kagari_hir::typeck::TypedFunction;
 use kagari_hir::types::BuiltinType;
@@ -25,11 +26,6 @@ pub(crate) fn lower_callable<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
-    use crate::module::{ValueType, instruction::Instruction};
-    use kagari_hir::{
-        builtin::traits::{StandardTrait, callable_signature},
-        types::TypeId,
-    };
     let body = instance.callable.clone().expect("callable adapter");
     let Some(TypeId::Function { params, result }) = callable_signature(&body.interface) else {
         return Err(IrLoweringError::MissingBinding(
@@ -172,7 +168,6 @@ pub(crate) fn lower_protocol<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
-    use crate::module::instruction::Instruction;
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
     let equality = protocol == StandardTrait::PartialEq;
     let typed = TypedFunction {
@@ -421,7 +416,6 @@ pub(crate) fn lower_native_method<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
-    use crate::module::instruction::Instruction;
     let (receiver, interface, method) = instance.native_method.clone().expect("native method");
     let contract = planner
         .catalog

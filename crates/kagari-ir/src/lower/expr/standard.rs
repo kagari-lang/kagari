@@ -1,6 +1,13 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
 use crate::module::abi::AbiType;
+use crate::module::instruction::CallTarget;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp;
+use crate::module::instruction::Terminator;
+use crate::module::types::ValueType;
+use kagari_hir::hir;
 use kagari_hir::{
     builtin::surface::{StandardEnum, StandardIntrinsic},
     types::TypeId,

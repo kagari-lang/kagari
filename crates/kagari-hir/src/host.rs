@@ -1,5 +1,7 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
 
+use kagari_common::host_interface::HostPathSegmentDeclaration;
+
 use crate::DiagnosticBuffer;
 use crate::aggregates::AggregateCatalog;
 use crate::builtin::surface::StandardEnum;
@@ -579,7 +581,6 @@ impl HostDeclarations {
         root: &DefinitionId,
         steps: &[HostSourcePathStep],
     ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
-        use kagari_common::host_interface::HostPathSegmentDeclaration as Segment;
         let mut matches = self.interface.paths.iter().filter(|path| {
             if &path.root != root || path.segments.len() != steps.len() {
                 return false;
@@ -589,13 +590,14 @@ impl HostDeclarations {
                 .iter()
                 .zip(steps)
                 .all(|(segment, source)| match (segment, source) {
-                    (Segment::Field(id), HostSourcePathStep::Member(name)) => {
+                    (HostPathSegmentDeclaration::Field(id), HostSourcePathStep::Member(name)) => {
                         self.field(id).is_some_and(|field| field.name == *name)
                     }
-                    (Segment::Virtual(virtual_step), HostSourcePathStep::Member(name)) => {
-                        virtual_step.name == *name
-                    }
-                    (Segment::Index(index), HostSourcePathStep::Index(ty)) => {
+                    (
+                        HostPathSegmentDeclaration::Virtual(virtual_step),
+                        HostSourcePathStep::Member(name),
+                    ) => virtual_step.name == *name,
+                    (HostPathSegmentDeclaration::Index(index), HostSourcePathStep::Index(ty)) => {
                         source_slots.insert(index.slot) && signature_type(&index.index) == *ty
                     }
                     _ => false,

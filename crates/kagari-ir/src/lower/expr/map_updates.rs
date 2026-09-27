@@ -1,5 +1,9 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
+use crate::module::instruction::IrValue;
 use crate::module::instruction::StandardEnumOp as Op;
+use crate::module::types::ValueType;
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::{builtin::surface::StandardEnum, types::TypeId};
 
 impl FunctionLowerer<'_, '_> {

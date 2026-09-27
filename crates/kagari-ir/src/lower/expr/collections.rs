@@ -1,12 +1,20 @@
-use super::*;
+use crate::lower::IrLoweringError;
+use crate::lower::state::FunctionLowerer;
 use crate::module::abi::AbiType;
+use crate::module::instruction::BinaryOp;
+use crate::module::instruction::Instruction;
+use crate::module::instruction::IrValue;
 use crate::module::instruction::IterOp;
 use crate::module::instruction::StandardEnumOp;
+use crate::module::instruction::Terminator;
+use crate::module::types::ValueType;
 use kagari_common::collection::CollectionAccess;
+use kagari_hir::builtin::surface::StandardIntrinsic;
 use kagari_hir::builtin::traits;
 use kagari_hir::builtin::{
     declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait,
 };
+use kagari_hir::hir;
 use kagari_hir::types::TypeId;
 
 impl FunctionLowerer<'_, '_> {
