@@ -144,6 +144,10 @@ impl FunctionLowerer<'_, '_> {
                 &Default::default(),
             )
         {
+            if kagari_hir::builtin::traits::lifted_collection_requirement(&interface, &ty).is_some()
+            {
+                return self.lower_fallible_collect(&ty, &method_arguments[0], args[0]);
+            }
             return self.lower_collect(&ty, &method_arguments[0], args[0]);
         }
         if let Some(protocol) = StandardTrait::from_id(&interface.declaration)

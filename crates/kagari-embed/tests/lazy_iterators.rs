@@ -695,3 +695,50 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn fallible_collection_short_circuits_and_defers_custom_construction() {
+    execute(
+        r#"
+struct Total { val value: i32 }
+impl FromIterator<i32> for Total {
+    fn from_iter<I: Iterable<Item = i32>>(source: I) -> Self {
+        var value = 0;
+        for item in source { value += item; }
+        Total { value }
+    }
+}
+struct Explodes { val value: i32 }
+impl FromIterator<i32> for Explodes {
+    fn from_iter<I: Iterable<Item = i32>>(source: I) -> Self {
+        Explodes { value: 1 / 0 }
+    }
+}
+fn collect_checked<I: Iterator<Item = Result<i32, String>>, C: FromIterator<i32>>(source: I) -> Result<C, String> { source.collect() }
+fn read(x: i32) -> Result<i32, String> { if x < 0 { Err("negative") } else { Ok(x) } }
+fn main() -> i32 {
+    var calls = 0;
+    val values = [20, -1, 22];
+    val iter = values.iter().map(|x| { calls += 1; read(x) });
+    val failed: Result<Explodes, String> = iter.collect();
+    std::debug::assert(failed.is_err(), "failure without destination constructor");
+    std::debug::assert_eq(calls, 2, "stopped at error");
+    std::debug::assert_eq(iter.next(), Some(Ok(22)), "remaining source");
+    std::debug::assert_eq(iter.next(), None, "exhausted after resumption");
+    values.push(7);
+    val none: Option<Array<i32>> = [Some(20), None, Some(22)].iter().collect();
+    std::debug::assert_eq(none, None, "option short circuit");
+    val success: Result<Total, String> = collect_checked([20, 22].iter().map(|x| read(x)));
+    val empty: MutableArray<Result<i32, String>> = MutableArray::new();
+    val empty_result: Result<Total, String> = empty.iter().collect();
+    std::debug::assert_eq(empty_result.map(|x| x.value), Ok(0), "empty constructs destination");
+    val optional: Option<Total> = [Some(20), Some(22)].iter().collect();
+    std::debug::assert_eq(optional.map(|x| x.value), Some(42), "custom option target");
+    val nested_input: Array<Result<Option<i32>, String>> = [Ok(Some(20)), Ok(Some(22))];
+    val nested: Result<Option<Array<i32>>, String> = nested_input.iter().collect();
+    std::debug::assert(nested.is_ok(), "nested lifting");
+    success.map(|x| x.value).unwrap_or(0)
+}
+"#,
+    );
+}

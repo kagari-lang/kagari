@@ -12,6 +12,124 @@ use kagari_hir::{
 };
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn lower_fallible_collect(
+        &mut self,
+        target: &TypeId,
+        source: &TypeId,
+        value: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
+        let TypeId::StandardEnum { kind, args } = target else {
+            unreachable!()
+        };
+        let destination = &args[0];
+        let iterator_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
+        let iterator = self.lower_applied_operator(
+            StandardTrait::Iterable.nominal(),
+            source.clone(),
+            &StandardTrait::Iterable.contract().methods[0].id,
+            &[value],
+        )?;
+        let input = self.iterator_item(&iterator_type)?;
+        let TypeId::StandardEnum {
+            args: input_args, ..
+        } = &input
+        else {
+            unreachable!()
+        };
+        let element = input_args[0].clone();
+        let buffer_type = TypeId::Array(
+            Box::new(element.clone()),
+            kagari_common::collection::CollectionAccess::Mutable,
+        );
+        let buffer = self.collection_new(&buffer_type)?;
+        let optional = TypeId::StandardEnum {
+            kind: StandardEnum::Option,
+            args: vec![input.clone()],
+        };
+        let result = self.alloc_temp(ValueType::HeapObject);
+        self.function
+            .semantic
+            .registers
+            .insert(result.temp.index(), AbiType::from_checked_type(target));
+        let guarded = matches!(iterator_type, TypeId::Iter(_));
+        if guarded {
+            self.emit(Instruction::BeginIteration {
+                collection: iterator,
+            });
+        }
+        let head = self.new_block();
+        let body = self.new_block();
+        let success = self.new_block();
+        let failure = self.new_block();
+        let done = self.new_block();
+        self.ensure_jump(head);
+        self.switch_to_block(head);
+        let next = self.iterator_next(&iterator_type, iterator)?;
+        let present = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(next))?;
+        self.set_terminator(Terminator::Branch {
+            cond: present,
+            then_block: body,
+            else_block: success,
+        });
+        self.switch_to_block(body);
+        let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
+        let valid = self.standard_enum_op(&input, StandardEnumOp::Test(0), Some(item))?;
+        let append = self.new_block();
+        self.set_terminator(Terminator::Branch {
+            cond: valid,
+            then_block: append,
+            else_block: failure,
+        });
+        self.switch_to_block(append);
+        let payload = self.standard_enum_op(&input, StandardEnumOp::Read(0), Some(item))?;
+        self.collection_insert(&buffer_type, buffer, payload)?;
+        self.ensure_jump(head);
+        self.switch_to_block(failure);
+        let failed = if *kind == StandardEnum::Result {
+            let error = self.standard_enum_op(&input, StandardEnumOp::Read(1), Some(item))?;
+            let failed = self.alloc_temp(ValueType::HeapObject);
+            self.emit(Instruction::MapResultError {
+                dst: failed,
+                original: item,
+                error,
+                ty: AbiType::from_checked_type(target),
+            });
+            failed
+        } else {
+            self.standard_enum_op(target, StandardEnumOp::Make(1), None)?
+        };
+        self.emit(Instruction::Move {
+            dst: result,
+            src: failed,
+        });
+        if guarded {
+            self.iterator_close(&iterator_type, iterator);
+            self.emit(Instruction::EndIteration);
+        }
+        self.ensure_jump(done);
+        self.switch_to_block(success);
+        if guarded {
+            self.iterator_close(&iterator_type, iterator);
+            self.emit(Instruction::EndIteration);
+        }
+        let mut contract = StandardTrait::FromIterator.nominal();
+        contract.arguments.push(element);
+        let collection = self.lower_applied_method(
+            contract,
+            destination.clone(),
+            &StandardTrait::FromIterator.contract().methods[0].id,
+            &[buffer_type],
+            &[buffer],
+        )?;
+        let succeeded = self.standard_enum_op(target, StandardEnumOp::Make(0), Some(collection))?;
+        self.emit(Instruction::Move {
+            dst: result,
+            src: succeeded,
+        });
+        self.ensure_jump(done);
+        self.switch_to_block(done);
+        Ok(result)
+    }
     pub(super) fn lower_numeric_aggregate(
         &mut self,
         protocol: StandardTrait,

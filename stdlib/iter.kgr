@@ -40,6 +40,24 @@ pub trait Iterator {
     /// val unique: MutableSet<i32> = [20, 20, 22].iter().collect();
     /// std::debug::assert_eq(values.len(), unique.len(), "unique items");
     /// ```
+    ///
+    /// # Fallible collection
+    ///
+    /// Result items can collect into Result<C, E> when C implements FromIterator<T>.
+    /// Option items can similarly collect into Option<C>. The first Err or None
+    /// stops traversal without reading later items. Err retains its original stack.
+    /// Successful payloads are buffered before invoking C::from_iter exactly once.
+    /// On failure the destination constructor is not called. Empty input invokes
+    /// the constructor with an empty source and wraps its result in Ok or Some.
+    /// Earlier callback effects remain visible. Nested wrappers apply recursively.
+    ///
+    /// ```kgr
+    /// val items: Array<Result<i32, String>> = [Ok(20), Ok(22)];
+    /// val result: Result<Array<i32>, String> = items.iter().collect();
+    /// std::debug::assert_eq(result.map(|x| x[0] + x[1]), Ok(42), "collected");
+    /// val missing: Option<Array<i32>> = [Some(20), None].iter().collect();
+    /// std::debug::assert_eq(missing, None, "short circuit");
+    /// ```
     #[intrinsic(IteratorCollect)]
     fn collect<C: FromIterator<Self::Item>>(self) -> C;
 

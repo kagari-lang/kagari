@@ -295,6 +295,41 @@ pub fn intrinsic_applies(
             );
     }
     if kind == StandardTrait::FromIterator {
+        if let Some((mut required, mut target)) = lifted_collection_requirement(interface, receiver)
+        {
+            for depth in 0..64 {
+                if bounds.get(&target).is_some_and(|bounds| {
+                    bounds
+                        .iter()
+                        .any(|b| matches!(b, ConstraintTarget::Trait(t) if t.satisfies(&required)))
+                }) {
+                    return true;
+                }
+                if let Some((inner, destination)) =
+                    lifted_collection_requirement(&required, &target)
+                {
+                    if depth == 63 {
+                        return false;
+                    }
+                    required = inner;
+                    target = destination;
+                } else {
+                    return intrinsic_applies(&required, &target, catalog, bounds)
+                        || catalog.is_some_and(|c| {
+                            c.concrete_interface_implementation(
+                                &required,
+                                &target,
+                                bounds,
+                                4096,
+                                64,
+                                &Default::default(),
+                            )
+                            .is_ok_and(|i| i.is_some())
+                        });
+                }
+            }
+            return false;
+        }
         let Some(item) = collection_item(receiver) else {
             return false;
         };
@@ -346,6 +381,49 @@ pub fn collection_item(receiver: &TypeId) -> Option<TypeId> {
         }
         _ => None,
     }
+}
+
+/// Collect successful payloads using the destination's ordinary constructor.
+pub fn lifted_collection_requirement(
+    interface: &NominalType,
+    receiver: &TypeId,
+) -> Option<(NominalType, TypeId)> {
+    use super::surface::StandardEnum;
+    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::FromIterator)
+        || !interface.associated_types.is_empty()
+    {
+        return None;
+    }
+    let [
+        TypeId::StandardEnum {
+            kind: input,
+            args: items,
+        },
+    ] = interface.arguments.as_slice()
+    else {
+        return None;
+    };
+    let TypeId::StandardEnum {
+        kind: output,
+        args: targets,
+    } = receiver
+    else {
+        return None;
+    };
+    if input != output
+        || !matches!(
+            (input, items.as_slice(), targets.as_slice()),
+            (StandardEnum::Option, [_], [_]) | (StandardEnum::Result, [_, _], [_, _])
+        )
+    {
+        return None;
+    }
+    if *input == StandardEnum::Result && items[1] != targets[1] {
+        return None;
+    }
+    let mut required = StandardTrait::FromIterator.nominal();
+    required.arguments.push(items[0].clone());
+    Some((required, targets[0].clone()))
 }
 
 pub fn ordering_type(optional: bool) -> TypeId {

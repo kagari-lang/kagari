@@ -421,7 +421,7 @@ workspace/all-targets clippy with warnings denied and `git diff --check` passed.
 - [x] J02: declaration-level where bounds, ordered extrema and key-based extrema.
 - [x] J03: lazy flat_map/flatten with dynamically retained inner iterators.
 - [x] J04: Sum/Product protocols and target-directed numeric/user-defined aggregation.
-- [ ] J05: Result/Option FromIterator lifting with short-circuiting and preserved error origins.
+- [x] J05: Result/Option FromIterator lifting with short-circuiting and preserved error origins.
 - [ ] J06: explicit native collection Iterable/FromIterator declarations, examples and final validation.
 
 Fallible collection first buffers successful items, then invokes the destination's
@@ -446,3 +446,8 @@ J04 provides target-directed Sum/Product with numeric identity values and ordina
 user implementations. Tests cover generic callers, custom targets, empty inputs,
 float/double identities and usize aggregation across source/artifact/JIT routes.
 IR and bytecode now represent native f64 constants for the empty product identity.
+
+J05 validates Result/Option lifting into native and user destinations, nested
+wrappers, generic destination bounds, empty inputs and unconsumed source tails.
+Original Err stack metadata survives collection and GC. Iterator, error-trace
+and executable documentation tests passed across source/artifact/JIT routes.

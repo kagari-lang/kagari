@@ -455,3 +455,13 @@ fn imported_error_frames_keep_their_own_source_locations() {
     assert_eq!(trace.frames[1].source_uri, "mem://root");
     assert_eq!(trace.frames[1].line, Some(1));
 }
+
+#[test]
+fn collecting_results_preserves_original_error_stack() {
+    run_failure(
+        "fn read(x:i32)->Result<i32,String> {\n    if x < 0 { Err(\"negative\") } else { Ok(x) }\n}\nfn main()->Result<Array<i32>,String> { [20,-1,22].iter().map(|x| read(x)).collect() }",
+        "read",
+        2,
+        "negative",
+    );
+}

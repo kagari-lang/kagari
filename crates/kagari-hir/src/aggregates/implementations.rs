@@ -740,9 +740,24 @@ impl AggregateCatalog {
                             }) {
                                 continue;
                             }
-                            let (required, actual) =
+                            let (mut required, mut actual) =
                                 crate::builtin::traits::conversion_requirement(&required, &actual)
                                     .unwrap_or((required, actual.clone()));
+                            let mut lifted = 0;
+                            while let Some((inner, destination)) =
+                                crate::builtin::traits::lifted_collection_requirement(
+                                    &required, &actual,
+                                )
+                            {
+                                budget.check_candidate()?;
+                                lifted += 1;
+                                if budget.depth + lifted >= budget.max_depth {
+                                    return Err(ImplementationSearchError::LimitExceeded);
+                                }
+                                required = inner;
+                                actual = destination;
+                            }
+                            if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, crate::typeck::ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
                             if crate::builtin::traits::intrinsic_applies(
                                 &required,
                                 &actual,

@@ -41,7 +41,7 @@ KbcArtifact {
 }
 ```
 
-Format version 74 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 75 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
 virtual segment fingerprints from resolved contract fields. Versions 1 through 69 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
@@ -560,3 +560,5 @@ Version 73/runtime ABI v73 add dynamic inner iterator dependencies and retain
 engine default method signatures only in their canonical standard trait contract.
 
 Version 74/runtime ABI v74 add Sum/Product and an explicit f64 constant encoding.
+
+Version 75/runtime ABI v75 define buffered Result/Option collection lifting.
