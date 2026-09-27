@@ -25,3 +25,7 @@ smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
 kagari-codegen-cranelift.workspace = true
+
+[[example]]
+name = "architecture_baseline"
+required-features = ["source", "native"]

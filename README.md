@@ -65,19 +65,22 @@ The aim is to keep the scripting model ergonomic without giving up the host appl
 
 The repository is organized as a Rust workspace so that major responsibilities are separated:
 
-The list below describes the current implementation. The
-[MIR architecture plan](docs/mir-architecture-refactor.md) defines the replacement
-layout and staged migration; it does not claim those crates already exist.
+The [architecture](docs/architecture.md) describes the thirteen active crates;
+the [MIR refactor plan](docs/mir-architecture-refactor.md) records acceptance progress.
 
-- `kagari-common`: shared foundational types such as source files, spans, and diagnostics
-- `kagari-syntax`: lexer, parser, and AST
-- `kagari-hir`: HIR lowering, name resolution, builtin types, semantic analysis, and type checking
-- `kagari-ir`: lowering from typed semantics into IR and bytecode-oriented forms
-- `kagari-runtime`: runtime values, GC boundaries, host ABI boundaries, security policy, backend interfaces, and hot-reload metadata
-- `kagari-vm`: bytecode interpreter, debugger hooks, and debugger adapter boundary
-- `kagari-jit-cranelift`: optional baseline Cranelift backend
-- `kagari-embed`: Rust embedding facade for compile, artifact, load, execute, reload, and backend execution flows
-- `kagari-cli`: command-line driver for parsing, checking, artifact emission, source execution, and artifact execution
+- `kagari-common`: source identities, diagnostics, limits and shared primitives
+- `kagari-syntax`: lexer, parser, CST and AST views
+- `kagari-hir`: recoverable semantic analysis, resolution, typing and tool queries
+- `kagari-abi`: executable types/layouts, helpers and native ownership/calling contracts
+- `kagari-mir`: concrete CFGs, verification, analyses, passes and portable encoding
+- `kagari-compiler`: checked source-to-MIR and MIR-to-bytecode lowering, native links
+- `kagari-bytecode`: interpreter model, validation, codec and `.kbc` envelope
+- `kagari-codegen`: verified MIR compilation interface
+- `kagari-codegen-cranelift`: optional scalar native compiler and code-memory ownership
+- `kagari-runtime`: values, GC, host state, sessions, native calls, security and reload
+- `kagari-vm`: bytecode frame driver, debugger and prepared native selection
+- `kagari-embed`: host SDK with independent `source` and `native` features
+- `kagari-cli`: arguments, filesystem IO and presentation
 
 This structure prevents syntax, semantics, runtime logic, and execution backends from becoming tightly coupled as the project grows.
 
@@ -152,12 +155,12 @@ The current codebase includes:
 - A runnable workspace structure
 - Source, span, and structured diagnostic types with stable diagnostic codes
 - Lexer, parser, AST, HIR lowering, name resolution, builtin metadata, and semantic checks
-- Lowering from analyzed modules to typed IR and verified bytecode
+- Bounded lowering from checked source to concrete verified MIR, sealed analyses and bytecode
 - A complete typed core standard library surface for arrays, maps, sets, strings, options, results, iterables, math, and debug helpers
 - `.kbc` artifact metadata, validation, and current Rust serialization helpers
 - Runtime values, host function/type registration, capability checks, resource policy, module epochs, and reload validation
 - A bytecode VM with debugger hooks, breakpoint resolution, stepping state, watch evaluation, and adapter-boundary request/event types
-- An optional Cranelift backend isolated behind `CodegenBackend`
+- An optional verified-MIR Cranelift compiler behind `CodegenBackend`, with runtime-owned invocation
 - A CLI and embedding facade that share compile, artifact, load, execute, and reload boundaries
 
 ## Expected Areas of Growth

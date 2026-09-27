@@ -1,8 +1,8 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A04 complete; workspace test build restored; A05 final integration and baseline remain.
+Status: A00-A05 complete; final workspace, feature and structure acceptance passes.
 
-This is the active architecture execution plan linked from
+This completed architecture execution plan is linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
 [foundation refactor](foundation-refactor.md) and subsequent language extensions.
 The value, failure, module, host, and security specifications remain authoritative
@@ -444,18 +444,16 @@ must not be the sole record needed to resume the goal.
 - [x] A02 — MIR, analyses and compiler lowering.
 - [x] A03 — Runtime, artifacts and embedding.
 - [x] A04 — Existing Cranelift backend migration.
-- [ ] A05 — Integration, audit and baseline.
+- [x] A05 — Integration, audit and baseline.
 
-Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
-completed with the bounded public MIR passes. A03 completes with the native
-registry reconciliation checkpoint below. Source compilation, verified MIR analyses,
-frontend-free bytecode lowering, runtime/VM prepared execution, portable artifacts,
-shared SDK preparation/reload and feature isolation have scoped passing evidence.
-A04 completes the verified MIR Cranelift backend and fixture migration. The workspace
-test build now succeeds; SDK/VM tests, genuine native/fallback cases, reload/code
-ownership and native GC checks pass. A05 owns the final workspace gates, production
-feature/behavior audit, documentation and reproducible baseline measurements.
-The overall refactor is not complete.
+Current state: all six phases are complete. A00 passed at `4d82fcb`; A01
+established the thirteen owners; A02 sealed the concrete MIR/analysis/pass handoff;
+A03 separated prepared code, runtime state and feature-gated SDK orchestration;
+A04 completed real Cranelift execution and fixture migration at `a02de76`.
+A05 resolves carried integration errors, documents the final architecture,
+reproduces isolated feature consumers and measurements, and passes every required
+gate. The completion audit below records exact commands and limits. No migration
+build/test failure or unresolved structural debt remains.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -474,7 +472,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
 | A03 | Complete with native registry reconciliation; runtime/VM prepared execution, portable MIR/v103 artifacts, SDK features/cache/reload and migrated callers | 196 runtime tests + one doc test, eight VM prepared tests, ten SDK preparation tests, five CLI tests and four feature-mode consumers at exit; earlier 55 source SDK tests and seven examples; scoped clippy, structure, fmt and diff pass | A04 owns 22 Cranelift library errors and native fixtures; mixed SDK suites await the real backend; A05 full acceptance remains |
 | A04 | Complete: verified MIR-to-CLIF emission, explicit links, owned pages and migrated compiler/VM fixtures | Seven backend tests; 532 SDK/VM tests plus strengthened three-test real-native suite; workspace test build, scoped clippy, structure/fmt/diff pass | Carried VM fixture errors resolved; A05 final gates/audit/baseline remain |
-| A05 | Not started | Not run | None recorded |
+| A05 | Complete: final docs, eight production graph audits/four isolated consumers, CI, baseline and fixture repair | 1,434 workspace tests; five CLI native tests; 14 isolated consumer tests; 32 checker self-tests; 514 Rust files with zero violations/exceptions; workspace clippy/fmt/diff pass | None; broader Cranelift coverage and LLVM are separate follow-up scope |
 
 ### A00 checkpoint: foundation imports (2026-09-27)
 
@@ -2032,6 +2030,126 @@ Validation:
 A04's native/fallback phase exit is satisfied. No known build failure remains;
 A05 must still run every final gate and finish documentation, the feature/behavior
 matrix, architectural audit and measurements before goal completion.
+
+### A05 integration audit and reproducible baseline (2026-09-28)
+
+The first full workspace test run exposed an A01 fixture regression in
+`kagari-syntax::tests::parser::module_loading::parses_use_declarations_and_import_trees`:
+`alias()` returned None while the assertion expected `util`. Commit `4933fd2`
+removed `as util` from the Kagari raw source string while cleaning Rust aliases.
+Restored the A00 input `super::util as util`, preserving its alias assertion;
+the focused test and subsequent complete workspace run pass. No parser behavior
+or semantic expectation was weakened. Initial failed command: `cargo test --workspace`,
+log `target/a05-workspace-tests.log`. The defect is resolved, not carried debt.
+
+Rewrote architecture/backend/JIT documentation around the implemented thirteen
+owners, verified MIR handoff, compilation-only unsafe backend contract, explicit
+preparation, runtime-owned invocation and retained native versions. Updated SDK
+load/reload APIs, bytecode compiler paths, debugger fallback and repository/product
+guides. Documentation distinguishes implemented scalar support from follow-up native
+coverage and automatic scheduling, and rejection from pre-entry unsupported fallback.
+
+`uv run python scripts/check_features.py` now reproduces eight production dependency
+checks plus isolated no-feature/source/native/combined consumers. It copies the
+repository lockfile, forbids external dependency upgrades and uses the normal target
+and O1 profile. Native-only tests invoke real Cranelift code from the tracked artifact.
+The normal graph deliberately excludes dev/build edges: ABI build tooling uses syntax
+to parse authoritative stdlib declarations into generated descriptors. This is explicit
+build-time generation, not a linked source-analysis dependency or hidden runtime
+compiler. CI now runs the consumer matrix and the CLI `jit` feature tests.
+
+Manual audit found the backend's empty `jit` compatibility feature; removed it and
+kept the CLI's real optional dependency/native preparation feature. ABI's build entry
+moves to Cargo-declared `build/main.rs` with ordinary sibling modules, removing its
+handwritten path overrides. Remaining path attributes share one test fixture across
+runtime unit/integration targets; the only `include!` includes generated stdlib source.
+No forwarding crates, duplicate lowering routes, compatibility readers, production
+stubs, new visibility allowances or structure exceptions were introduced.
+
+Added the bounded O1 `architecture_baseline` example for source emission, MIR
+verification/analysis, artifact size and native preparation, code sharing, compilation
+and SDK call overhead. Its requested-heap counter explicitly excludes code mappings,
+allocator overhead and RSS. Durable measurements and reproduction instructions are
+in [performance-baseline.md](performance-baseline.md#mir-architecture-baseline-2026-09-28).
+The existing foundation workload also runs, preserving its incremental reuse and
+shared-code checks. Final gate results and the acceptance matrix follow below.
+
+#### A05 behavior and feature acceptance matrix
+
+The final gate runs the existing behavioral suites plus the new handoff/lifetime
+checks; test counts are evidence, not an acceptance quota.
+
+| Required behavior/boundary | Evidence retained or added |
+| --- | --- |
+| Query correct functions beside incomplete/erroneous source; reject unchecked compilation | HIR generic recovery/completion and body/identity queries; SDK `source_snapshots`; MIR seal compile-fail documentation tests |
+| Concrete generics, traits/interfaces, narrow numbers and callbacks | Compiler `source_programs`/bytecode suites; SDK associated types/constants, generic associated types, numeric operations, collection interfaces and source-module suites |
+| Once-only effects, alias mutation, checked failures and logical budgets | SDK runtime language-contract matrix; prepared collections/list mutations; VM mutation/resources/sessions; Cranelift overflow/budget point tests and VM optimized/unoptimized budget matrix |
+| GC, retained roots, scoped host borrows, reentry and terminal cleanup | Runtime `host_borrows`, `execution_sessions`, `native_execution`; VM GC/reentry/quarantine fixtures; real Cranelift SDK GC/reload test |
+| Failed reload preserves publication; old calls/code retain versions | Runtime reload/native lifetime tests; SDK `native_preparation`; language-contract stale/pinned reload cases; actual Cranelift old/new values after backend/program destruction |
+| Reject malformed/old/inconsistent input before execution | Bytecode canonical artifact/validation tests; compiler MIR codec/native-input tests; SDK `native_artifacts`, `artifact_features` and version-bound preparation tests |
+| Actual native support versus honest fallback | Seven backend tests; SDK `cranelift_preparation`, native overflow trace and required-native language cases; locals/remainder/closures require unsupported; VM observer/policy fallback and no post-entry restart |
+| Immutable code sharing with per-runtime bindings/authority | SDK preparation/cache/version tests; runtime verified-program sharing; architecture baseline asserts shared versus independent seals and measures retained bytes |
+| Source, artifact-only and artifact-native production boundaries | `scripts/check_features.py`: eight crate graphs, four independent consumers (2/3/4/5 tests), exact lockfile versions, real native artifact execution without production frontend edges |
+| CLI and standard API remain usable | CLI default/native tests; SDK standard declaration documentation examples; generated ABI descriptor/stdlib agreement; source/offline host examples |
+
+Manual review additionally checked backend ABI stores and helper signatures,
+unsupported-before-entry classification, per-product freeing on compiler exits,
+installed dependency retention, cache borrowing/key bounds and the absence of source
+analysis in execution contracts. Root/permission/generation checks and trap cleanup
+remain enabled. Generated stdlib descriptors have one owner; handwritten Rust uses
+explicit imports and ordinary production module boundaries. No unresolved structural
+or integration debt is accepted as an exemption.
+
+Follow-up scope after this refactor: expand Cranelift coverage incrementally through
+locals/CFG and calls, then GC-bearing values with physical maps and observer callbacks,
+using the same checked MIR/ABI handoff and behavior matrix. Automatic scheduling,
+profiling and performance changes need separate measured acceptance. LLVM/AOT,
+cross-thread execution, moving/generational GC and persisted machine code remain
+later independent work; no placeholder crates or compatibility routes are retained.
+
+#### A05 completion audit
+
+All required commands pass on the final Rust sources and manifests:
+
+- `uv run --locked scripts/check_structure.py`: 514 Rust files, zero findings and
+  zero exceptions; `--self-test`: all 32 tests pass. Production imports, build
+  modules, macro/generated boundaries and test-only sharing were reviewed manually.
+- `cargo fmt --all -- --check`: pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass (11.62 s reported
+  after the final ABI build-entry cleanup).
+- `cargo test --workspace`: 1,434 tests across 86 test/doc-test targets pass, zero
+  failures. This includes the actual native backend and restored parser fixture.
+- `uv run python scripts/check_features.py`: all eight production graph audits and
+  four isolated consumers pass (artifact-only 2, source 3, native 4, combined 5).
+  Native-only includes both the trusted fixture and genuine Cranelift artifact call.
+- `cargo test -p kagari-cli --features jit`: all five tests pass.
+- Both O1 baseline examples execute and assert their results/version-sharing checks.
+- `git diff --check`: pass. Changed Markdown local links resolve. Cargo metadata
+  reports exactly thirteen workspace members. Current README/architecture/specs
+  contain no obsolete crate names or combined compiler/invocation entrypoint.
+
+Build and execution were measured separately with `/usr/bin/time -p`, using the
+machine/toolchain/profile/features/cache described in the performance baseline:
+`cargo test --workspace --no-run` took 65.87 s wall (559.05 s aggregate user CPU,
+31.44 s system) after moving the ABI build entry, which recompiles dependents; a
+subsequent no-change warm invocation took 0.14 s (0.07 user, 0.05 system). These are
+incremental and warm measurements, not clean builds. The final test invocation
+reported 150.92 s wall (99.26 user, 3.27 system); the preceding complete repeat was
+127.45 s wall (99.88 user, 3.13 system). Host scheduling/load was not isolated,
+so wall-time variation is not attributed to crate splitting or a semantic change.
+The expensive standard-library documentation suite remains enabled. Compile time
+is not included in the in-process baseline tables.
+
+Reproduction logs: `target/a05-final-{clippy,build,tests,features,cli-jit,structure}.log`,
+`target/a05-warm-build.log`, `target/a05-structure-self-test.log`, and per-consumer
+logs under `target/architecture-features/`. Durable conclusions, failure repair,
+behavior/feature coverage and measurements are recorded here and in the performance
+baseline; cache removal does not erase resumption evidence. CI includes the new
+feature/CLI checks, but hosted CI was not run or claimed by this local completion.
+
+A00-A05 acceptance is complete. All previously carried errors are resolved. The
+remaining limitations are the deliberately bounded native subset and independent
+future work described above, not unfinished steps of this architecture refactor.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

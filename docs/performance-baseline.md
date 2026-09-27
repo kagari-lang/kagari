@@ -77,3 +77,84 @@ scans the slot table. No statistical performance guarantee is inferred from five
 Observed medians: 1.1293 ms with all objects live, 0.3541 ms with all objects dead.
 This workload provides a reproducible starting point for later GC comparisons;
 it does not represent a server workload or include peak-memory accounting in bytes.
+
+
+## MIR architecture baseline (2026-09-28)
+
+This is the A05 baseline for the thirteen-crate implementation. Earlier Windows
+release measurements above are historical and are not comparable to this run.
+No clean-build speedup or change from those results is claimed.
+
+Environment: Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), aarch64-apple-darwin,
+MacBookPro18,2, 32 GiB RAM, 10 logical CPUs; workspace O1 dev/test profile with
+ordinary debug information, default Cargo parallelism and the normal `target/`
+directory. Dependencies use repository `Cargo.lock`, including Cranelift 0.132.0.
+Source/native SDK features are enabled; the CLI native smoke check uses `jit`.
+Cargo caches are warm from correctness runs; no cache cleaning was performed.
+
+Reproduction:
+
+```sh
+cargo run -p kagari-embed --example architecture_baseline
+cargo run -p kagari-embed --example foundation_baseline
+uv run python scripts/check_features.py
+```
+
+Compile the examples before timing their executable workload. The example reports
+only in-process durations; Cargo's build time is separate. `architecture_baseline`
+uses the fixed scalar source `fn main() -> i32 { 40 + 2 }`, one warmup followed by
+21 compilation or 101 preparation samples and 10,001 execution samples. The source
+measurement creates a fresh engine per sample; OS pages and process-wide tables are
+warm. A counting allocator adds atomic bookkeeping to these timings. They are small
+workload observations, not production throughput guarantees.
+
+| Operation | Median | Scope |
+| --- | ---: | --- |
+| Fresh-engine source to portable artifact | 2,969.709 µs | 21 samples, parse/check/lower/verify/build and result disposal |
+| MIR verification and analysis | 1.667 µs | 101 samples; input clone excluded, verification/sealing included |
+| Decode and native-input verification | 64.416 µs | 101 samples; canonical correspondence and prepared-result disposal included |
+| New runtime and shared-program linking | 4.000 µs | 101 samples; runtime creation/link/disposal included |
+| Native compilation | 95.000 µs | 21 samples; existing host backend/link setup, product freeing excluded |
+| Cached preparation and installation | 1.666 µs | 101 samples; cache hit, handle installation/disposal |
+| SDK interpreter entry | 1.542 µs | 10,001 samples; result checks and ordinary session teardown |
+| SDK native entry | 2.000 µs | 10,001 samples; requires Native report and equal result |
+
+For this tiny four-point function, native entry is 0.458 µs slower than interpreter
+entry in the measured medians. Both pay runtime/session and logical-helper overhead;
+the measurement does not isolate which component explains the difference. It does
+not justify a general native speedup or a regression claim against the old backend.
+A later Cranelift coverage/performance track should use larger supported workloads
+and profiling before changing the logical budget contract.
+
+The portable artifact is 3,510 bytes versus 2,364 bytes for its bytecode-only export;
+the MIR payload is 1,118 bytes (the envelope adds the remaining 28 bytes). One cached
+native product retains 5,480 requested Rust heap bytes; retaining its installed
+handle raises the measured delta to 5,600 bytes. These counters exclude executable
+page mappings, allocator overhead and RSS. Cache entries are bounded at 4,096 per
+prepared program; the measurements do not extrapolate a universal cache-entry size.
+
+Shared preparation versus independently preparing identical bytes in each runtime:
+
+| Runtimes | Shared preparation: retained Rust bytes | Independent preparation: retained Rust bytes |
+| ---: | ---: | ---: |
+| 1 | 20,350 | 20,350 |
+| 8 | 43,324 | 162,800 |
+| 32 | 122,092 | 651,200 |
+
+The counter includes retained prepared MIR/bytecode/validation state and runtime/link
+state, with result-vector capacity allocated before measurement. The example asserts
+shared verified-version identity in the first route and distinct identities in the
+second. It does not confuse serialized artifact size with live memory or claim that
+all per-runtime state is shared. Native products are not compiled in this table.
+
+The existing `foundation_baseline` (33 functions, one body edited) also ran in O1:
+fresh-engine source compilation median 2,773 µs across five samples; edit analysis
+1,449 µs with one checked and 32 reused bodies; portable code image 53,344 bytes;
+root-plus-one-internal-call mean 2,093 ns across 10,000 calls, checksum 310,000.
+That example has no counting allocator and a different workload; do not compare its
+call number directly with the scalar SDK medians above.
+
+Logs are reproducible under `target/a05-architecture-baseline-final.log` and
+`target/a05-foundation-baseline.log`; these tables preserve the durable observations
+if the ignored cache is removed. Workspace build/test timings and correctness
+acceptance are recorded in the refactor plan's A05 ledger.

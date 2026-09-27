@@ -1,20 +1,18 @@
 # Kagari Implementation Roadmap
 
-The [MIR and crate architecture refactor](mir-architecture-refactor.md) is the
-active architecture execution plan. A00 first corrects the existing project
-structure and passes all CI gates; A01 must not begin before that prerequisite
-passes. A01–A05 then replace the existing IR/backend crate boundaries with the
-documented thirteen-crate layout. LLVM and expanded JIT
-coverage are deferred; the existing Cranelift subset must migrate to verified MIR.
-After A00 passes, A01–A04 checkpoints may fail compilation/tests when errors and
-follow-up owners are recorded. Use Conventional Commits with `Architecture-Step: Axx`;
-the final integration phase must restore all required checks and behavior.
+The [MIR and crate architecture refactor](mir-architecture-refactor.md) is complete
+through A00–A05. It records the mandatory clean A00 baseline, the thirteen-crate
+migration and final acceptance. The [architecture](architecture.md) and current
+specifications describe the resulting implementation; the plan ledger preserves
+phase decisions and validation evidence.
 
-A00–A04 are complete at their documented phase boundaries. Cranelift consumes
-verified MIR, compiler/VM fixtures use the intended preparation boundary, and the
-workspace test build is restored. SDK/VM and genuine native/fallback tests pass.
-A05 now owns final workspace checks, the architecture and feature audit,
-documentation and baseline measurements. See the active plan's ledger for evidence.
+Final acceptance passes: 1,434 workspace tests, workspace Clippy/format checks,
+514 Rust files with no structure violations or exceptions, eight production
+dependency audits, four isolated SDK feature consumers, and CLI native-feature
+tests. The [performance baseline](performance-baseline.md#mir-architecture-baseline-2026-09-28)
+records O1 measurements and their limits. There are no carried architecture build
+or test errors. Broader Cranelift coverage remains the next separately scoped native
+track; LLVM is deferred until after that work.
 
 [Foundation refactor](foundation-refactor.md) records the completed R01–R18 track.
 Its semantic contracts, as amended by later specifications, continue to govern

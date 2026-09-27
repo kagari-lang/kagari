@@ -38,28 +38,28 @@ The lowering pipeline is:
 1. source
 2. syntax
 3. HIR
-4. verified construction IR
+4. verified concrete MIR
 5. bytecode
 6. VM execution
 
 Optional backend paths include:
 
-- construction IR -> SSA IR -> optimized backend
-- construction IR -> JIT backend
+- verified MIR -> bounded MIR passes -> reverified MIR -> backend
+- verified MIR + ABI/link descriptions -> JIT backend
 
 Bytecode remains a first-class execution format when those backend paths are present.
 
-## Verified IR Boundary
+## Verified MIR Boundary
 
 Checked analysis can contain valid source imports. The snapshot-owned CheckedProgram
-checks every reachable module, and `lower_program_to_ir` produces a VerifiedIrProgram
+checks every reachable module, and `lower_program_to_mir` produces a VerifiedMirProgram
 with preserved module boundaries and declaration-to-module/function bindings.
 IR verification checks every imported signature against its bound target and rejects
 missing dependencies, unrelated modules, unresolved calls, signature
 mismatches and conflicting layouts for the same nominal struct declaration.
 Editing any module invalidates the program's verification and link bindings.
 
-`lower_program_to_bytecode` consumes VerifiedIrProgram and emits BytecodeProgram:
+`lower_program_to_bytecode` consumes VerifiedMirProgram and emits BytecodeProgram:
 one root ModuleRef and a stable vector of BytecodeModule members. Each
 member stores its dependency ModuleRefs. Module identities are unique; all members
 must be reachable from the root. Calls to dependencies use
@@ -69,10 +69,10 @@ and consistent host contracts. Unused imports remain linked but execute no code.
 The unit-only `lower_to_bytecode` rejects source dependencies with UnlinkedSourceModules;
 it cannot discard dependencies to form a standalone artifact.
 
-`lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule`.
+`lower_to_mir(checked, options)` returns an immutable `VerifiedMirModule`.
 `lower_to_bytecode` accepts only that handle. An optimizer or inspection tool can
-consume it with `into_unverified()`, modify the resulting `IrModule`, and call
-`verify_ir(module, cancellation_token)` to obtain a new verified handle. There is
+consume it with `into_unverified()`, modify the resulting `MirModule`, and call
+`verify_mir(module, cancellation_token)` to obtain a new verified handle. There is
 no unchecked bytecode-lowering entry point.
 
 Verification checks instance identity and uniqueness, direct-call targets and
@@ -99,7 +99,7 @@ malformed layouts, absent owners, invalid slots, missing/duplicate initializer
 slots, mismatched operand representations and writes to read-only fields.
 Initializer expressions retain source evaluation order; bytecode emission arranges
 their already-computed values in declaration order. Run the `layouts` example in
-`kagari-ir` to inspect this boundary without runtime registration.
+`kagari-compiler` to inspect this boundary without runtime registration.
 
 Bytecode carries the same verified `StructLayout` records. `StructId` indexes
 this version's layout table; a field operand is `FieldRef { structure, slot }`.
@@ -159,15 +159,16 @@ spans. During source compilation, encoding or verification-state limits become
 `KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
 
 This boundary validates declared layouts but does not yet prove the exact nominal
-type of every heap-valued operand or complete GC root
-maps. Runtime host calls validate nominal object types against their linked
-declarations; ordinary script call operands still carry representation contracts.
+type of every heap-valued operand. Runtime host calls validate nominal object types
+against their linked declarations; ordinary script call operands still carry representation contracts.
 Struct fields carry complete nested types. Allocation and replacement validate
 nominal layouts and nested tuple/container values before committing; operand
 verification still checks physical representations rather than proving nominal flow.
 Untyped host container mutations do not maintain a permanent element-type invariant.
-Dynamic interface fields and the remaining R06–R11 linking/ownership audit are pending. The artifact loader still runs bytecode verification independently;
-the IR handle is neither serialized nor a substitute for artifact validation.
+The artifact loader runs bytecode verification independently. The MIR seal is
+neither serialized nor a substitute for artifact validation. MIR supplies logical
+root/liveness facts; native physical maps remain a backend responsibility, and
+unsupported GC-bearing native functions use interpreter fallback.
 
 ## Execution Model
 
@@ -630,10 +631,10 @@ The logical separation is reflected in the in-memory model so the artifact forma
 
 The current code shape lives in:
 
-- [bytecode/mod.rs](../../crates/kagari-ir/src/bytecode/mod.rs)
-- [bytecode/module.rs](../../crates/kagari-ir/src/bytecode/module.rs)
-- [bytecode/instruction.rs](../../crates/kagari-ir/src/bytecode/instruction.rs)
-- [bytecode/lower.rs](../../crates/kagari-ir/src/bytecode/lower.rs)
+- [bytecode/lib.rs](../../crates/kagari-bytecode/src/lib.rs)
+- [bytecode/module.rs](../../crates/kagari-bytecode/src/module.rs)
+- [bytecode/instruction.rs](../../crates/kagari-bytecode/src/instruction.rs)
+- [compiler/bytecode](../../crates/kagari-compiler/src/bytecode.rs)
 
 The current implementation defines the execution-layer boundary and wraps bytecode in versioned `.kbc` artifact metadata.
 Artifact serialization is implemented separately from bytecode semantics so the binary exchange format can evolve without changing VM behavior.
@@ -658,7 +659,7 @@ vectors have corresponding preflight limits in the artifact format.
 
 ## Relationship to IR
 
-Bytecode is lower than construction IR and more execution-oriented.
+Bytecode is the flattened interpreter target of verified MIR.
 
 IR is responsible for:
 
@@ -841,7 +842,8 @@ The architecture is:
 - IR remains the place where CFG is explicit
 - bytecode remains the interpreter-facing flattened format
 - SSA and optimizing JIT work branches off from typed IR or SSA IR
-- baseline JIT backends can consume bytecode or a bytecode-like lowered form if they preserve the same helper and metadata contracts
+- native backends consume verified MIR, sealed analyses and explicit ABI/link descriptions
+- bytecode is never used to reconstruct native semantic input
 
 ## Future Work
 

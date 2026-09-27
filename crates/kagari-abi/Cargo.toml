@@ -3,6 +3,7 @@ name = "kagari-abi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build/main.rs"
 
 [dependencies]
 bincode.workspace = true

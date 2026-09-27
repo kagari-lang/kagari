@@ -3,9 +3,7 @@ use ast::Attribute;
 use ast::Item;
 use std::env;
 use std::fs;
-#[path = "build/api.rs"]
 mod api;
-#[path = "build/implementations.rs"]
 mod implementations;
 use kagari_common::{SourceFile, cancellation::CancellationToken};
 use kagari_syntax::{

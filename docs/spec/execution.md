@@ -57,11 +57,11 @@ Native AOT and JIT are backend layers; they do not define language semantics.
 
 The repository contains bytecode-first implementation components:
 
-- `crates/kagari-ir/src/bytecode/mod.rs`
-- `crates/kagari-ir/src/module/mod.rs`
+- `crates/kagari-bytecode/src/lib.rs`
+- `crates/kagari-mir/src/lib.rs`
 - `crates/kagari-vm/src/lib.rs`
 - `crates/kagari-runtime/src/backend.rs`
-- `crates/kagari-jit-cranelift/src/lib.rs`
+- `crates/kagari-codegen-cranelift/src/lib.rs`
 
 These components are part of the bytecode-first execution model.
 The Cranelift backend is optional and must preserve interpreter-visible behavior through the `CodegenBackend` boundary.
@@ -91,7 +91,7 @@ The first JIT tier is a baseline function compiler.
 
 Responsibilities:
 
-- compile hot functions from typed IR or bytecode into machine code
+- compile eligible functions from verified MIR and explicit ABI/link descriptions
 - preserve interpreter semantics
 - reduce interpreter dispatch overhead
 - continue using shared runtime helpers for complex operations
@@ -253,21 +253,17 @@ The first JIT step is:
 
 - function-level baseline JIT
 
-Workflow:
-
-1. interpret bytecode normally
-2. count function executions or hotness
-3. identify hot functions
-4. compile hot functions to machine code
-5. redirect future calls through a function entry table
-
-This keeps the design understandable and avoids tracing complexity.
+The implemented workflow explicitly prepares eligible functions through the SDK,
+installs native products into a runtime and executes a prepared entry. The interpreter
+handles unsupported cases before native entry. Execution counts/hotness, automatic
+first-call preparation and entry-table tier switching are future scheduling work;
+the current API does not implement those policies automatically.
 
 ## JIT Backend Style
 
 A baseline JIT has these properties:
 
-- direct lowering from typed IR or bytecode IR
+- direct lowering from verified MIR and explicit ABI/link descriptions
 - minimal speculation
 - no mandatory deoptimization support in the baseline tier
 - heavy reuse of runtime helpers
@@ -357,8 +353,8 @@ Future execution extensions include:
 
 - richer bytecode metadata
 - interpreter profiling counters
-- function-level code cache
-- baseline JIT backend
+- broader native coverage and scheduling over the existing function cache
+- physical GC maps and observer callbacks for additional native functions
 
 Later backend experiments include:
 

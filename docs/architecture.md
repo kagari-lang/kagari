@@ -4,12 +4,9 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
-The active structural migration is the
-[MIR and crate architecture refactor](mir-architecture-refactor.md). Its target
-crate ownership and dependency constraints supersede the old workspace and
-bytecode-fed native backend shapes described below. Until A05 completes, those
-sections describe the starting implementation, not a second supported architecture.
-Language/runtime behavior continues to follow the semantic specifications.
+The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
+implementation checkpoints and final acceptance. This document describes the current
+thirteen-crate boundaries. Language/runtime behavior follows the semantic specifications.
 
 ## Foundation Contracts
 
@@ -25,7 +22,7 @@ supersede conflicting historical descriptions. Unchecked work is not implemented
 - Script authors do not work with Rust lifetimes, Rust borrowing, or script-level `dyn Trait`.
 - Hot reload is a core runtime property, not a later patch over module loading.
 - Host-owned state and Kagari-owned state remain explicit and separately controlled.
-- Bytecode and typed IR are semantic boundaries shared by the interpreter and optional machine-code backends.
+- Verified MIR is the common execution contract; bytecode is its interpreter target.
 - Cranelift JIT is an optional backend layer and never the definition of language semantics.
 
 ## Specification Authority
@@ -48,48 +45,57 @@ The repository is a Rust workspace with structural separation between language p
 
 ```text
 crates/
-  kagari-common   shared source, span, diagnostic, and identifier infrastructure
-  kagari-syntax   lexer, parser, concrete syntax tree, and AST views
-  kagari-hir      lowering, name resolution, type checking, traits, and semantic tables
-  kagari-ir       typed IR, bytecode, metadata tables, and backend-neutral lowering
-  kagari-runtime  values, GC, module store, host registry, security context, and reload state
-  kagari-vm       bytecode interpreter
-  kagari-embed    Rust embedding facade over compile, artifact, load, execute, and reload flows
-  kagari-cli      command-line entry point and pipeline driver
-  kagari-jit-cranelift
-                  optional baseline Cranelift backend
+  kagari-common             source identities, diagnostics, limits and shared primitives
+  kagari-syntax             lexer, parser, concrete syntax tree and AST views
+  kagari-hir                recoverable analysis, resolution, typing and tool queries
+  kagari-abi                executable types/layouts, helper ABI and native contracts
+  kagari-mir                concrete CFGs, verification, analyses, passes and portable codec
+  kagari-compiler           source monomorphization, MIR/bytecode lowering and native links
+  kagari-bytecode           interpreter model, validation, codec and artifact envelope
+  kagari-codegen            compilation-only verified MIR interface and diagnostics
+  kagari-codegen-cranelift  MIR-to-CLIF emission and executable code ownership
+  kagari-runtime            values, GC, host state, authority, sessions, native calls and reload
+  kagari-vm                 interpreter/frame driver, debugger and prepared native selection
+  kagari-embed              host SDK, features, preparation/cache and execution orchestration
+  kagari-cli                arguments, filesystem IO and presentation
 ```
 
-Additional backend crates may be added when they make ownership and dependency boundaries clearer.
-A Cranelift backend should live outside the frontend, HIR, and core runtime crates.
+Runtime, bytecode and VM have no production dependency on MIR, source analysis or
+codegen. MIR depends on ABI/common rather than HIR. Compiler core works without its
+`source` feature. Native backends depend on codegen/MIR/ABI and their backend libraries,
+not on runtime, bytecode, compiler or SDK. Source-based tests may use dev-dependencies;
+they do not define the production graph. ABI build tooling parses `stdlib/*.kgr`
+with syntax to generate declaration descriptors; that build-only dependency is not
+a runtime/source-analysis service. LLVM is deferred; no placeholder crate exists.
 
 ## Compilation Pipeline
 
-The production pipeline is:
-
 ```text
-package root / host source / bytecode artifact
-  -> module loader
-  -> source or verified .kbc artifact
-  -> source
-  -> tokens
-  -> syntax tree / AST views
-  -> HIR
-  -> name resolution
-  -> type checking and trait/interface validation
-  -> typed IR
-  -> verified bytecode
-  -> interpreter execution, or optional baseline JIT execution with interpreter fallback
+source database / snapshots
+  -> syntax and recoverable HIR analysis
+  -> checked program
+  -> compiler source lowering and bounded reachable monomorphization
+  -> verified concrete MIR with sealed analyses
+       -> compiler core bytecode emission -> verified bytecode
+       -> codegen + explicit helper links -> owned native product
+
+.kbc envelope (bytecode + optional portable MIR)
+  -> SDK PreparedProgram (validation and, with native, canonical MIR correspondence)
+  -> runtime-specific linking and immutable module versions
+  -> interpreter, or explicit native preparation/install/execute
 ```
 
-The parser owns source spelling and recovery.
-HIR owns language meaning.
-Typed IR owns normalized control flow and typed operations.
-Bytecode owns the interpreter contract.
-JIT backends consume typed IR or a verified bytecode-like lowered form without changing observable behavior.
+HIR owns source meaning and incomplete-source queries. MIR owns concrete typed
+operations, explicit CFG/effects/origins and checked execution facts. Compiler owns
+lowering, not script execution. Backends consume the verified handoff without
+recovering semantics from bytecode or re-resolving syntax. Runtime owns shared
+execution services; the VM supplies the interpreter frame driver.
 
-Module loading is defined in `docs/spec/module-loading.md`.
-Bytecode artifact boundaries are defined in `docs/spec/artifacts.md`.
+A `VerifiedProgram` shares immutable bytecode and validation across runtime instances.
+Host bindings, heap state, authority and installed native handles remain local to
+each runtime. Verification seals are not serialized: decoded inputs are bounded,
+validated and sealed again. See [artifacts](spec/artifacts.md) and
+[module loading](spec/module-loading.md).
 
 ## Source Language Layer
 
@@ -121,19 +127,18 @@ The builtin layer owns:
 
 The standard library is not a historical compatibility layer and is not implemented as a second copy of core containers in Kagari source.
 Core containers and string operations are runtime-native builtins with stable intrinsic identifiers.
-Optional `.kg` standard library files may provide pure facades and helper functions, but they must not own container storage, GC behavior, resource accounting, reflection gates, or host boundaries.
+`stdlib/*.kgr` is the authoritative declaration surface. HIR processes these declarations; ABI owns shared executable identities/contracts and runtime owns implementations. Source declarations do not own storage, GC, resource accounting or host state.
 
 Ordered map and set behavior is deterministic.
 The runtime implementation uses insertion-ordered `indexmap` backing for script-visible `Map<K, V>` and `Set<T>` behavior.
-Map keys and set members are restricted to standard hash-key values: `bool`, integer types, and `String`.
-Float, aggregate, host, and interface keys are rejected until the language specifies stable equality and hashing semantics for them.
+Hash-key eligibility and custom equality/hash protocols follow the checked contracts in [builtins](spec/builtins.md). Runtime callbacks execute on the same explicit frame stack with ordinary resource and reentry rules.
 
 Standard library calls flow through one structural path:
 
 ```text
 source call or method
   -> typed standard module/function/method metadata
-  -> stable IR and bytecode intrinsic id
+  -> stable ABI intrinsic identity carried by MIR and bytecode
   -> bytecode verifier signature checks
   -> VM dispatch to runtime standard helper
 ```
@@ -174,29 +179,28 @@ HIR and semantic analysis own:
 - concrete type identity for `is<T>` and `downcast<T>`
 - compile-time metadata and generated registration data
 
-Type checking must reject invalid programs before IR lowering whenever the violation is statically knowable.
+Type checking must reject invalid programs before MIR lowering whenever the violation is statically knowable.
 Runtime checks remain required for host state, capabilities, dynamic indexes, and hot reload epochs.
 
-## Typed IR and Bytecode
+## MIR, ABI and Bytecode
 
-Typed IR is the backend-neutral executable semantics.
-Bytecode is the compact register/local format used by the interpreter.
+MIR is a concrete typed, non-SSA control-flow representation. Source generics and
+trait obligations are resolved by compiler source lowering into reachable executable
+instances; MIR contains no HIR type arena or generic binder. Verification seals
+function/program links and bounded analyses: initialization, liveness, effects,
+logical roots, safepoints, source/debug origins and logical budget points. Public
+passes consume verified input, make bounded changes and reverify the result.
 
-The IR and bytecode layer owns:
+The ABI crate owns nominal executable types, signatures, layouts, standard intrinsic
+contracts, helper/native calling representations and version constants. Compiler
+core lowers verified MIR into the register/local bytecode contract. Bytecode validates
+its own instructions, metadata, dependency graph and canonical artifact envelope.
+Native-enabled preparation also proves correspondence of optional portable MIR to
+that same bytecode program; executable contracts never depend on source analysis.
 
-- explicit control flow
-- register/local operand flow
-- aggregate construction and access
-- direct script calls and host/runtime helper calls
-- explicit module/function linking
-- typed path descriptors
-- effect metadata
-- safepoint and root metadata
-- hot reload ABI fingerprints
-- debug/source span metadata
-
-Ordinary script aggregate access and host-backed typed path access are different operations.
-Host-backed field/index mutation must lower to typed path operations or typed runtime helpers, not reflection-based string mutation.
+Ordinary aggregate access uses checked nominal field slots. Host-backed typed path
+access is a separate operation with declared capabilities and scoped borrow rules.
+Reflection remains explicit rather than implementing ordinary field mutation.
 
 ## Runtime Model
 
@@ -208,7 +212,8 @@ Core runtime subsystems:
 - GC heap for Kagari-owned values
 - explicit roots for host-retained Kagari values
 - module store with epochs
-- function and bytecode artifact registry
+- shared immutable verified programs and runtime-local interpreter cache records
+- installed native handles retaining code owners and exact dependency versions
 - type and interface metadata registry
 - host registry
 - security context and capability state
@@ -248,8 +253,19 @@ The embedding API owns:
 Embedding APIs expose stable Kagari concepts rather than parser or backend internals.
 Convenience CLI behavior must remain a thin layer over the same embedding pipeline.
 
-The current embedding facade exposes `KagariEngine`, `KagariRuntime`, `CompileOptions`, `ArtifactOptions`, `LoadOptions`, `ReloadOptions`, `ExecutionContext`, and the `BytecodeArtifact` alias for `.kbc` artifacts.
-It supports source compilation, artifact emission, artifact loading, module execution, explicit entry execution, reload validation, host function and type registration, structured diagnostics, and backend execution through `CodegenBackend`.
+The SDK exposes `KagariEngine`, `KagariRuntime`, `PreparedProgram`, load/reload
+options and `ExecutionContext`. The default `source,native` feature set enables source
+compilation and native preparation. No features gives artifact-only interpretation;
+`source` adds HIR/syntax/compiler source, and `native` adds frontend-free MIR/compiler
+core/codegen. The host supplies any concrete backend. Source-only builds can emit
+portable MIR for native-only consumers.
+
+Hosts compile or decode an artifact, construct a reusable `PreparedProgram`, then
+load it into each runtime. `execute` interprets; `prepare_native` uses a trusted
+compilation-only backend and a bounded configuration/version cache, then installs
+runtime-specific handles. `execute_prepared` executes that decision. Reload consumes
+a prepared candidate and preserves its verified identity. Preparation precedes
+script execution and does not consume the script's logical instruction budget.
 
 ## Interpreter
 
@@ -282,7 +298,7 @@ It is built on:
 - module epoch identity
 
 The baseline debugger is interpreter-first and supports source breakpoints, conditional breakpoints, hit counts, stepping, call stacks, variable inspection, watch expressions, trap breakpoints, and hot-reload-aware breakpoint remapping.
-JIT execution may participate only when it provides equivalent debug metadata and safe debug points; otherwise debugged functions fall back to the interpreter.
+The current native subset has no observer callbacks; attached execution observers force pre-entry interpreter fallback. Metadata flags alone cannot provide debugger semantics.
 
 The implemented VM exposes a debugger adapter boundary through `DebugProtocolAdapter`, `DebugAdapterRequest`, `DebugAdapterResponse`, `DebugAdapterEvent`, and `DebugAdapterEventSink`.
 IDE and DAP integrations should translate their transport messages at that boundary instead of coupling directly to VM internals.
@@ -290,7 +306,7 @@ IDE and DAP integrations should translate their transport messages at that bound
 ## Baseline Cranelift JIT
 
 The baseline JIT is optional and function-level.
-It compiles typed IR or verified bytecode-like IR to machine code through Cranelift.
+It compiles verified MIR and explicit ABI/link descriptions through Cranelift.
 
 The JIT must:
 
@@ -298,11 +314,17 @@ The JIT must:
 - share runtime helper ABI boundaries
 - emit safepoint and stack-map metadata
 - respect host interop and typed path mutation checks
-- invalidate compiled artifacts on incompatible module epoch or ABI changes
+- bind installed code to exact immutable versions and reject mismatched entries
 - avoid mandatory deoptimization, tracing behavior, and optimizing-tier complexity
 
 `docs/spec/jit.md` defines the JIT contract.
-The current Cranelift backend is feature-gated in `kagari-jit-cranelift` and is reached from the VM or embedding layer through the backend-neutral `CodegenBackend` trait.
+`kagari-codegen-cranelift` implements the unsafe compilation-only `CodegenBackend`
+contract. Runtime owns installation/invocation; VM only consumes prepared entries.
+The supported subset is zero-argument, straight-line Unit/Bool/i32 constants, moves,
+checked arithmetic, supported comparisons and return. Locals, control flow, calls,
+GC-bearing values and other numeric operations use pre-entry fallback. Compiler
+errors and failures after native entry never silently restart the interpreter.
+Each product owns its pages independently of backend lifetime and later compilations.
 
 ## Hot Reload
 

@@ -16,4 +16,4 @@ kagari-vm.workspace = true
 
 [features]
 default = []
-jit = ["dep:kagari-codegen-cranelift", "kagari-codegen-cranelift/jit", "kagari-embed/native"]
+jit = ["dep:kagari-codegen-cranelift", "kagari-embed/native"]

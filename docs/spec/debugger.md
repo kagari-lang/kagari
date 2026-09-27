@@ -316,7 +316,10 @@ JIT code may participate in debugging only when it provides:
 - safe debug point traps or callbacks
 - fallback to interpreter when debug metadata is insufficient
 
-The baseline Cranelift JIT does not require arbitrary native instruction debugging.
+The current Cranelift subset has no execution-observer callbacks. An attached
+observer forces pre-entry interpreter fallback even when descriptor flags claim
+complete debug metadata. Native debugger participation requires actual callbacks,
+not flags alone. Arbitrary native instruction debugging is outside the baseline.
 
 ## Security
 

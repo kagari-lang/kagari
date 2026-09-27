@@ -187,3 +187,33 @@ mod native {
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     }
 }
+
+#[cfg(feature = "native")]
+#[test]
+fn real_cranelift_compiles_portable_artifact_without_source() {
+    use kagari_codegen_cranelift::CraneliftBackend;
+    use kagari_vm::{JitExecutionStatus, PreparedNativeEntry};
+    let program =
+        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
+            .unwrap();
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_jit = true;
+    context.capabilities.jit = true;
+    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            "main",
+            &mut CraneliftBackend::for_host().unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
+    let report = runtime
+        .execute_prepared(&loaded, "main", &[], &context, &prepared)
+        .unwrap();
+    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+}

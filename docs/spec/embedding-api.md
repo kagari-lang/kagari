@@ -149,27 +149,27 @@ Private generic functions are templates. Calls infer their parameters structural
 from argument types and check declared bounds. Missing arguments produce
 `KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`; public generic functions are rejected with
 `KG_TYPE_PUBLIC_GENERIC_FUNCTION`. Expose concrete wrappers as public entry points.
-IR compilation starts from the currently callable
+Compiler source lowering starts from the currently callable
 non-generic functions, enqueues called instances, and deduplicates by declaration
-identity plus concrete arguments. IR InstanceId is separate from HIR FunctionId.
+identity plus concrete arguments. MIR InstanceId is separate from HIR FunctionId.
 Signatures, locals, temporaries and direct calls use the selected instance.
 Static trait calls on a concrete type use checked implementation targets;
 reachable generic impl methods specialize by receiver arguments. Local applied
 trait impl headers and bounds retain their arguments in checked ABI tables.
-Runtime interface dispatch remains pending.
+Concrete interface tables execute through the runtime/VM frame driver.
 
-`lower_to_ir(checked, options)` returns an immutable `VerifiedIrModule` after
-checking IR structure, operations and definite initialization. Bytecode generation
-requires this handle; editing its `into_unverified()` result requires `verify_ir`
-again. The verification boundary and its remaining linking limits are defined in
-[bytecode.md](bytecode.md#verified-ir-boundary).
+`lower_to_mir(checked, options)` returns an immutable `VerifiedMirModule` after
+checking MIR structure, operations, definite initialization and sealed point analyses. Bytecode generation
+requires this handle; editing its `into_unverified()` result requires `verify_mir`
+again. The verification and linked-program boundaries are defined in
+[bytecode.md](bytecode.md#verified-mir-boundary).
 
 Host function registration takes `HostFunction::new(HostFunctionDeclaration,
 callback)`. The declaration can be read, encoded and compared offline without
 creating a runtime; see [host-interop.md](host-interop.md#function-registration).
 `runtime.host().link_interface(...)` checks it against installed bindings without
-executing callbacks. General host imports and mandatory artifact host-interface
-linking remain R06/R08 work.
+executing callbacks. Artifact loading links required host interfaces against runtime registrations
+before script execution.
 
 `FileAnalysis::host_field_at(offset)` returns the checked host field declaration
 only when the byte offset lies on the field name. Offsets on the receiver or `.`
@@ -217,7 +217,7 @@ initializer or incomplete name cannot turn its wider source span into a target.
 before body analysis; missing member names retain recovery facts but have no
 declaration-site target.
 
-`lower_to_ir(checked, options)` takes `IrLoweringOptions`; embedding exposes the
+`lower_to_mir(checked, options)` takes `MirLoweringOptions`; embedding exposes the
 same controls through `ArtifactOptions::lowering`. Defaults allow 1024 generic
 instances, 8192 nodes per type expansion, depth 64 and 1,000,000 generated
 instructions including terminators. Type expansion checks limits while copying,
@@ -373,9 +373,10 @@ The embedding API must expose operations equivalent to:
 compile_source(source, compile_options) -> CompileResult<CheckedModule>
 emit_bytecode(checked_module, artifact_options) -> CompileResult<BytecodeArtifact>
 compile_to_artifact(source, compile_options, artifact_options) -> CompileResult<BytecodeArtifact>
-load_program(artifact, load_options) -> LoadResult<LoadedModule>
+prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
+load_program(prepared_program, load_options) -> LoadResult<LoadedModule>
 execute(module, entry, args, execution_context) -> RunResult<Value>
-reload_program(previous, artifact, reload_options) -> ReloadResult<LoadedModule>
+reload_program(previous, prepared_candidate, reload_options) -> ReloadResult<LoadedModule>
 ```
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
@@ -384,7 +385,8 @@ The current Rust facade uses `KagariEngine` for compile and artifact emission an
 `KagariRuntime::reload_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
-At the runtime layer, `stage_reload_program` / `stage_reload_artifact` return an owned
+At the runtime layer, `stage_reload_verified_program` (used by the SDK),
+`stage_reload_program` and `stage_reload_artifact` return an owned
 `StagedReload`. A driver may enter `begin_candidate_initialization` to explicitly
 evaluate candidate functions, then calls `publish_staged_reload` after that session.
 Dropping the candidate discards its instances and module quota. Ordinary VM reload
@@ -396,11 +398,19 @@ The candidate session borrows its staged owner. Ordinary execution rejects stage
 module handles, and publication requires candidate execution to have ended.
 
 `KagariRuntime::execute` runs through the interpreter.
-`KagariRuntime::execute_with_backend` uses a host-supplied `CodegenBackend` after validating JIT capability and artifact policy.
+`PreparedProgram::from_artifact` validates reusable code before runtime linking.
+With `native`, it also verifies optional portable MIR and canonical bytecode
+correspondence. `KagariRuntime::prepare_native` uses a trusted, host-supplied
+`CodegenBackend`, caches products by complete configuration/version identity and
+installs a handle for that runtime. `execute_prepared` consumes that decision without
+compiling. Only pre-entry unsupported/policy decisions fall back; compiler errors
+and failures after entering native code remain errors. No codegen/MIR dependency
+is added to runtime or VM. See [artifacts](artifacts.md#sdk-feature-boundary) for
+source-only, artifact-only and frontend-free native configurations.
 
 Each call applies that call's ExecutionContext resources, capabilities and host
-policy to an owned execution session, without replacing runtime defaults. Module
-the entry and interpreter/JIT fallback share this session. Its
+policy to an owned execution session, without replacing runtime defaults.
+The entry and interpreter/JIT fallback share this session. Its
 fixed time and random seed are passed to host callbacks; nested execution shares
 the root's random stream. Host callbacks must supply any other external results.
 The `CancellationToken` is cooperative and shared by context clones; once cancelled,
@@ -531,7 +541,8 @@ Engine invariant violations may panic in debug builds, but production APIs still
 
 Reload is explicit.
 
-The host supplies a candidate bytecode artifact or checked module for an existing module id.
+The host supplies a validated `PreparedProgram` candidate for an existing module id.
+The SDK retains that exact verified identity during staging and publication.
 The runtime validates:
 
 - public ABI fingerprints
@@ -573,7 +584,11 @@ Allowed policies include:
 - compile after threshold
 
 JIT policy must not change script-visible behavior.
-When JIT is disabled or unavailable, the interpreter remains the execution path.
+When JIT is disabled or valid input is unsupported, the interpreter remains the
+execution path. The current SDK requires explicit `prepare_native` and
+`execute_prepared`; compile-on-load, first-call and threshold scheduling are future
+policy choices, not implemented automatic schedulers. Ordinary `execute` requires
+`JitPolicy::Disabled`.
 
 ## Debugger API
 

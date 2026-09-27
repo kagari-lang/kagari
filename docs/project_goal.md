@@ -29,16 +29,19 @@ The specification keeps the language comfortable for game server development whi
 
 ## 2. Current Repository Context
 
-The repository has a basic language skeleton with separated crates for syntax, semantic analysis, IR, runtime, VM, and CLI. The specification works with that structure instead of replacing it.
+The repository separates source analysis, verified executable contracts, lowering,
+runtime services and execution. [Architecture](architecture.md) defines the current
+thirteen-crate layout; [the completed refactor plan](mir-architecture-refactor.md) records its
+validation and acceptance.
 
-Existing architecture:
-
-- `kagari-syntax` owns lexer, parser, and AST-level syntax.
-- `kagari-hir` / semantic layers own resolved names, typed constructs, and language meaning.
-- `kagari-ir` receives already-checked semantic information and lowers it into execution-friendly forms.
-- `kagari-runtime` owns runtime abstractions, GC placeholders, host interoperability boundaries, and hot reload metadata.
-- `kagari-vm` owns the interpreter / execution layer.
-- `kagari-cli` remains a thin entry point for driving the pipeline.
+- Syntax/HIR own source recovery, resolved names, typing and language meaning.
+- ABI/MIR own concrete execution contracts and sealed analyses without frontend dependencies.
+- Compiler owns checked source-to-MIR and frontend-free MIR-to-bytecode lowering.
+- Bytecode owns the interpreter format and independent validation.
+- Codegen/Cranelift compile verified MIR into owned native products.
+- Runtime owns GC, host state, authority, sessions, native installation/invocation and reload.
+- VM owns the interpreter frame driver, debugger and prepared native selection.
+- SDK orchestrates preparation, runtime linking, execution and reload; CLI is a thin driver.
 
 The README already positions Kagari as:
 
