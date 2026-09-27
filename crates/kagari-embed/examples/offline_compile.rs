@@ -1,9 +1,5 @@
 //! Compile against declarations without registering callbacks or starting services.
 
-use crate::ArtifactOptions;
-use crate::BytecodeArtifact;
-use crate::CompileOptions;
-use crate::KagariEngine;
 use kagari_bytecode::ArtifactSectionId;
 use kagari_bytecode::KBC_ARTIFACT_FORMAT_VERSION;
 use kagari_common::collection::CollectionAccess;
@@ -17,6 +13,10 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
+use kagari_embed::ArtifactOptions;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::CompileOptions;
+use kagari_embed::KagariEngine;
 use kagari_runtime::LanguageProfile;
 use std::error::Error;
 

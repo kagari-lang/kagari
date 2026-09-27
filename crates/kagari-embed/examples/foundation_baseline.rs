@@ -2,10 +2,10 @@
 //! Run with `cargo run --release -p kagari-embed --example foundation_baseline`.
 use std::{hint::black_box, sync::Arc, time::Instant};
 
-use crate::ArtifactOptions;
-use crate::CompileOptions;
-use crate::KagariEngine;
 use kagari_common::{SourceFile, source_database::SourceLayer};
+use kagari_embed::ArtifactOptions;
+use kagari_embed::CompileOptions;
+use kagari_embed::KagariEngine;
 use kagari_runtime::{Runtime, VerifiedProgram, value::Value};
 use kagari_vm::Vm;
 

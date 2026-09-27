@@ -1,9 +1,10 @@
-use crate::BytecodeArtifact;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::surface;
 use kagari_common::{SourceFile, host_interface::standard_log};
-use kagari_hir::builtin::surface;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::{host::HostFunction, value::Value};
 
 #[test]
@@ -35,8 +36,7 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
         StandardIntrinsic::ArrayJoin,
         StandardIntrinsic::ResultMap,
     ] {
-        let function =
-            kagari_abi::standard::surface::standard_function_by_intrinsic(intrinsic).unwrap();
+        let function = surface::standard_function_by_intrinsic(intrinsic).unwrap();
         assert_eq!(function.api.params[0].name, "self");
         let declaration = kagari_hir::builtin::declarations::function(intrinsic).unwrap();
         assert_eq!(declaration.path.len(), 2);
@@ -65,7 +65,13 @@ fn healthy()->i32 {42}
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
     assert!(error.error_trace().unwrap().frames.len() >= 2);
@@ -94,7 +100,7 @@ fn standard_api_documentation_examples_compile_and_execute() {
         .unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for item in kagari_abi::standard::surface::STANDARD_ITEMS {
+    for item in surface::STANDARD_ITEMS {
         let name = format!("{}::{:?}", item.module, item.path);
         let doc = item.documentation;
         if item.path.len() == 1 {
@@ -149,7 +155,17 @@ fn standard_api_documentation_examples_compile_and_execute() {
                         Ok(Value::F64(0.0))
                     }))
                     .unwrap();
-                let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+                let loaded = runtime
+                    .load_program(
+                        &PreparedProgram::from_artifact(
+                            artifact,
+                            &Default::default(),
+                            &Default::default(),
+                        )
+                        .unwrap(),
+                        Default::default(),
+                    )
+                    .unwrap();
                 let result = runtime.execute(&loaded, "main", &[], &context);
                 if flags.contains("should_panic") {
                     if !result
@@ -167,9 +183,5 @@ fn standard_api_documentation_examples_compile_and_execute() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert!(
-        checked
-            >= kagari_abi::standard::surface::standard_functions().len()
-                + kagari_abi::standard::surface::STANDARD_TRAITS.len()
-    );
+    assert!(checked >= surface::standard_functions().len() + surface::STANDARD_TRAITS.len());
 }

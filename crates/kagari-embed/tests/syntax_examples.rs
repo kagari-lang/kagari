@@ -1,7 +1,8 @@
-use crate::BytecodeArtifact;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::value::Value;
 
 #[test]
@@ -260,7 +261,15 @@ fn standalone_language_examples_execute_from_source_and_artifact() {
             let context = ExecutionContext::default();
             let mut runtime = engine.runtime(context.clone());
             let loaded = runtime
-                .load_program(artifact, Default::default())
+                .load_program(
+                    &PreparedProgram::from_artifact(
+                        artifact,
+                        &Default::default(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
+                    Default::default(),
+                )
                 .unwrap_or_else(|error| panic!("{path} should load: {error:?}"));
             let actual = runtime
                 .execute(&loaded, "main", &[], &context)
@@ -324,7 +333,13 @@ fn grouped_standard_globs_execute() {
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -347,7 +362,13 @@ fn nested_inline_modules_resolve_qualified_members() {
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -411,7 +432,13 @@ fn after_trap() -> i32 { 42 }
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert!(format!("{error:?}").contains("structural modification during iteration"));
     let result = runtime
@@ -442,7 +469,13 @@ fn after() -> i32 { 42 }
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     assert!(runtime.execute(&loaded, "fail", &[], &context).is_err());
     assert_eq!(
         runtime
@@ -474,7 +507,13 @@ fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "integer", &[], &context)

@@ -1,9 +1,3 @@
-use crate::ArtifactOptions;
-use crate::CompileOptions;
-use crate::EmbeddingError;
-use crate::ExecutionContext;
-use crate::KagariEngine;
-use crate::LoadOptions;
 use kagari_bytecode::ArtifactBuildOptions;
 use kagari_bytecode::ArtifactCompatibility;
 use kagari_bytecode::ArtifactFingerprint;
@@ -11,6 +5,13 @@ use kagari_bytecode::ArtifactValidationError;
 use kagari_bytecode::DependencyFingerprint;
 use kagari_common::SourceFile;
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_embed::ArtifactOptions;
+use kagari_embed::CompileOptions;
+use kagari_embed::EmbeddingError;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::LoadOptions;
+use kagari_embed::program::{PreparedProgram, ProgramPreparationError};
 use kagari_runtime::{ResourcePolicy, value::Value};
 
 fn exact_compatibility(
@@ -102,14 +103,10 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
 
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
+    let program = PreparedProgram::from_artifact(artifact, &compatibility, &context.cancellation)
+        .expect("artifact should satisfy exact preparation compatibility");
     let loaded = runtime
-        .load_program(
-            artifact,
-            LoadOptions {
-                compatibility,
-                ..LoadOptions::default()
-            },
-        )
+        .load_program(&program, LoadOptions::default())
         .expect("compatible artifact should load");
 
     assert_eq!(loaded.name, source_name);
@@ -138,17 +135,17 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
     let mut incompatible = artifact.clone();
     incompatible.header.runtime_helper_abi_version = "wrong-helper-abi".to_owned();
 
-    let mut runtime = engine.runtime(ExecutionContext::default());
-    let error = runtime
-        .load_program(incompatible, LoadOptions::default())
-        .expect_err("incompatible artifact should be rejected before publication");
-
+    let runtime = engine.runtime(ExecutionContext::default());
+    let error =
+        PreparedProgram::from_artifact(incompatible, &Default::default(), &Default::default())
+            .expect_err("incompatible artifact should be rejected before publication");
+    let ProgramPreparationError::Artifact(error) = error else {
+        panic!("expected artifact validation error");
+    };
     assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH");
     assert!(matches!(
         error,
-        EmbeddingError::ArtifactValidation {
-            error: ArtifactValidationError::RuntimeHelperAbiMismatch { .. }
-        }
+        ArtifactValidationError::RuntimeHelperAbiMismatch { .. }
     ));
     assert_eq!(runtime.runtime().modules().loaded_count(), 0);
 }
@@ -180,10 +177,10 @@ fn main() -> (usize, usize, usize, bool, i32) {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            artifact,
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &context.cancellation)
+                .unwrap(),
             LoadOptions {
                 module_name: Some("builtins".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("builtin artifact should load");
@@ -244,20 +241,20 @@ pub fn main() -> usize {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            first,
+            &PreparedProgram::from_artifact(first, &Default::default(), &context.cancellation)
+                .unwrap(),
             LoadOptions {
                 module_name: Some("stdlib_reload".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("first standard artifact should load");
     let reloaded = runtime
         .reload_program(
             &loaded,
-            second,
+            &PreparedProgram::from_artifact(second, &Default::default(), &context.cancellation)
+                .unwrap(),
             kagari_embed::ReloadOptions {
                 module_name: Some("stdlib_reload".to_owned()),
-                ..kagari_embed::ReloadOptions::default()
             },
         )
         .expect("compatible standard artifact should reload");
@@ -266,20 +263,12 @@ pub fn main() -> usize {
         .expect("reloaded standard artifact should execute");
     assert_eq!(report.return_value, Value::U64(2));
 
-    let failed_epoch = runtime
-        .reload_program(
-            &reloaded,
-            invalid,
-            kagari_embed::ReloadOptions {
-                module_name: Some("stdlib_reload".to_owned()),
-                ..kagari_embed::ReloadOptions::default()
-            },
-        )
+    let error = PreparedProgram::from_artifact(invalid, &Default::default(), &context.cancellation)
         .expect_err("invalid standard artifact should fail before publication");
-    assert_eq!(
-        failed_epoch.code(),
-        "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH"
-    );
+    let ProgramPreparationError::Artifact(error) = error else {
+        panic!("expected artifact validation error");
+    };
+    assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_HELPER_ABI_MISMATCH");
     assert_eq!(
         runtime
             .runtime()
@@ -320,10 +309,10 @@ fn main() -> usize {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            artifact,
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &context.cancellation)
+                .unwrap(),
             LoadOptions {
                 module_name: Some("stdlib_resource".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("standard resource artifact should load");

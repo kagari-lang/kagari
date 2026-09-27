@@ -1,24 +1,25 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
-use kagari_bytecode as bytecode;
 use kagari_bytecode::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_mir::program;
+use kagari_compiler::bytecode;
+use kagari_compiler::source::program;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 
 fn main() {
     let engine = KagariEngine::default();
     for (name, text) in [
         (
             "shared",
-            "pub struct Data { val number: i32 } pub fn value() -> i32 { 42 }",
+            "pub struct Data { pub val number: i32 } pub fn value() -> i32 { 42 }",
         ),
         ("left", "use demo::shared;"),
         ("right", "use demo::shared;"),
@@ -56,7 +57,11 @@ fn main() {
         function.signature.name,
         function.signature.return_type.display_name()
     );
-    assert!(file.result().diagnostics().is_empty());
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
     let type_offset = file.source().text().find("Data)").unwrap();
     let declaration = snapshot.definition_at(root.file, type_offset).unwrap();
     assert_ne!(declaration.location.file, root.file);
@@ -112,7 +117,9 @@ fn main() {
     );
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(decoded, Default::default()).unwrap();
+    let program =
+        PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
     assert_eq!(report.return_value, kagari_runtime::value::Value::I32(42));
     println!(

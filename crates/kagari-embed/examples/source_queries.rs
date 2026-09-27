@@ -1,11 +1,12 @@
 //! Run with `cargo run -p kagari-embed --example source_queries`.
 
-use crate::KagariEngine;
 use kagari_common::{
+    DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
     line_index::PositionEncoding,
     source_database::SourceLayer,
 };
+use kagari_embed::KagariEngine;
 use kagari_hir::declarations::DeclarationId;
 use kagari_hir::resolver::ResolvedName;
 use kagari_hir::types::TypeId;
@@ -408,11 +409,18 @@ fn main() -> kagari_embed::CompileResult<()> {
     engine.set_source(source_name, bounded, SourceLayer::Overlay)?;
     let bounded = engine.signatures(engine.source_snapshot(), &Default::default())?;
     let signature = bounded.file(file).expect("signature query");
-    assert_eq!(signature.diagnostics().len(), 1);
-    assert_eq!(
-        signature.diagnostics()[0].kind.code(),
-        "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
-    );
+    assert_eq!(signature.diagnostics().len(), 2);
+    for (diagnostic, expected_trait) in signature.diagnostics().iter().zip(["Eq", "Hash"]) {
+        let DiagnosticKind::GenericBoundNotSatisfied {
+            type_name,
+            trait_name,
+        } = &diagnostic.kind
+        else {
+            panic!("expected unsatisfied generic bound: {diagnostic:?}");
+        };
+        assert_eq!(type_name, "f32");
+        assert_eq!(trait_name, expected_trait);
+    }
     let good_body = engine
         .body(engine.source_snapshot(), good, &Default::default())?
         .expect("good body");

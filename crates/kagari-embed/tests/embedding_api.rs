@@ -1,14 +1,3 @@
-use crate::ArtifactOptions;
-use crate::BytecodeArtifact;
-use crate::CompileOptions;
-use crate::EmbeddingError;
-use crate::ExecutionContext;
-use crate::HostExposurePolicy;
-use crate::KagariEngine;
-use crate::KagariRuntime;
-use crate::LoadOptions;
-use crate::ReloadOptions;
-use crate::RuntimeFailureKind;
 use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
@@ -25,6 +14,18 @@ use kagari_bytecode::PathId;
 use kagari_bytecode::PathRecord;
 use kagari_bytecode::Register;
 use kagari_common::SourceFile;
+use kagari_embed::ArtifactOptions;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::CompileOptions;
+use kagari_embed::EmbeddingError;
+use kagari_embed::ExecutionContext;
+use kagari_embed::HostExposurePolicy;
+use kagari_embed::KagariEngine;
+use kagari_embed::KagariRuntime;
+use kagari_embed::LoadOptions;
+use kagari_embed::ReloadOptions;
+use kagari_embed::RuntimeFailureKind;
+use kagari_embed::program::{PreparedProgram, ProgramPreparationError};
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, HostObjectId, HostPathAdapter, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,
@@ -251,10 +252,10 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            first,
+            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("game.main".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
@@ -266,10 +267,10 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let reloaded = runtime
         .reload_program(
             &loaded,
-            second,
+            &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
+                .unwrap(),
             ReloadOptions {
                 module_name: Some("game.main".to_owned()),
-                ..ReloadOptions::default()
             },
         )
         .expect("compatible module should reload");
@@ -347,10 +348,10 @@ fn execution_context_resource_limits_surface_as_runtime_failures() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            artifact,
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("limited".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
@@ -375,7 +376,11 @@ fn each_execute_applies_its_context_budget_and_cancellation_without_changing_run
     let mut runtime = engine.runtime(ExecutionContext::default());
     let artifact = compile_artifact(&engine, "scoped.kgr", "fn main() -> i32 { 42 }");
     let loaded = runtime
-        .load_program(artifact, LoadOptions::default())
+        .load_program(
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
+            LoadOptions::default(),
+        )
         .unwrap();
     let mut context = ExecutionContext::default();
     context.resources.max_instruction_steps = Some(0);
@@ -433,32 +438,33 @@ fn failed_reload_validation_does_not_publish_new_epoch() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            first,
+            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("reload".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
     let before_count = runtime.runtime().modules().loaded_count();
 
-    let error = runtime
-        .reload_program(
-            &loaded,
-            candidate,
-            ReloadOptions {
-                module_name: Some("reload".to_owned()),
-                ..ReloadOptions::default()
-            },
-        )
-        .expect_err("invalid artifact should not reload");
-
+    let error =
+        PreparedProgram::from_artifact(candidate, &Default::default(), &context.cancellation)
+            .expect_err("invalid artifact should not be prepared for reload");
+    let ProgramPreparationError::Artifact(error) = error else {
+        panic!("expected artifact validation error");
+    };
     assert_eq!(error.code(), "KG_ARTIFACT_RUNTIME_ABI_MISMATCH");
-    assert!(matches!(error, EmbeddingError::ReloadValidation { .. }));
     assert_eq!(runtime.runtime().modules().loaded_count(), before_count);
     assert_eq!(
         runtime.runtime().modules().latest("reload").unwrap().epoch,
         loaded.epoch
+    );
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(1)
     );
 }
 
@@ -499,10 +505,10 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 
     let loaded = runtime
         .load_program(
-            first,
+            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("reload_paths".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
@@ -511,10 +517,10 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let error = runtime
         .reload_program(
             &loaded,
-            candidate,
+            &PreparedProgram::from_artifact(candidate, &Default::default(), &Default::default())
+                .unwrap(),
             ReloadOptions {
                 module_name: Some("reload_paths".to_owned()),
-                ..ReloadOptions::default()
             },
         )
         .expect_err("changed typed path fingerprints should reject reload");
@@ -544,10 +550,10 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            artifact,
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("args".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
@@ -609,10 +615,10 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
     );
     let loaded = runtime
         .load_program(
-            artifact,
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("set_path".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
@@ -673,10 +679,10 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
     );
     let loaded = runtime
         .load_program(
-            artifact,
+            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap(),
             LoadOptions {
                 module_name: Some("read_secure_path".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("module should load");
@@ -720,19 +726,27 @@ fn execution_context_denies_host_and_reflection_helpers() {
         .unwrap();
     let print_module = runtime
         .load_program(
-            print_artifact,
+            &PreparedProgram::from_artifact(
+                print_artifact,
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap(),
             LoadOptions {
                 module_name: Some("print".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("print module should load");
     let type_of_module = runtime
         .load_program(
-            type_of_artifact,
+            &PreparedProgram::from_artifact(
+                type_of_artifact,
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap(),
             LoadOptions {
                 module_name: Some("type_of".to_owned()),
-                ..LoadOptions::default()
             },
         )
         .expect("type_of module should load");

@@ -1778,6 +1778,47 @@ SDK test commands still encounter the concrete backend dev-dependency; the exist
 behavior matrix remain mandatory. No capability or test case was removed to claim
 these focused checks as final acceptance.
 
+### A03 checkpoint: source SDK consumers and runnable examples (2026-09-28)
+
+Migrated the embedding API, conformance, enum-payload, syntax-example and standard
+API documentation suites to prepare artifacts before load/reload. Exact artifact
+compatibility now belongs to preparation. Invalid runtime/helper ABI tests assert
+`ProgramPreparationError::Artifact`, retain unchanged-publication checks and verify
+that the original entry remains usable. Runtime contract rejection tests still
+exercise reload after successful preparation; no behavioral case was removed.
+Corrected SDK imports in these integration targets and source-snapshot tests.
+
+All seven SDK examples now import their actual owners. Loading examples show a
+named prepared program; the source-module example lowers through compiler services.
+Running the examples also exposed two stale source fixtures: imported `Data.number`
+requires public visibility, and signature checking reports the separate unsatisfied
+`Eq` and `Hash` bounds for `f32`. Updated the fixtures and exact diagnostics rather
+than suppressing those assertions. The foundation example was run only as a smoke
+check; its output is not an A05 performance comparison.
+
+Validation:
+
+- Expanded the existing ignored `target/a03-sdk-harness/Cargo.toml` consumer with
+  direct HIR/syntax test dependencies and the six tracked test targets above plus
+  all seven tracked SDK examples. `cargo test --offline --manifest-path
+  target/a03-sdk-harness/Cargo.toml --target-dir target` passes 55 tests, including
+  the previous ten preparation tests. The documentation-example suite takes about
+  74 seconds in this run. All-target clippy with `-- -D warnings` passes.
+- `cargo run --offline --manifest-path target/a03-sdk-harness/Cargo.toml --target-dir
+  target --example <name>` passes for `scoped_execution`, `host_reentry`,
+  `host_interfaces`, `source_modules`, `source_queries`, `offline_compile` and
+  `foundation_baseline`. Logs: `target/a03-sdk-example-*.log`.
+- Structure checks (507 Rust files, no violations/exceptions), formatting and
+  diff checks pass. Reviewed changed example imports, compiler ownership and
+  preparation/reload assertions; no production facade or exception was added.
+  Test/clippy/structure logs: `target/a03-sdk-callers-*.log`.
+
+A03 still owns the mixed interpreter/native SDK suites and legacy descriptor-only
+JIT registry. The normal SDK test build remains blocked by the previously recorded
+22 A04 backend errors; those unchanged errors were not rerun. This consumer check
+is scoped validation, not workspace acceptance. A04/A05 and final full-workspace
+checks remain outstanding.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

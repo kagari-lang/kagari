@@ -1,12 +1,13 @@
 //! Per-call budgets and cooperative cancellation without changing runtime defaults.
 
-use crate::ArtifactOptions;
-use crate::BytecodeArtifact;
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::KagariEngine;
-use crate::LoadOptions;
 use kagari_common::SourceFile;
+use kagari_embed::ArtifactOptions;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::LoadOptions;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::value::Value;
 
 fn main() {
@@ -19,8 +20,10 @@ fn main() {
         )
         .unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(artifact, LoadOptions::default())
+        .load_program(&program, LoadOptions::default())
         .unwrap();
     assert!(
         runtime
@@ -81,8 +84,11 @@ fn main() {
     program.modules[root].functions[alternative].name = "main".into();
     program.modules[root].function_table[alternative].name = "main".into();
     let ambiguous = BytecodeArtifact::from_program(program, Default::default()).unwrap();
+    let program =
+        PreparedProgram::from_artifact(ambiguous, &Default::default(), &Default::default())
+            .unwrap();
     let loaded = runtime
-        .load_program(ambiguous, LoadOptions::default())
+        .load_program(&program, LoadOptions::default())
         .unwrap();
     let before = runtime.runtime().resources().counters().instruction_steps;
     assert_eq!(

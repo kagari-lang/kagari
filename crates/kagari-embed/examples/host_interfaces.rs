@@ -1,12 +1,6 @@
 //! Offline host associated-output declarations and dynamic interface binding.
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
 
-use crate::BytecodeArtifact;
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::HostExposurePolicy;
-use crate::JitPolicy;
-use crate::KagariEngine;
 use kagari_common::host_interface::PathAccess;
 use kagari_common::{
     host_interface::{
@@ -17,6 +11,13 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::HostExposurePolicy;
+use kagari_embed::JitPolicy;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
@@ -164,7 +165,9 @@ fn main() {
         )
         .unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let result = runtime.execute(&loaded, "main", &[], &context).unwrap();
     assert_eq!(result.return_value, Value::I32(42));
     println!(

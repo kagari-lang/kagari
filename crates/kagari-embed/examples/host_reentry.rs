@@ -1,4 +1,5 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
+use kagari_embed::program::PreparedProgram;
 use kagari_vm::reenter;
 
 use std::slice;
@@ -7,10 +8,10 @@ use std::{
     rc::Rc,
 };
 
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::{SourceFile, host_interface::standard_log};
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
 use kagari_runtime::{
     ExecutionEvent, ExecutionFrame, ExecutionObserver, Runtime, RuntimeError,
     host::{HostError, HostFunction},
@@ -76,7 +77,9 @@ fn main() {
             Ok(Value::Unit)
         }))
         .unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let session = runtime
         .runtime()
         .begin_execution(&loaded, runtime.runtime().execution_options())

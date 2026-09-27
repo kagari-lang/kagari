@@ -1,9 +1,10 @@
-use crate::BytecodeArtifact;
-use crate::KagariEngine;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
@@ -44,7 +45,15 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, ArrayList<i32>) } fn main() -> Option { Option::Some(42) }";
     let original = compile(&engine, source);
     let loaded = runtime
-        .load_program(original.clone(), Default::default())
+        .load_program(
+            &PreparedProgram::from_artifact(
+                original.clone(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap(),
+            Default::default(),
+        )
         .unwrap();
     let option = variant(&loaded, "Option");
     let holder = variant(&loaded, "Holder");
@@ -95,7 +104,11 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     }
     let mut foreign_runtime = engine.runtime(Default::default());
     let foreign = foreign_runtime
-        .load_program(original, Default::default())
+        .load_program(
+            &PreparedProgram::from_artifact(original, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
         .unwrap();
     assert_eq!(
         runtime
@@ -146,7 +159,12 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
             .replace("Some(42)", "Some(\"new\")"),
     );
     let new = runtime
-        .reload_program(&loaded, changed, Default::default())
+        .reload_program(
+            &loaded,
+            &PreparedProgram::from_artifact(changed, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
         .unwrap();
     assert!(
         runtime
@@ -210,7 +228,13 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
     );
     let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let mut runtime = engine.runtime(Default::default());
-    let loaded = runtime.load_program(decoded, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &Default::default())
@@ -258,7 +282,13 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         decoded.program.modules[decoded.program.root.index()].public_items,
         module.public_items
     );
-    let loaded = runtime.load_program(decoded, Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(
+            &PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
     let changed = compile(
         &engine,
         &source.replace("(i32, [String])", "(i64, [String])"),
@@ -269,7 +299,12 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     );
     let before = runtime.runtime().modules().loaded_count();
     let error = runtime
-        .reload_program(&loaded, changed, Default::default())
+        .reload_program(
+            &loaded,
+            &PreparedProgram::from_artifact(changed, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
         .unwrap_err();
     assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
     assert_eq!(runtime.runtime().modules().loaded_count(), before);
@@ -295,7 +330,16 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     );
     assert!(
         runtime
-            .reload_program(&loaded, body_edit, Default::default())
+            .reload_program(
+                &loaded,
+                &PreparedProgram::from_artifact(
+                    body_edit,
+                    &Default::default(),
+                    &Default::default()
+                )
+                .unwrap(),
+                Default::default()
+            )
             .is_ok()
     );
     let mut old_format = original;
