@@ -17,10 +17,8 @@ use kagari_abi::standard::declarations::NativeDefaultMethod;
 use kagari_abi::standard::surface::StandardEnum;
 use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
 use kagari_common::identity::DefinitionId;
 use kagari_common::integer::IntegerOp;
-use kagari_hir::builtin::declarations;
 use kagari_hir::builtin::traits;
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::hir;
@@ -583,7 +581,7 @@ impl FunctionLowerer<'_, '_> {
             } else {
                 CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                     declaration,
-                    arguments,
+                    arguments: arguments.iter().map(lower_type).collect(),
                     params: args.iter().map(|a| a.ty).collect(),
                     return_type: result_ty,
                 }))

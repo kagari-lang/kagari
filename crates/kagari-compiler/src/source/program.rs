@@ -1,34 +1,16 @@
 use crate::MirLoweringError;
 use crate::MirLoweringOptions;
 use crate::source::lower;
-use crate::source::types::raise_type;
-use kagari_abi::contracts;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
 use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_abi::types::PublicAbiItem;
 use kagari_common::DiagnosticKind;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionId, ModuleIdentity},
-};
-use kagari_hir::aggregates;
+use kagari_common::identity::ModuleIdentity;
 use kagari_hir::program::CheckedProgram;
-use kagari_hir::types::GenericParameterType;
-use kagari_hir::types::TypeId;
 use kagari_mir::CallTarget;
 use kagari_mir::Instruction;
-use kagari_mir::MirModule;
-use kagari_mir::MirVerificationError;
-use kagari_mir::VerifiedMirModule;
-use kagari_mir::ids::InstanceId;
 use kagari_mir::program::ProgramError;
 use kagari_mir::program::ProgramErrorKind;
 use kagari_mir::program::VerifiedMirProgram;
 use kagari_mir::program::verify_program;
-use kagari_mir::verify_mir;
 use std::collections::{HashMap, HashSet};
 #[derive(Debug)]
 pub enum SourceProgramError {
@@ -155,7 +137,7 @@ pub fn lower_program_to_mir(
                         &module.identity,
                         ConcreteFunctionIdentity {
                             declaration: implementation.clone(),
-                            arguments: arguments.iter().map(raise_type).collect(),
+                            arguments: arguments.clone(),
                         },
                     )),
                     _ => None,

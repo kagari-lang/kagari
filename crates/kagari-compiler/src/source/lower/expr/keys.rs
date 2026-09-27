@@ -4,7 +4,6 @@ use kagari_abi::operations::BinaryOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::types::TypeId;
 use kagari_mir::instruction::Constant;
 use kagari_mir::instruction::Instruction;

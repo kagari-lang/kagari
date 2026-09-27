@@ -241,7 +241,7 @@ fn collect_interface_tables(
         .flat_map(|owner| owner.interface_instances.iter().cloned());
     for instance in allocations.chain(demands) {
         let implementation = &instance.declaration;
-        let arguments = instance.arguments.iter().cloned().collect::<Vec<_>>();
+        let arguments = instance.arguments.clone();
         if implementation.module != ir.identity
             || arguments.is_empty()
             || tables

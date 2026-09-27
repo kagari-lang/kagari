@@ -1,4 +1,8 @@
+use crate::source::program::lower_program_to_mir;
 use crate::tests::bytecode::*;
+use kagari_abi::types as abi;
+use kagari_bytecode as bytecode;
+use kagari_mir::program as mir_program;
 
 #[test]
 fn applied_trait_bounds_change_public_abi_fingerprint() {
@@ -15,7 +19,7 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
             })
             .unwrap();
         assert!(matches!(&bag.bounds[0].constraints[0],
-            crate::module::abi::ConstraintAbi::Trait(ty) if ty.arguments.len() == 1));
+            abi::ConstraintAbi::Trait(ty) if ty.arguments.len() == 1));
         let artifact = KbcArtifact::from_program(
             kagari_bytecode::BytecodeProgram {
                 root: kagari_bytecode::ModuleRef::new(0),
@@ -61,8 +65,8 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
     ));
     assert!(matches!(
         KbcArtifact::from_program(
-            crate::bytecode::BytecodeProgram {
-                root: crate::bytecode::ModuleRef::new(0),
+            bytecode::BytecodeProgram {
+                root: bytecode::ModuleRef::new(0),
                 modules: vec![module],
             },
             ArtifactBuildOptions::default(),
@@ -111,7 +115,7 @@ fn applied_trait_template_keeps_impl_and_trait_arguments() {
     assert!(module.public_items.iter().any(|item| matches!(item,
         PublicAbiItem::InterfaceTable(table)
             if table.generic_params.len() == 1
-                && matches!(&table.trait_type, crate::module::abi::AbiType::Trait(instance) if instance.arguments.len() == 1)
+                && matches!(&table.trait_type, abi::AbiType::Trait(instance) if instance.arguments.len() == 1)
     )));
 }
 
@@ -144,16 +148,12 @@ fn generic_interface_implementation_specializes_reachable_method() {
                 .clone()
         })
         .collect::<Vec<_>>();
-    assert!(
-        arguments.contains(&vec![crate::module::abi::AbiType::Builtin(
-            kagari_abi::scalar::BuiltinType::I32
-        )])
-    );
-    assert!(
-        arguments.contains(&vec![crate::module::abi::AbiType::Builtin(
-            kagari_abi::scalar::BuiltinType::String
-        )])
-    );
+    assert!(arguments.contains(&vec![abi::AbiType::Builtin(
+        kagari_abi::scalar::BuiltinType::I32
+    )]));
+    assert!(arguments.contains(&vec![abi::AbiType::Builtin(
+        kagari_abi::scalar::BuiltinType::String
+    )]));
     let mut wrong_arity = module.clone();
     let method = wrong_arity.interface_tables[0].methods[0].function.index();
     wrong_arity.functions[method]
@@ -306,7 +306,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = kagari_mir::program::lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let mut forged = ir.clone().into_unverified();
     let root_ir = forged
         .iter_mut()
@@ -324,9 +324,9 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .unwrap();
     implementation.path.last_mut().unwrap().name = "forged".into();
     assert!(matches!(
-        crate::program::verify_program(ir.root().clone(), forged, &Default::default()),
-        Err(crate::program::ProgramError {
-            kind: crate::program::ProgramErrorKind::InterfaceContract(_),
+        mir_program::verify_program(ir.root().clone(), forged, &Default::default()),
+        Err(mir_program::ProgramError {
+            kind: mir_program::ProgramErrorKind::InterfaceContract(_),
             ..
         })
     ));
@@ -349,19 +349,19 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .unwrap();
     *method_slot = 99;
     assert!(matches!(
-        crate::program::verify_program(ir.root().clone(), forged_call, &Default::default()),
-        Err(crate::program::ProgramError {
-            kind: crate::program::ProgramErrorKind::InterfaceContract(_),
+        mir_program::verify_program(ir.root().clone(), forged_call, &Default::default()),
+        Err(mir_program::ProgramError {
+            kind: mir_program::ProgramErrorKind::InterfaceContract(_),
             ..
         })
     ));
     let bytecode = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
     let root_module = &bytecode.modules[bytecode.root.index()];
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
-        |instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
+        |instruction| matches!(instruction, bytecode::BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
     ));
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
-        |instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::Call { callee: crate::bytecode::CallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
+        |instruction| matches!(instruction, bytecode::BytecodeInstruction::Call { callee: bytecode::CallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
     ));
     kagari_bytecode::verify_program(&bytecode).unwrap();
     let mut invalid = bytecode.clone();
@@ -378,7 +378,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         })
         .unwrap();
     *call = 99;
-    assert!(crate::bytecode::verify_program(&invalid).is_err());
+    assert!(bytecode::verify_program(&invalid).is_err());
     let mut wrong_owner = bytecode.clone();
     let owner_slot = wrong_owner.modules[bytecode.root.index()]
         .functions
@@ -393,7 +393,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         })
         .unwrap();
     *owner_slot = bytecode.root;
-    assert!(crate::bytecode::verify_program(&wrong_owner).is_err());
+    assert!(bytecode::verify_program(&wrong_owner).is_err());
 }
 
 #[test]
@@ -415,8 +415,8 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
             .find(|instruction| {
                 matches!(
                     instruction,
-                    crate::bytecode::BytecodeInstruction::Call {
-                        callee: crate::bytecode::CallTarget::InterfaceMethod { .. },
+                    bytecode::BytecodeInstruction::Call {
+                        callee: bytecode::CallTarget::InterfaceMethod { .. },
                         ..
                     }
                 )
@@ -440,7 +440,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            crate::bytecode::verify_module(&forged).is_err(),
+            bytecode::verify_module(&forged).is_err(),
             "accepted {corruption}"
         );
     }

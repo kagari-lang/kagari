@@ -1,6 +1,5 @@
 //! Inspect a checked generic trait implementation without starting a runtime.
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
+use kagari_abi::scalar::BuiltinType;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_bytecode::ArtifactBuildOptions;
@@ -9,6 +8,8 @@ use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::KbcArtifact;
 use kagari_bytecode::ModuleRef;
 use kagari_common::SourceFile;
+use kagari_compiler::bytecode::lower_to_bytecode;
+use kagari_compiler::lower_to_mir;
 use kagari_hir::analyze_source;
 
 fn main() {
@@ -30,7 +31,7 @@ fn main() {
         })
         .expect("implementation ABI");
     assert!(matches!(&table.trait_type, AbiType::Trait(ty)
-        if ty.arguments == [AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)]));
+        if ty.arguments == [AbiType::Builtin(BuiltinType::I32)]));
     let executable = &bytecode.interface_tables[0];
     assert_eq!(executable.declaration, table.declaration);
     assert_eq!(executable.methods.len(), 1);

@@ -3,6 +3,7 @@ use crate::tests::common;
 use kagari_abi::operations::BinaryOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
+use kagari_bytecode as bytecode;
 use kagari_mir::CallTarget;
 use kagari_mir::Instruction;
 use kagari_mir::MirFunction;
@@ -1029,7 +1030,7 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
 
     let verified = verify_mir(module.clone(), &CancellationToken::default()).unwrap();
     let bytecode = crate::bytecode::lower_to_bytecode(&verified).unwrap();
-    assert!(bytecode.functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, crate::bytecode::BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
+    assert!(bytecode.functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, bytecode::BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
 
     let function = module
         .functions

@@ -9,7 +9,6 @@ use kagari_abi::standard::StandardIntrinsic;
 use kagari_abi::standard::declarations::NativeDefaultMethod;
 use kagari_abi::standard::surface::StandardEnum;
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types::AbiType;
 use kagari_common::collection::CollectionAccess;
 use kagari_hir::builtin::traits;
 use kagari_hir::builtin::traits::StandardTraitSemantics;

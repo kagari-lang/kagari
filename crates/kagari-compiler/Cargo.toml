@@ -18,3 +18,15 @@ thiserror.workspace = true
 kagari-hir = { workspace = true, optional = true }
 kagari-syntax = { workspace = true, optional = true }
 bincode = { workspace = true, optional = true }
+
+[[test]]
+name = "source_programs"
+required-features = ["source"]
+
+[[example]]
+name = "applied_traits"
+required-features = ["source"]
+
+[[example]]
+name = "layouts"
+required-features = ["source"]

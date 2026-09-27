@@ -1,4 +1,5 @@
 use crate::source::types::lower_type;
+use kagari_bytecode as bytecode;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
 
@@ -51,10 +52,7 @@ fn integer_constants_must_match_semantic_range_and_representation() {
             }
         }
         assert!(replaced, "{source}");
-        assert!(
-            crate::bytecode::verify_module(&bytecode).is_err(),
-            "{source}"
-        );
+        assert!(bytecode::verify_module(&bytecode).is_err(), "{source}");
     }
 }
 
@@ -77,7 +75,7 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
         } else {
             *position = 1;
         }
-        assert!(crate::bytecode::verify_module(&bytecode).is_err());
+        assert!(bytecode::verify_module(&bytecode).is_err());
     }
 }
 
@@ -101,7 +99,7 @@ fn template_parameters_cannot_enter_executable_layout_arguments() {
             };
             layout.variants.clear();
         }
-        assert!(crate::bytecode::verify_module(&bytecode).is_err());
+        assert!(bytecode::verify_module(&bytecode).is_err());
     }
 }
 
@@ -138,16 +136,16 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     assert_eq!(bincode::deserialize::<AbiType>(&bytes).unwrap(), encoded);
     let bare = &module.enumerations[0].variants[0].payload[0];
     assert_ne!(
-        crate::bytecode::ArtifactFingerprint::of_serialized(&encoded),
-        crate::bytecode::ArtifactFingerprint::of_serialized(bare)
+        bytecode::ArtifactFingerprint::of_serialized(&encoded),
+        bytecode::ArtifactFingerprint::of_serialized(bare)
     );
     module.enumerations[0].variants[0].payload[0] = encoded.clone();
     assert_eq!(reject(module), Error::InvalidEnumLayout);
     let mut bytecode = crate::tests::common::bytecode_ok(source);
     bytecode.enumerations[0].variants[0].payload[0] = encoded;
     assert_eq!(
-        crate::bytecode::verify_module(&bytecode).unwrap_err(),
-        crate::bytecode::BytecodeVerificationError::InvalidEnumLayout
+        bytecode::verify_module(&bytecode).unwrap_err(),
+        bytecode::BytecodeVerificationError::InvalidEnumLayout
     );
 }
 
@@ -160,8 +158,8 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     };
     ty.variants[0].payload.clear();
     assert_eq!(
-        crate::bytecode::verify_module(&public).unwrap_err(),
-        crate::bytecode::BytecodeVerificationError::InvalidEnumLayout
+        bytecode::verify_module(&public).unwrap_err(),
+        bytecode::BytecodeVerificationError::InvalidEnumLayout
     );
     let mut module = raw(source);
     module.enumerations[0].variants[0].declaration.path[0].name = "Other".into();
@@ -206,7 +204,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
                 }
             }
         }
-        assert!(crate::bytecode::verify_module(&bad).is_err());
+        assert!(bytecode::verify_module(&bad).is_err());
     }
     let mut second = good.clone();
     second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
@@ -216,7 +214,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     for record in &mut second.function_table {
         record.identity.as_mut().unwrap().declaration.module = second.identity.clone();
     }
-    second.dependencies = vec![crate::bytecode::ModuleRef::new(0)];
+    second.dependencies = vec![bytecode::ModuleRef::new(0)];
     let mut program = kagari_bytecode::BytecodeProgram {
         root: kagari_bytecode::ModuleRef::new(1),
         modules: vec![good, second],
@@ -226,8 +224,8 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
         .payload
         .clear();
     assert_eq!(
-        crate::bytecode::verify_program(&program).unwrap_err(),
-        crate::bytecode::BytecodeVerificationError::InvalidEnumLayout
+        bytecode::verify_program(&program).unwrap_err(),
+        bytecode::BytecodeVerificationError::InvalidEnumLayout
     );
 }
 
@@ -616,8 +614,8 @@ fn ir_and_bytecode_share_numeric_operation_contracts() {
         }
     }
     assert!(matches!(
-        crate::bytecode::verify_module(&bytecode),
-        Err(crate::bytecode::BytecodeVerificationError::InvalidOperation { .. })
+        bytecode::verify_module(&bytecode),
+        Err(bytecode::BytecodeVerificationError::InvalidOperation { .. })
     ));
 }
 
@@ -749,8 +747,8 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                 Error::InvalidPublicAbi
             );
             assert_eq!(
-                crate::bytecode::verify_module(&invalid_bytecode),
-                Err(crate::bytecode::BytecodeVerificationError::InvalidPublicAbi)
+                bytecode::verify_module(&invalid_bytecode),
+                Err(bytecode::BytecodeVerificationError::InvalidPublicAbi)
             );
         }
     }

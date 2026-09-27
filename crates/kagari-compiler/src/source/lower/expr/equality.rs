@@ -1,6 +1,6 @@
 use crate::source::lower::MirLoweringError;
 use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_nominal_type;
+use crate::source::types::{lower_nominal_type, lower_type};
 use bincode::DefaultOptions;
 use bincode::Options;
 use kagari_abi::operations::BinaryOp;
@@ -9,7 +9,6 @@ use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
 use kagari_abi::standard::surface::StandardEnum;
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types::NominalAbiType;
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::types::TypeId;
 use kagari_mir::instruction::CallTarget;
@@ -173,7 +172,7 @@ impl FunctionLowerer<'_, '_> {
                 } else {
                     CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                         declaration,
-                        arguments,
+                        arguments: arguments.iter().map(lower_type).collect(),
                         params: args.iter().map(|arg| arg.ty).collect(),
                         return_type: result_ty,
                     }))

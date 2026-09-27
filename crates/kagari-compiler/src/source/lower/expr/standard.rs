@@ -5,7 +5,6 @@ use kagari_abi::operations::StandardEnumOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
 use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::types::AbiType;
 use kagari_hir::hir;
 use kagari_hir::types::TypeId;
 use kagari_mir::instruction::CallTarget;

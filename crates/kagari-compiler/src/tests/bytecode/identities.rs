@@ -1,4 +1,6 @@
 use crate::tests::bytecode::*;
+use kagari_abi::types as abi;
+use kagari_bytecode as bytecode;
 
 #[test]
 fn executable_function_identities_survive_lowering_and_reject_mismatched_records() {
@@ -28,9 +30,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .as_ref()
             .unwrap()
             .arguments,
-        [crate::module::abi::AbiType::Builtin(
-            kagari_abi::scalar::BuiltinType::I32
-        )]
+        [abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)]
     );
     let mut mismatched_record = module.clone();
     mismatched_record.function_table[generic].identity = None;
@@ -93,14 +93,14 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .as_mut()
         .unwrap()
         .arguments = vec![
-        crate::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32);
+        abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32);
         kagari_abi::decode_limits::MAX_NESTED_RECORDS + 1
     ];
     oversized.function_table[generic].identity = oversized.functions[generic].identity.clone();
     assert!(matches!(
         KbcArtifact::from_program(
-            crate::bytecode::BytecodeProgram {
-                root: crate::bytecode::ModuleRef::new(0),
+            bytecode::BytecodeProgram {
+                root: bytecode::ModuleRef::new(0),
                 modules: vec![oversized],
             },
             Default::default(),
@@ -182,8 +182,8 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
         }
         assert!(
             KbcArtifact::from_program(
-                crate::bytecode::BytecodeProgram {
-                    root: crate::bytecode::ModuleRef::new(0),
+                bytecode::BytecodeProgram {
+                    root: bytecode::ModuleRef::new(0),
                     modules: vec![module.clone()],
                 },
                 ArtifactBuildOptions::default(),

@@ -1,4 +1,6 @@
+use crate::source::program::lower_program_to_mir;
 use crate::tests::bytecode::*;
+use kagari_bytecode as bytecode;
 
 #[test]
 fn host_imports_are_interned_and_checked_before_execution() {
@@ -121,13 +123,13 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
             package: PackageId("pkg".into()),
             path: vec!["consumer".into()],
         },
-        dependencies: vec![crate::bytecode::ModuleRef::new(0)],
+        dependencies: vec![bytecode::ModuleRef::new(0)],
         host_interface: owner.host_interface.clone(),
         ..Default::default()
     };
     assert!(
-        crate::bytecode::verify_program(&crate::bytecode::BytecodeProgram {
-            root: crate::bytecode::ModuleRef::new(1),
+        bytecode::verify_program(&bytecode::BytecodeProgram {
+            root: bytecode::ModuleRef::new(1),
             modules: vec![owner.clone(), importer.clone()],
         })
         .is_ok()
@@ -135,8 +137,8 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
     importer.host_interface.types[0].trait_implementations[0].trait_arguments =
         vec![HostValueType::Bool];
     assert!(matches!(
-        crate::bytecode::verify_program(&crate::bytecode::BytecodeProgram {
-            root: crate::bytecode::ModuleRef::new(1),
+        bytecode::verify_program(&bytecode::BytecodeProgram {
+            root: bytecode::ModuleRef::new(1),
             modules: vec![owner, importer],
         }),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
@@ -382,7 +384,7 @@ fn host_trait_bounds_use_imported_script_implementations() {
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = kagari_mir::program::lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let mut program = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
     let root_index = program.root.index();
     add_readable_host(&mut program.modules[root_index]);
@@ -394,7 +396,7 @@ fn host_trait_bounds_use_imported_script_implementations() {
     root.host_interface.types[0].methods[0].return_type = HostValueType::Bool;
     root.host_interface.functions[0].return_type = HostValueType::Bool;
     assert!(matches!(
-        crate::bytecode::verify_program(&forged),
+        bytecode::verify_program(&forged),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let artifact = KbcArtifact::from_program(program, ArtifactBuildOptions::default()).unwrap();
@@ -428,7 +430,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
                     package: PackageId("pkg".into()),
                     path: vec!["consumer".into()],
                 },
-                dependencies: vec![crate::bytecode::ModuleRef::new(0)],
+                dependencies: vec![bytecode::ModuleRef::new(0)],
                 host_interface: kagari_common::host_interface::HostInterface {
                     types: vec![other],
                     ..Default::default()
@@ -444,7 +446,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
     let mut conflict = base.clone();
     conflict.ownership = HostTypeOwnership::HostRoot;
     assert!(matches!(
-        crate::bytecode::verify_program(&program(conflict)),
+        bytecode::verify_program(&program(conflict)),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }

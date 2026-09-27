@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A01 complete; A02 is next; workspace build is broken.
+Status: A00-A01 complete; A02 compiler/MIR migration is in progress; workspace build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -1056,6 +1056,56 @@ phases. Continue A02: fix concrete source request handoff, complete MIR analyses
 seals/debug/budget contracts and source-to-MIR-to-bytecode lowering, preserving the
 existing semantic test inventory. A03/A04 retain the recorded integration work;
 A05 must pass the entire acceptance matrix and final gates before goal completion.
+
+### A02 checkpoint: concrete source instance handoff (2026-09-28)
+
+Compiler specialization now uses a private source InstanceKey containing checked
+HIR types. MIR function identities and interface-instance requests are emitted as
+ConcreteFunctionIdentity with ABI arguments. Emission clones under the existing
+source type depth/node limits and rejects non-concrete arguments before encoding.
+Source call contracts encode their checked arguments directly; cross-module
+interface demand discovery keeps portable arguments. Imported concrete requests
+are converted back to checked types only at the compiler source planner's intake,
+without introducing a source dependency in MIR or executable contracts.
+
+Updated relocated compiler tests and examples to import their actual ABI, MIR,
+bytecode and compiler owners. Program lowering diagnostics use SourceProgramError;
+MIR verification diagnostics retain ProgramErrorKind. Corruption tests now mutate
+portable argument types directly, keeping their original rejection assertions.
+Source integration tests and examples explicitly require the source feature,
+allowing all targets of the compiler core to build without frontend support.
+Removed unused extraction imports and simplified the emitter's already-portable
+argument clone; no semantic coverage was removed or assertions weakened.
+
+Validation:
+
+- `cargo test -p kagari-compiler`: all 123 unit and eight source-program integration
+  tests pass (131 total). This restores the source-to-MIR-to-bytecode test path,
+  including monomorphization/deduplication, growing recursion and shared limits,
+  imported generic methods, layout/ABI/host/interface verification, associated
+  families, malformed artifact rejection, once-only evaluation and trap ordering.
+- `cargo clippy -p kagari-compiler --all-targets -- -D warnings`: passes. The prior
+  17 compiler library errors and 43 warnings are resolved, as are relocated test
+  and example import/type errors discovered once the library built.
+- `cargo check -p kagari-compiler --no-default-features --all-targets` and matching
+  all-target clippy with warnings denied: pass. Source fixtures remain available
+  and executed with the default source feature; the core has no frontend edge.
+- Both `cargo run -p kagari-compiler --example applied_traits` and `--example layouts`
+  pass, reporting validated applied interfaces, concrete aggregate fields and
+  stable executable declaration identities.
+- Structure check: 472 Rust files, zero findings/exceptions. Reviewed changed
+  production imports, private key ownership, conversion bounds and macro paths.
+  Formatting and diff checks pass. Test inventory remains 1,347, none removed.
+
+A02 remains open: verification currently seals the existing typed CFG, but the
+required program-point liveness/root, safepoint, debug availability and explicit
+logical-budget analyses and transformation invalidation are not complete. Continue
+with the full sealed backend handoff, portable origin metadata and bounded public
+passes. Existing cross-module/source tests now provide executable regression
+coverage while completing that contract. The recorded five VM native-integration
+errors (A03) and Cranelift errors (A04) remain; unchanged downstream failures were
+not repeated at this checkpoint. SDK feature/artifact integration, the A05 behavior
+matrix and full workspace gates remain unverified.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

@@ -1,4 +1,6 @@
 use crate::tests::bytecode::*;
+use kagari_abi::effects::EffectSet;
+use kagari_bytecode as bytecode;
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {
@@ -23,8 +25,8 @@ fn rejects_function_fallthrough_before_loading() {
         ));
         assert!(
             KbcArtifact::from_program(
-                crate::bytecode::BytecodeProgram {
-                    root: crate::bytecode::ModuleRef::new(0),
+                bytecode::BytecodeProgram {
+                    root: bytecode::ModuleRef::new(0),
                     modules: vec![module],
                 },
                 ArtifactBuildOptions::default(),
@@ -256,13 +258,13 @@ fn verifier_rejects_invalid_aggregate_writes() {
             ValueType::HeapObject,
         ],
         structures: common::bytecode_ok("struct Point { var x: i32 }").structures,
-        function_table: vec![crate::bytecode::FunctionRecord {
+        function_table: vec![bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "write_bad_field".to_owned(),
             params: Vec::new(),
             return_type: ValueType::Unit,
-            effects: crate::module::EffectSet::aggregate_write(),
+            effects: EffectSet::aggregate_write(),
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
@@ -274,11 +276,11 @@ fn verifier_rejects_invalid_aggregate_writes() {
             metadata: FunctionMetadata {
                 return_type: ValueType::Unit,
                 registers: vec![ValueType::HeapObject, ValueType::Bool],
-                roots: crate::bytecode::RootSlotLayout {
+                roots: bytecode::RootSlotLayout {
                     registers: vec![Register::new(0)],
                     ..Default::default()
                 },
-                effects: crate::module::EffectSet::aggregate_write(),
+                effects: EffectSet::aggregate_write(),
                 ..Default::default()
             },
             instructions: vec![
@@ -319,13 +321,13 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             read_only: false,
             debug_name: "Actor.health".to_owned(),
         }],
-        function_table: vec![crate::bytecode::FunctionRecord {
+        function_table: vec![bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "read_missing_path".to_owned(),
             params: vec![ValueType::HostHandle],
             return_type: ValueType::I32,
-            effects: crate::module::EffectSet::path_read(),
+            effects: EffectSet::path_read(),
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
@@ -339,7 +341,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
                 return_type: ValueType::I32,
                 locals: vec![ValueType::HostHandle],
                 registers: vec![ValueType::HostHandle, ValueType::I32],
-                effects: crate::module::EffectSet::path_read(),
+                effects: EffectSet::path_read(),
                 ..Default::default()
             },
             instructions: vec![
@@ -369,13 +371,13 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             read_only: true,
             debug_name: "Actor.id".to_owned(),
         }],
-        function_table: vec![crate::bytecode::FunctionRecord {
+        function_table: vec![bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "write_readonly_path".to_owned(),
             params: vec![ValueType::HostHandle, ValueType::I32],
             return_type: ValueType::Unit,
-            effects: crate::module::EffectSet::path_write(),
+            effects: EffectSet::path_write(),
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
@@ -389,7 +391,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
                 return_type: ValueType::Unit,
                 locals: vec![ValueType::HostHandle, ValueType::I32],
                 registers: vec![ValueType::HostHandle, ValueType::I32],
-                effects: crate::module::EffectSet::path_write(),
+                effects: EffectSet::path_write(),
                 ..Default::default()
             },
             instructions: vec![

@@ -69,7 +69,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         let mut function = MirFunction {
             semantic: Default::default(),
             id: instance.id,
-            instance: instance.key.clone(),
+            instance: instance.key.lower(planner.options, span)?,
             name: if instance.key.arguments.is_empty() {
                 hir_function.name.clone()
             } else {

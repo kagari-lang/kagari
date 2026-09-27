@@ -5,7 +5,6 @@ use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::FunctionAbi;
 use kagari_abi::types::InterfaceTableAbi;
-use kagari_abi::types::NominalAbiType;
 use kagari_abi::types::ParameterAbi;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
@@ -13,9 +12,7 @@ use kagari_common::identity::DefinitionPathSegment;
 use kagari_common::identity::ModuleIdentity;
 use kagari_hir::CheckedAnalysis;
 use kagari_hir::aggregates::AggregateCatalog;
-use kagari_hir::builtin::declarations;
 use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_hir::typeck::ScalarValue;
 use kagari_hir::types::NominalType;
 use std::collections::BTreeSet;
@@ -58,6 +55,39 @@ impl Default for MirLoweringOptions {
     }
 }
 
+/// Checked source arguments remain local to specialization planning. They are
+/// converted only when a concrete MIR identity is emitted.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct InstanceKey {
+    pub declaration: DefinitionId,
+    pub arguments: Vec<TypeId>,
+}
+
+impl InstanceKey {
+    pub(super) fn lower(
+        &self,
+        options: &MirLoweringOptions,
+        span: Span,
+    ) -> Result<ConcreteFunctionIdentity, MirLoweringError> {
+        let mut remaining = options.max_type_nodes;
+        let arguments = self
+            .arguments
+            .iter()
+            .map(|argument| {
+                let argument = instantiate(argument, None, options, &mut remaining, 0, span)?;
+                if !argument.is_concrete() {
+                    return Err(unresolved_type(&argument, span));
+                }
+                Ok(lower_type(&argument))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(ConcreteFunctionIdentity {
+            declaration: self.declaration.clone(),
+            arguments,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
@@ -65,7 +95,7 @@ pub(super) struct Instance {
     pub origin: ModuleIdentity,
     pub id: InstanceId,
     pub function: hir::FunctionId,
-    pub key: ConcreteFunctionIdentity,
+    pub key: InstanceKey,
     pub substitution: TypeSubstitution,
     pub closure: Option<hir::ExprId>,
     pub native_method: Option<(TypeId, NominalType, DefinitionId)>,
@@ -98,7 +128,7 @@ pub(super) struct InstancePlanner<'a> {
     pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
     pub native_tables: Vec<InterfaceTableAbi>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
-    keys: HashMap<ConcreteFunctionIdentity, InstanceId>,
+    keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
     interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
     instruction_count: usize,
@@ -132,7 +162,7 @@ impl<'a> InstancePlanner<'a> {
             name: "$callable".into(),
             occurrence: body.span.start as u32,
         });
-        let key = ConcreteFunctionIdentity {
+        let key = InstanceKey {
             declaration,
             arguments: vec![body.receiver.clone(), TypeId::Trait(body.interface.clone())],
         };
@@ -170,7 +200,7 @@ impl<'a> InstancePlanner<'a> {
             name: format!("$iterator_{:?}", body.operation),
             occurrence: body.span.start as u32,
         });
-        let key = ConcreteFunctionIdentity {
+        let key = InstanceKey {
             declaration,
             arguments: body
                 .captures
@@ -251,7 +281,7 @@ impl<'a> InstancePlanner<'a> {
                 occurrence: 0,
             }],
         };
-        let key = ConcreteFunctionIdentity {
+        let key = InstanceKey {
             declaration,
             arguments: vec![ty.clone()],
         };
@@ -319,7 +349,7 @@ impl<'a> InstancePlanner<'a> {
         {
             return Err(MirLoweringError::MissingBinding("default method arguments"));
         }
-        let key = ConcreteFunctionIdentity {
+        let key = InstanceKey {
             declaration: declaration.clone(),
             arguments,
         };
@@ -487,7 +517,7 @@ impl<'a> InstancePlanner<'a> {
                 name: method.name.clone(),
                 occurrence: 0,
             });
-            let key = ConcreteFunctionIdentity {
+            let key = InstanceKey {
                 declaration: id,
                 arguments: Vec::new(),
             };
@@ -581,10 +611,13 @@ impl<'a> InstancePlanner<'a> {
             if !arguments.is_empty() {
                 self.charge_layout_instance(span)?;
             }
-            self.interface_instances.push(ConcreteFunctionIdentity {
-                declaration: declaration.clone(),
-                arguments: arguments.to_vec(),
-            });
+            self.interface_instances.push(
+                InstanceKey {
+                    declaration: declaration.clone(),
+                    arguments: arguments.to_vec(),
+                }
+                .lower(self.options, span)?,
+            );
         }
         Ok(())
     }
@@ -691,7 +724,7 @@ impl<'a> InstancePlanner<'a> {
                 return Err(unresolved_type(argument, span));
             }
         }
-        let key = ConcreteFunctionIdentity {
+        let key = InstanceKey {
             declaration: declaration.clone(),
             arguments,
         };
@@ -751,7 +784,7 @@ impl<'a> InstancePlanner<'a> {
             name: format!("closure_{}", closure.index()),
             occurrence: 0,
         });
-        let key = ConcreteFunctionIdentity {
+        let key = InstanceKey {
             declaration,
             arguments: parent.key.arguments.clone(),
         };

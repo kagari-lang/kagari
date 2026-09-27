@@ -9,7 +9,6 @@ use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_abi::types::FunctionAbi;
 use kagari_abi::types::InterfaceTableAbi;
 use kagari_abi::types::ModuleAbi;
-use kagari_abi::types::NominalAbiType;
 use kagari_abi::types::ParameterAbi;
 use kagari_abi::types::PublicAbiItem;
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};

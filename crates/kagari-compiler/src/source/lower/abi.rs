@@ -2,14 +2,12 @@ use crate::source::types::{lower_nominal_type, lower_type};
 use kagari_abi::types::AssociatedConstAbi;
 use kagari_abi::types::AssociatedTypeAbi;
 use kagari_abi::types::AssociatedTypeFamilyAbi;
-use kagari_abi::types::NominalAbiType;
 use kagari_common::identity;
 use kagari_hir::declarations::DeclarationId;
 use kagari_hir::resolver::ResolvedName;
 use kagari_hir::typeck::ConstraintTarget;
 use kagari_hir::typeck::GenericBounds;
 use kagari_hir::typeck::ScalarValue;
-use kagari_hir::types;
 use kagari_hir::types::GenericParameterType;
 use kagari_hir::types::TypeId;
 use kagari_hir::{

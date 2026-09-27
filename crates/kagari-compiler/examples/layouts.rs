@@ -1,11 +1,14 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_bytecode::BytecodeInstruction;
 use kagari_common::SourceFile;
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::DefinitionKind;
+use kagari_compiler::bytecode::lower_to_bytecode;
+use kagari_compiler::lower_to_mir;
 use kagari_hir::analyze_source;
 
 fn main() {
@@ -54,10 +57,7 @@ fn main() {
         })
         .expect("checked interface declaration");
     assert_eq!(interface.declaration.module, bytecode.identity);
-    assert_eq!(
-        interface.declaration.path[0].kind,
-        kagari_common::identity::DefinitionKind::Impl
-    );
+    assert_eq!(interface.declaration.path[0].kind, DefinitionKind::Impl);
     let executable_table = bytecode
         .interface_tables
         .iter()
@@ -90,9 +90,7 @@ fn main() {
             .as_ref()
             .unwrap()
             .arguments,
-        [kagari_abi::types::AbiType::Builtin(
-            kagari_abi::scalar::BuiltinType::I32
-        )]
+        [AbiType::Builtin(BuiltinType::I32)]
     );
     println!(
         "interface {} has a stable declaration identity and executable method slot",

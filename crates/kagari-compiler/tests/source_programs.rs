@@ -1,13 +1,20 @@
-use crate::MirLoweringOptions;
-use crate::bytecode::BytecodeLoweringError;
-use crate::bytecode::lower_to_bytecode;
-use crate::source::program::lower_program_to_mir;
+use kagari_abi::scalar::BuiltinType;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::ConcreteFunctionIdentity;
+use kagari_abi::types::ConstraintAbi;
+use kagari_abi::types::PublicAbiItem;
 use kagari_common::{
     DiagnosticKind,
     cancellation::CancellationToken,
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_compiler::bytecode::BytecodeLoweringError;
+use kagari_compiler::bytecode::lower_program_to_bytecode;
+use kagari_compiler::bytecode::lower_to_bytecode;
+use kagari_compiler::source::program::SourceProgramError;
+use kagari_compiler::source::program::lower_program_to_mir;
+use kagari_compiler::{MirLoweringError, MirLoweringOptions};
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
@@ -39,8 +46,6 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
 
 #[test]
 fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_hir::types::TypeId;
     let mut db = SourceDatabase::default();
     insert(
         &mut db,
@@ -78,11 +83,11 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         .collect::<Vec<_>>();
     assert_eq!(methods.len(), 2);
     assert!(methods.iter().any(|function| {
-        function.instance.arguments == [TypeId::Builtin(BuiltinType::Bool)]
+        function.instance.arguments == [AbiType::Builtin(BuiltinType::Bool)]
             && ir.function(&function.instance).is_some()
     }));
     assert!(methods.iter().any(|function| {
-        function.instance.arguments == [TypeId::Builtin(BuiltinType::I32)]
+        function.instance.arguments == [AbiType::Builtin(BuiltinType::I32)]
             && ir.function(&function.instance).is_some()
     }));
     let mut forged = ir.clone().into_unverified();
@@ -99,7 +104,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
             _ => None,
         })
         .unwrap();
-    contract.arguments[0] = TypeId::Builtin(BuiltinType::F32);
+    contract.arguments[0] = AbiType::Builtin(BuiltinType::F32);
     assert!(matches!(
         verify_program(ir.root().clone(), forged, &Default::default())
             .unwrap_err()
@@ -137,8 +142,8 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
     )
     .unwrap_err();
     assert!(matches!(
-        error.kind,
-        ProgramErrorKind::Lowering(crate::MirLoweringError::Diagnostic(diagnostic))
+        error,
+        SourceProgramError::Lowering { error: MirLoweringError::Diagnostic(diagnostic), .. }
             if matches!(diagnostic.kind, DiagnosticKind::CompileLimitExceeded {
                 resource: "generic instances",
                 limit: actual,
@@ -148,8 +153,6 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
 
 #[test]
 fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
-    use crate::bytecode::lower_program_to_bytecode;
-    use kagari_abi::types::PublicAbiItem;
     use kagari_bytecode::ArtifactFingerprint;
     use kagari_bytecode::KbcArtifact;
     let mut db = SourceDatabase::default();
@@ -202,13 +205,12 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         panic!("trait")
     };
     assert!(
-        matches!(&interface.methods[0].bounds[0].constraints[0], kagari_abi::types::ConstraintAbi::Trait(id) if id.declaration.module.path == ["root"] && id.declaration.path.last().unwrap().name == "LeftMarker")
+        matches!(&interface.methods[0].bounds[0].constraints[0], ConstraintAbi::Trait(id) if id.declaration.module.path == ["root"] && id.declaration.path.last().unwrap().name == "LeftMarker")
     );
 }
 
 #[test]
 fn public_generic_abi_ignores_binder_spelling_and_constraint_source_order() {
-    use crate::bytecode::lower_program_to_bytecode;
     let mut db = SourceDatabase::default();
     let mut items = Vec::new();
     for source in [
@@ -278,7 +280,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     assert_eq!(layouts[0].declaration, layouts[1].declaration);
     assert_ne!(layouts[0].arguments, layouts[1].arguments);
     assert_ne!(layouts[0].fields[0].ty, layouts[1].fields[0].ty);
-    let mut program = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
+    let mut program = lower_program_to_bytecode(&ir).unwrap();
     kagari_bytecode::verify_program(&program).unwrap();
     // The owner need not execute an instance for its public template to be checked.
     let owner = program
@@ -287,7 +289,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         .find(|module| module.identity.path == ["types"])
         .unwrap();
     assert!(owner.enumerations.is_empty());
-    let kagari_abi::types::PublicAbiItem::Type(template) = owner
+    let PublicAbiItem::Type(template) = owner
         .public_items
         .iter_mut()
         .find(|item| item.name() == "Packet")
@@ -295,8 +297,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     else {
         unreachable!()
     };
-    template.variants[0].payload[0] =
-        kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
+    template.variants[0].payload[0] = AbiType::Builtin(BuiltinType::Bool);
     assert!(kagari_bytecode::verify_program(&program).is_err());
     let error = lower_program_to_mir(
         &checked,
@@ -307,7 +308,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     )
     .unwrap_err();
     assert!(
-        matches!(error.kind, ProgramErrorKind::Lowering(crate::MirLoweringError::Diagnostic(d)) if matches!(d.kind, DiagnosticKind::CompileLimitExceeded { resource: "generic instances", limit: 3 }))
+        matches!(error, SourceProgramError::Lowering { error: MirLoweringError::Diagnostic(d), .. } if matches!(d.kind, DiagnosticKind::CompileLimitExceeded { resource: "generic instances", limit: 3 }))
     );
 }
 
@@ -349,7 +350,7 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
     for call in calls {
         assert_eq!(call.declaration.module.path, ["shared"]);
         let binding = program
-            .function(&kagari_abi::types::ConcreteFunctionIdentity {
+            .function(&ConcreteFunctionIdentity {
                 declaration: call.declaration.clone(),
                 arguments: call.arguments.clone(),
             })
@@ -501,7 +502,7 @@ fn program_limits_are_shared_across_modules() {
     )
     .unwrap_err();
     assert!(
-        matches!(error.kind, ProgramErrorKind::Lowering(crate::MirLoweringError::Diagnostic(d)) if matches!(d.kind, DiagnosticKind::CompileLimitExceeded {resource: "generated instructions", ..}))
+        matches!(error, SourceProgramError::Lowering { error: MirLoweringError::Diagnostic(d), .. } if matches!(d.kind, DiagnosticKind::CompileLimitExceeded {resource: "generated instructions", ..}))
     );
 }
 

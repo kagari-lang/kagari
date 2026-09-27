@@ -1,3 +1,4 @@
+use crate::source::types::raise_type;
 use instances::InstancePlanner;
 use kagari_abi::host as module_host;
 use kagari_abi::types::ConcreteFunctionIdentity;
@@ -110,7 +111,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         }
         planner.enqueue_declaration(
             &request.declaration,
-            request.arguments.clone(),
+            request.arguments.iter().map(raise_type).collect(),
             Default::default(),
         )?;
     }

@@ -5,8 +5,6 @@ use crate::source::types::{lower_nominal_type, lower_type};
 use kagari_abi::operations::BinaryOp;
 use kagari_abi::operations::StandardEnumOp;
 use kagari_abi::representation::ValueType;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
 use kagari_hir::hir;
 use kagari_hir::hir::PatternKind;
 use kagari_hir::types::NominalType;

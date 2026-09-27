@@ -1,4 +1,5 @@
 use crate::tests::bytecode::*;
+use kagari_bytecode as bytecode;
 
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
@@ -68,7 +69,7 @@ fn main() -> i32 { add(1, 2) }
         module_id: dependency_module.identity.clone(),
         fingerprint: ArtifactFingerprint::of_serialized(&dependency_module),
     };
-    module.dependencies = vec![crate::bytecode::ModuleRef::new(0)];
+    module.dependencies = vec![bytecode::ModuleRef::new(0)];
     let artifact = KbcArtifact::from_program(
         kagari_bytecode::BytecodeProgram {
             root: kagari_bytecode::ModuleRef::new(1),

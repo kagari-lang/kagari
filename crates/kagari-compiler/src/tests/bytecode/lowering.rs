@@ -1,4 +1,6 @@
 use crate::tests::bytecode::*;
+use kagari_abi::effects::EffectSet;
+use kagari_bytecode as bytecode;
 
 #[test]
 fn lowers_function_metadata_into_bytecode() {
@@ -165,7 +167,7 @@ fn main() -> i32 {
 
     assert!(bytecode.constants.iter().any(|constant| matches!(
         constant,
-        crate::bytecode::ConstantOperand::Str(text) if text == "ok"
+        bytecode::ConstantOperand::Str(text) if text == "ok"
     )));
     assert!(bytecode.types.contains(&ValueType::I32));
     assert!(bytecode.types.contains(&ValueType::Str));
@@ -364,13 +366,13 @@ fn verifier_accepts_resolved_typed_path_instructions() {
             read_only: false,
             debug_name: "Actor.health".to_owned(),
         }],
-        function_table: vec![crate::bytecode::FunctionRecord {
+        function_table: vec![bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "read_health".to_owned(),
             params: vec![ValueType::HostHandle],
             return_type: ValueType::I32,
-            effects: crate::module::EffectSet::path_read(),
+            effects: EffectSet::path_read(),
         }],
         functions: vec![BytecodeFunction {
             id: FunctionRef::new(0),
@@ -384,7 +386,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
                 return_type: ValueType::I32,
                 locals: vec![ValueType::HostHandle],
                 registers: vec![ValueType::HostHandle, ValueType::I32],
-                effects: crate::module::EffectSet::path_read(),
+                effects: EffectSet::path_read(),
                 ..Default::default()
             },
             instructions: vec![

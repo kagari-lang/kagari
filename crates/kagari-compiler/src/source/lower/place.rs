@@ -10,7 +10,6 @@ use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types::NominalAbiType;
 use kagari_common::identity;
 use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::types;
 use kagari_hir::{hir, types::TypeId};
 use kagari_mir::AggregateFieldRef;
 use kagari_mir::CallTarget;

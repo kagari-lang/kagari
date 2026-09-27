@@ -7,8 +7,6 @@ use kagari_abi::layout::EnumLayout;
 use kagari_abi::layout::EnumVariantLayout;
 use kagari_abi::layout::StructFieldLayout;
 use kagari_abi::layout::StructLayout;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
 use kagari_common::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     AnalyzedModule,

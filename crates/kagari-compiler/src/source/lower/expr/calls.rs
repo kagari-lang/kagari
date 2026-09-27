@@ -1,13 +1,12 @@
 use crate::source::lower::MirLoweringError;
 use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_nominal_type;
+use crate::source::types::{lower_nominal_type, lower_type};
 use kagari_abi::operations::IterOp;
 use kagari_abi::operations::StringIterKind;
 use kagari_abi::representation::ValueType;
 use kagari_abi::scalar::BuiltinType;
 use kagari_abi::standard::StandardIntrinsic;
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types::NominalAbiType;
 use kagari_common::host_interface;
 use kagari_hir::builtin::BuiltinFunction;
 use kagari_hir::builtin::traits;
@@ -354,7 +353,7 @@ impl FunctionLowerer<'_, '_> {
                 } else {
                     CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                         declaration: implementation.clone(),
-                        arguments,
+                        arguments: arguments.iter().map(lower_type).collect(),
                         params,
                         return_type,
                     }))
@@ -484,7 +483,7 @@ impl FunctionLowerer<'_, '_> {
                                     .value_type(&typed.return_type, &substitution, span)?;
                             CallTarget::SourceFunction(Box::new(SourceFunctionContract {
                                 declaration: declaration.clone(),
-                                arguments,
+                                arguments: arguments.iter().map(lower_type).collect(),
                                 params,
                                 return_type,
                             }))
