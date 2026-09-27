@@ -34,6 +34,10 @@ Generic impl parameters describe the receiver; method generics describe addition
 types introduced by that operation. Free functions such as `std::math::min` remain
 at module scope.
 
+Native trait implementations are also declared explicitly where available:
+`impl<T> Iterator for Iter<T>` supplies `Item` and the native `next` method.
+Its `map`, `filter` and `collect` methods are defaults declared on `Iterator`.
+
 Integer literals currently have type `i32`, while indices and lengths use `usize`.
 Examples obtain `usize` values from collection or string lengths. Functions taking
 `f64` show a typed function parameter because unsuffixed float literals are `f32`.

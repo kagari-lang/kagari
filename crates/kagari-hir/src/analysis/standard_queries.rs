@@ -136,7 +136,7 @@ impl FileAnalysis {
         let Some(ty) = self.member_receiver_type(offset) else {
             return Vec::new();
         };
-        surface::standard_methods()
+        let mut candidates: Vec<_> = surface::standard_methods()
             .iter()
             .filter(|method| {
                 matches!(
@@ -179,7 +179,24 @@ impl FileAnalysis {
                     || ty.can_weaken_to(&receiver.instantiate(&arguments))
             })
             .filter_map(|method| declarations::function(method.intrinsic))
-            .collect()
+            .collect();
+        for implementation in declarations::implementations(&ty) {
+            candidates.extend(implementation.methods.iter().map(|m| &m.item));
+            candidates.extend(
+                implementation
+                    .trait_declaration()
+                    .methods
+                    .iter()
+                    .filter(|method| {
+                        !implementation
+                            .methods
+                            .iter()
+                            .any(|m| m.item.path.last() == method.item.path.last())
+                    })
+                    .map(|m| &m.item),
+            );
+        }
+        candidates
     }
 }
 
@@ -187,6 +204,70 @@ impl FileAnalysis {
 mod tests {
     use super::*;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
+
+    #[test]
+    fn native_iterator_implementation_exposes_members_and_inherited_defaults() {
+        let item_type = TypeId::Builtin(crate::types::BuiltinType::I32);
+        let receiver = TypeId::Iter(Box::new(item_type.clone()));
+        let implementations = declarations::implementations(&receiver);
+        assert_eq!(implementations.len(), 1);
+        let implementation = implementations[0];
+        assert_eq!(implementation.interface, "Iterator");
+        let (member, value) = &implementation.associated_types[0];
+        assert_eq!(
+            value.instantiate(&implementation.arguments(&receiver).unwrap()),
+            item_type
+        );
+        assert_eq!(member.path.last().unwrap().1, "Item");
+        assert_ne!(
+            member.identity(),
+            implementation.trait_declaration().associated_types[0]
+                .item
+                .identity()
+        );
+        assert!(declarations::implementations(&item_type).is_empty());
+
+        let text = "fn main() { val values: Iter<i32> = [20,22].iter(); values. }";
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set("iterator.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let analysis = snapshot.file(file).unwrap();
+        let candidates = analysis.standard_method_completions(text.find("values. }").unwrap() + 7);
+        for name in ["next", "map", "filter", "collect"] {
+            let matches: Vec<_> = candidates
+                .iter()
+                .filter(|m| m.path.last().unwrap().1 == name)
+                .collect();
+            assert_eq!(matches.len(), 1, "{name}");
+            let api = matches[0];
+            assert_eq!(
+                api.path[0].0,
+                if name == "next" {
+                    kagari_common::identity::DefinitionKind::Impl
+                } else {
+                    kagari_common::identity::DefinitionKind::Trait
+                }
+            );
+            let declaration = snapshot
+                .declaration(&DeclarationId::Definition(api.identity()))
+                .unwrap();
+            let source = snapshot.source(declaration.location.file).unwrap();
+            assert_eq!(
+                &source.text()[declaration.location.range.start..declaration.location.range.end],
+                name
+            );
+        }
+        assert!(
+            implementation.methods[0]
+                .item
+                .signature
+                .contains("intrinsic(IterNext)")
+        );
+    }
 
     #[test]
     fn native_calls_types_and_variants_navigate_to_documented_source() {

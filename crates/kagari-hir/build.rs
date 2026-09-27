@@ -62,11 +62,13 @@ fn main() {
     let mut traits = String::new();
     let mut enums = String::new();
     let mut constructors = String::new();
+    let mut implementations = String::new();
     let mut functions = String::new();
     let mut methods = String::new();
     let mut sources = String::new();
     let mut bindings = BTreeSet::new();
     let mut method_bindings = BTreeSet::new();
+    let mut implementation_bindings = BTreeSet::new();
     for module in [
         "Array", "Map", "Set", "String", "Option", "Result", "Iter", "Math", "Debug", "Cmp",
         "Hash", "Fmt", "Ops", "Convert",
@@ -102,10 +104,24 @@ fn main() {
             if let Some(function) = api::NativeFunction::cast(item.syntax().clone()) {
                 native_functions.push((None, function));
             } else if let ast::Item::ImplBlock(implementation) = item {
-                assert!(
-                    implementation.trait_ref().is_none(),
-                    "native associated functions are inherent"
-                );
+                if implementation.trait_ref().is_some() {
+                    assert!(
+                        implementation_bindings.insert((
+                            implementation.trait_ref().unwrap().path_text().unwrap(),
+                            ty(implementation.target_type().unwrap()),
+                        )),
+                        "duplicate native trait implementation"
+                    );
+                    api::native_implementation(
+                        &implementation,
+                        &module.to_lowercase(),
+                        &uri,
+                        &text,
+                        &mut items,
+                        &mut implementations,
+                    );
+                    continue;
+                }
                 for method in implementation.methods() {
                     native_functions.push((
                         Some(implementation.clone()),
@@ -260,6 +276,9 @@ fn main() {
     }
     let out = format!(
         "pub const STANDARD_ITEMS:&[ApiItem]=&[{items}];\npub const STANDARD_TRAITS:&[ApiTrait]=&[{traits}];\nconst STANDARD_ENUMS:&[StandardEnumSpec]=&[{enums}];\nconst STANDARD_TYPE_CONSTRUCTORS:&[StandardTypeConstructorSpec]=&[{constructors}];\nconst STANDARD_FUNCTIONS:&[StandardFunctionSpec]=&[{functions}];\nconst STANDARD_METHODS:&[StandardMethodSpec]=&[{methods}];\npub const STANDARD_SOURCES:&[(&str,&str)]=&[{sources}];"
+    );
+    let out = format!(
+        "{out}\npub const STANDARD_IMPLEMENTATIONS:&[super::declarations::ApiImplementation]=&[{implementations}];"
     );
     std::fs::write(
         PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("standard_api.rs"),

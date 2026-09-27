@@ -16,7 +16,7 @@ imports or recognized by a user-controlled file extension.
 Outer `///` comments belong to the immediately following declaration. They retain
 Markdown including fenced Kagari examples. The CST remains lossless. Existing
 `#[intrinsic(...)]` binds native execution. Instance methods are declared with
-`self` inside an inherent `impl`; there is no method-alias attribute.
+`self` inside an inherent or native trait `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in
 [the implementation roadmap](../implementation-roadmap.md#standard-library-declaration-sources).
@@ -67,6 +67,15 @@ through analysis and portable ABI validation. Engine-supplied iterator defaults 
 marked with intrinsic attributes; user implementations need only supply required
 methods and may provide ordinary explicit overrides of default methods.
 
+`iter.kgr` explicitly declares `impl<T> Iterator for Iter<T>`, including
+`type Item = T` and `#[intrinsic(IterNext)] fn next(self) -> Option<T>;`.
+The build validates this implementation against the sealed native stepping ABI.
+Its receiver, generic parameter, associated type and method metadata come from
+the declaration. Native iterator trait resolution reads that associated type
+mapping. `map`, `filter`, `collect` and other defaults remain on `Iterator`.
+The identity `Iterable` implementation remains derived from `Iterator`.
+This declaration does not grant user code access to intrinsic bindings.
+
 Documentation examples for functions, types and traits execute both directly and
 after artifact serialization. Nested members document their role within the enclosing
 protocol; protocol examples demonstrate the complete use rather than duplicating
@@ -87,3 +96,9 @@ The catalog is immutable across snapshots. User declarations take precedence ove
 unqualified native names; navigation follows resolution, not a text-name heuristic.
 Native method candidates are one input to completion; lexical trait completion and
 the LSP transport remain separate tool work.
+
+`builtin::declarations::implementations` exposes explicit native implementations
+for a checked receiver, with source identities distinct from the trait's members.
+Completion on `Iter<T>` includes the declared `next` implementation and inherited
+`Iterator` methods. Ordinary trait-call navigation still identifies the protocol
+member; the implementation catalog provides the concrete implementation location.

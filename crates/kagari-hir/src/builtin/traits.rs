@@ -488,8 +488,31 @@ pub fn iteration_outputs(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
+    if let TypeId::Iter(_) = receiver {
+        let implementation = super::declarations::implementations(receiver)
+            .into_iter()
+            .find(|i| i.interface == "Iterator")?;
+        let arguments = implementation.arguments(receiver)?;
+        let id = identity(kind);
+        let mut outputs: std::collections::BTreeMap<_, _> = implementation
+            .associated_types
+            .iter()
+            .map(|(member, ty)| {
+                (
+                    crate::types::associated_type_id(&id, member.path.last().unwrap().1),
+                    ty.instantiate(&arguments),
+                )
+            })
+            .collect();
+        if kind == StandardTrait::Iterable {
+            outputs.insert(
+                crate::types::associated_type_id(&id, "Iter"),
+                receiver.clone(),
+            );
+        }
+        return Some(outputs);
+    }
     let native_item = match receiver {
-        TypeId::Iter(item) => Some((**item).clone()),
         TypeId::Array(item, _) | TypeId::Set(item, _) if kind == StandardTrait::Iterable => {
             Some((**item).clone())
         }

@@ -402,3 +402,15 @@ of the concrete Iter type and Iterable::Iter, removed-name rejection, checked
 signature display, source/artifact/JIT iteration and executable API examples.
 Formatting, workspace/all-targets clippy with warnings denied and git diff --check
 also passed.
+
+The native iterator now has an explicit `impl<T> Iterator for Iter<T>` declaration
+in `stdlib/iter.kgr`. The build validates its native `next` binding and generates
+implementation metadata, associated type mappings and member source identities.
+Type checking reads the declared `Item` mapping; tooling can discover the concrete
+implementation and complete its methods alongside inherited Iterator defaults.
+The runtime stepping contract and artifact ABI are unchanged.
+
+Declaration validation: 1,208 workspace tests passed, including implementation
+member locations, incomplete-member completion, source/artifact/JIT iterator
+execution and all executable standard-library documentation. Formatting,
+workspace/all-targets clippy with warnings denied and `git diff --check` passed.

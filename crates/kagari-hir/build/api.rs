@@ -1,5 +1,82 @@
 use super::*;
 
+/// Bind native trait declarations to the engine's sealed implementation contracts.
+pub fn native_implementation(
+    def: &ast::ImplBlock,
+    module: &str,
+    uri: &str,
+    text: &str,
+    items: &mut String,
+    implementations: &mut String,
+) {
+    let interface = def.trait_ref().unwrap();
+    let target = def.target_type().unwrap();
+    let generics = def.generic_params().unwrap().params().collect::<Vec<_>>();
+    assert_eq!(generics.len(), 1, "native iterator generic arity");
+    let parameter = generics[0].name_text().unwrap();
+    assert!(generics[0].bounds().is_none());
+    assert!(def.where_clause().is_none());
+    assert!(def.associated_consts().next().is_none());
+    assert_eq!(module, "iter");
+    assert_eq!(interface.path_text().as_deref(), Some("Iterator"));
+    assert!(interface.generic_args().is_none());
+    let parameter_type = format!("ApiType::Named({parameter:?}, &[])");
+    assert_eq!(
+        ty(target.clone()),
+        format!("ApiType::Named(\"Iter\", &[{parameter_type}])")
+    );
+
+    let associated = def.associated_types().collect::<Vec<_>>();
+    assert_eq!(associated.len(), 1, "native iterator associated types");
+    let member = &associated[0];
+    assert_eq!(member.name_text().as_deref(), Some("Item"));
+    assert!(member.generic_params().is_none() && member.bounds().is_none());
+    assert!(member.where_clause().is_none());
+    assert_eq!(ty(member.ty().unwrap()), parameter_type);
+    let owner = "Iterator for Iter".to_owned();
+    let member_item = item(
+        member,
+        member.name().unwrap(),
+        module,
+        uri,
+        text,
+        &[("Impl", owner.clone()), ("AssociatedType", "Item".into())],
+    );
+    writeln!(items, "{member_item},").unwrap();
+
+    let methods = def.methods().collect::<Vec<_>>();
+    assert_eq!(methods.len(), 1, "native iterator required methods");
+    let method = &methods[0];
+    assert_eq!(method.name_text().as_deref(), Some("next"));
+    assert_eq!(attribute(method, "intrinsic").as_deref(), Some("IterNext"));
+    assert_eq!(method.visibility(), ast::Visibility::Private);
+    assert!(method.body().is_none() && method.generic_params().is_none());
+    assert!(method.where_clause().is_none());
+    let params = method.param_list().unwrap().params().collect::<Vec<_>>();
+    assert_eq!(params.len(), 1);
+    assert_eq!(params[0].name_text().as_deref(), Some("self"));
+    assert!(params[0].ty().is_none());
+    let result = ty(method.return_type().unwrap());
+    assert_eq!(
+        result,
+        format!("ApiType::Named(\"Option\", &[{parameter_type}])")
+    );
+    let method_item = item(
+        method,
+        method.name().unwrap(),
+        module,
+        uri,
+        text,
+        &[("Impl", owner), ("Method", "next".into())],
+    );
+    writeln!(items, "{method_item},").unwrap();
+    let generics = vec![parameter];
+    let target = ty(target);
+    writeln!(implementations,
+        "super::declarations::ApiImplementation{{interface:\"Iterator\",generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},iterator:None,generics:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
+    ).unwrap();
+}
+
 pub fn name_range(name: &ast::Name) -> (usize, usize) {
     name.syntax()
         .children_with_tokens()

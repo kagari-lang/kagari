@@ -105,6 +105,43 @@ pub struct ApiTrait {
     pub methods: &'static [ApiMethod],
 }
 
+/// An explicit native trait implementation read from the bundled source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApiImplementation {
+    pub interface: &'static str,
+    pub generics: &'static [&'static str],
+    pub target: ApiType,
+    pub associated_types: &'static [(ApiItem, ApiType)],
+    pub methods: &'static [ApiMethod],
+}
+
+impl ApiImplementation {
+    pub fn arguments(&self, receiver: &TypeId) -> Option<Arguments> {
+        let mut arguments = self
+            .generics
+            .iter()
+            .map(|name| (*name, TypeId::Unknown))
+            .collect();
+        self.target.infer(receiver, &mut arguments);
+        (self.target.instantiate(&arguments) == *receiver).then_some(arguments)
+    }
+
+    pub fn trait_declaration(&self) -> &'static ApiTrait {
+        surface::STANDARD_TRAITS
+            .iter()
+            .find(|t| t.item.path.last().unwrap().1 == self.interface)
+            .expect("validated native trait declaration")
+    }
+}
+
+/// Explicit native implementations applicable to a checked receiver type.
+pub fn implementations(receiver: &TypeId) -> Vec<&'static ApiImplementation> {
+    surface::STANDARD_IMPLEMENTATIONS
+        .iter()
+        .filter(|i| i.arguments(receiver).is_some())
+        .collect()
+}
+
 impl ApiItem {
     pub fn identity(&self) -> kagari_common::identity::DefinitionId {
         use kagari_common::identity::*;

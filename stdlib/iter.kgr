@@ -480,3 +480,33 @@ pub trait FromIterator<T> {
 /// ```
 #[builtin_type(Iter)]
 pub type Iter<T>;
+
+/// Advance a native iterator using its retained traversal state.
+///
+/// Adapter and terminal methods, including `map`, `filter` and `collect`, use
+/// the defaults declared on `Iterator`. Aliases of an iterator share progress.
+impl<T> Iterator for Iter<T> {
+    /// The value produced by each successful step.
+    type Item = T;
+
+    /// Return the next item, or `None` when this iterator is exhausted.
+    ///
+    /// Object items preserve their identity. Advancing a lazy adapter evaluates
+    /// its pending callbacks as needed to produce the next item.
+    ///
+    /// # Panics
+    ///
+    /// Traps if the source was structurally modified before resumption, or if
+    /// an adapter callback traps. Execution limits also apply to each step.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Iter<i32> = [20, 22].iter();
+    /// std::debug::assert(values.next() == Some(20), "first item");
+    /// std::debug::assert(values.next() == Some(22), "second item");
+    /// std::debug::assert(values.next() == None, "exhausted");
+    /// ```
+    #[intrinsic(IterNext)]
+    fn next(self) -> Option<T>;
+}
