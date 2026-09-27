@@ -410,7 +410,8 @@ must not be the sole record needed to resume the goal.
 - [ ] A05 — Integration, audit and baseline.
 
 Current state: A00 source cleanup is in progress. Common, syntax and Cranelift
-imports and module surfaces pass the structural audit. No MIR/crate migration
+imports and module surfaces pass the structural audit. Eight oversized test suites
+have been separated by behavior with their function bodies preserved. No MIR/crate migration
 has started. A01 remains gated on passing every A00 workspace gate.
 
 Pre-migration structural audit (2026-09-27):
@@ -425,7 +426,7 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | Common/syntax/Cranelift import cleanup; host-interface facade moved to normal module root; AST macro owned by AST facade | Checker: 32 tests pass; full audit: exit 1, 2,845 remaining findings, no exceptions; focused clippy and 107 tests pass; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
+| A00 | `ec0bf1a` foundation imports; oversized test suites split by behavior | Checker: 32 tests pass; full audit: exit 1, 2,837 remaining findings, no exceptions; workspace clippy/tests pass at test-suite checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -454,6 +455,36 @@ Validation on this checkpoint's Rust sources:
   107 tests pass; doc tests pass.
 - `cargo fmt --all -- --check` and `git diff --check`: pass.
 - Full workspace clippy/tests and hosted CI are not yet validated for A00.
+
+### A00 checkpoint: behavioral test modules (2026-09-27)
+
+Checkpoint commit subject: `refactor(test): split suites by semantic responsibility`.
+Split eight oversized test suites into ordinary child modules covering generic
+context/recovery/completion, bytecode lowering/validation/artifacts/identities,
+offline host contracts, source imports/implementations, typed paths and VM
+frames/debugging/helpers. Shared fixtures remain in the enclosing test module.
+Integration targets use Cargo's normal `tests/<suite>/main.rs` layout.
+A syntax-token comparison against `ec0bf1a` preserved all 340 function bodies,
+including assertions, except relocated fixture paths and one direct owner import.
+No coverage was removed or assertions weakened.
+
+Validation:
+
+- `cargo test --workspace`: 1315 tests pass, including documentation examples
+  and Cranelift execution; doc tests pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo fmt --all -- --check` and `git diff --check`: pass.
+- `uv run --locked scripts/check_structure.py --json`: exit 1, 2,837 findings;
+  all eight test LOC findings resolved. Eleven oversized production files remain,
+  alongside 2,710 qualified paths, 89 globs, 18 re-export locations and 9 parent
+  traversals. No exceptions or parse errors. A00 owns these remaining findings.
+- Hosted CI status is unavailable; local workspace success does not close A00
+  while the structure audit fails.
+
+Environment: Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), aarch64-apple-darwin,
+MacBookPro18,2, 32 GiB RAM, 10 logical CPUs; workspace O1 dev/test profile,
+default Cargo parallelism and target directory, warm incremental cache. These
+are correctness runs; no performance comparison is claimed.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
