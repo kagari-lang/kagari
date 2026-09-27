@@ -102,7 +102,7 @@ arg_list	2	?	(",")
 tuple_expr	1	?	expr_list
 expr_list	1	*	("," expr)
 expr_list	2	?	(",")
-array_expr	1	?	expr_list
+array_expr	1	?	(expr_list | expr ";" expr)
 struct_expr	1	?	generic_args
 struct_expr	2	?	field_init_list
 field_init_list	1	*	("," field_init)

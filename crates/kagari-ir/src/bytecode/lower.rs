@@ -883,6 +883,11 @@ fn lower_instruction(
                 .map(|element| lower_value(*element))
                 .collect(),
         },
+        Instruction::RepeatArray { dst, value, count } => BytecodeInstruction::RepeatArray {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            count: lower_value(*count),
+        },
         Instruction::MakeArray { dst, elements } => BytecodeInstruction::MakeArray {
             dst: lower_value(*dst),
             elements: elements

@@ -196,6 +196,8 @@ pub enum StandardIntrinsic {
     ArrayInsert,
     ArrayRemove,
     ArrayClear,
+    ArrayFill,
+    ArrayCopyFromSlice,
     ArrayJoin,
     MapNew,
     MapLen,

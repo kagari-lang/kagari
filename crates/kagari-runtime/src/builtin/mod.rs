@@ -79,6 +79,8 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ArrayInsert => "std::array::MutableArray::insert",
         ArrayRemove => "std::array::MutableArray::remove",
         ArrayJoin => "std::array::Array::join",
+        ArrayFill => "array.fill",
+        ArrayCopyFromSlice => "array.copy_from_slice",
         ArrayClear => "std::array::MutableArray::clear",
         MapNew => "std::map::Map::new",
         MapLen => "std::map::Map::len",

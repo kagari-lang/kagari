@@ -633,6 +633,37 @@ impl GcHeap {
         Ok(())
     }
 
+    pub fn alloc_array_repeat(
+        &self,
+        value: Value,
+        count: usize,
+    ) -> Result<HeapObjectId, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !self.valid_payload(&value) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid repeat array value",
+            ));
+        }
+        self.resources.consume_instruction_steps(count as u64)?;
+        // Check the final allocation before reserving host storage.
+        let units = count
+            .checked_add(1)
+            .ok_or_else(|| self.resource_limit("array length"))?;
+        drop(self.resources.prepare_heap_growth(units)?);
+        let mut elements = Vec::new();
+        elements
+            .try_reserve_exact(count)
+            .map_err(|_| self.resource_limit("allocation capacity"))?;
+        for index in 0..count {
+            if index % 1024 == 0 {
+                self.ensure_execution_allowed()?;
+            }
+            elements.push(value.clone());
+        }
+        self.alloc_array(elements)
+    }
+
     pub fn array_len(&self, id: HeapObjectId) -> Option<usize> {
         self.with_array(id, |elements| elements.len())
     }
@@ -747,6 +778,84 @@ impl GcHeap {
             })?;
         self.release_heap_units(removed);
         Ok(())
+    }
+
+    /// Prepare all shallow copies before replacing any target slot.
+    pub fn array_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        if !self.valid_payload(&value) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "invalid array fill payload",
+            ));
+        }
+        let length = self.array_len(id).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target")
+        })?;
+        let (mut prepared, _temporary) = self.prepare_array_copy(length)?;
+        for index in 0..length {
+            if index % 1024 == 0 {
+                self.ensure_execution_allowed()?;
+            }
+            prepared.push(value.clone());
+        }
+        self.commit_array_copy(id, prepared)
+    }
+
+    pub fn array_copy_from_slice(
+        &self,
+        target: HeapObjectId,
+        source: HeapObjectId,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let length = self.array_len(target).ok_or_else(|| {
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target")
+        })?;
+        if self.array_len(source) != Some(length) {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "array copy requires equal lengths",
+            ));
+        }
+        let (mut prepared, _temporary) = self.prepare_array_copy(length)?;
+        self.with_array(source, |values| {
+            for (index, value) in values.iter().enumerate() {
+                if index % 1024 == 0 {
+                    self.ensure_execution_allowed()?;
+                }
+                prepared.push(value.clone());
+            }
+            Ok::<_, RuntimeError>(())
+        })
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array source"))??;
+        self.commit_array_copy(target, prepared)
+    }
+
+    fn prepare_array_copy(
+        &self,
+        length: usize,
+    ) -> Result<(Vec<Value>, crate::resource::TemporaryHeap<'_>), RuntimeError> {
+        self.resources.consume_instruction_steps(length as u64)?;
+        // Temporary copies must fit the session's allocation and memory limits.
+        let temporary = self.resources.reserve_temporary_heap(length)?;
+        let mut prepared = Vec::new();
+        prepared
+            .try_reserve_exact(length)
+            .map_err(|_| self.resource_limit("allocation capacity"))?;
+        Ok((prepared, temporary))
+    }
+
+    fn commit_array_copy(
+        &self,
+        target: HeapObjectId,
+        prepared: Vec<Value>,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.with_array_mut(target, |values| {
+            debug_assert_eq!(values.len(), prepared.len());
+            *values = prepared;
+        })
+        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target"))
     }
 
     pub fn array_set(
@@ -2274,5 +2383,50 @@ mod tests {
             error.into_write_error().kind(),
             RuntimeErrorKind::EngineFault
         );
+    }
+}
+
+#[cfg(test)]
+mod array_bulk_tests {
+    use super::*;
+    use crate::resource::{ResourcePolicy, ResourceState};
+
+    #[test]
+    fn bulk_failure_preserves_slots_and_releases_preparation_resources() {
+        let heap = GcHeap::new(Default::default(), Rc::new(ResourceState::default()));
+        let array = heap
+            .alloc_array(vec![Value::I32(1), Value::I32(2)])
+            .unwrap();
+        let short = heap.alloc_array(vec![Value::I32(0)]).unwrap();
+        let before = heap.stats().current_heap_units;
+        assert!(heap.array_copy_from_slice(array, short).is_err());
+        assert_eq!(
+            heap.array_snapshot(array).unwrap(),
+            vec![Value::I32(1), Value::I32(2)]
+        );
+        let foreign = GcHeap::new(Default::default(), Rc::new(ResourceState::default()));
+        let foreign_array = foreign.alloc_array(vec![]).unwrap();
+        assert!(heap.array_fill(array, Value::Array(foreign_array)).is_err());
+        assert!(heap.array_copy_from_slice(array, foreign_array).is_err());
+        assert_eq!(heap.stats().current_heap_units, before);
+        heap.array_fill(array, Value::I32(7)).unwrap();
+        assert_eq!(heap.stats().current_heap_units, before);
+        assert!(heap.stats().allocation_units > before);
+        let limited = GcHeap::new(
+            Default::default(),
+            Rc::new(ResourceState::new(ResourcePolicy {
+                max_heap_units: Some(3),
+                ..Default::default()
+            })),
+        );
+        let target = limited
+            .alloc_array(vec![Value::I32(1), Value::I32(2)])
+            .unwrap();
+        assert!(limited.array_fill(target, Value::I32(9)).is_err());
+        assert_eq!(
+            limited.array_snapshot(target).unwrap(),
+            vec![Value::I32(1), Value::I32(2)]
+        );
+        assert_eq!(limited.stats().current_heap_units, 3);
     }
 }

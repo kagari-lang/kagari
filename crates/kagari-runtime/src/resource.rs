@@ -46,6 +46,17 @@ pub(crate) struct HeapGrowth<'a> {
     live: usize,
     allocated: usize,
 }
+
+/// Account temporary native storage until preparation commits or fails.
+pub(crate) struct TemporaryHeap<'a> {
+    resources: &'a ResourceState,
+    units: usize,
+}
+impl Drop for TemporaryHeap<'_> {
+    fn drop(&mut self) {
+        self.resources.release_heap_units(self.units);
+    }
+}
 impl HeapGrowth<'_> {
     pub(crate) fn commit(mut self) {
         self.counters.current_heap_units = self.live;
@@ -247,6 +258,17 @@ impl ResourceState {
             counters,
             live,
             allocated,
+        })
+    }
+
+    pub(crate) fn reserve_temporary_heap(
+        &self,
+        units: usize,
+    ) -> Result<TemporaryHeap<'_>, RuntimeError> {
+        self.prepare_heap_growth(units)?.commit();
+        Ok(TemporaryHeap {
+            resources: self,
+            units,
         })
     }
 

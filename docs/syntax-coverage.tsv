@@ -103,7 +103,7 @@ primary_expr	covered	examples/syntax/blocks.kgr	-
 parenthesized_expr	covered	examples/syntax/expressions.kgr	-
 tuple_expr	covered	examples/syntax/data-model.kgr	-
 expr_list	covered	examples/syntax/data-model.kgr	-
-array_expr	covered	examples/syntax/data-model.kgr	-
+array_expr	covered	examples/syntax/array-operations.kgr	-
 struct_expr	covered	examples/syntax/data-model.kgr	-
 field_init_list	covered	examples/syntax/data-model.kgr	-
 field_init	covered	examples/syntax/data-model.kgr	-

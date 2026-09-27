@@ -586,3 +586,7 @@ operation and concrete receiver type; invalid bindings are rejected by verificat
 Version 80/runtime ABI v80 add verified numeric conversion descriptors and the
 standard TryFromIntError/Infallible enum identities. Checked conversion results
 carry their concrete Result payload types. Earlier products are rejected.
+
+Version 81/runtime ABI v81 add the verified repeat-array instruction and array bulk
+replacement intrinsics. Repeat counts have the semantic type usize; writable target
+access and element types are checked before execution. Older products are rejected.

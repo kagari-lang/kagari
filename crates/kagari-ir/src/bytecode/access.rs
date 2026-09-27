@@ -227,6 +227,25 @@ pub(super) fn verify(
                         changed |= merge(&mut locals[local.index()], value);
                     }
                 }
+                I::RepeatArray { dst, value, count } => {
+                    if let (Some(value), Some(count)) = (get(*value), get(*count)) {
+                        if !flows(
+                            &count,
+                            &AbiType::Builtin(kagari_hir::types::BuiltinType::USize),
+                        ) {
+                            return Err(invalid());
+                        }
+                        produced = Some((
+                            *dst,
+                            value
+                                .ty
+                                .map(|ty| {
+                                    Fact::typed(AbiType::Array(Box::new(ty), Access::Mutable))
+                                })
+                                .unwrap_or_else(Fact::mutable),
+                        ));
+                    }
+                }
                 I::MakeArray { dst, elements } => {
                     if elements.iter().all(|r| get(*r).is_some()) {
                         let item = elements.first().and_then(|r| get(*r)?.ty);
@@ -640,6 +659,8 @@ pub(super) fn verify(
                                     | S::ArrayInsert
                                     | S::ArrayRemove
                                     | S::ArrayClear
+                                    | S::ArrayFill
+                                    | S::ArrayCopyFromSlice
                                     | S::MapInsert
                                     | S::MapRemove
                                     | S::MapClear

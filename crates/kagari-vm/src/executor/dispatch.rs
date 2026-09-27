@@ -189,6 +189,21 @@ impl<'a> Executor<'a> {
                 let value = self.make_tuple(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
+            BytecodeInstruction::RepeatArray { dst, value, count } => {
+                let value = self.current_frame()?.read_register(value)?;
+                let Value::U64(count) = self.current_frame()?.read_register(count)? else {
+                    return Err(VmError::Trap("invalid repeat array count"));
+                };
+                let count = usize::try_from(count)
+                    .map_err(|_| VmError::Trap("array length exceeds platform capacity"))?;
+                let array = self
+                    .runtime
+                    .gc()
+                    .alloc_array_repeat(value, count)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?
+                    .write_register(dst, Value::Array(array))?;
+            }
             BytecodeInstruction::MakeArray { dst, elements } => {
                 let value = self.make_array(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;

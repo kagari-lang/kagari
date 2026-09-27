@@ -269,6 +269,50 @@ impl<T> MutableArray<T> {
     /// ```
     #[intrinsic(ArrayClear)]
     pub fn clear(self) -> MutableArray<T>;
+
+    /// Replace every element with a shallow copy of `value`.
+    ///
+    /// Length is unchanged. Referenced objects retain their identity;
+    /// all slots receive the same object reference. This operation does not invoke
+    /// user-defined cloning. Read-only aliases observe the replacements.
+    /// Element replacement is permitted during iteration.
+    ///
+    /// # Panics
+    ///
+    /// Invalid values, cancellation and resource exhaustion trap before committing
+    /// any replacements. Earlier side effects remain visible.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = [1, 2, 3];
+    /// values.fill(9);
+    /// std::debug::assert(values[0] == 9 && values[2] == 9, "filled");
+    /// ```
+    #[intrinsic(ArrayFill)]
+    pub fn fill(self, value: T);
+
+    /// Copy all elements from an equally sized read-only array view.
+    ///
+    /// Copies replace the existing slots without resizing. Values are copied
+    /// shallowly; referenced objects remain shared. Copying an array onto itself
+    /// is supported. This method does not call user code and returns unit.
+    ///
+    /// # Panics
+    ///
+    /// Traps if lengths differ or preparation fails. The destination is unchanged
+    /// on failure. Replacements are permitted during iteration.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val destination = [0; 3];
+    /// val source: Array<i32> = [4, 5, 6];
+    /// destination.copy_from_slice(source);
+    /// std::debug::assert(destination[1] == 5, "copied");
+    /// ```
+    #[intrinsic(ArrayCopyFromSlice)]
+    pub fn copy_from_slice(self, source: [T]);
 }
 
 impl Array<String> {

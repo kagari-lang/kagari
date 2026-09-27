@@ -560,6 +560,12 @@ impl TupleExpr {
 }
 
 impl ArrayExpr {
+    pub fn is_repeat(&self) -> bool {
+        self.syntax()
+            .children_with_tokens()
+            .any(|part| part.kind() == SyntaxKind::Semi)
+    }
+
     pub fn elements(&self) -> impl Iterator<Item = Expr> {
         self.syntax().children().filter_map(Expr::cast)
     }

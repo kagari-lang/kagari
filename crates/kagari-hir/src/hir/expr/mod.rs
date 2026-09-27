@@ -83,6 +83,10 @@ pub enum ExprKind {
     },
     Tuple(ExprBuffer),
     Array(ExprBuffer),
+    ArrayRepeat {
+        value: ExprId,
+        count: ExprId,
+    },
     Block(BlockId),
 }
 

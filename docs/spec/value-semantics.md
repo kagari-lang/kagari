@@ -421,3 +421,17 @@ Fallible floating-point conversions are not provided. Const numeric casts share
 the runtime conversion implementation; trait calls remain outside scalar const-safe.
 
 See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
+
+## Repeat arrays and bulk replacement
+
+`[value; count]` constructs a fresh `MutableArray<T>`, not a fixed-length array.
+Evaluate `value`, then the `usize` count, exactly once. The value is evaluated even
+for zero length. Each slot receives a shallow copy; object references stay shared.
+The count may be a runtime expression. Allocation and execution budgets are checked.
+
+`MutableArray<T>.fill(value)` and `copy_from_slice(source: Array<T>)` return unit.
+Copying requires equal lengths, supports self-copy, and preserves referenced object
+identities. Both methods replace slots without changing length, so they are allowed
+during iteration. Preparation validates inputs, charges work and temporary storage,
+and prepares all copies before committing any slot. Failed preparation leaves the
+destination unchanged; completed argument side effects are not rolled back.

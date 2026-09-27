@@ -106,6 +106,11 @@ pub enum Instruction {
         dst: IrValue,
         elements: ValueBuffer,
     },
+    RepeatArray {
+        dst: IrValue,
+        value: IrValue,
+        count: IrValue,
+    },
     MakeArray {
         dst: IrValue,
         elements: ValueBuffer,
@@ -429,6 +434,7 @@ impl Instruction {
             Self::BeginIteration { .. } | Self::EndIteration => EffectSet::runtime_call(),
             Self::MakeTuple { .. }
             | Self::MakeArray { .. }
+            | Self::RepeatArray { .. }
             | Self::MakeClosure { .. }
             | Self::MakeCell { .. }
             | Self::MakeInterface { .. }
@@ -499,6 +505,8 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayInsert
             | ArrayRemove
             | ArrayClear
+            | ArrayFill
+            | ArrayCopyFromSlice
             | MapInsert
             | MapRemove
             | MapClear

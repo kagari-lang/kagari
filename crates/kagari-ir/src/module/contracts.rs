@@ -308,6 +308,13 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
+        ArrayFill | ArrayCopyFromSlice => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "array target")?;
+            if intrinsic == ArrayCopyFromSlice {
+                expect_arg_ty(args, 1, ValueType::HeapObject, "array source")?;
+            }
+            verify_call_dst(dst, ValueType::Unit)?;
+        }
         ArrayClear => {
             expect_arg_ty(
                 args,

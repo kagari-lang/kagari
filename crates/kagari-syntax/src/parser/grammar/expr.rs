@@ -523,14 +523,23 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::LBracket, DiagnosticKind::ExpectedClosingBracket);
         self.bump_trivia();
 
-        while !self.at_any(&[TokenKind::RBracket, TokenKind::Eof]) {
+        if !self.at_any(&[TokenKind::RBracket, TokenKind::Eof]) {
             self.parse_expr();
             self.bump_trivia();
-            if self.at(TokenKind::Comma) {
+            if self.at(TokenKind::Semi) {
                 self.bump();
+                self.parse_expr();
                 self.bump_trivia();
             } else {
-                break;
+                while self.at(TokenKind::Comma) {
+                    self.bump();
+                    self.bump_trivia();
+                    if self.at_any(&[TokenKind::RBracket, TokenKind::Eof]) {
+                        break;
+                    }
+                    self.parse_expr();
+                    self.bump_trivia();
+                }
             }
         }
 

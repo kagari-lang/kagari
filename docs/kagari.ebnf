@@ -310,7 +310,7 @@ tuple_expr          ::= "(" expr "," expr_list? ")" ;
 
 expr_list           ::= expr ("," expr)* (",")? ;
 
-array_expr          ::= "[" expr_list? "]" ;
+array_expr          ::= "[" (expr_list | expr ";" expr)? "]" ;
 
 struct_expr         ::= path generic_args? "{" field_init_list? "}" ;
 

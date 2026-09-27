@@ -343,6 +343,18 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .collect::<SmallVec<[_; 4]>>(),
             ),
+            ast::Expr::ArrayExpr(array) if array.is_repeat() => {
+                let mut elements = array.elements();
+                let value = elements
+                    .next()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr());
+                let count = elements
+                    .next()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr());
+                ExprKind::ArrayRepeat { value, count }
+            }
             ast::Expr::ArrayExpr(array) => ExprKind::Array(
                 array
                     .elements()

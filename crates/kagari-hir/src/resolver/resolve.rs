@@ -193,6 +193,10 @@ impl<'a> BodyResolver<'a> {
             | ExprKind::Cast { expr, .. }
             | ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
             ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::ArrayRepeat {
+                value: lhs,
+                count: rhs,
+            }
             | ExprKind::Range {
                 start: lhs,
                 end: rhs,

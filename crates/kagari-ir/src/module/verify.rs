@@ -465,6 +465,7 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         Unary { operand, .. } => smallvec::smallvec![*operand],
         BeginIteration { collection } => smallvec::smallvec![*collection],
         EndIteration => smallvec::smallvec![],
+        RepeatArray { value, count, .. } => smallvec::smallvec![*value, *count],
         Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
         Call { callee, args, .. } => {
             let mut values = args.clone();
@@ -541,6 +542,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | Binary { dst, .. }
         | MakeTuple { dst, .. }
         | MakeArray { dst, .. }
+        | RepeatArray { dst, .. }
         | MakeClosure { dst, .. }
         | MakeCell { dst, .. }
         | ReadCell { dst, .. }

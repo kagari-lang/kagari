@@ -230,6 +230,10 @@ pub(super) fn verify(
                 .map_err(contract)?;
             }
         },
+        RepeatArray { dst, count, .. } => {
+            context.expect(dst.ty, ValueType::HeapObject, "repeat array destination")?;
+            context.expect(count.ty, ValueType::U64, "repeat array count")?;
+        }
         MakeTuple { dst, .. } | MakeArray { dst, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "aggregate destination")?
         }

@@ -131,6 +131,22 @@ pub fn invoke_with_callbacks(
         ArrayRemove => array_remove(gc, args),
         ArrayJoin => array_join(gc, args),
         ArrayClear => array_clear(gc, args),
+        ArrayFill => {
+            let [Value::Array(target), value] = args else {
+                return Err(BuiltinError::new("array.fill expects an array and value"));
+            };
+            gc.array_fill(*target, value.clone())?;
+            Ok(Value::Unit)
+        }
+        ArrayCopyFromSlice => {
+            let [Value::Array(target), Value::Array(source)] = args else {
+                return Err(BuiltinError::new(
+                    "array.copy_from_slice expects two arrays",
+                ));
+            };
+            gc.array_copy_from_slice(*target, *source)?;
+            Ok(Value::Unit)
+        }
         MapNew | MutableMapNew => map_new(gc, args),
         MapLen => map_len(gc, args),
         MapIsEmpty => map_is_empty(gc, args),

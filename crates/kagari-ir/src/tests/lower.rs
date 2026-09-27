@@ -888,6 +888,7 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
         }
         Instruction::WriteCell { cell, value } => vec![*cell, *value],
         Instruction::EndIteration => Vec::new(),
+        Instruction::RepeatArray { dst, value, count } => vec![*dst, *value, *count],
         Instruction::MakeTuple { dst, elements }
         | Instruction::MakeArray { dst, elements }
         | Instruction::MakeEnum {

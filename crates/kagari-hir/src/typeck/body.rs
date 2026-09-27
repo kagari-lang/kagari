@@ -1262,6 +1262,26 @@ impl<'a> BodyChecker<'a> {
                     TypeId::Tuple(types)
                 }
             }
+            ExprKind::ArrayRepeat { value, count } => {
+                let member = match expected {
+                    Some(TypeId::Array(element, _)) => Some(element.as_ref()),
+                    _ => None,
+                };
+                let element = self.infer_expr_with_coercion(*value, env, member);
+                let length_type = TypeId::Builtin(BuiltinType::USize);
+                let actual = self.infer_expr_with_coercion(*count, env, Some(&length_type));
+                if actual.conflicts_with(&length_type) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
+                            operator: "array repeat count",
+                            expected: display_type_id(&length_type),
+                            found: display_type_id(&actual),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*count)),
+                    );
+                }
+                TypeId::Array(Box::new(element), CollectionAccess::Mutable)
+            }
             ExprKind::Array(elements) => {
                 let member = match expected {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),

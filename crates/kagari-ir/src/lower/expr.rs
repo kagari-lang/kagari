@@ -646,6 +646,19 @@ impl FunctionLowerer<'_, '_> {
             hir::ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
             hir::ExprKind::Tuple(elements) if elements.is_empty() => Ok(self.lower_unit()),
             hir::ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
+            hir::ExprKind::ArrayRepeat { value, count } => {
+                let values = match self.lower_values(&[value, count])? {
+                    ControlFlow::Continue(values) => values,
+                    ControlFlow::Break(value) => return Ok(value),
+                };
+                let dst = self.alloc_temp(self.expr_type(expr_id)?);
+                self.emit(Instruction::RepeatArray {
+                    dst,
+                    value: values[0],
+                    count: values[1],
+                });
+                Ok(dst)
+            }
             hir::ExprKind::Array(elements) => self.lower_array(expr_id, elements),
             hir::ExprKind::Closure { .. } => self.lower_closure(expr_id),
         }

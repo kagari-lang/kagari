@@ -546,3 +546,16 @@ reject malformed numeric instruction contracts, preserve compound-assignment
 effects on failure, and check direct native argument validation. Formatting,
 workspace/all-targets clippy with warnings denied, and `git diff --check` passed.
 KBC/runtime ABI v80 rejects earlier products.
+
+## General array operations and ranges
+
+- [x] A01: dynamic repeat arrays with once-only evaluation and shallow element copies.
+- [x] A02: atomic fill and equal-length copy_from_slice on writable arrays.
+- [ ] A03: independent range values, lazy integer iteration and range declarations.
+- [ ] A04: copy_within with validated ranges and overlap-safe shallow copying.
+- [ ] A05: examples, API documentation, artifacts and workspace validation.
+
+These are general language and standard-library capabilities. Fixed-size array
+types, compact numeric storage, host buffer exchange and JIT optimization remain
+separate work. Range expressions stop materializing arrays; callers that need
+storage collect the range explicitly. Array copies retain referenced object identity.

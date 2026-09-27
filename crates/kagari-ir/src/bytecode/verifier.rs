@@ -900,6 +900,11 @@ fn verify_instruction(
             )?;
         }
         BytecodeInstruction::EndIteration => {}
+        BytecodeInstruction::RepeatArray { dst, value, count } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "repeat array dst")?;
+            expect_register_ty(function, *count, ValueType::U64, "repeat array count")?;
+            let _ = register_ty(function, *value)?;
+        }
         BytecodeInstruction::MakeTuple { dst, elements }
         | BytecodeInstruction::MakeArray { dst, elements } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "aggregate dst")?;

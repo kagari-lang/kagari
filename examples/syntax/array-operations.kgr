@@ -1,0 +1,18 @@
+struct Cell { var value: i32 }
+
+fn main() -> i32 {
+    val values = [0u8; 2048];
+    values.fill(7u8);
+    std::debug::assert(values[2047] == 7u8, "filled");
+
+    val destination = [0; 3];
+    val source: Array<i32> = [10, 20, 30];
+    destination.copy_from_slice(source);
+    std::debug::assert(destination[1] == 20, "copied");
+
+    // Repetition shares the object; it does not construct one object per slot.
+    val cells = [Cell { value: 1 }; 2];
+    cells[0].value = 42;
+    std::debug::assert(cells[1].value == 42, "shared element");
+    42
+}

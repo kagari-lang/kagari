@@ -287,6 +287,11 @@ pub enum BytecodeInstruction {
         #[serde(deserialize_with = "crate::decode_limits::operands")]
         elements: Vec<Register>,
     },
+    RepeatArray {
+        dst: Register,
+        value: Register,
+        count: Register,
+    },
     MakeArray {
         dst: Register,
         #[serde(deserialize_with = "crate::decode_limits::operands")]
