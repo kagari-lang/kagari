@@ -47,7 +47,7 @@ fn main() -> i32 { <Number as Limit>::VALUE }
 ```
 
 The annotation is mandatory. Supported types and initializers use the same v1
-const-safe rules as module constants: `()`, `bool`, `i32`, and `f32`,
+const-safe rules as module constants: `()`, `bool`, and primitive numeric types,
 scalar operations and references to module constants. Initializers are checked
 even when unused, using the existing evaluation budget and overflow traps.
 Generic-dependent values, String/object values, script calls and host calls are excluded.

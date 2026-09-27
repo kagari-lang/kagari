@@ -2,6 +2,43 @@ use super::*;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn check_integer_range(&mut self, value: IrValue, target: &TypeId) {
+        let representation = value.ty;
+        use kagari_hir::types::BuiltinType;
+        let range = match target {
+            TypeId::Builtin(BuiltinType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX))),
+            TypeId::Builtin(BuiltinType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX))),
+            TypeId::Builtin(BuiltinType::U8) => Some((0, i64::from(u8::MAX))),
+            TypeId::Builtin(BuiltinType::U16) => Some((0, i64::from(u16::MAX))),
+            TypeId::Builtin(BuiltinType::U32) => Some((0, i64::from(u32::MAX))),
+            _ => None,
+        };
+        if let Some((minimum, maximum)) = range {
+            let message =
+                self.lower_constant(Constant::Str("integer overflow".into()), ValueType::Str);
+            for (limit, comparison) in [(minimum, BinaryOp::Ge), (maximum, BinaryOp::Le)] {
+                let constant = if representation == ValueType::I32 {
+                    Constant::I32(limit as i32)
+                } else {
+                    Constant::I64(limit)
+                };
+                let limit = self.lower_constant(constant, representation);
+                let valid = self.alloc_temp(ValueType::Bool);
+                self.emit(Instruction::Binary {
+                    dst: valid,
+                    op: comparison,
+                    lhs: value,
+                    rhs: limit,
+                });
+                self.emit_intrinsic(
+                    StandardIntrinsic::DebugAssert,
+                    &[valid, message],
+                    ValueType::Unit,
+                );
+            }
+        }
+    }
+
     pub(super) fn lower_selected_operator(
         &mut self,
         site: hir::ExprId,
@@ -281,6 +318,7 @@ impl FunctionLowerer<'_, '_> {
                     lhs: args[0],
                     rhs: args[1],
                 });
+                self.check_integer_range(dst, &result);
                 return Ok(dst);
             }
             if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
@@ -296,6 +334,7 @@ impl FunctionLowerer<'_, '_> {
                     },
                     operand: args[0],
                 });
+                self.check_integer_range(dst, &result);
                 return Ok(dst);
             }
             if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Index) {
@@ -332,7 +371,7 @@ impl FunctionLowerer<'_, '_> {
         // Primitive numeric comparisons retain their direct instruction path.
         if matches!(
             args[0].ty,
-            ValueType::I32 | ValueType::I64 | ValueType::F32 | ValueType::F64
+            ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::F32 | ValueType::F64
         ) {
             let dst = self.alloc_temp(ValueType::Bool);
             let op = match op {

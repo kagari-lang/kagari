@@ -186,26 +186,22 @@ pub(super) fn verify(
                         }
                         ConstantOperand::F32(_) => B::F32,
                         ConstantOperand::F64(_) => B::F64,
+                        ConstantOperand::U64(n) => {
+                            constants[dst.index()] = usize::try_from(*n).ok();
+                            B::U64
+                        }
                         ConstantOperand::Str(_) => B::String,
                     };
-                    let ty = if matches!(
-                        constant,
-                        ConstantOperand::I32(0 | 1) | ConstantOperand::I64(0 | 1)
-                    ) && let Some(AbiType::Builtin(declared)) =
-                        semantic.registers.get(&dst.index())
-                        && matches!(
-                            declared,
-                            B::I8
-                                | B::I16
-                                | B::I32
-                                | B::I64
-                                | B::ISize
-                                | B::U8
-                                | B::U16
-                                | B::U32
-                                | B::U64
-                                | B::USize
-                        )
+                    let number = match constant {
+                        ConstantOperand::I32(value) => Some(i128::from(*value)),
+                        ConstantOperand::I64(value) => Some(i128::from(*value)),
+                        ConstantOperand::U64(value) => Some(i128::from(*value)),
+                        _ => None,
+                    };
+                    let ty = if let Some(value) = number
+                        && let Some(AbiType::Builtin(declared)) =
+                            semantic.registers.get(&dst.index())
+                        && kagari_hir::typeck::ScalarValue::integer(value, *declared).is_ok()
                         && AbiType::Builtin(*declared).representation()
                             == AbiType::Builtin(ty).representation()
                     {

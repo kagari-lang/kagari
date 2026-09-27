@@ -1,6 +1,7 @@
 use kagari_common::collection::CollectionAccess;
 mod conversions;
 mod iteration;
+mod numeric;
 mod operators;
 mod solving;
 mod standard;
@@ -667,13 +668,13 @@ impl<'a> BodyChecker<'a> {
         self.infer_expr_type_expected(expr_id, env, None)
     }
 
-    fn infer_expr_type_expected(
+    pub(super) fn infer_expr_type_expected(
         &mut self,
         expr_id: ExprId,
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
-        const MAX_INFERENCE_DEPTH: usize = 64;
+        const MAX_INFERENCE_DEPTH: usize = 32;
         if self.inference_depth >= MAX_INFERENCE_DEPTH {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
@@ -771,6 +772,11 @@ impl<'a> BodyChecker<'a> {
                     );
                     TypeId::Error
                 }),
+            ExprKind::Literal(literal)
+                if matches!(literal.kind, LiteralKind::Number | LiteralKind::Float) =>
+            {
+                self.infer_numeric_literal(expr_id, literal, expected, false)
+            }
             ExprKind::Literal(literal) => match super::ScalarValue::parse(literal) {
                 Ok(value) => {
                     let ty = value.ty();
@@ -827,7 +833,9 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::String)
             }
             ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
-            ExprKind::Prefix { op, expr } => self.infer_prefix_operator(expr_id, op, expr, env),
+            ExprKind::Prefix { op, expr } => {
+                self.infer_prefix_operator(expr_id, op, expr, env, expected)
+            }
             ExprKind::Range { start, end, .. } => {
                 let integer = TypeId::Builtin(BuiltinType::I32);
                 let start_ty = self.infer_expr_type_expected(*start, env, Some(&integer));
@@ -847,7 +855,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Array(Box::new(integer), CollectionAccess::Mutable)
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                self.infer_binary_operator(expr_id, lhs, op, rhs, env)
+                self.infer_binary_operator(expr_id, lhs, op, rhs, env, expected)
             }
             ExprKind::Call { callee, args } => {
                 if let Some(ty) = self.infer_conversion_call(expr_id, *callee, args, env, expected)
@@ -1488,7 +1496,14 @@ impl<'a> BodyChecker<'a> {
                 env.locals.insert(*local, expected.clone());
                 self.type_table.insert_local(*local, expected.clone());
             }
-            PatternKind::Literal(literal) => match super::ScalarValue::parse(literal) {
+            PatternKind::Literal(literal) => match super::ScalarValue::parse_expected(
+                literal,
+                match expected {
+                    TypeId::Builtin(ty) => Some(*ty),
+                    _ => None,
+                },
+                false,
+            ) {
                 Ok(value) => {
                     if value.ty().conflicts_with(expected) {
                         self.diagnostics.push(

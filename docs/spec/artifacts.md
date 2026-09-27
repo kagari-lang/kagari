@@ -565,3 +565,8 @@ Version 75/runtime ABI v75 define buffered Result/Option collection lifting.
 
 Version 76/runtime ABI v76 finalize source-declared native collection protocols
 and checked narrow-integer aggregation. Earlier products are rejected.
+
+Version 77/runtime ABI v77 add unsigned 64-bit constants and execution values,
+including the full usize range. Numeric literals preserve their checked scalar
+types and precision; unsuffixed floating-point literals now default to f64.
+Earlier artifact versions are rejected before execution.

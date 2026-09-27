@@ -142,6 +142,7 @@ impl FunctionLowerer<'_, '_> {
         let identity = match representation {
             ValueType::I32 => Constant::I32(i32::from(one)),
             ValueType::I64 => Constant::I64(i64::from(one)),
+            ValueType::U64 => Constant::U64(u64::from(one)),
             ValueType::F32 => Constant::F32(if one { 1.0 } else { 0.0 }),
             ValueType::F64 => Constant::F64(if one { 1.0 } else { 0.0 }),
             _ => return Err(IrLoweringError::MissingBinding("numeric aggregate")),
@@ -193,41 +194,7 @@ impl FunctionLowerer<'_, '_> {
             lhs: output,
             rhs: item,
         });
-        use kagari_hir::types::BuiltinType;
-        let range = match target {
-            TypeId::Builtin(BuiltinType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX))),
-            TypeId::Builtin(BuiltinType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX))),
-            TypeId::Builtin(BuiltinType::U8) => Some((0, i64::from(u8::MAX))),
-            TypeId::Builtin(BuiltinType::U16) => Some((0, i64::from(u16::MAX))),
-            TypeId::Builtin(BuiltinType::U32) => Some((0, i64::from(u32::MAX))),
-            _ => None,
-        };
-        if let Some((minimum, maximum)) = range {
-            let message = self.lower_constant(
-                Constant::Str("integer overflow during aggregation".into()),
-                ValueType::Str,
-            );
-            for (limit, comparison) in [(minimum, BinaryOp::Ge), (maximum, BinaryOp::Le)] {
-                let constant = if representation == ValueType::I32 {
-                    Constant::I32(limit as i32)
-                } else {
-                    Constant::I64(limit)
-                };
-                let limit = self.lower_constant(constant, representation);
-                let valid = self.alloc_temp(ValueType::Bool);
-                self.emit(Instruction::Binary {
-                    dst: valid,
-                    op: comparison,
-                    lhs: next,
-                    rhs: limit,
-                });
-                self.emit_intrinsic(
-                    StandardIntrinsic::DebugAssert,
-                    &[valid, message],
-                    ValueType::Unit,
-                );
-            }
-        }
+        self.check_integer_range(next, target);
         self.emit(Instruction::Move {
             dst: output,
             src: next,

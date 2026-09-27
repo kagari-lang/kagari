@@ -294,7 +294,7 @@ fn main() -> (usize, usize, i32) {
 
     assert_eq!(
         report.return_value,
-        Value::Tuple(vec![Value::I64(3), Value::I64(2), Value::I32(7)])
+        Value::Tuple(vec![Value::U64(3), Value::U64(2), Value::I32(7)])
     );
     let jit = report.jit.expect("JIT attempt should be reported");
     assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);

@@ -396,21 +396,23 @@ IDENT_START         ::= "_" | ASCII_LETTER ;
 
 IDENT_CONTINUE      ::= IDENT_START | DIGIT ;
 
-INTEGER             ::= DEC_INTEGER
+INTEGER             ::= (DEC_INTEGER
                       | BIN_INTEGER
                       | OCT_INTEGER
-                      | HEX_INTEGER ;
+                      | HEX_INTEGER) ("i8" | "i16" | "i32" | "i64" | "isize"
+                                     | "u8" | "u16" | "u32" | "u64" | "usize")? ;
 
 DEC_INTEGER         ::= DIGIT (DIGIT | "_")* ;
 
-BIN_INTEGER         ::= "0b" BIN_DIGIT (BIN_DIGIT | "_")* ;
+BIN_INTEGER         ::= "0b" "_"* BIN_DIGIT (BIN_DIGIT | "_")* ;
 
-OCT_INTEGER         ::= "0o" OCT_DIGIT (OCT_DIGIT | "_")* ;
+OCT_INTEGER         ::= "0o" "_"* OCT_DIGIT (OCT_DIGIT | "_")* ;
 
-HEX_INTEGER         ::= "0x" HEX_DIGIT (HEX_DIGIT | "_")* ;
+HEX_INTEGER         ::= "0x" "_"* HEX_DIGIT (HEX_DIGIT | "_")* ;
 
-FLOAT               ::= DEC_INTEGER "." DIGIT (DIGIT | "_")* EXPONENT?
-                      | DEC_INTEGER EXPONENT ;
+FLOAT               ::= (DEC_INTEGER "." DIGIT (DIGIT | "_")* EXPONENT?
+                      | DEC_INTEGER EXPONENT) ("f32" | "f64")?
+                      | DEC_INTEGER ("f32" | "f64") ;
 
 EXPONENT            ::= ("e" | "E") ("+" | "-")? DIGIT (DIGIT | "_")* ;
 

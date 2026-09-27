@@ -1651,6 +1651,7 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
         ConstantOperand::I64(_) => ValueType::I64,
         ConstantOperand::F32(_) => ValueType::F32,
         ConstantOperand::F64(_) => ValueType::F64,
+        ConstantOperand::U64(_) => ValueType::U64,
         ConstantOperand::Str(_) => ValueType::Str,
     }
 }

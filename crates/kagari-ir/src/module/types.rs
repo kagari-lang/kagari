@@ -8,6 +8,7 @@ pub enum ValueType {
     Bool,
     I32,
     I64,
+    U64,
     F32,
     F64,
     Str,
@@ -57,10 +58,9 @@ impl ValueType {
                 | BuiltinType::ISize
                 | BuiltinType::U8
                 | BuiltinType::U16
-                | BuiltinType::U32
-                | BuiltinType::U64
-                | BuiltinType::USize,
+                | BuiltinType::U32,
             ) => Self::I64,
+            TypeId::Builtin(BuiltinType::U64 | BuiltinType::USize) => Self::U64,
             TypeId::Builtin(BuiltinType::F32) => Self::F32,
             TypeId::Builtin(BuiltinType::F64) => Self::F64,
             TypeId::Builtin(BuiltinType::String) => Self::Str,

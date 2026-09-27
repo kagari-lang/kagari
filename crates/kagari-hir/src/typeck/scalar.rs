@@ -9,7 +9,9 @@ pub enum ScalarValue {
     Unit,
     Bool(bool),
     I32(i32),
+    Integer { value: i128, ty: BuiltinType },
     F32(f32),
+    F64(f64),
     String(String),
 }
 
@@ -19,25 +21,73 @@ impl ScalarValue {
             Self::Unit => BuiltinType::Unit,
             Self::Bool(_) => BuiltinType::Bool,
             Self::I32(_) => BuiltinType::I32,
+            Self::Integer { ty, .. } => *ty,
             Self::F32(_) => BuiltinType::F32,
+            Self::F64(_) => BuiltinType::F64,
             Self::String(_) => BuiltinType::String,
         })
     }
 
     pub(crate) fn parse(literal: &Literal) -> Result<Self, &'static str> {
+        Self::parse_expected(literal, None, false)
+    }
+
+    pub(crate) fn parse_expected(
+        literal: &Literal,
+        expected: Option<BuiltinType>,
+        negative: bool,
+    ) -> Result<Self, &'static str> {
+        let (digits, suffix) = kagari_common::literal::numeric_literal_parts(&literal.text);
+        let suffix_type = suffix.and_then(super::super::builtin::surface::builtin_type);
+        let expected = expected.filter(|ty| {
+            use BuiltinType::*;
+            if literal.kind == LiteralKind::Float {
+                matches!(ty, F32 | F64)
+            } else {
+                matches!(
+                    ty,
+                    I8 | I16 | I32 | I64 | ISize | U8 | U16 | U32 | U64 | USize
+                )
+            }
+        });
         match literal.kind {
-            LiteralKind::Number => kagari_common::literal::parse_integer_literal(&literal.text)
-                .ok()
-                .and_then(|value| i32::try_from(value).ok())
-                .map(Self::I32)
-                .ok_or("integer literal is outside the i32 range"),
-            LiteralKind::Float => {
-                let compact = literal.text.replace('_', "");
-                let value: f32 = compact.parse().map_err(|_| "invalid f32 literal")?;
-                if !value.is_finite() {
-                    return Err("float literal is outside the finite f32 range");
+            LiteralKind::Number => {
+                let ty = suffix_type.or(expected).unwrap_or(BuiltinType::I32);
+                if negative
+                    && matches!(
+                        ty,
+                        BuiltinType::U8
+                            | BuiltinType::U16
+                            | BuiltinType::U32
+                            | BuiltinType::U64
+                            | BuiltinType::USize
+                    )
+                {
+                    return Err("unsigned integers do not support negation");
                 }
-                Ok(Self::F32(value))
+                let value = i128::from(kagari_common::literal::parse_integer_literal(
+                    &literal.text,
+                )?);
+                Self::integer(if negative { -value } else { value }, ty)
+            }
+            LiteralKind::Float => {
+                let compact = digits.replace('_', "");
+                let ty = suffix_type.or(expected).unwrap_or(BuiltinType::F64);
+                if ty == BuiltinType::F32 {
+                    let value: f32 = compact.parse().map_err(|_| "invalid f32 literal")?;
+                    if !value.is_finite() {
+                        return Err("float literal is outside the finite f32 range");
+                    }
+                    Ok(Self::F32(if negative { -value } else { value }))
+                } else if ty == BuiltinType::F64 {
+                    let value: f64 = compact.parse().map_err(|_| "invalid f64 literal")?;
+                    if !value.is_finite() {
+                        return Err("float literal is outside the finite f64 range");
+                    }
+                    Ok(Self::F64(if negative { -value } else { value }))
+                } else {
+                    Err("floating-point literal requires f32 or f64")
+                }
             }
             LiteralKind::Bool => match literal.text.as_str() {
                 "true" => Ok(Self::Bool(true)),
@@ -47,6 +97,29 @@ impl ScalarValue {
             LiteralKind::String => {
                 kagari_common::literal::decode_string_literal(&literal.text).map(Self::String)
             }
+        }
+    }
+
+    pub fn integer(value: i128, ty: BuiltinType) -> Result<Self, &'static str> {
+        use BuiltinType::*;
+        let (min, max) = match ty {
+            I8 => (i8::MIN as i128, i8::MAX as i128),
+            I16 => (i16::MIN as i128, i16::MAX as i128),
+            I32 => (i32::MIN as i128, i32::MAX as i128),
+            I64 | ISize => (i64::MIN as i128, i64::MAX as i128),
+            U8 => (0, u8::MAX as i128),
+            U16 => (0, u16::MAX as i128),
+            U32 => (0, u32::MAX as i128),
+            U64 | USize => (0, u64::MAX as i128),
+            _ => return Err("integer literal requires an integer type"),
+        };
+        if !(min..=max).contains(&value) {
+            return Err("integer literal is outside the target type range");
+        }
+        if ty == I32 {
+            Ok(Self::I32(value as i32))
+        } else {
+            Ok(Self::Integer { value, ty })
         }
     }
 }

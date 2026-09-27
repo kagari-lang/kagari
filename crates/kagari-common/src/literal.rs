@@ -5,12 +5,35 @@ pub fn parse_integer_literal(text: &str) -> Result<u64, &'static str> {
     u64::from_str_radix(&compact, radix).map_err(|_| "integer literal is outside the u64 range")
 }
 
+/// Separate a primitive type suffix without confusing hexadecimal digits with f32/f64.
+pub fn numeric_literal_parts(text: &str) -> (&str, Option<&str>) {
+    for suffix in [
+        "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8", "f32", "f64",
+    ] {
+        if suffix.starts_with('f')
+            && ["0x", "0o", "0b"]
+                .iter()
+                .any(|prefix| text.starts_with(prefix))
+        {
+            continue;
+        }
+        if let Some(digits) = text.strip_suffix(suffix) {
+            return (digits, Some(&text[digits.len()..]));
+        }
+    }
+    (text, None)
+}
+
 /// Check grammar without imposing a machine-integer size on the lexer.
 pub fn is_integer_literal(text: &str) -> bool {
     integer_digits(text).is_ok()
 }
 
 fn integer_digits(text: &str) -> Result<(u32, &str), &'static str> {
+    let (text, suffix) = numeric_literal_parts(text);
+    if suffix.is_some_and(|suffix| suffix.starts_with('f')) {
+        return Err("floating-point suffix on integer literal");
+    }
     let (radix, digits) = if let Some(digits) = text.strip_prefix("0b") {
         (2, digits)
     } else if let Some(digits) = text.strip_prefix("0o") {
@@ -20,7 +43,7 @@ fn integer_digits(text: &str) -> Result<(u32, &str), &'static str> {
     } else {
         (10, text)
     };
-    if digits.is_empty() || !digits.chars().next().is_some_and(|ch| ch.is_digit(radix)) {
+    if !digits.chars().any(|ch| ch.is_digit(radix)) {
         return Err("invalid integer literal");
     }
     if !digits.chars().all(|ch| ch == '_' || ch.is_digit(radix)) {

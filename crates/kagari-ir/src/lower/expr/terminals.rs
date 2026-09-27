@@ -37,7 +37,7 @@ impl FunctionLowerer<'_, '_> {
             } else {
                 self.usize_constant(0)
             };
-            let counter = self.alloc_temp(ValueType::I64);
+            let counter = self.alloc_temp(ValueType::U64);
             self.emit(Instruction::Move {
                 dst: counter,
                 src: initial,
@@ -165,7 +165,7 @@ impl FunctionLowerer<'_, '_> {
                 self.ensure_jump(done);
                 self.switch_to_block(advance);
                 let one = self.usize_constant(1);
-                let next_counter = self.alloc_temp(ValueType::I64);
+                let next_counter = self.alloc_temp(ValueType::U64);
                 self.emit(Instruction::Binary {
                     dst: next_counter,
                     op: if operation == Position {
@@ -306,7 +306,7 @@ impl FunctionLowerer<'_, '_> {
             }
             Count => {
                 let one = self.usize_constant(1);
-                let next = self.alloc_temp(ValueType::I64);
+                let next = self.alloc_temp(ValueType::U64);
                 self.emit(Instruction::Binary {
                     dst: next,
                     op: BinaryOp::Add,

@@ -384,20 +384,15 @@ fn cancelled_instantiation_keeps_the_checked_module_reusable() {
 }
 
 #[test]
-fn unresolved_container_inference_is_a_diagnostic_at_codegen() {
+fn unresolved_container_inference_is_a_diagnostic_before_codegen() {
     let engine = KagariEngine::default();
-    let checked = engine
-        .compile_source(
-            SourceFile::new("inference.kgr", "fn main() { MutableMap::new(); }"),
-            Default::default(),
-        )
-        .unwrap();
-    let Err(EmbeddingError::Diagnostics { diagnostics }) =
-        engine.emit_bytecode(&checked, Default::default())
-    else {
-        panic!("unresolved type must not enter IR");
+    let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(
+        SourceFile::new("inference.kgr", "fn main() { MutableMap::new(); }"),
+        Default::default(),
+    ) else {
+        panic!("unresolved type must not enter checked HIR");
     };
-    assert_eq!(diagnostics[0].code, "KG_COMPILE_UNRESOLVED_TYPE");
+    assert_eq!(diagnostics[0].code, "KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT");
 }
 
 #[test]

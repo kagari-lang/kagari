@@ -732,13 +732,11 @@ impl TypeId {
     pub(crate) fn recover_from(&mut self, other: &Self) {
         let mut pending = vec![(self, other)];
         while let Some((left, right)) = pending.pop() {
-            if matches!(right, Self::Inference(_) | Self::Unknown | Self::Error) {
+            if matches!(right, Self::Unknown | Self::Error) {
                 continue;
             }
             match (left, right) {
-                (left @ (Self::Inference(_) | Self::Unknown | Self::Error), right) => {
-                    *left = right.clone()
-                }
+                (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
                 (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
                     pending.extend(left.iter_mut().zip(right).rev());
                 }

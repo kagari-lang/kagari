@@ -11,6 +11,7 @@ impl Executor<'_> {
             ConstantOperand::Bool(value) => Value::Bool(value),
             ConstantOperand::I32(value) => Value::I32(value),
             ConstantOperand::I64(value) => Value::I64(value),
+            ConstantOperand::U64(value) => Value::U64(value),
             ConstantOperand::F32(value) => Value::F32(value),
             ConstantOperand::F64(value) => Value::F64(value),
             ConstantOperand::Str(value) => Value::Str(value),
@@ -50,6 +51,7 @@ impl Executor<'_> {
             BinaryOp::Lt => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs < rhs)),
+                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs < rhs)),
                 _ => Err(VmError::TypeMismatch(
@@ -59,6 +61,7 @@ impl Executor<'_> {
             BinaryOp::Gt => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs > rhs)),
                 (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs > rhs)),
+                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs > rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs > rhs)),
                 (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs > rhs)),
                 _ => Err(VmError::TypeMismatch(
@@ -68,6 +71,7 @@ impl Executor<'_> {
             BinaryOp::Le => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs <= rhs)),
                 (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
+                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs <= rhs)),
                 (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs <= rhs)),
                 _ => Err(VmError::TypeMismatch(
@@ -77,6 +81,7 @@ impl Executor<'_> {
             BinaryOp::Ge => match (lhs, rhs) {
                 (Value::I32(lhs), Value::I32(rhs)) => Ok(Value::Bool(lhs >= rhs)),
                 (Value::I64(lhs), Value::I64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
+                (Value::U64(lhs), Value::U64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
                 (Value::F32(lhs), Value::F32(rhs)) => Ok(Value::Bool(lhs >= rhs)),
                 (Value::F64(lhs), Value::F64(rhs)) => Ok(Value::Bool(lhs >= rhs)),
                 _ => Err(VmError::TypeMismatch(

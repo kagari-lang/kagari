@@ -144,6 +144,7 @@ impl Executor<'_> {
         let index = match index {
             Value::I32(index) if index >= 0 => index as usize,
             Value::I64(index) if index >= 0 => index as usize,
+            Value::U64(index) => index as usize,
             _ => {
                 return Err(VmError::TypeMismatch(
                     "read_index expects non-negative integer index",
@@ -205,6 +206,7 @@ impl Executor<'_> {
         let index = match index_value {
             Value::I32(index) if index >= 0 => index as usize,
             Value::I64(index) if index >= 0 => index as usize,
+            Value::U64(index) => index as usize,
             _ => {
                 return Err(VmError::TypeMismatch(
                     "write_index expects non-negative integer index",

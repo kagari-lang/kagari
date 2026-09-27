@@ -116,6 +116,7 @@ enum KeyPart {
     Bool(bool),
     I32(i32),
     I64(i64),
+    U64(u64),
     Str(String),
     Tuple(usize),
     StandardEnum(u8),
@@ -166,6 +167,7 @@ impl MapKey {
                 Value::Bool(v) => parts.push(KeyPart::Bool(v)),
                 Value::I32(v) => parts.push(KeyPart::I32(v)),
                 Value::I64(v) => parts.push(KeyPart::I64(v)),
+                Value::U64(v) => parts.push(KeyPart::U64(v)),
                 Value::Str(v) => parts.push(KeyPart::Str(v)),
                 Value::Tuple(values) => {
                     parts.push(KeyPart::Tuple(values.len()));
@@ -224,6 +226,7 @@ pub enum Value {
     Bool(bool),
     I32(i32),
     I64(i64),
+    U64(u64),
     F32(f32),
     F64(f64),
     Str(String),
@@ -251,6 +254,7 @@ impl Value {
                 | (Self::Bool(_), T::Bool)
                 | (Self::I32(_), T::I32)
                 | (Self::I64(_), T::I64)
+                | (Self::U64(_), T::U64)
                 | (Self::F32(_), T::F32)
                 | (Self::F64(_), T::F64)
                 | (Self::Str(_), T::Str)
@@ -281,6 +285,7 @@ impl Value {
             Self::Bool(_)
             | Self::I32(_)
             | Self::I64(_)
+            | Self::U64(_)
             | Self::F32(_)
             | Self::F64(_)
             | Self::Str(_) => ValueCategory::Primitive,
@@ -334,6 +339,7 @@ impl Value {
             | Self::Bool(_)
             | Self::I32(_)
             | Self::I64(_)
+            | Self::U64(_)
             | Self::F32(_)
             | Self::F64(_)
             | Self::Str(_) => true,

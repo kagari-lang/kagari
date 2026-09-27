@@ -108,3 +108,95 @@ fn expected_collection_types_constrain_sources_and_callbacks() {
     "#,
     );
 }
+
+#[test]
+fn numeric_suffixes_context_and_full_unsigned_range_execute() {
+    execute(
+        r#"
+        const MINIMUM: i8 = -128i8;
+        const WIDE: i64 = 4_000_000_000i64 + 2i64;
+        const DOUBLE: f64 = 1.25 + 0.75;
+        fn main() -> i32 {
+            val small: u8 = 255;
+            val signed: i16 = -32768;
+            val wide = 9223372036854775807i64;
+            val maximum = 18446744073709551615u64;
+            val size = 18446744073709551615usize;
+            std::debug::assert_eq(small, 0xff_u8, "suffix and radix");
+            std::debug::assert_eq(MINIMUM, -128i8, "negative minimum");
+            std::debug::assert_eq(WIDE, 4000000002i64, "wide const");
+            std::debug::assert_eq(DOUBLE, 2f64, "double const");
+            std::debug::assert(maximum > 9223372036854775808u64, "unsigned comparison");
+            std::debug::assert_eq(maximum / 3u64, 6148914691236517205u64, "unsigned division");
+            std::debug::assert_eq(f"{size}", "18446744073709551615", "unsigned formatting");
+            val keys = MutableSet::new();
+            keys.insert(maximum);
+            std::debug::assert(keys.contains(maximum), "unsigned hash and equality");
+            val single: f32 = 1.25;
+            std::debug::assert_eq(single, 1.25f32, "single context");
+            val inferred = 2.0;
+            std::debug::assert_eq(inferred, 2.0f64, "double fallback");
+            std::debug::assert_eq([1, 2].len(), 2usize, "size context");
+            42
+        }
+    "#,
+    );
+}
+
+#[test]
+fn invalid_numeric_literals_are_rejected_before_execution() {
+    for expression in [
+        "256u8",
+        "128i8",
+        "-129i8",
+        "-1u8",
+        "18446744073709551616u64",
+        "1.0u8",
+        "1wat",
+        "1e999f64",
+    ] {
+        let engine = KagariEngine::default();
+        assert!(
+            engine
+                .compile_source(
+                    SourceFile::new(
+                        "invalid-number.kgr",
+                        format!("fn main() {{ val x = {expression}; }}")
+                    ),
+                    Default::default()
+                )
+                .is_err(),
+            "{expression}"
+        );
+    }
+}
+
+#[test]
+fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
+    for expression in [
+        "255u8 + 1u8",
+        "127i8 + 1i8",
+        "18446744073709551615u64 + 1u64",
+        "0usize - 1usize",
+    ] {
+        let engine = KagariEngine::default();
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "numeric-overflow.kgr",
+                    format!("fn main() {{ val x = {expression}; }}"),
+                ),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("overflow"),
+            "{expression}: {error:?}"
+        );
+    }
+}

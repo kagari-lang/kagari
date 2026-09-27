@@ -41,6 +41,7 @@ pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
         Value::Bool(_) => "bool",
         Value::I32(_) => "i32",
         Value::I64(_) => "i64",
+        Value::U64(_) => "u64",
         Value::F32(_) => "f32",
         Value::F64(_) => "f64",
         Value::Str(_) => "String",
@@ -126,6 +127,7 @@ pub fn set_index(
     let index = match index {
         Value::I32(index) if *index >= 0 => *index as usize,
         Value::I64(index) if *index >= 0 => *index as usize,
+        Value::U64(index) => *index as usize,
         _ => {
             return Err(ReflectionError::new(
                 "reflect_set_index expects non-negative integer index",

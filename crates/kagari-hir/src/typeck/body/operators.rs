@@ -7,22 +7,17 @@ impl BodyChecker<'_> {
         op: &PrefixOp,
         expr: &ExprId,
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> TypeId {
-        // The magnitude of MIN is not a positive i32 expression on its own.
         if matches!(op, PrefixOp::Neg)
             && let ExprKind::Literal(literal) = &self.lowered.module.expr(*expr).kind
-            && literal.kind == LiteralKind::Number
-            && kagari_common::literal::parse_integer_literal(&literal.text).ok() == Some(2147483648)
+            && matches!(literal.kind, LiteralKind::Number | LiteralKind::Float)
         {
-            let ty = TypeId::Builtin(BuiltinType::I32);
-            self.type_table
-                .insert_scalar(expr_id, crate::typeck::ScalarValue::I32(i32::MIN));
+            let ty = self.infer_numeric_literal(expr_id, literal, expected, true);
             self.type_table.insert_expr(*expr, ty.clone());
-            self.type_table.insert_expr(expr_id, ty.clone());
-            env.exprs.insert(expr_id, ty.clone());
             return ty;
         }
-        let inner = self.infer_expr_type(*expr, env);
+        let inner = self.infer_expr_type_expected(*expr, env, expected);
         let Ok(completes) = crate::typeck::completion::expr_can_complete(
             &self.lowered.module,
             self.names,
@@ -84,6 +79,7 @@ impl BodyChecker<'_> {
         op: &BinaryOp,
         rhs: &ExprId,
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> TypeId {
         let arithmetic = match op {
             BinaryOp::Add => Some(crate::builtin::traits::StandardTrait::Add),
@@ -93,7 +89,9 @@ impl BodyChecker<'_> {
             BinaryOp::Rem => Some(crate::builtin::traits::StandardTrait::Rem),
             _ => None,
         };
-        let lhs_ty = self.infer_expr_type(*lhs, env);
+        let numeric_context =
+            expected.filter(|ty| arithmetic.is_some() && matches!(ty, TypeId::Builtin(_)));
+        let lhs_ty = self.infer_expr_type_expected(*lhs, env, numeric_context);
         let Ok(lhs_completes) = crate::typeck::completion::expr_can_complete(
             &self.lowered.module,
             self.names,
@@ -111,6 +109,9 @@ impl BodyChecker<'_> {
                     .filter(|bound| bound.declaration == protocol.contract().id)
                     .filter_map(|bound| bound.arguments.into_iter().next())
                     .collect();
+                if inputs.is_empty() && matches!(left, TypeId::Inference(_) | TypeId::Builtin(_)) {
+                    return Some(left.clone());
+                }
                 let first = inputs.first()?;
                 inputs
                     .iter()

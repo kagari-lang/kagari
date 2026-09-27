@@ -45,6 +45,25 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
         (Value::I64(lhs), Value::I64(rhs)) => {
             Value::I64(arithmetic::i64_binary(op, lhs, rhs).map_err(arithmetic_trap)?)
         }
+        (Value::U64(lhs), Value::U64(rhs)) => {
+            let result = match op {
+                IntegerBinaryOp::Add => lhs.checked_add(rhs),
+                IntegerBinaryOp::Sub => lhs.checked_sub(rhs),
+                IntegerBinaryOp::Mul => lhs.checked_mul(rhs),
+                IntegerBinaryOp::Div => lhs.checked_div(rhs),
+                IntegerBinaryOp::Rem => lhs.checked_rem(rhs),
+            };
+            Value::U64(result.ok_or_else(|| {
+                RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    if rhs == 0 && matches!(op, IntegerBinaryOp::Div | IntegerBinaryOp::Rem) {
+                        "integer division by zero"
+                    } else {
+                        "integer overflow"
+                    },
+                )
+            })?)
+        }
         (Value::F32(lhs), Value::F32(rhs)) => Value::F32(match op {
             IntegerBinaryOp::Add => lhs + rhs,
             IntegerBinaryOp::Sub => lhs - rhs,

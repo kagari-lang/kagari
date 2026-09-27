@@ -44,6 +44,7 @@ pub(super) fn verify(
                 Constant::I64(_) => ValueType::I64,
                 Constant::F32(_) => ValueType::F32,
                 Constant::F64(_) => ValueType::F64,
+                Constant::U64(_) => ValueType::U64,
                 Constant::Str(_) => ValueType::Str,
             };
             context.expect(dst.ty, ty, "constant destination")?;
@@ -416,7 +417,7 @@ pub(super) fn verify(
         }
         ReadAggregateIndex { base, index, .. } | WriteAggregateIndex { base, index, .. } => {
             context.expect(base.ty, ValueType::HeapObject, "index base")?;
-            if !matches!(index.ty, ValueType::I32 | ValueType::I64) {
+            if !matches!(index.ty, ValueType::I32 | ValueType::I64 | ValueType::U64) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "aggregate index must have integer representation",
                 }));

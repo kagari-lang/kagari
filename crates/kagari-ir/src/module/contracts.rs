@@ -54,7 +54,7 @@ pub(crate) fn verify_runtime_helper_call(
         SetField | SetIndex => {
             expect_type(args[0], ValueType::HeapObject, "reflection write base")?;
             let value = if helper == SetIndex {
-                if !matches!(args[1], ValueType::I32 | ValueType::I64) {
+                if !matches!(args[1], ValueType::I32 | ValueType::I64 | ValueType::U64) {
                     return Err(ContractError::InvalidOperation {
                         reason: "reflection index must be an integer",
                     });
@@ -116,7 +116,7 @@ pub(crate) fn expect_type(
 
 pub(crate) fn unary_result(op: UnaryOp, operand: ValueType) -> Result<ValueType, ContractError> {
     match op {
-        UnaryOp::Neg if numeric(operand) => Ok(operand),
+        UnaryOp::Neg if numeric(operand) && operand != ValueType::U64 => Ok(operand),
         UnaryOp::Not if operand == ValueType::Bool => Ok(ValueType::Bool),
         _ => Err(ContractError::InvalidOperation {
             reason: "invalid unary operand representation",
@@ -152,7 +152,7 @@ pub(crate) fn binary_result(
 fn numeric(ty: ValueType) -> bool {
     matches!(
         ty,
-        ValueType::I32 | ValueType::I64 | ValueType::F32 | ValueType::F64
+        ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::F32 | ValueType::F64
     )
 }
 pub(crate) fn verify_intrinsic(
@@ -239,7 +239,7 @@ pub(crate) fn verify_intrinsic(
                 ValueType::HeapObject,
                 "standard intrinsic argument",
             )?;
-            verify_call_dst(dst, ValueType::I64)?;
+            verify_call_dst(dst, ValueType::U64)?;
         }
         ArrayIsEmpty => {
             expect_arg_ty(
@@ -258,7 +258,7 @@ pub(crate) fn verify_intrinsic(
                 "standard intrinsic argument",
             )?;
             if matches!(intrinsic, ArrayGet | ArrayRemove) {
-                expect_arg_ty(args, 1, ValueType::I64, "standard intrinsic index")?;
+                expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
@@ -270,7 +270,7 @@ pub(crate) fn verify_intrinsic(
                 "standard intrinsic argument",
             )?;
             if intrinsic == ArrayInsert {
-                expect_arg_ty(args, 1, ValueType::I64, "standard intrinsic index")?;
+                expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
@@ -294,7 +294,7 @@ pub(crate) fn verify_intrinsic(
         }
         MapLen | SetLen => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;
-            verify_call_dst(dst, ValueType::I64)?;
+            verify_call_dst(dst, ValueType::U64)?;
         }
         MapIsEmpty | SetIsEmpty => {
             expect_iterable_or_heap_arg(args, 0, intrinsic)?;
@@ -357,7 +357,7 @@ pub(crate) fn verify_intrinsic(
         }
         StringLenBytes | StringLenChars => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
-            verify_call_dst(dst, ValueType::I64)?;
+            verify_call_dst(dst, ValueType::U64)?;
         }
         StringIsEmpty | StringContains | StringStartsWith | StringEndsWith => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
@@ -378,8 +378,8 @@ pub(crate) fn verify_intrinsic(
         }
         StringSlice => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
-            expect_arg_ty(args, 1, ValueType::I64, "standard intrinsic index")?;
-            expect_arg_ty(args, 2, ValueType::I64, "standard intrinsic index")?;
+            expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
+            expect_arg_ty(args, 2, ValueType::U64, "standard intrinsic index")?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
         OptionIsSome | OptionIsNone | ResultIsOk | ResultIsErr => {
@@ -501,6 +501,7 @@ fn expect_hash_key_arg(
             | ValueType::Bool
             | ValueType::I32
             | ValueType::I64
+            | ValueType::U64
             | ValueType::Str
             | ValueType::HeapObject
     ) {
@@ -537,7 +538,7 @@ fn expect_numeric_arg(
     let found = args[index];
     if matches!(
         found,
-        ValueType::I32 | ValueType::I64 | ValueType::F32 | ValueType::F64
+        ValueType::I32 | ValueType::I64 | ValueType::U64 | ValueType::F32 | ValueType::F64
     ) {
         Ok(found)
     } else {

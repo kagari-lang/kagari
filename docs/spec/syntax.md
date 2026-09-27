@@ -152,6 +152,16 @@ Integer literals include:
 - hexadecimal integers, such as `0xff`
 - `_` as a visual separator between digits
 
+Integer suffixes select an existing primitive integer type: `i8`, `i16`, `i32`,
+`i64`, `isize`, `u8`, `u16`, `u32`, `u64`, or `usize`. Examples include `1u8`,
+`255_u8`, and `0xffu8`. Unsuffixed integers use the surrounding body constraints
+and fall back to `i32` only after inference stabilizes. Suffixes do not authorize
+implicit conversions. Values outside the selected type's range are compile errors.
+Unary negative literals are checked as signed values, so `-128i8` is valid but
+`128i8` and `-129i8` are not. Unsigned types do not support unary negation.
+The current execution ABI uses 64-bit `isize` and `usize`; `u64` and `usize`
+retain the full unsigned 64-bit range.
+
 #### Floating-Point Literals
 
 Floating-point literals include:
@@ -162,6 +172,11 @@ Floating-point literals include:
 - `6.02e23`
 
 Underscore separators are allowed in the digit sequences.
+
+The `f32` and `f64` suffixes select precision explicitly, including forms such as
+`1f64` and `1.25_f32`. Unsuffixed floating-point literals use contextual precision
+and otherwise default to `f64`. Parsing rounds the original decimal text directly
+to the selected precision. A literal outside that type's finite range is rejected.
 
 #### String Literals
 

@@ -925,6 +925,9 @@ fn index_value(value: &Value, name: &'static str) -> Result<usize, BuiltinError>
     match value {
         Value::I32(index) if *index >= 0 => Ok(*index as usize),
         Value::I64(index) if *index >= 0 => Ok(*index as usize),
+        Value::U64(index) => {
+            usize::try_from(*index).map_err(|_| BuiltinError::new("index exceeds platform range"))
+        }
         _ => Err(BuiltinError::new(format!(
             "{name} expects non-negative integer index"
         ))),
@@ -932,7 +935,7 @@ fn index_value(value: &Value, name: &'static str) -> Result<usize, BuiltinError>
 }
 
 fn usize_value(value: usize) -> Value {
-    Value::I64(value as i64)
+    Value::U64(value as u64)
 }
 
 fn require_hash_key(gc: &GcHeap, value: &Value, name: &'static str) -> Result<(), BuiltinError> {
@@ -1076,6 +1079,7 @@ fn compare_ordered(lhs: &Value, rhs: &Value, name: &'static str) -> Result<i8, B
     match (lhs, rhs) {
         (Value::I32(lhs), Value::I32(rhs)) => Ok(ordering_value(lhs.cmp(rhs))),
         (Value::I64(lhs), Value::I64(rhs)) => Ok(ordering_value(lhs.cmp(rhs))),
+        (Value::U64(lhs), Value::U64(rhs)) => Ok(ordering_value(lhs.cmp(rhs))),
         (Value::F32(lhs), Value::F32(rhs)) if lhs.is_finite() && rhs.is_finite() => {
             compare_f64(*lhs as f64, *rhs as f64)
         }
@@ -1303,7 +1307,7 @@ mod tests {
                 std::slice::from_ref(&array)
             )
             .unwrap(),
-            Value::I64(1)
+            Value::U64(1)
         );
         call(
             &gc,
@@ -1314,7 +1318,7 @@ mod tests {
         call(
             &gc,
             StandardIntrinsic::ArrayInsert,
-            &[array.clone(), Value::I64(1), Value::I32(2)],
+            &[array.clone(), Value::U64(1), Value::I32(2)],
         )
         .unwrap();
         assert_eq!(
@@ -1455,7 +1459,7 @@ mod tests {
                 &[Value::Str("éx".to_owned())]
             )
             .unwrap(),
-            Value::I64(3)
+            Value::U64(3)
         );
         assert_eq!(
             call(
@@ -1464,12 +1468,12 @@ mod tests {
                 &[Value::Str("éx".to_owned())]
             )
             .unwrap(),
-            Value::I64(2)
+            Value::U64(2)
         );
         let good = call(
             &gc,
             StandardIntrinsic::StringSlice,
-            &[Value::Str("éx".to_owned()), Value::I64(0), Value::I64(2)],
+            &[Value::Str("éx".to_owned()), Value::U64(0), Value::U64(2)],
         )
         .unwrap();
         assert_eq!(
@@ -1479,7 +1483,7 @@ mod tests {
         let bad = call(
             &gc,
             StandardIntrinsic::StringSlice,
-            &[Value::Str("éx".to_owned()), Value::I64(1), Value::I64(2)],
+            &[Value::Str("éx".to_owned()), Value::U64(1), Value::U64(2)],
         )
         .unwrap();
         assert_eq!(option_variant(&gc, &bad), ("None".to_owned(), Vec::new()));

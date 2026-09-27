@@ -9,6 +9,13 @@ impl BodyChecker<'_> {
         if !self.solving {
             return;
         }
+        if crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+            .is_some_and(|kind| kind.aggregation())
+            && let Some(item) = crate::builtin::traits::numeric_aggregation_item(actual)
+            && let [argument] = interface.arguments.as_slice()
+        {
+            let _ = self.solver.constrain(&item, argument, self.cancel);
+        }
         let mut candidates = crate::builtin::declarations::implementations(actual)
             .into_iter()
             .filter(|implementation| {
@@ -91,6 +98,9 @@ impl BodyChecker<'_> {
             self.diagnostics.truncate(diagnostic_start);
             self.infer_block_types_expected(block, env, expected);
             if self.solver.revision == revision {
+                if self.solver.apply_numeric_defaults() {
+                    continue;
+                }
                 converged = true;
                 break;
             }

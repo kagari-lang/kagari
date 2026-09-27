@@ -567,6 +567,7 @@ pub enum Constant {
     Bool(bool),
     I32(i32),
     I64(i64),
+    U64(u64),
     F32(f32),
     F64(f64),
     Str(String),

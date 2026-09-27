@@ -44,6 +44,7 @@ pub enum TraceValue {
     Bool(bool),
     I32(i32),
     I64(i64),
+    U64(u64),
     F32Bits(u32),
     F64Bits(u64),
     Str {
@@ -69,6 +70,7 @@ impl TraceValue {
             Value::Bool(value) => Self::Bool(*value),
             Value::I32(value) => Self::I32(*value),
             Value::I64(value) => Self::I64(*value),
+            Value::U64(value) => Self::U64(*value),
             Value::F32(value) => Self::F32Bits(value.to_bits()),
             Value::F64(value) => Self::F64Bits(value.to_bits()),
             Value::Str(value) => Self::Str {

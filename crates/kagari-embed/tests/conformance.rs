@@ -190,9 +190,9 @@ fn main() -> (usize, usize, usize, bool, i32) {
     assert_eq!(
         report.return_value,
         Value::Tuple(vec![
-            Value::I64(3),
-            Value::I64(2),
-            Value::I64(1),
+            Value::U64(3),
+            Value::U64(2),
+            Value::U64(1),
             Value::Bool(true),
             Value::I32(7),
         ])
@@ -259,7 +259,7 @@ pub fn main() -> usize {
     let report = runtime
         .execute(&reloaded, "main", &[], &context)
         .expect("reloaded standard artifact should execute");
-    assert_eq!(report.return_value, Value::I64(2));
+    assert_eq!(report.return_value, Value::U64(2));
 
     let failed_epoch = runtime
         .reload_program(

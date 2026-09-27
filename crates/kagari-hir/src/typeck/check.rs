@@ -467,7 +467,8 @@ pub(crate) fn check_bodies_controlled(
                     "<const>",
                     TypeId::Builtin(BuiltinType::Unit),
                 );
-                let _ = checker.infer_expr_type(const_item.initializer, &mut env);
+                let _ =
+                    checker.infer_expr_type_expected(const_item.initializer, &mut env, Some(&ty));
             }
             top_level_index.consts.insert(const_item.id, ty.clone());
         }

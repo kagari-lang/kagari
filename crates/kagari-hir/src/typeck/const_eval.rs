@@ -97,6 +97,10 @@ impl Evaluator<'_> {
                     .map(ScalarValue::I32)
                     .map_err(|error| error.message()),
                 (PrefixOp::Neg, ScalarValue::F32(value)) => Ok(ScalarValue::F32(-value)),
+                (PrefixOp::Neg, ScalarValue::F64(value)) => Ok(ScalarValue::F64(-value)),
+                (PrefixOp::Neg, ScalarValue::Integer { value, ty }) => {
+                    ScalarValue::integer(-value, ty)
+                }
                 (PrefixOp::Not, ScalarValue::Bool(value)) => Ok(ScalarValue::Bool(!value)),
                 _ => return None,
             },
@@ -153,6 +157,31 @@ fn binary(
                 IntegerBinaryOp::Div => lhs / rhs,
                 IntegerBinaryOp::Rem => lhs % rhs,
             })),
+            (F64(lhs), F64(rhs)) => Ok(F64(match op {
+                IntegerBinaryOp::Add => lhs + rhs,
+                IntegerBinaryOp::Sub => lhs - rhs,
+                IntegerBinaryOp::Mul => lhs * rhs,
+                IntegerBinaryOp::Div => lhs / rhs,
+                IntegerBinaryOp::Rem => lhs % rhs,
+            })),
+            (
+                Integer { value: lhs, ty },
+                Integer {
+                    value: rhs,
+                    ty: right,
+                },
+            ) if ty == right => {
+                let value = match op {
+                    IntegerBinaryOp::Add => lhs.checked_add(rhs),
+                    IntegerBinaryOp::Sub => lhs.checked_sub(rhs),
+                    IntegerBinaryOp::Mul => lhs.checked_mul(rhs),
+                    IntegerBinaryOp::Div => lhs.checked_div(rhs),
+                    IntegerBinaryOp::Rem => lhs.checked_rem(rhs),
+                };
+                value
+                    .ok_or("integer overflow or division by zero")
+                    .and_then(|value| ScalarValue::integer(value, ty))
+            }
             _ => return None,
         });
     }
@@ -177,6 +206,14 @@ fn binary(
         },
         (I32(lhs), I32(rhs)) => compare!(lhs, rhs),
         (F32(lhs), F32(rhs)) => compare!(lhs, rhs),
+        (F64(lhs), F64(rhs)) => compare!(lhs, rhs),
+        (
+            Integer { value: lhs, ty },
+            Integer {
+                value: rhs,
+                ty: right,
+            },
+        ) if ty == right => compare!(lhs, rhs),
         (String(lhs), String(rhs)) => compare!(lhs, rhs),
         (Bool(lhs), Bool(rhs)) => match op {
             BinaryOp::Eq => lhs == rhs,

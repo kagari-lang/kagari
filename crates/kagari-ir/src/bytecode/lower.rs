@@ -1146,6 +1146,7 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
         Constant::I64(value) => ConstantOperand::I64(*value),
         Constant::F32(value) => ConstantOperand::F32(*value),
         Constant::F64(value) => ConstantOperand::F64(*value),
+        Constant::U64(value) => ConstantOperand::U64(*value),
         Constant::Str(value) => ConstantOperand::Str(value.clone()),
     }
 }

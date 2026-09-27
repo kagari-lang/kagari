@@ -17,8 +17,8 @@ fn option(item: TypeId) -> TypeId {
 }
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn usize_constant(&mut self, value: i64) -> IrValue {
-        let result = self.lower_constant(Constant::I64(value), ValueType::I64);
+    pub(super) fn usize_constant(&mut self, value: u64) -> IrValue {
+        let result = self.lower_constant(Constant::U64(value), ValueType::U64);
         self.function
             .semantic
             .registers
@@ -392,8 +392,8 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(advance);
             }
             if body.operation == Take {
-                let count = self.adapter_state(args[1], ValueType::I64);
-                let zero = self.lower_constant(Constant::I64(0), ValueType::I64);
+                let count = self.adapter_state(args[1], ValueType::U64);
+                let zero = self.lower_constant(Constant::U64(0), ValueType::U64);
                 let empty = self.adapter_binary(BinaryOp::Eq, count, zero, ValueType::Bool);
                 let advance = self.new_block();
                 self.set_terminator(Terminator::Branch {
@@ -402,8 +402,8 @@ impl FunctionLowerer<'_, '_> {
                     else_block: advance,
                 });
                 self.switch_to_block(advance);
-                let one = self.lower_constant(Constant::I64(1), ValueType::I64);
-                let remaining = self.adapter_binary(BinaryOp::Sub, count, one, ValueType::I64);
+                let one = self.lower_constant(Constant::U64(1), ValueType::U64);
+                let remaining = self.adapter_binary(BinaryOp::Sub, count, one, ValueType::U64);
                 self.set_adapter_state(args[1], remaining);
             }
             let next = self.iterator_next(source, args[0])?;
@@ -501,8 +501,8 @@ impl FunctionLowerer<'_, '_> {
                     return Ok(());
                 }
                 Skip => {
-                    let count = self.adapter_state(args[1], ValueType::I64);
-                    let zero = self.lower_constant(Constant::I64(0), ValueType::I64);
+                    let count = self.adapter_state(args[1], ValueType::U64);
+                    let zero = self.lower_constant(Constant::U64(0), ValueType::U64);
                     let empty = self.adapter_binary(BinaryOp::Eq, count, zero, ValueType::Bool);
                     let yield_item = self.new_block();
                     let skip = self.new_block();
@@ -512,17 +512,17 @@ impl FunctionLowerer<'_, '_> {
                         else_block: skip,
                     });
                     self.switch_to_block(skip);
-                    let one = self.lower_constant(Constant::I64(1), ValueType::I64);
-                    let remaining = self.adapter_binary(BinaryOp::Sub, count, one, ValueType::I64);
+                    let one = self.lower_constant(Constant::U64(1), ValueType::U64);
+                    let remaining = self.adapter_binary(BinaryOp::Sub, count, one, ValueType::U64);
                     self.set_adapter_state(args[1], remaining);
                     self.ensure_jump(head);
                     self.switch_to_block(yield_item);
                     value
                 }
                 Enumerate => {
-                    let index = self.adapter_state(args[1], ValueType::I64);
-                    let one = self.lower_constant(Constant::I64(1), ValueType::I64);
-                    let next_index = self.adapter_binary(BinaryOp::Add, index, one, ValueType::I64);
+                    let index = self.adapter_state(args[1], ValueType::U64);
+                    let one = self.lower_constant(Constant::U64(1), ValueType::U64);
+                    let next_index = self.adapter_binary(BinaryOp::Add, index, one, ValueType::U64);
                     self.set_adapter_state(args[1], next_index);
                     let pair = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::MakeTuple {

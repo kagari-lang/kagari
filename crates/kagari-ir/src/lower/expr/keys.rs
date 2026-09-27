@@ -23,8 +23,8 @@ impl FunctionLowerer<'_, '_> {
         };
         for source in sources {
             let values = self.emit_intrinsic(SetToArray, &[*source], ValueType::HeapObject);
-            let len = self.emit_intrinsic(ArrayLen, &[values], ValueType::I64);
-            let index = self.lower_constant(Constant::I64(0), ValueType::I64);
+            let len = self.emit_intrinsic(ArrayLen, &[values], ValueType::U64);
+            let index = self.lower_constant(Constant::U64(0), ValueType::U64);
             let head = self.new_block();
             let body = self.new_block();
             let insert = self.new_block();
@@ -70,8 +70,8 @@ impl FunctionLowerer<'_, '_> {
             self.lower_key_operation(SetInsert, key_ty, &[result, item])?;
             self.set_terminator(Terminator::Jump(step));
             self.switch_to_block(step);
-            let one = self.lower_constant(Constant::I64(1), ValueType::I64);
-            let next = self.alloc_temp(ValueType::I64);
+            let one = self.lower_constant(Constant::U64(1), ValueType::U64);
+            let next = self.alloc_temp(ValueType::U64);
             self.emit(Instruction::Binary {
                 dst: next,
                 op: BinaryOp::Add,
@@ -103,9 +103,9 @@ impl FunctionLowerer<'_, '_> {
         let hash = self.lower_protocol(StandardTrait::Hash, key_ty, &[query], 0)?;
         let candidates =
             self.emit_intrinsic(KeyCandidates, &[collection, hash], ValueType::HeapObject);
-        let len = self.emit_intrinsic(ArrayLen, &[candidates], ValueType::I64);
+        let len = self.emit_intrinsic(ArrayLen, &[candidates], ValueType::U64);
         let token = self.lower_constant(Constant::I64(-1), ValueType::I64);
-        let index = self.lower_constant(Constant::I64(0), ValueType::I64);
+        let index = self.lower_constant(Constant::U64(0), ValueType::U64);
         let cond_block = self.new_block();
         let body = self.new_block();
         let found = self.new_block();
@@ -159,8 +159,8 @@ impl FunctionLowerer<'_, '_> {
         });
         self.set_terminator(Terminator::Jump(done));
         self.switch_to_block(step);
-        let one = self.lower_constant(Constant::I64(1), ValueType::I64);
-        let next = self.alloc_temp(ValueType::I64);
+        let one = self.lower_constant(Constant::U64(1), ValueType::U64);
+        let next = self.alloc_temp(ValueType::U64);
         self.emit(Instruction::Binary {
             dst: next,
             op: BinaryOp::Add,

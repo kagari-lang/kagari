@@ -1224,8 +1224,8 @@ fn main() -> (usize, usize, i32, bool) {
     assert_eq!(
         report.return_value,
         Value::Tuple(vec![
-            Value::I64(2),
-            Value::I64(6),
+            Value::U64(2),
+            Value::U64(6),
             Value::I32(3),
             Value::Bool(true),
         ])
@@ -1274,14 +1274,14 @@ fn main() -> (usize, bool, usize, usize, usize, usize, usize, usize, bool, bool,
     assert_eq!(
         report.return_value,
         Value::Tuple(vec![
-            Value::I64(2),
+            Value::U64(2),
             Value::Bool(true),
-            Value::I64(2),
-            Value::I64(2),
-            Value::I64(2),
-            Value::I64(2),
-            Value::I64(2),
-            Value::I64(2),
+            Value::U64(2),
+            Value::U64(2),
+            Value::U64(2),
+            Value::U64(2),
+            Value::U64(2),
+            Value::U64(2),
             Value::Bool(true),
             Value::Bool(true),
             Value::Bool(true),
@@ -1367,10 +1367,10 @@ fn executes_bytecode_standard_collection_intrinsics() {
                 ValueType::HeapObject,
                 ValueType::I32,
                 ValueType::HeapObject,
-                ValueType::I64,
+                ValueType::U64,
                 ValueType::Bool,
                 ValueType::HeapObject,
-                ValueType::I64,
+                ValueType::U64,
                 ValueType::HeapObject,
                 ValueType::HeapObject,
                 ValueType::Bool,
@@ -1385,9 +1385,9 @@ fn executes_bytecode_standard_collection_intrinsics() {
     assert_eq!(
         report.return_value,
         Value::Tuple(vec![
-            Value::I64(1),
+            Value::U64(1),
             Value::Bool(true),
-            Value::I64(1),
+            Value::U64(1),
             Value::Bool(true),
         ])
     );
@@ -1549,7 +1549,7 @@ fn main() -> usize {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I64(6));
+    assert_eq!(report.return_value, Value::U64(6));
 }
 
 #[test]
@@ -1567,7 +1567,7 @@ fn main() -> usize {
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I64(3));
+    assert_eq!(report.return_value, Value::U64(3));
 }
 
 #[test]

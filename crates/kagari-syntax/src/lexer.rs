@@ -446,6 +446,17 @@ pub fn lex_with_cancellation(
                         end = next_index + 1;
                     }
                 }
+                while let Some((next_index, next)) = chars.peek().copied() {
+                    if !(next.is_ascii_alphanumeric() || next == '_') {
+                        break;
+                    }
+                    chars.next();
+                    end = next_index + next.len_utf8();
+                }
+                let (_, suffix) = kagari_common::literal::numeric_literal_parts(&input[index..end]);
+                if suffix.is_some_and(|suffix| suffix.starts_with('f')) {
+                    kind = TokenKind::Float;
+                }
                 if kind == TokenKind::Number
                     && !kagari_common::literal::is_integer_literal(&input[index..end])
                 {

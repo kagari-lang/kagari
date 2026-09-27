@@ -16,7 +16,17 @@ impl From<ScalarValue> for Constant {
             ScalarValue::Unit => Self::Unit,
             ScalarValue::Bool(value) => Self::Bool(value),
             ScalarValue::I32(value) => Self::I32(value),
+            ScalarValue::Integer { value, ty } => match ty {
+                kagari_hir::types::BuiltinType::I8 | kagari_hir::types::BuiltinType::I16 => {
+                    Self::I32(value as i32)
+                }
+                kagari_hir::types::BuiltinType::U64 | kagari_hir::types::BuiltinType::USize => {
+                    Self::U64(value as u64)
+                }
+                _ => Self::I64(value as i64),
+            },
             ScalarValue::F32(value) => Self::F32(value),
+            ScalarValue::F64(value) => Self::F64(value),
             ScalarValue::String(value) => Self::Str(value),
         }
     }

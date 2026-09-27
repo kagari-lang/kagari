@@ -1271,6 +1271,7 @@ impl GcHeap {
                 | Value::Bool(_)
                 | Value::I32(_)
                 | Value::I64(_)
+                | Value::U64(_)
                 | Value::F32(_)
                 | Value::F64(_)
                 | Value::Str(_)

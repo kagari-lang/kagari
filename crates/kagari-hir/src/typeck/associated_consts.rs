@@ -24,7 +24,20 @@ pub(crate) fn scalar_type(ty: &TypeId) -> bool {
     matches!(
         ty,
         TypeId::Builtin(
-            BuiltinType::Unit | BuiltinType::Bool | BuiltinType::I32 | BuiltinType::F32
+            BuiltinType::Unit
+                | BuiltinType::Bool
+                | BuiltinType::I8
+                | BuiltinType::I16
+                | BuiltinType::I32
+                | BuiltinType::I64
+                | BuiltinType::ISize
+                | BuiltinType::U8
+                | BuiltinType::U16
+                | BuiltinType::U32
+                | BuiltinType::U64
+                | BuiltinType::USize
+                | BuiltinType::F32
+                | BuiltinType::F64
         )
     )
 }
