@@ -51,7 +51,8 @@ impl FunctionLowerer<'_, '_> {
             None
         };
         let result = match operation {
-            Find | FindMap | Position | Nth | Last | Reduce | MinBy | MaxBy => {
+            Find | FindMap | Position | Nth | Last | Reduce | MinBy | MaxBy | Min | Max
+            | MinByKey | MaxByKey => {
                 self.standard_enum_op(&result_optional, StandardEnumOp::Make(1), None)?
             }
             Any | All => self.lower_constant(Constant::Bool(operation == All), ValueType::Bool),
@@ -79,6 +80,18 @@ impl FunctionLowerer<'_, '_> {
         };
         let rejected = if operation == Partition {
             Some(self.collection_new(&array_type)?)
+        } else {
+            None
+        };
+        let key_state = if matches!(operation, MinByKey | MaxByKey) {
+            let ty = TypeId::StandardEnum {
+                kind: StandardEnum::Option,
+                args: vec![arguments[0].clone()],
+            };
+            Some((
+                self.standard_enum_op(&ty, StandardEnumOp::Make(1), None)?,
+                ty,
+            ))
         } else {
             None
         };
@@ -176,7 +189,12 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(head);
             }
-            Reduce | MinBy | MaxBy => {
+            Reduce | MinBy | MaxBy | Min | Max | MinByKey | MaxByKey => {
+                let current_key = if key_state.is_some() {
+                    Some(self.iterator_callback(values[1], &arguments[0], &[item])?)
+                } else {
+                    None
+                };
                 let present =
                     self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(result))?;
                 let combine = self.new_block();
@@ -204,8 +222,29 @@ impl FunctionLowerer<'_, '_> {
                         kind: StandardEnum::Ordering,
                         args: vec![],
                     };
-                    let comparison =
-                        self.iterator_callback(values[1], &ordering, &[previous, item])?;
+                    let comparison = if matches!(operation, MinBy | MaxBy) {
+                        self.iterator_callback(values[1], &ordering, &[previous, item])?
+                    } else {
+                        let (ty, left, right) = if let Some((state, option)) = &key_state {
+                            (
+                                &arguments[0],
+                                self.standard_enum_op(
+                                    option,
+                                    StandardEnumOp::Read(0),
+                                    Some(*state),
+                                )?,
+                                current_key.unwrap(),
+                            )
+                        } else {
+                            (&item_type, previous, item)
+                        };
+                        self.lower_applied_operator(
+                            StandardTrait::Ord.nominal(),
+                            ty.clone(),
+                            &StandardTrait::Ord.contract().methods[0].id,
+                            &[left, right],
+                        )?
+                    };
                     let greater = self.standard_enum_op(
                         &ordering,
                         StandardEnumOp::Test(2),
@@ -213,11 +252,27 @@ impl FunctionLowerer<'_, '_> {
                     )?;
                     self.set_terminator(Terminator::Branch {
                         cond: greater,
-                        then_block: if operation == MinBy { replace } else { head },
-                        else_block: if operation == MinBy { head } else { replace },
+                        then_block: if matches!(operation, MinBy | Min | MinByKey) {
+                            replace
+                        } else {
+                            head
+                        },
+                        else_block: if matches!(operation, MinBy | Min | MinByKey) {
+                            head
+                        } else {
+                            replace
+                        },
                     });
                 }
                 self.switch_to_block(replace);
+                if let Some((state, option)) = &key_state {
+                    let key =
+                        self.standard_enum_op(option, StandardEnumOp::Make(0), current_key)?;
+                    self.emit(Instruction::Move {
+                        dst: *state,
+                        src: key,
+                    });
+                }
                 self.emit(Instruction::Move {
                     dst: result,
                     src: next,

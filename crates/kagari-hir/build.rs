@@ -8,6 +8,18 @@ use kagari_syntax::{
 use std::{collections::BTreeSet, fmt::Write, path::PathBuf};
 
 fn ty(node: ast::TypeRef) -> String {
+    if let Some(projection) = node.qualified_type() {
+        assert!(
+            projection.generic_args().is_none(),
+            "native GAT projection is not declared yet"
+        );
+        return format!(
+            "ApiType::Projection(&{}, &{}, {:?})",
+            ty(projection.receiver().unwrap()),
+            api::bound(projection.trait_ref().unwrap()),
+            projection.member().unwrap().text().unwrap()
+        );
+    }
     if let Some(array) = node.array_type() {
         return format!("ApiType::Array(&{})", ty(array.element_type().unwrap()));
     }

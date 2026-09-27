@@ -73,7 +73,7 @@ pub fn native_implementation(
     let generics = vec![parameter];
     let target = ty(target);
     writeln!(implementations,
-        "super::declarations::ApiImplementation{{interface:\"Iterator\",generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},iterator:None,generics:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
+        "super::declarations::ApiImplementation{{interface:\"Iterator\",generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
     ).unwrap();
 }
 
@@ -112,7 +112,7 @@ pub fn item(
     )
 }
 
-fn bound(node: ast::TraitRef) -> String {
+pub fn bound(node: ast::TraitRef) -> String {
     let name = node.path_text().unwrap();
     let args = node
         .generic_args()
@@ -271,9 +271,22 @@ pub fn declarations(
                     .return_type()
                     .map(ty)
                     .unwrap_or("ApiType::Tuple(&[])".into());
+                let predicates = method
+                    .where_clause()
+                    .into_iter()
+                    .flat_map(|w| w.predicates().collect::<Vec<_>>())
+                    .map(|p| {
+                        format!(
+                            "({}, &[{}])",
+                            ty(p.target_type().unwrap()),
+                            bounds(p.bounds())
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",");
                 writeln!(
                     methods,
-                    "ApiMethod{{item:{declaration},iterator:{iterator},generics:&[{generics}],params:&[{params}],result:{result}}},"
+                    "ApiMethod{{item:{declaration},iterator:{iterator},generics:&[{generics}],bounds:&[{predicates}],params:&[{params}],result:{result}}},"
                 )
                 .unwrap();
             }

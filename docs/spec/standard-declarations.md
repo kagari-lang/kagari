@@ -102,3 +102,7 @@ for a checked receiver, with source identities distinct from the trait's members
 Completion on `Iter<T>` includes the declared `next` implementation and inherited
 `Iterator` methods. Ordinary trait-call navigation still identifies the protocol
 member; the implementation catalog provides the concrete implementation location.
+
+Native method declarations retain where predicates and qualified associated-type
+projections. For example, Iterator::min requires Self::Item: Ord; this obligation
+is checked at call sites and retained in portable method contracts.

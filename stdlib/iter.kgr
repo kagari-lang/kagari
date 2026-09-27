@@ -607,6 +607,75 @@ pub trait Iterator {
     /// ```
     #[intrinsic(IteratorMaxBy)]
     fn max_by(self, compare: fn(Self::Item, Self::Item) -> Ordering) -> Option<Self::Item>;
+    /// Return the minimum remaining item.
+    ///
+    /// Empty input returns None. Equal extrema retain the first item.
+    ///
+    /// # Panics
+    ///
+    /// Source, comparison and callback traps propagate; completed effects remain.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val item = [22, 20].iter().min();
+    /// std::debug::assert_eq(item, Some(20), "extreme");
+    /// ```
+    #[intrinsic(IteratorMin)]
+    fn min(self) -> Option<Self::Item> where Self::Item: Ord;
+
+    /// Return the maximum remaining item.
+    ///
+    /// Empty input returns None. Equal extrema retain the last item.
+    ///
+    /// # Panics
+    ///
+    /// Source, comparison and callback traps propagate; completed effects remain.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val item = [22, 20].iter().max();
+    /// std::debug::assert_eq(item, Some(22), "extreme");
+    /// ```
+    #[intrinsic(IteratorMax)]
+    fn max(self) -> Option<Self::Item> where Self::Item: Ord;
+
+    /// Return the minimum remaining item.
+    ///
+    /// Empty input returns None. Equal extrema retain the first item.
+    /// The key function runs exactly once per visited item, in source order.
+    ///
+    /// # Panics
+    ///
+    /// Source, comparison and callback traps propagate; completed effects remain.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val item = [22, 20].iter().min_by_key(|x| x);
+    /// std::debug::assert_eq(item, Some(20), "extreme");
+    /// ```
+    #[intrinsic(IteratorMinByKey)]
+    fn min_by_key<K: Ord>(self, key: fn(Self::Item) -> K) -> Option<Self::Item>;
+
+    /// Return the maximum remaining item.
+    ///
+    /// Empty input returns None. Equal extrema retain the last item.
+    /// The key function runs exactly once per visited item, in source order.
+    ///
+    /// # Panics
+    ///
+    /// Source, comparison and callback traps propagate; completed effects remain.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val item = [22, 20].iter().max_by_key(|x| x);
+    /// std::debug::assert_eq(item, Some(22), "extreme");
+    /// ```
+    #[intrinsic(IteratorMaxByKey)]
+    fn max_by_key<K: Ord>(self, key: fn(Self::Item) -> K) -> Option<Self::Item>;
 }
 
 /// Obtain an iterator without transferring ownership of the source.

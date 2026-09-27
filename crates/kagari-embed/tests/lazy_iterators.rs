@@ -548,3 +548,41 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn ordered_extrema_check_bounds_and_evaluate_keys_once() {
+    execute(
+        r#"
+fn smallest<I: Iterator<Item = i32>>(items: I) -> Option<i32> { items.min() }
+fn main() -> i32 {
+    var calls = 0;
+    val entries = [(2, 22), (1, 20), (1, 99)];
+    val item = entries.iter().min_by_key(|x| { calls += 1; x[0] });
+    std::debug::assert_eq(calls, 3, "once per key");
+    std::debug::assert_eq(item, Some((1, 20)), "first minimum");
+    std::debug::assert_eq(smallest([20, 22].iter()), Some(20), "generic bound");
+    std::debug::assert_eq([20, 22].iter().max(), Some(22), "max");
+    std::debug::assert_eq(entries.iter().max_by_key(|x| x[0]), Some((2, 22)), "max key");
+    val empty: MutableArray<i32> = MutableArray::new();
+    std::debug::assert_eq(empty.iter().min(), None, "empty");
+    42
+}
+"#,
+    );
+    let engine = KagariEngine::default();
+    for source in [
+        "fn main() { [1.0, 2.0].iter().min(); }",
+        "struct Entry { val x: i32 } fn main() { [Entry { x: 1 }].iter().min(); }",
+        "fn main() { [1, 2].iter().max_by_key(|x| 1.0); }",
+    ] {
+        assert!(
+            engine
+                .compile_to_artifact(
+                    SourceFile::new("invalid-extrema.kgr", source),
+                    Default::default(),
+                    Default::default()
+                )
+                .is_err()
+        );
+    }
+}

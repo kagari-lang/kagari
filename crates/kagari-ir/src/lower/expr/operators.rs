@@ -95,6 +95,10 @@ impl FunctionLowerer<'_, '_> {
                     | Reduce
                     | MinBy
                     | MaxBy
+                    | Min
+                    | Max
+                    | MinByKey
+                    | MaxByKey
             ) {
                 return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
             }

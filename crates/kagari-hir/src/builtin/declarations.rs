@@ -42,6 +42,7 @@ pub struct ApiMethod {
     pub item: ApiItem,
     pub iterator: Option<IteratorMethod>,
     pub generics: &'static [ApiGeneric],
+    pub bounds: &'static [(ApiType, &'static [ApiBound])],
     pub params: &'static [ApiParameter],
     pub result: ApiType,
 }
@@ -66,6 +67,10 @@ pub enum IteratorMethod {
     Nth,
     Last,
     Reduce,
+    Min,
+    Max,
+    MinByKey,
+    MaxByKey,
     MinBy,
     MaxBy,
 
@@ -283,6 +288,7 @@ pub enum ApiType {
     Array(&'static ApiType),
     Tuple(&'static [ApiType]),
     Function(&'static [ApiType], &'static ApiType),
+    Projection(&'static ApiType, &'static ApiBound, &'static str),
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiParameter {
@@ -304,6 +310,15 @@ pub struct ApiFunction {
 impl ApiType {
     pub fn instantiate(&self, arguments: &Arguments) -> TypeId {
         match self {
+            Self::Projection(receiver, bound, member) => {
+                let interface = bound.nominal(arguments);
+                TypeId::Projection {
+                    receiver: Box::new(receiver.instantiate(arguments)),
+                    member: crate::types::associated_type_id(&interface.declaration, member),
+                    interface: Box::new(interface),
+                    arguments: vec![],
+                }
+            }
             Self::Array(element) => TypeId::Array(
                 Box::new(element.instantiate(arguments)),
                 CollectionAccess::ReadOnly,
@@ -545,6 +560,16 @@ impl ApiTrait {
                                 .map(|b| ConstraintTarget::Trait(b.nominal(&arguments)))
                                 .collect(),
                         );
+                    }
+                    for (target, bounds) in method.bounds {
+                        method_bounds
+                            .entry(target.instantiate(&arguments))
+                            .or_default()
+                            .extend(
+                                bounds
+                                    .iter()
+                                    .map(|b| ConstraintTarget::Trait(b.nominal(&arguments))),
+                            );
                     }
                     MethodSignature {
                         has_default: method.iterator.is_some(),
