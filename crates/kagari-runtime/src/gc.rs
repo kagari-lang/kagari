@@ -29,7 +29,7 @@ pub(crate) struct InterfaceValueSnapshot {
     pub(crate) concrete_type: kagari_ir::module::abi::AbiType,
     pub(crate) interface_type: kagari_ir::module::abi::NominalAbiType,
     pub(crate) implementation: crate::module::LoadedModule,
-    pub(crate) methods: Vec<InterfaceMethodBinding>,
+    pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
 }
 
 #[derive(Debug, Clone, Copy)]

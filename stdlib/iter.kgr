@@ -24,6 +24,32 @@ pub trait Iterator {
     /// Advance once and return the next item, or None.
     fn next(self) -> Option<Self::Item>;
 
+    /// Join remaining string items, inserting `separator` between adjacent items.
+    ///
+    /// Available only when Item is String; other values require explicit formatting.
+    /// Reads each item once, stopping at the first None. Empty input produces an
+    /// empty string. Aliases observe the consumed iterator progress. String fragments
+    /// are buffered and joined once, avoiding repeated concatenation of the prefix.
+    ///
+    /// # Panics
+    ///
+    /// Source or callback traps, cancellation and resource exhaustion propagate.
+    /// Earlier side effects remain visible. Native iteration guards are released on
+    /// completion or failure; no partial result string is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val text = [1, 2, 3].iter().map(|x| f"{x}").join(", ");
+    /// std::debug::assert(text == "1, 2, 3", "formatted items");
+    /// val parts = ["first", "second", "third"].iter();
+    /// parts.next();
+    /// std::debug::assert(parts.join("/") == "second/third", "remaining items");
+    /// ```
+    /// This standard traversal operation cannot be overridden by an implementation.
+    #[intrinsic(IteratorJoin)]
+    fn join(self, separator: String) -> String where Self: Iterator<Item = String>;
+
     /// Collect remaining items into the destination selected by the result type.
     ///
     /// This terminal operation drives next until its first None. The destination's

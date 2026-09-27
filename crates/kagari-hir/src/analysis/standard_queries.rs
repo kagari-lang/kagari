@@ -225,6 +225,44 @@ impl FileAnalysis {
                 }
             }
         }
+        // Source-declared associated-item constraints also govern completion.
+        candidates.retain(|item| {
+            let Some(method) = surface::STANDARD_TRAITS
+                .iter()
+                .flat_map(|t| t.methods)
+                .find(|m| m.item.identity() == item.identity())
+            else {
+                return true;
+            };
+            let mut arguments = Arguments::new();
+            arguments.insert("Self", ty.clone());
+            method.bounds.iter().all(|(target, constraints)| {
+                if !matches!(target, declarations::ApiType::Named("Self", _)) {
+                    return true;
+                }
+                constraints.iter().all(|constraint| {
+                    use crate::builtin::traits::{self, StandardTrait};
+                    let Some(kind @ (StandardTrait::Iterator | StandardTrait::Iterable)) =
+                        StandardTrait::from_name(constraint.name)
+                    else {
+                        return true;
+                    };
+                    let required = constraint.nominal(&arguments);
+                    let outputs = traits::iteration_outputs(
+                        kind,
+                        &ty,
+                        Some(&self.result.facts().aggregates),
+                        &Default::default(),
+                    );
+                    required.associated_types.iter().all(|(member, expected)| {
+                        outputs
+                            .as_ref()
+                            .and_then(|items| items.get(member))
+                            .is_some_and(|actual| !actual.conflicts_with(expected))
+                    })
+                })
+            })
+        });
         candidates
     }
 }
@@ -641,9 +679,17 @@ mod interpolation_queries {
     }
 
     #[test]
-    fn join_completion_requires_a_string_array_receiver() {
-        for (array, available) in [("[1]", false), ("[\"one\"]", true)] {
-            let text = format!("fn main() {{ {array}. }}");
+    fn join_completion_requires_string_items() {
+        for (body, available) in [
+            ("[1].", false),
+            ("[\"one\"].", true),
+            ("[1].iter().", false),
+            ("[\"one\"].iter().", true),
+            ("val xs: List<i32> = [1]; xs.", false),
+            ("val xs: List<String> = [\"one\"]; xs.", true),
+            ("val xs: MutableList<String> = [\"one\"]; xs.", true),
+        ] {
+            let text = format!("fn main() {{ {body} }}");
             let mut sources = SourceDatabase::default();
             let file = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
@@ -708,7 +754,14 @@ mod collection_access_tests {
                     ty.with_self(&contract.id, &receiver)
                         .instantiate(&substitution)
                 };
-                assert_eq!(implementation.methods.len(), contract.methods.len());
+                assert_eq!(
+                    implementation.methods.len(),
+                    contract
+                        .methods
+                        .iter()
+                        .filter(|method| !method.has_default)
+                        .count()
+                );
                 for method in implementation.methods {
                     let declared = contract
                         .methods

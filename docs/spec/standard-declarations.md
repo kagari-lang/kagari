@@ -67,7 +67,12 @@ and member locations refer to the bundled source text, not placeholder spans.
 Method-local generic parameters and their bounds retain method-owned identities
 through analysis and portable ABI validation. Engine-supplied iterator defaults are
 marked with intrinsic attributes; user implementations need only supply required
-methods and may provide ordinary explicit overrides of default methods.
+methods and may provide ordinary explicit overrides of default methods. The fixed
+`List::join` and `Iterator::join` traversal operations are exceptions: their declared
+string-item constraints are checked at each call, and implementations cannot override
+them. They lower at the call site and do not require a virtual method binding. Runtime
+interface tables retain vacant slots for omitted engine operations so later declared
+method ordinals remain stable.
 
 `iter.kgr` explicitly declares `impl<T> Iterator for Iter<T>`, including
 `type Item = T` and `#[intrinsic(IterNext)] fn next(self) -> Option<T>;`.

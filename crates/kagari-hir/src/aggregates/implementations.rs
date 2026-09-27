@@ -541,7 +541,8 @@ impl AggregateCatalog {
                 self.trait_method(method)
                     .filter(|method| {
                         method.has_default
-                            && crate::builtin::declarations::iterator_method(&method.id).is_none()
+                            && crate::builtin::declarations::native_default_method(&method.id)
+                                .is_none()
                     })
                     .map(|_| {
                         let mut target = implementation.id.clone();
@@ -572,7 +573,7 @@ impl AggregateCatalog {
             .iter()
             .find(|method| method.id.path.last() == Some(&name))?;
         (method.has_default
-            && crate::builtin::declarations::iterator_method(&method.id).is_none()
+            && crate::builtin::declarations::native_default_method(&method.id).is_none()
             && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
@@ -587,7 +588,8 @@ impl AggregateCatalog {
             .filter_map(|method| {
                 implementation.methods.get(&method.id).cloned().or_else(|| {
                     (method.has_default
-                        && crate::builtin::declarations::iterator_method(&method.id).is_none())
+                        && crate::builtin::declarations::native_default_method(&method.id)
+                            .is_none())
                     .then(|| {
                         let mut target = implementation.id.clone();
                         target

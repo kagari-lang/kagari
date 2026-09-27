@@ -351,7 +351,7 @@ fn required_methods_present(table: &InterfaceTableAbi, interface: &TraitAbi) -> 
             .methods
             .iter()
             .any(|actual| actual.name == method.name)
-            || kagari_hir::builtin::declarations::native_iterator_default(
+            || kagari_hir::builtin::declarations::native_trait_default(
                 &instance.declaration,
                 &method.name,
             )

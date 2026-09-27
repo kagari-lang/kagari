@@ -5,7 +5,7 @@ use crate::module::{
     instruction::{IterOp, StandardEnumOp},
 };
 use kagari_hir::{
-    builtin::{declarations::IteratorMethod, surface::StandardEnum, traits::StandardTrait},
+    builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},
 };
 
@@ -27,12 +27,12 @@ impl FunctionLowerer<'_, '_> {
     }
     pub(super) fn lower_iterator_adapter(
         &mut self,
-        operation: IteratorMethod,
+        operation: NativeDefaultMethod,
         source: &TypeId,
         arguments: &[TypeId],
         values: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use IteratorMethod::*;
+        use NativeDefaultMethod::*;
         let item = self.iterator_item(source)?;
         let mut captures = vec![values[0]];
         let mut types = vec![source.clone()];
@@ -317,7 +317,7 @@ impl FunctionLowerer<'_, '_> {
         body: &IteratorInstance,
         args: &[IrValue],
     ) -> Result<(), IrLoweringError> {
-        use IteratorMethod::*;
+        use NativeDefaultMethod::*;
         if matches!(body.operation, FlatMap | Flatten) {
             return self.lower_flatten_step(body, args);
         }
@@ -656,7 +656,7 @@ impl FunctionLowerer<'_, '_> {
         });
         self.switch_to_block(start_inner);
         let value = self.standard_enum_op(&input_option, StandardEnumOp::Read(0), Some(next))?;
-        let value = if body.operation == IteratorMethod::FlatMap {
+        let value = if body.operation == NativeDefaultMethod::FlatMap {
             self.iterator_callback(args[3], inner_source, &[value])?
         } else {
             value

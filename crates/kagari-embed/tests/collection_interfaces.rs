@@ -298,3 +298,150 @@ fn map_snapshot_bindings_must_be_lowered_before_execution() {
         assert!(verify_program(&forged).is_err(), "{public:?}");
     }
 }
+
+#[test]
+fn string_join_reads_lists_snapshots_and_iterator_progress() {
+    execute(
+        r#"
+fn join_list<C: List<String>>(source: C) -> String { source.join("/") }
+fn join_iter<I: Iterator<Item = String>>(source: I) -> String { source.join("/") }
+fn main() -> i32 {
+    val storage = ["Alice", "Bob"];
+    val view: List<String> = storage;
+    val writable: MutableList<String> = storage;
+    std::debug::assert(view.join(", ") == "Alice, Bob", "list");
+    std::debug::assert(writable.join(", ") == "Alice, Bob", "inherited list");
+    std::debug::assert(join_list(storage) == "Alice/Bob", "generic list");
+    val empty: List<String> = [];
+    std::debug::assert(empty.join(",") == "", "empty");
+    val one: List<String> = ["中文😀"];
+    std::debug::assert(one.join(",") == "中文😀", "singleton");
+    val parts: List<String> = ["", "", ""];
+    std::debug::assert(parts.join("😀") == "😀😀", "empty parts");
+    val map = LinkedHashMap::from([("first", 1), ("second", 2)]);
+    std::debug::assert(map.keys().join("/") == "first/second", "snapshot");
+    std::debug::assert([1, 2, 3].iter().map(|x| f"{x}").join(",") == "1,2,3", "format pipeline");
+    val cursor = storage.iter();
+    cursor.next();
+    std::debug::assert(join_iter(cursor) == "Bob", "remaining items");
+    std::debug::assert(cursor.next() == None, "exhausted");
+    storage.push("Carol");
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn string_join_rejects_non_string_items_before_codegen() {
+    let engine = KagariEngine::default();
+    for source in [
+        "fn main() { [1, 2].join(\",\"); }",
+        "fn main() { val xs: List<i32> = [1]; xs.join(\",\"); }",
+        "fn main() { [1].iter().join(\",\"); }",
+        "fn bad<T>(xs: List<T>) -> String { xs.join(\",\") }",
+        "fn bad<I: Iterator>(xs: I) -> String { xs.join(\",\") }",
+        r#"struct Source {} impl Iterator for Source {
+            type Item = String;
+            fn next(self) -> Option<String> { None }
+            fn join(self, separator: String) -> String { "override" }
+        } fn main() {}"#,
+    ] {
+        assert!(
+            engine
+                .compile_source(
+                    SourceFile::new("invalid-join.kgr", source),
+                    Default::default()
+                )
+                .is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn string_join_supports_custom_sources_and_stops_at_first_none() {
+    execute(
+        r#"
+struct Sequence { val items: ArrayList<String> }
+impl Index<usize> for Sequence {
+    type Output = String;
+    fn index(self, index: usize) -> String { self.items[index] }
+}
+impl Iterable for Sequence {
+    type Item = String;
+    type Iter = Iter<String>;
+    fn iter(self) -> Iter<String> { self.items.iter() }
+}
+impl List<String> for Sequence {
+    fn len(self) -> usize { self.items.len() }
+    fn is_empty(self) -> bool { self.items.is_empty() }
+    fn get(self, index: usize) -> Option<String> { self.items.get(index) }
+}
+struct Sometimes { var calls: i32 }
+impl Iterator for Sometimes {
+    type Item = String;
+    fn next(self) -> Option<String> {
+        self.calls += 1;
+        if self.calls == 2 { None } else { Some(f"{self.calls}") }
+    }
+}
+fn main() -> i32 {
+    val custom = Sequence { items: ["a", "b"] };
+    std::debug::assert(custom.join("-") == "a-b", "concrete custom list");
+    val view: List<String> = custom;
+    std::debug::assert(view.join("-") == "a-b", "dynamic custom list");
+    val source = Sometimes { calls: 0 };
+    std::debug::assert(source.join(",") == "1" && source.calls == 2, "first None");
+    std::debug::assert(source.next() == Some("3"), "no extra next");
+    val calls = Sometimes { calls: 0 };
+    val text = [1, 2, 3].iter().map(|x| { calls.calls += 1; f"{x}" }).join("/");
+    std::debug::assert(text == "1/2/3" && calls.calls == 3, "exactly once");
+    42
+}
+"#,
+    );
+}
+
+#[test]
+fn string_join_failures_release_resources_and_keep_runtime_usable() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "join-failure.kgr",
+                r#"
+fn trap() { [1].iter().map(|x| f"{x / 0}").join(","); }
+fn structural() { val xs=["a"]; xs.iter().inspect(|x| { xs.push("b"); }).join(","); }
+struct Forever {}
+impl Iterator for Forever { type Item=String; fn next(self)->Option<String>{Some("x")} }
+fn exhaust() { Forever{}.join(","); }
+fn healthy()->i32 {42}
+"#,
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    for entry in ["trap", "structural", "exhaust"] {
+        let mut options = context.clone();
+        if entry == "exhaust" {
+            options.resources.max_instruction_steps = Some(150);
+        }
+        let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
+        assert!(!format!("{error:?}").contains("UnsupportedExecution"));
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert!(runtime.runtime().execution_root().is_none());
+        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(
+            runtime
+                .execute(&loaded, "healthy", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+    }
+}

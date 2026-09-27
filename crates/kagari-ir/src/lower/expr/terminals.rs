@@ -2,19 +2,19 @@ use super::*;
 use crate::module::{abi::AbiType, instruction::StandardEnumOp};
 use kagari_common::collection::CollectionAccess::Mutable;
 use kagari_hir::{
-    builtin::{declarations::IteratorMethod, surface::StandardEnum, traits::StandardTrait},
+    builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},
 };
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_iterator_terminal(
         &mut self,
-        operation: IteratorMethod,
+        operation: NativeDefaultMethod,
         source: &TypeId,
         arguments: &[TypeId],
         values: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
-        use IteratorMethod::*;
+        use NativeDefaultMethod::*;
         let item_type = self.iterator_item(source)?;
         let optional = TypeId::StandardEnum {
             kind: StandardEnum::Option,
@@ -70,7 +70,7 @@ impl FunctionLowerer<'_, '_> {
                 result
             }
             ForEach => self.lower_constant(Constant::Unit, ValueType::Unit),
-            Partition => self.collection_new(&array_type)?,
+            Join | Partition => self.collection_new(&array_type)?,
             GroupBy => self.collection_new(&TypeId::Map {
                 key: Box::new(arguments[0].clone()),
                 value: Box::new(array_type.clone()),
@@ -116,6 +116,10 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(body);
         let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
         match operation {
+            Join => {
+                self.collection_insert(&array_type, result, item)?;
+                self.ensure_jump(head);
+            }
             FindMap => {
                 let mapped = self.iterator_callback(values[1], &result_optional, &[item])?;
                 let present =
@@ -402,6 +406,13 @@ impl FunctionLowerer<'_, '_> {
         if guarded {
             self.iterator_close(source, values[0]);
             self.emit(Instruction::EndIteration);
+        }
+        if operation == Join {
+            return Ok(self.emit_intrinsic(
+                StandardIntrinsic::ArrayJoin,
+                &[result, values[1]],
+                ValueType::Str,
+            ));
         }
         if let Some(rejected) = rejected {
             let mut contract = StandardTrait::FromIterator.nominal();

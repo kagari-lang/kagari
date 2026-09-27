@@ -10,5 +10,11 @@ fn main() -> i32 {
     std::debug::assert(f"{f"score={score}"}" == "score=40", "nested interpolation");
     std::debug::assert(f"" == "", "empty interpolation");
     std::debug::assert(["red", "green", "blue"].join(", ") == "red, green, blue", "join");
+    val names: List<String> = ["Alice", "Bob"];
+    std::debug::assert(names.join("/") == "Alice/Bob", "read-only join");
+    val labels = [1, 2, 3].iter().map(|value| f"item={value}").join(", ");
+    std::debug::assert(labels == "item=1, item=2, item=3", "formatted pipeline");
+    val map = LinkedHashMap::from([("first", 1), ("second", 2)]);
+    std::debug::assert(map.keys().join("/") == "first/second", "key snapshot");
     42
 }

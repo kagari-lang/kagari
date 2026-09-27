@@ -99,6 +99,10 @@ and allocate independent slots; later map changes do not change the snapshot.
 Referenced key/value objects remain shared. Use `ArrayList::from(snapshot)` for
 an explicitly writable copy, or `map.iter()` to traverse without a snapshot.
 
+String lists provide `join(separator)` through their read-only contract, so
+`map.keys().join(", ")` works for String keys. String-yielding iterators also provide
+join; other elements require explicit formatting. See [string construction](builtins.md#string-construction).
+
 Custom implementations must uphold their interface contracts, including the
 single-mutation failure guarantee and consistency of get/index/iteration. The
 language cannot automatically roll back arbitrary code in a user method.
@@ -142,7 +146,7 @@ and selected methods. Completion exposes only the members of the visible type.
 Native bridge functions are ordinary verified code with concrete signatures;
 interface contracts and parent tables are verified and linked before execution.
 Bytecode rejects forged receiver upgrades and raw storage writes through an
-interface. KBC and runtime ABI v85 encode native bridges, normalized snapshot
+interface. KBC and runtime ABI v86 encode native bridges, normalized snapshot
 operations and the copy intrinsic; older products are rejected without compatibility
 decoding.
 

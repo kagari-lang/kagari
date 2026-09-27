@@ -73,6 +73,10 @@ Use `f"name={name}"` for Display formatting and `f"value={value:?}"` for Debug.
 Use `{{` and `}}` for literal braces. Expressions are evaluated once, in order;
 formatting failures propagate normally. Join already formatted strings with
 `["red", "green"].join(", ")`. Two strings can still be joined with `concat`.
+
+Read-only `List<String>` supports the same join call, including String-key map
+snapshots. String-yielding iterators join their remaining items through the first
+None; format other values explicitly with `.map(|x| f"{x}").join(", ")`.
 See [the runnable example](../examples/syntax/string-interpolation.kgr).
 
 Collection interfaces (`List`/`MutableList`, `Map`/`MutableMap`, `Set`/`MutableSet`)

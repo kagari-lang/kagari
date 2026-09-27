@@ -40,7 +40,7 @@ pub struct ApiAssociatedType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiMethod {
     pub item: ApiItem,
-    pub iterator: Option<IteratorMethod>,
+    pub native_default: Option<NativeDefaultMethod>,
     pub generics: &'static [ApiGeneric],
     pub bounds: &'static [(ApiType, &'static [ApiBound])],
     pub params: &'static [ApiParameter],
@@ -56,7 +56,9 @@ pub struct ApiGeneric {
 
 /// Native defaults retain ordinary trait identities and checked generic signatures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IteratorMethod {
+pub enum NativeDefaultMethod {
+    Join,
+    ListJoin,
     Collect,
     Sum,
     Product,
@@ -96,25 +98,24 @@ pub enum IteratorMethod {
     GroupBy,
 }
 
-pub fn iterator_method(id: &kagari_common::identity::DefinitionId) -> Option<IteratorMethod> {
+pub fn native_default_method(
+    id: &kagari_common::identity::DefinitionId,
+) -> Option<NativeDefaultMethod> {
     surface::STANDARD_TRAITS
         .iter()
         .flat_map(|t| t.methods)
         .find(|m| m.item.identity() == *id)
-        .and_then(|m| m.iterator)
+        .and_then(|m| m.native_default)
 }
 
-pub fn native_iterator_default(
-    interface: &kagari_common::identity::DefinitionId,
-    name: &str,
-) -> bool {
+pub fn native_trait_default(interface: &kagari_common::identity::DefinitionId, name: &str) -> bool {
     surface::STANDARD_TRAITS
         .iter()
         .find(|t| t.item.identity() == *interface)
         .is_some_and(|t| {
-            t.methods
-                .iter()
-                .any(|m| m.item.path.last().is_some_and(|p| p.1 == name) && m.iterator.is_some())
+            t.methods.iter().any(|m| {
+                m.item.path.last().is_some_and(|p| p.1 == name) && m.native_default.is_some()
+            })
         })
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -680,7 +681,7 @@ impl ApiTrait {
                             );
                     }
                     MethodSignature {
-                        has_default: method.iterator.is_some(),
+                        has_default: method.native_default.is_some(),
                         declaration: method.item.declaration(),
                         id: method.item.identity(),
                         owner: id.clone(),

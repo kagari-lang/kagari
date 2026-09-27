@@ -593,3 +593,20 @@ Validation: 1,278 workspace tests passed, including executable standard-library
 documentation and standalone examples. Formatting, workspace/all-targets clippy
 with warnings denied, and diff checks passed. Full tests used an isolated target
 directory after a Windows linker file-access failure in the existing build output.
+
+## String joining through collection interfaces
+
+- [x] Declare string-constrained List and Iterator join operations in the bundled
+  standard library; preserve the concrete ArrayList string fast path.
+- [x] Lower generic joining through ordinary iteration, buffering each string once
+  before final allocation. Keep native-default interface slots optional and retain
+  declared method ordinals; publish KBC/runtime ABI v86 without compatibility.
+- [x] Cover readonly and mutable views, key snapshots, generic and custom sources,
+  partial progress, first-None termination, Unicode, empty inputs, type rejection,
+  frequent GC and source/artifact/JIT fallback behavior.
+
+Validation: 1,282 workspace tests passed across the final 1,281-test run and the
+previously passing executable standard-library documentation test. The final run
+skipped only that unchanged documentation test after fixing completion filtering
+and the native-witness assertion. All 12 standard API query tests, formatting,
+workspace/all-targets clippy with warnings denied and diff checks passed.

@@ -701,6 +701,23 @@ empty string; separators appear only between adjacent elements. It does not muta
 its source or call user code. Size arithmetic is checked and result allocation is
 fallible. String concatenation remains `lhs.concat(rhs)`.
 
+Read-only `List<String>` and its mutable subinterface also provide `join(separator)`.
+`Iterator::join` is available when `Item = String` and consumes the remaining items
+through the first `None`. Generic bounds and custom collection/iterator implementations
+use the same declared contracts. Other item types must be formatted explicitly, for
+example `[1, 2].iter().map(|x| f"{x}").join(", ")`.
+
+These two standard traversal operations cannot be overridden; custom sources supply
+their ordinary iteration behavior. List traversal obtains its iterator once. Generic
+joining reads each item once, buffers string fragments, then allocates and fills the
+result once; it does not repeatedly concatenate the accumulated prefix. Temporary
+storage is proportional to the yielded fragments. Native ArrayList joining retains
+its direct two-pass allocation path without an intermediate fragment container.
+Empty input returns an empty string, and a singleton has no separator. Custom next
+methods and upstream callbacks can execute script code or trap. Earlier side effects
+and consumed progress remain visible on failure. No partial string is returned, and
+normal trap, cancellation and budget cleanup release iteration resources.
+
 Interpolated `f"..."` expressions use standard Display/Debug dispatch and the same
 native join operation. See [interpolated strings](syntax.md#interpolated-strings)
 for evaluation order, escaping and propagation rules. String `+`, builders and

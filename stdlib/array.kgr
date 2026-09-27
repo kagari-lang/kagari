@@ -418,6 +418,30 @@ pub trait List<T>: Iterable<Item = T, Iter = Iter<T>> + Index<usize, Output = T>
     fn is_empty(self) -> bool;
     /// Returns an element, or `None` when the index is out of bounds.
     fn get(self, index: usize) -> Option<T>;
+
+    /// Join string elements in order, separating adjacent elements with `separator`.
+    ///
+    /// Available only when this list yields String. Empty input produces an empty
+    /// string. This reads the list without changing its slots or formatting objects.
+    /// Generic traversal reads each element once and buffers string fragments before
+    /// constructing the result. Native ArrayList has a direct allocation fast path.
+    ///
+    /// # Panics
+    ///
+    /// Iterator traps, cancellation and resource exhaustion propagate. Earlier
+    /// side effects remain visible; no partial string is returned.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val names: List<String> = ["Alice", "Bob"];
+    /// std::debug::assert(names.join(", ") == "Alice, Bob", "read-only join");
+    /// val map = LinkedHashMap::from([("first", 1), ("second", 2)]);
+    /// std::debug::assert(map.keys().join("/") == "first/second", "snapshot join");
+    /// ```
+    /// This standard traversal operation cannot be overridden by an implementation.
+    #[intrinsic(ListJoin)]
+    fn join(self, separator: String) -> String where Self: Iterable<Item = String>;
 }
 
 /// Writable access to an ordered sequence.

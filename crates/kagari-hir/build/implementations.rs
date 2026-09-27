@@ -236,7 +236,7 @@ pub fn declaration(
     let trait_arguments = trait_arguments.join(",");
     let constraints = constraints.join(",");
     let associated = associated.join(",");
-    writeln!(output, "super::declarations::ApiImplementation{{interface:{protocol:?},trait_arguments:&[{trait_arguments}],bounds:&[{constraints}],generics:&{names:?},target:{target},associated_types:&[{associated}],methods:&[ApiMethod{{item:{item},iterator:None,generics:&[{generics}],bounds:&[],params:&[ApiParameter{{name:{param_name:?},ty:{param_type}}}],result:{result}}}]}},").unwrap();
+    writeln!(output, "super::declarations::ApiImplementation{{interface:{protocol:?},trait_arguments:&[{trait_arguments}],bounds:&[{constraints}],generics:&{names:?},target:{target},associated_types:&[{associated}],methods:&[ApiMethod{{item:{item},native_default:None,generics:&[{generics}],bounds:&[],params:&[ApiParameter{{name:{param_name:?},ty:{param_type}}}],result:{result}}}]}},").unwrap();
 }
 
 fn range_bounds(
@@ -333,7 +333,7 @@ fn range_bounds(
             ],
         );
         writeln!(items, "{item},").unwrap();
-        writeln!(methods, "ApiMethod{{item:{item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}},").unwrap();
+        writeln!(methods, "ApiMethod{{item:{item},native_default:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}},").unwrap();
     }
     writeln!(output, "super::declarations::ApiImplementation{{interface:\"RangeBounds\",trait_arguments:&[ApiType::Named(\"T\", &[])],bounds:&[],generics:&{names:?},target:{target},associated_types:&[],methods:&[{methods}]}},").unwrap();
 }
@@ -445,7 +445,7 @@ fn collection(
             .return_type()
             .map(ty)
             .unwrap_or("ApiType::Tuple(&[])".into());
-        writeln!(methods, "ApiMethod{{item:{item},iterator:None,generics:&[],bounds:&[],params:&[{params}],result:{result}}},").unwrap();
+        writeln!(methods, "ApiMethod{{item:{item},native_default:None,generics:&[],bounds:&[],params:&[{params}],result:{result}}},").unwrap();
     }
     writeln!(output, "super::declarations::ApiImplementation{{interface:{protocol:?},trait_arguments:&[{arguments}],bounds:&[{constraints}],generics:&{names:?},target:{target},associated_types:&[],methods:&[{methods}]}},").unwrap();
 }

@@ -539,7 +539,12 @@ impl Runtime {
                     .cloned()
             })
             .ok_or_else(invalid)?;
-        if trait_contract.methods.len() != table.methods.len() {
+        if table.methods.iter().any(|method| {
+            !trait_contract
+                .methods
+                .iter()
+                .any(|declared| declared.name == method.name)
+        }) {
             return Err(invalid());
         }
         let mut methods = Vec::with_capacity(trait_contract.methods.len());
@@ -547,8 +552,17 @@ impl Runtime {
             let method = table
                 .methods
                 .iter()
-                .find(|method| method.name == declared.name)
-                .ok_or_else(invalid)?;
+                .find(|method| method.name == declared.name);
+            let Some(method) = method else {
+                if kagari_ir::module::abi::native_trait_default(
+                    &interface_type.declaration,
+                    &declared.name,
+                ) {
+                    methods.push(None);
+                    continue;
+                }
+                return Err(invalid());
+            };
             if !method.generic_params.is_empty() {
                 return Err(invalid());
             }
@@ -577,12 +591,12 @@ impl Runtime {
             if candidates.next().is_some() {
                 return Err(invalid());
             }
-            methods.push(gc::InterfaceMethodBinding {
+            methods.push(Some(gc::InterfaceMethodBinding {
                 method: method_id,
                 function: slot.function,
                 parameter_types: method.params.iter().map(|param| param.ty.clone()).collect(),
                 return_type: method.return_type.clone(),
-            });
+            }));
         }
         if !matches!(data, Value::HostRoot(_)) {
             self.validate_heap_payloads(std::slice::from_ref(&data))?;
@@ -742,6 +756,7 @@ impl Runtime {
             && !snapshot
                 .methods
                 .iter()
+                .flatten()
                 .any(|binding| &binding.method == method)
         {
             let versions = snapshot.implementation.members().collect::<Vec<_>>();
@@ -769,6 +784,7 @@ impl Runtime {
             snapshot
                 .methods
                 .iter()
+                .flatten()
                 .find(|binding| &binding.method == method)
         })
     }
@@ -847,7 +863,7 @@ impl Runtime {
             return self.resolve_interface_method_slot(&view, interface, slot);
         }
         self.resolve_interface_method_inner(value, Some(interface), |snapshot| {
-            snapshot.methods.get(slot)
+            snapshot.methods.get(slot).and_then(Option::as_ref)
         })
     }
 

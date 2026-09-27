@@ -618,3 +618,8 @@ MapEntriesStorage operations followed by a verified List conversion. The public
 snapshot bindings are rejected if left unlowered, and the storage operations carry
 native array result types through access validation. Version 84 products are
 rejected before execution; there is no compatibility decoder.
+
+Version 86/runtime ABI v86 add the declared, string-constrained List and Iterator
+join operations. They lower to ordinary traversal and the existing ArrayJoin storage
+intrinsic. Runtime interface tables preserve declaration ordinals for omitted native
+defaults using vacant bindings. Version 85 products are rejected before execution.

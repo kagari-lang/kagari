@@ -123,6 +123,7 @@ impl FunctionLowerer<'_, '_> {
             interface
         };
         if let TypeId::Trait(child) = &ty
+            && kagari_hir::builtin::declarations::native_default_method(method).is_none()
             && self
                 .planner
                 .catalog
@@ -167,6 +168,7 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
+            && kagari_hir::builtin::declarations::native_default_method(method).is_none()
             && kagari_hir::builtin::traits::native_interface_applies(&interface, &ty)
         {
             return self.lower_native_collection_method(
@@ -214,14 +216,36 @@ impl FunctionLowerer<'_, '_> {
             }
         }
 
-        if let Some(operation) = kagari_hir::builtin::declarations::iterator_method(method)
+        if let Some(operation) = kagari_hir::builtin::declarations::native_default_method(method)
             && self
                 .planner
                 .catalog
                 .implementation_method(method, &interface, &ty)
                 .is_none()
         {
-            use kagari_hir::builtin::declarations::IteratorMethod::*;
+            use kagari_hir::builtin::declarations::NativeDefaultMethod::*;
+            if operation == ListJoin {
+                if matches!(ty, TypeId::Array(_, _)) {
+                    return Ok(self.emit_intrinsic(
+                        StandardIntrinsic::ArrayJoin,
+                        args,
+                        ValueType::Str,
+                    ));
+                }
+                let iterator_type = self.iteration_output(StandardTrait::Iterable, &ty, "Iter")?;
+                let iterator = self.lower_applied_operator(
+                    StandardTrait::Iterable.nominal(),
+                    ty.clone(),
+                    &StandardTrait::Iterable.contract().methods[0].id,
+                    &[args[0]],
+                )?;
+                return self.lower_iterator_terminal(
+                    Join,
+                    &iterator_type,
+                    &[],
+                    &[iterator, args[1]],
+                );
+            }
             if matches!(operation, Sum | Product) {
                 let protocol = if operation == Sum {
                     StandardTrait::Sum
@@ -241,7 +265,8 @@ impl FunctionLowerer<'_, '_> {
             }
             if matches!(
                 operation,
-                Find | Any
+                Join | Find
+                    | Any
                     | All
                     | Count
                     | Fold
@@ -262,7 +287,7 @@ impl FunctionLowerer<'_, '_> {
             ) {
                 return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
             }
-            if operation != kagari_hir::builtin::declarations::IteratorMethod::Collect {
+            if operation != kagari_hir::builtin::declarations::NativeDefaultMethod::Collect {
                 return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
             }
             let target = method_arguments

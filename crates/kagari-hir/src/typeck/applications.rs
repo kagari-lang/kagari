@@ -415,6 +415,24 @@ pub(crate) fn validate_signatures(
             else {
                 continue;
             };
+            if matches!(
+                crate::builtin::declarations::native_default_method(&method.id),
+                Some(
+                    crate::builtin::declarations::NativeDefaultMethod::Join
+                        | crate::builtin::declarations::NativeDefaultMethod::ListJoin
+                )
+            ) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+                        trait_name: contract.declaration.name.clone(),
+                        method_name: method.name.clone(),
+                        reason: "join is a standard traversal operation and cannot be overridden"
+                            .into(),
+                    })
+                    .with_span(span),
+                );
+                continue;
+            }
             super::check::compare_method_contract(
                 method,
                 actual,

@@ -1,4 +1,5 @@
 use kagari_common::collection::CollectionAccess;
+pub use kagari_hir::builtin::declarations::native_trait_default;
 pub use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
 pub use kagari_hir::types::BuiltinType;
 use serde::{Deserialize, Serialize};

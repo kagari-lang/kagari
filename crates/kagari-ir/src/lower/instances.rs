@@ -52,7 +52,7 @@ pub(super) struct Instance {
 
 #[derive(Debug, Clone)]
 pub(super) struct IteratorInstance {
-    pub operation: kagari_hir::builtin::declarations::IteratorMethod,
+    pub operation: kagari_hir::builtin::declarations::NativeDefaultMethod,
     pub captures: Vec<TypeId>,
     pub output: TypeId,
     pub span: Span,
@@ -406,6 +406,9 @@ impl<'a> InstancePlanner<'a> {
             .ok_or(IrLoweringError::MissingBinding("native bridge origin"))?;
         let mut methods = Vec::new();
         for method in &contract.methods {
+            if kagari_hir::builtin::declarations::native_default_method(&method.id).is_some() {
+                continue;
+            }
             let mut id = declaration.clone();
             id.path.push(DefinitionPathSegment {
                 kind: DefinitionKind::Method,

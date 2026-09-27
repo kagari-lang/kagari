@@ -76,7 +76,7 @@ pub fn native_implementation(
     let generics = vec![parameter];
     let target = ty(target);
     writeln!(implementations,
-        "super::declarations::ApiImplementation{{interface:\"Iterator\",trait_arguments:&[],bounds:&[],generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
+        "super::declarations::ApiImplementation{{interface:\"Iterator\",trait_arguments:&[],bounds:&[],generics:&{generics:?},target:{target},associated_types:&[({member_item},{parameter_type})],methods:&[ApiMethod{{item:{method_item},native_default:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}}]}},"
     ).unwrap();
 }
 
@@ -236,13 +236,14 @@ pub fn declarations(
                 .unwrap();
             }
             for method in def.methods() {
-                let iterator = attribute(&method, "intrinsic")
+                let native_default = attribute(&method, "intrinsic")
                     .map(|binding| {
-                        assert_eq!(name, "Iterator", "native defaults belong to Iterator");
-                        let operation = binding
-                            .strip_prefix("Iterator")
-                            .expect("iterator operation");
-                        format!("Some(super::declarations::IteratorMethod::{operation})")
+                        assert!(
+                            matches!(name.as_str(), "Iterator" | "List"),
+                            "unsupported native default owner"
+                        );
+                        let operation = binding.strip_prefix("Iterator").unwrap_or(&binding);
+                        format!("Some(super::declarations::NativeDefaultMethod::{operation})")
                     })
                     .unwrap_or("None".into());
                 assert!(
@@ -299,7 +300,7 @@ pub fn declarations(
                     .join(",");
                 writeln!(
                     methods,
-                    "ApiMethod{{item:{declaration},iterator:{iterator},generics:&[{generics}],bounds:&[{predicates}],params:&[{params}],result:{result}}},"
+                    "ApiMethod{{item:{declaration},native_default:{native_default},generics:&[{generics}],bounds:&[{predicates}],params:&[{params}],result:{result}}},"
                 )
                 .unwrap();
             }
