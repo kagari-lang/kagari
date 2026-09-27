@@ -4,6 +4,7 @@ pub mod debug;
 pub mod function;
 pub mod ids;
 pub mod instruction;
+pub mod passes;
 pub mod program;
 mod verify;
 pub use debug::{

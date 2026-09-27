@@ -33,9 +33,12 @@ use crate::source::lower::MirLoweringError;
 use kagari_abi::representation::ValueType;
 use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_mir::ids::InstanceId;
+use kagari_mir::passes::PassOptions;
 
 #[derive(Debug, Clone)]
 pub struct MirLoweringOptions {
+    /// Optional bounded MIR simplification; None preserves the diagnostic lowering form.
+    pub optimization: Option<PassOptions>,
     pub max_generic_instances: usize,
     pub max_type_nodes: usize,
     pub max_type_depth: usize,
@@ -46,6 +49,7 @@ pub struct MirLoweringOptions {
 impl Default for MirLoweringOptions {
     fn default() -> Self {
         Self {
+            optimization: None,
             max_generic_instances: 1024,
             max_type_nodes: 8192,
             max_type_depth: 64,

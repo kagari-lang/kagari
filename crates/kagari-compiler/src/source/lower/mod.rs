@@ -29,6 +29,7 @@ use kagari_hir::hir::{ExprId, FunctionId, FunctionKind, LocalId, PlaceId};
 use kagari_mir::MirModule;
 use kagari_mir::MirVerificationErrorKind;
 use kagari_mir::VerifiedMirModule;
+use kagari_mir::passes::optimize;
 use kagari_mir::verify_mir;
 
 #[derive(Debug)]
@@ -197,6 +198,10 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         },
         &options.cancel,
     )
+    .and_then(|module| match &options.optimization {
+        Some(passes) => optimize(module, passes, &options.cancel).map(|result| result.module),
+        None => Ok(module),
+    })
     .map_err(|error| match error.kind {
         MirVerificationErrorKind::Cancelled => MirLoweringError::Cancelled,
         MirVerificationErrorKind::Limit { resource, limit } => MirLoweringError::diagnostic(

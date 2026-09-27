@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A01 complete; A02 compiler/MIR migration is in progress; workspace build is broken.
+Status: A00-A02 complete; A03 runtime/artifact integration is next; workspace build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -441,17 +441,17 @@ must not be the sole record needed to resume the goal.
 
 - [x] A00 — Existing structure cleanup and passing CI prerequisite.
 - [x] A01 — Contracts and crate ownership.
-- [ ] A02 — MIR, analyses and compiler lowering.
+- [x] A02 — MIR, analyses and compiler lowering.
 - [ ] A03 — Runtime, artifacts and embedding.
 - [ ] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
-Current state: A00 passed at `4d82fcb`. A01's first ABI checkpoint `1838e57`
-also built and passed its focused tests. The subsequent thirteen-crate extraction
-is intentionally not green: ABI verification still contains frontend queries that
-must be replaced, and downstream compiler/runtime/backend wiring remains open.
-A01 is not complete; do not advance its checklist until execution contracts have
-lost their source-analysis types and queries. Resume with portable ABI contracts.
+Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
+completes with the bounded public MIR passes checkpoint below. Source compilation,
+verified MIR analyses and frontend-free bytecode lowering pass their scoped checks.
+The workspace remains intentionally broken at the recorded A03 VM/runtime fixture
+and A04 native backend boundaries. Resume A03 integration; A05 final acceptance
+has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -467,7 +467,7 @@ does not authorize starting the MIR refactor with failing gates.
 | --- | --- | --- | --- |
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
-| A02 | `0cb6570` concrete source handoff; `c5ecb17` sealed analyses; `74168b1` portable origins; explicit logical charges and offsets | 244 focused tests and 2 seal doc tests; scoped source/core/runtime clippy, structure, fmt and diff checks pass | Bounded public passes remain; A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures |
+| A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
@@ -1286,6 +1286,54 @@ operation cleanup, retaining these logical checkpoints and re-verifying/recomput
 all facts after transformation. The checkpoint mechanism is tested, but no public
 optimization pipeline is implemented yet. A03 artifact/MIR correspondence and
 feature wiring, A04 native migration and A05 acceptance remain outstanding.
+
+### A02 exit: bounded public MIR passes (2026-09-28)
+
+Added `kagari_mir::passes::optimize`, consuming a verified module and returning a
+new seal plus pass statistics. Per-block scalar propagation folds successful
+integer/boolean operations using the shared checked arithmetic contracts and
+selects constant branches. A backward sweep removes dead pure temporary
+producers using sealed cross-block live-outs. Removed operations become budget
+checkpoints: blocks, logical offsets, charges, origins and scopes retain their
+identity. Both transformation stages reverify and recompute analyses; cancellation
+or the public work limit returns no partial result. Non-SSA writes kill facts,
+calls clear propagation state, and heap reads, allocations and trapping operations
+remain executable. Floating-point arithmetic is deliberately left to execution.
+
+Corrected two effect declarations before relying on purity: raw unsigned arithmetic
+can trap, and unchecked casts still validate their source numeric domain. Source
+lowering exposes the same frontend-free pipeline through optional
+`MirLoweringOptions.optimization`; its default preserves the diagnostic lowering
+form. No alternate interpreter or source dependency was introduced into MIR.
+
+Validation:
+
+- `cargo test -p kagari-abi -p kagari-bytecode -p kagari-mir -p kagari-compiler
+  -p kagari-codegen`: 222 tests and two seal doc tests pass. Ten new pass tests
+  cover integer widths/shift rules, overflow/division/shift traps, unsigned effects,
+  cast/float preservation, non-SSA invalidation, call barriers, heap reads,
+  recomputed reachability, unchanged origins/charges and cancellation/work limits.
+- `cargo test -p kagari-runtime --test execution_frames --test execution_sessions
+  --test host_scopes`: 32 tests pass, retaining frame, budget, reentry and root
+  coverage. Optimized execution parity must be added once A03 restores VM wiring.
+- All-target clippy with denied warnings passes for ABI, bytecode, MIR, compiler
+  and codegen; `cargo clippy -p kagari-compiler --no-default-features --all-targets
+  -- -D warnings` also passes. MIR still depends only on ABI/common and generic
+  support crates; the compiler's optional source layer owns HIR/syntax.
+- `uv run --locked scripts/check_structure.py`: 487 Rust files, zero findings or
+  exceptions. Reviewed changed imports, ownership, visibility and pass state/work
+  bounds. `cargo fmt --all -- --check` and `git diff --check` pass. Logs reside in
+  `target/a02-passes-*.log`; no structural debt or suppressed checks were added.
+
+A02 meets its exit gate: checked source-to-MIR-to-bytecode lowering, concrete
+operation contracts, sealed program-point analyses, portable origins, explicit
+budgets and public bounded transformations exist with contract tests. Runtime
+integration remains separate: the previously recorded five VM errors and eighteen
+obsolete runtime backend fixture errors belong to A03; Cranelift compilation and
+invocation migration belongs to A04. These unchanged failures were not rerun here.
+Workspace tests/clippy and the final behavior matrix are not passing evidence.
+Continue A03 native installation/invocation ownership, portable MIR artifact
+correspondence, load-before-execute preparation and embedding feature separation.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

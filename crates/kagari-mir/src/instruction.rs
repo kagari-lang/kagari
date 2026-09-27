@@ -297,7 +297,11 @@ impl Instruction {
                 if conversion.checked {
                     EffectSet::allocation()
                 } else {
-                    EffectSet::default()
+                    // Runtime conversion validates the source numeric domain.
+                    EffectSet {
+                        may_trap: true,
+                        ..EffectSet::default()
+                    }
                 }
             }
             Self::Numeric { .. } => EffectSet {
@@ -325,7 +329,10 @@ impl Instruction {
                                 | BinaryOp::Mul
                                 | BinaryOp::Div
                                 | BinaryOp::Rem
-                        ) && matches!(lhs.ty, ValueType::I32 | ValueType::I64)),
+                        ) && matches!(
+                            lhs.ty,
+                            ValueType::I32 | ValueType::I64 | ValueType::U64
+                        )),
                     ..EffectSet::default()
                 }
             }
