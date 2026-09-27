@@ -520,6 +520,11 @@ impl FunctionLowerer<'_, '_> {
                         | hir::BinaryOp::Mul
                         | hir::BinaryOp::Div
                         | hir::BinaryOp::Rem
+                        | hir::BinaryOp::BitAnd
+                        | hir::BinaryOp::BitOr
+                        | hir::BinaryOp::BitXor
+                        | hir::BinaryOp::Shl
+                        | hir::BinaryOp::Shr
                 ) && self
                     .analyzed
                     .typed

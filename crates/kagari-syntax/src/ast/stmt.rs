@@ -136,6 +136,12 @@ impl AssignStmt {
                         | SyntaxKind::MinusEq
                         | SyntaxKind::StarEq
                         | SyntaxKind::SlashEq
+                        | SyntaxKind::PercentEq
+                        | SyntaxKind::AmpEq
+                        | SyntaxKind::PipeEq
+                        | SyntaxKind::CaretEq
+                        | SyntaxKind::ShlEq
+                        | SyntaxKind::ShrEq
                 )
             })
     }

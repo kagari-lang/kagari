@@ -163,3 +163,53 @@ pub trait Index<Rhs> {
     /// Read the element addressed by the index.
     fn index(self, rhs: Rhs) -> Self::Output;
 }
+
+/// The binary `&` operation.
+/// Integer operands use the left operand's fixed width. Operands evaluate once.
+/// Builtin integer operands must have the same type.
+pub trait BitAnd<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn bitand(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `|` operation.
+/// Integer operands use the left operand's fixed width. Operands evaluate once.
+/// Builtin integer operands must have the same type.
+pub trait BitOr<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn bitor(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `^` operation.
+/// Integer operands use the left operand's fixed width. Operands evaluate once.
+/// Builtin integer operands must have the same type.
+pub trait BitXor<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn bitxor(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `<<` operation.
+/// Integer operands use the left operand's fixed width. Operands evaluate once.
+/// Shift counts must be nonnegative and smaller than the left operand width; otherwise execution traps.
+pub trait Shl<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn shl(self, rhs: Rhs) -> Self::Output;
+}
+
+/// The binary `>>` operation.
+/// Integer operands use the left operand's fixed width. Operands evaluate once.
+/// Shift counts must be nonnegative and smaller than the left operand width; otherwise execution traps.
+pub trait Shr<Rhs> {
+    /// The result type.
+    type Output;
+    /// Apply the operation to these operands.
+    fn shr(self, rhs: Rhs) -> Self::Output;
+}

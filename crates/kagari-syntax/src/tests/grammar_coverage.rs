@@ -233,7 +233,11 @@ fn unrecognized_ebnf_terminals_are_an_explicit_baseline() {
             missing.insert(terminal);
         }
     }
-    let baseline = BTreeSet::new();
+    // Shift tokens are joined contextually so nested generic closers stay separate.
+    let baseline = ["<<", ">>", "<<=", ">>="]
+        .map(str::to_owned)
+        .into_iter()
+        .collect();
     assert_eq!(
         missing, baseline,
         "EBNF terminal/lexer drift; update the lexer or reviewed baseline"

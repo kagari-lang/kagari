@@ -1,3 +1,4 @@
+pub mod numeric;
 pub use kagari_hir::builtin::surface::StandardIntrinsic;
 
 pub mod abi;

@@ -144,6 +144,35 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Join adjacent angle tokens only in expression position. Type parsing
+    /// continues to consume separate generic delimiters without rewriting text.
+    pub(crate) fn joint_shift(&self) -> Option<SyntaxKind> {
+        if self.exhausted || self.cancel.check().is_err() {
+            return None;
+        }
+        let a = self.tokens.get(self.cursor)?;
+        let b = self.tokens.get(self.cursor + 1)?;
+        if a.span.end != b.span.start {
+            return None;
+        }
+        Some(match (&a.kind, &b.kind) {
+            (TokenKind::Lt, TokenKind::Lt) => SyntaxKind::Shl,
+            (TokenKind::Gt, TokenKind::Gt) => SyntaxKind::Shr,
+            (TokenKind::Lt, TokenKind::Le) => SyntaxKind::ShlEq,
+            (TokenKind::Gt, TokenKind::Ge) => SyntaxKind::ShrEq,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn bump_joint_shift(&mut self) {
+        let kind = self.joint_shift().expect("joint shift");
+        let start = self.tokens[self.cursor].span.start;
+        let end = self.tokens[self.cursor + 1].span.end;
+        self.builder
+            .token(KagariLanguage::kind_to_raw(kind), &self.text[start..end]);
+        self.cursor += 2;
+    }
+
     pub(crate) fn bump_as_error(&mut self) {
         self.start_node(SyntaxKind::Error);
         self.bump();

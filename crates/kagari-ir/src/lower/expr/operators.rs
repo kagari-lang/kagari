@@ -108,6 +108,44 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
+        if let TypeId::Builtin(input) = &ty {
+            use kagari_common::integer::IntegerOp;
+            let op = match StandardTrait::from_id(&interface.declaration) {
+                Some(StandardTrait::BitAnd) => Some(IntegerOp::BitAnd),
+                Some(StandardTrait::BitOr) => Some(IntegerOp::BitOr),
+                Some(StandardTrait::BitXor) => Some(IntegerOp::BitXor),
+                Some(StandardTrait::Shl) => Some(IntegerOp::Shl),
+                Some(StandardTrait::Shr) => Some(IntegerOp::Shr),
+                Some(StandardTrait::Not) if input.integer_layout().is_some() => {
+                    Some(IntegerOp::BitNot)
+                }
+                _ => None,
+            };
+            if let Some(op) = op {
+                let rhs = match interface.arguments.first() {
+                    Some(TypeId::Builtin(rhs)) => Some(*rhs),
+                    None => None,
+                    _ => return Err(IrLoweringError::MissingBinding("numeric rhs type")),
+                };
+                let operation = crate::module::numeric::NumericOperation {
+                    op,
+                    input: *input,
+                    rhs,
+                };
+                let (_, _, result) = operation
+                    .contract()
+                    .ok_or(IrLoweringError::MissingBinding("numeric contract"))?;
+                let dst = self.alloc_temp(result.representation());
+                self.emit(Instruction::Numeric {
+                    dst,
+                    operation,
+                    lhs: args[0],
+                    rhs: args.get(1).copied(),
+                });
+                return Ok(dst);
+            }
+        }
+
         if let Some(operation) = kagari_hir::builtin::declarations::iterator_method(method)
             && self
                 .planner

@@ -91,7 +91,7 @@ range_expr	1	?	(range_op logic_or_expr)
 logic_or_expr	1	*	("||" logic_and_expr)
 logic_and_expr	1	*	("&&" equality_expr)
 equality_expr	1	*	(("==" | "!=" | "===" | "!==") compare_expr)
-compare_expr	1	*	(("<" | "<=" | ">" | ">=") additive_expr)
+compare_expr	1	*	(("<" | "<=" | ">" | ">=") bit_or_expr)
 additive_expr	1	*	(("+" | "-") multiplicative_expr)
 multiplicative_expr	1	*	(("*" | "/" | "%") unary_expr)
 postfix_expr	1	*	postfix_op
@@ -138,3 +138,7 @@ associated_type_def	1	?	generic_param_clause
 associated_type_def	2	?	where_clause
 interpolated_string	1	*	interpolation_part
 interpolation	1	?	interpolation_format
+bit_or_expr	1	*	("|" bit_xor_expr)
+bit_xor_expr	1	*	("^" bit_and_expr)
+bit_and_expr	1	*	("&" shift_expr)
+shift_expr	1	*	(("<<" | ">>") additive_expr)

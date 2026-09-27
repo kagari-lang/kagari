@@ -118,3 +118,9 @@ postfix_op	4	witnessed	examples/syntax/result-option.kgr	-	propagation_suffix
 primary_expr	13	witnessed	examples/syntax/string-interpolation.kgr	-	interpolated_string
 interpolation_part	1	witnessed	examples/syntax/string-interpolation.kgr	-	FORMAT_TEXT
 interpolation_part	2	witnessed	examples/syntax/string-interpolation.kgr	-	interpolation
+assign_op	6	witnessed	examples/syntax/bitwise.kgr	-	"%="
+assign_op	7	witnessed	examples/syntax/bitwise.kgr	-	"&="
+assign_op	8	witnessed	examples/syntax/bitwise.kgr	-	"|="
+assign_op	9	witnessed	examples/syntax/bitwise.kgr	-	"^="
+assign_op	10	witnessed	examples/syntax/bitwise.kgr	-	"<<="
+assign_op	11	witnessed	examples/syntax/bitwise.kgr	-	">>="

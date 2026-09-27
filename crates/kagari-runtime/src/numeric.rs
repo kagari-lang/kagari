@@ -25,6 +25,9 @@ pub fn unary(op: UnaryOp, value: Value) -> Result<Value, RuntimeError> {
 }
 
 pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeError> {
+    if let BinaryOp::Numeric(operation) = op {
+        return fixed_integer(operation, lhs, Some(rhs));
+    }
     let op = match op {
         BinaryOp::Add => IntegerBinaryOp::Add,
         BinaryOp::Sub => IntegerBinaryOp::Sub,
@@ -84,5 +87,36 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
                 "arithmetic requires matching numeric operands",
             ));
         }
+    })
+}
+
+/// Execute the verified source-width contract, independently of Value storage width.
+pub fn fixed_integer(
+    operation: kagari_ir::module::numeric::NumericOperation,
+    lhs: Value,
+    rhs: Option<Value>,
+) -> Result<Value, RuntimeError> {
+    let invalid = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric operand");
+    operation.contract().ok_or_else(invalid)?;
+    let read = |value| match value {
+        Value::I32(n) => Ok(i128::from(n)),
+        Value::I64(n) => Ok(i128::from(n)),
+        Value::U64(n) => Ok(i128::from(n)),
+        _ => Err(invalid()),
+    };
+    let (bits, signed) = operation.input.integer_layout().ok_or_else(invalid)?;
+    let result = kagari_common::integer::bit_operation(
+        operation.op,
+        read(lhs)?,
+        rhs.map(read).transpose()?.unwrap_or(0),
+        bits,
+        signed,
+    )
+    .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
+    use kagari_ir::module::abi::BuiltinType::*;
+    Ok(match operation.input {
+        I8 | I16 | I32 => Value::I32(result as i32),
+        U64 | USize => Value::U64(result as u64),
+        _ => Value::I64(result as i64),
     })
 }

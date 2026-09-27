@@ -1071,3 +1071,20 @@ impl TypeId {
         }
     }
 }
+
+impl BuiltinType {
+    pub fn integer_layout(self) -> Option<(u32, bool)> {
+        use BuiltinType::*;
+        Some(match self {
+            I8 => (8, true),
+            I16 => (16, true),
+            I32 => (32, true),
+            I64 | ISize => (64, true),
+            U8 => (8, false),
+            U16 => (16, false),
+            U32 => (32, false),
+            U64 | USize => (64, false),
+            _ => return None,
+        })
+    }
+}

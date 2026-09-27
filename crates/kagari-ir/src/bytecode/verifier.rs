@@ -1016,6 +1016,27 @@ fn verify_instruction(
                 "interface receiver",
             )?;
         }
+        BytecodeInstruction::Numeric {
+            dst,
+            operation,
+            lhs,
+            rhs,
+        } => {
+            let invalid = || BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "invalid numeric contract",
+            };
+            let (left, right, output) = operation.contract().ok_or_else(invalid)?;
+            expect_register_ty(function, *lhs, left.representation(), "numeric lhs")?;
+            expect_register_ty(function, *dst, output.representation(), "numeric output")?;
+            match (right, rhs) {
+                (Some(ty), Some(value)) => {
+                    expect_register_ty(function, *value, ty.representation(), "numeric rhs")?
+                }
+                (None, None) => {}
+                _ => return Err(invalid()),
+            }
+        }
         BytecodeInstruction::MapResultError {
             dst,
             original,
@@ -1659,6 +1680,7 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
 fn ir_binary_op(op: BinaryOp) -> crate::module::BinaryOp {
     use crate::module::BinaryOp as Ir;
     match op {
+        BinaryOp::Numeric(op) => Ir::Numeric(op),
         BinaryOp::Add => Ir::Add,
         BinaryOp::Sub => Ir::Sub,
         BinaryOp::Mul => Ir::Mul,

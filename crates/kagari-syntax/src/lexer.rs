@@ -287,7 +287,12 @@ pub fn lex_with_cancellation(
             }
             '%' => {
                 chars.next();
-                tokens.push(token(TokenKind::Percent, index, index + 1));
+                if matches!(chars.peek(), Some((_, '='))) {
+                    chars.next();
+                    tokens.push(token(TokenKind::PercentEq, index, index + 2));
+                } else {
+                    tokens.push(token(TokenKind::Percent, index, index + 1));
+                }
             }
             '?' => {
                 tokens.push(token(TokenKind::Question, index, index + 1));
@@ -325,23 +330,31 @@ pub fn lex_with_cancellation(
                     tokens.push(token(TokenKind::Gt, index, index + 1));
                 }
             }
-            '&' => {
+            '&' | '|' | '^' => {
                 chars.next();
-                if let Some((end, '&')) = chars.peek().copied() {
+                let kind = if chars.peek().is_some_and(|(_, next)| *next == '=') {
                     chars.next();
-                    tokens.push(token(TokenKind::AmpAmp, index, end + 1));
-                } else {
-                    tokens.push(token(TokenKind::Unknown, index, index + 1));
-                }
-            }
-            '|' => {
-                chars.next();
-                if let Some((end, '|')) = chars.peek().copied() {
+                    match ch {
+                        '&' => TokenKind::AmpEq,
+                        '|' => TokenKind::PipeEq,
+                        _ => TokenKind::CaretEq,
+                    }
+                } else if ch != '^' && chars.peek().is_some_and(|(_, next)| *next == ch) {
                     chars.next();
-                    tokens.push(token(TokenKind::PipePipe, index, end + 1));
+                    if ch == '&' {
+                        TokenKind::AmpAmp
+                    } else {
+                        TokenKind::PipePipe
+                    }
                 } else {
-                    tokens.push(token(TokenKind::Pipe, index, index + 1));
-                }
+                    match ch {
+                        '&' => TokenKind::Amp,
+                        '|' => TokenKind::Pipe,
+                        _ => TokenKind::Caret,
+                    }
+                };
+                let end = chars.peek().map(|(i, _)| *i).unwrap_or(input.len());
+                tokens.push(token(kind, index, end));
             }
             '"' => {
                 chars.next();

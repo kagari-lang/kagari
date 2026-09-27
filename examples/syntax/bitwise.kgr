@@ -1,0 +1,16 @@
+// Integer shifts retain the width of the left operand.
+const MASK: u8 = !0u8;
+
+fn main() -> i32 {
+    var flags = MASK;
+    flags &= 15u8;
+    flags |= 128u8;
+    flags ^= 3u8;
+    flags <<= 1u16;
+    flags >>= 2u32;
+    flags %= 64u8;
+    std::debug::assert(flags == 6u8, "width and compound assignment");
+    std::debug::assert((1 | 2 & 0 ^ 4) == 5, "precedence");
+    std::debug::assert((-128i8 >> 7) == -1i8, "signed shift");
+    42
+}

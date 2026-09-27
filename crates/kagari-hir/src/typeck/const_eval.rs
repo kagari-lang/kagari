@@ -102,6 +102,11 @@ impl Evaluator<'_> {
                     ScalarValue::integer(-value, ty)
                 }
                 (PrefixOp::Not, ScalarValue::Bool(value)) => Ok(ScalarValue::Bool(!value)),
+                (PrefixOp::Not, value) => scalar_bits(
+                    kagari_common::integer::IntegerOp::BitNot,
+                    value,
+                    ScalarValue::I32(0),
+                )?,
                 _ => return None,
             },
             ExprKind::Binary { lhs, op, rhs } => {
@@ -137,6 +142,18 @@ fn binary(
     rhs: ScalarValue,
 ) -> Option<Result<ScalarValue, &'static str>> {
     use ScalarValue::*;
+    use kagari_common::integer::IntegerOp as Bit;
+    let bit = match op {
+        BinaryOp::BitAnd => Some(Bit::BitAnd),
+        BinaryOp::BitOr => Some(Bit::BitOr),
+        BinaryOp::BitXor => Some(Bit::BitXor),
+        BinaryOp::Shl => Some(Bit::Shl),
+        BinaryOp::Shr => Some(Bit::Shr),
+        _ => None,
+    };
+    if let Some(op) = bit {
+        return scalar_bits(op, lhs, rhs);
+    }
     let arithmetic_op = match op {
         BinaryOp::Add => Some(IntegerBinaryOp::Add),
         BinaryOp::Sub => Some(IntegerBinaryOp::Sub),
@@ -225,4 +242,23 @@ fn binary(
         _ => return None,
     };
     Some(Ok(Bool(result)))
+}
+
+fn scalar_bits(
+    op: kagari_common::integer::IntegerOp,
+    lhs: ScalarValue,
+    rhs: ScalarValue,
+) -> Option<Result<ScalarValue, &'static str>> {
+    let unpack = |v| match v {
+        ScalarValue::I32(v) => Some((i128::from(v), crate::types::BuiltinType::I32)),
+        ScalarValue::Integer { value, ty } => Some((value, ty)),
+        _ => None,
+    };
+    let (lhs, ty) = unpack(lhs)?;
+    let (rhs, _) = unpack(rhs)?;
+    let (bits, signed) = ty.integer_layout()?;
+    Some(
+        kagari_common::integer::bit_operation(op, lhs, rhs, bits, signed)
+            .and_then(|v| ScalarValue::integer(v, ty)),
+    )
 }

@@ -56,9 +56,23 @@ impl Lowerer {
                     Some(kagari_syntax::kind::SyntaxKind::StarEq) => {
                         Some(crate::hir::BinaryOp::Mul)
                     }
+                    Some(kagari_syntax::kind::SyntaxKind::PercentEq) => {
+                        Some(crate::hir::BinaryOp::Rem)
+                    }
                     Some(kagari_syntax::kind::SyntaxKind::SlashEq) => {
                         Some(crate::hir::BinaryOp::Div)
                     }
+                    Some(kagari_syntax::kind::SyntaxKind::AmpEq) => {
+                        Some(crate::hir::BinaryOp::BitAnd)
+                    }
+                    Some(kagari_syntax::kind::SyntaxKind::PipeEq) => {
+                        Some(crate::hir::BinaryOp::BitOr)
+                    }
+                    Some(kagari_syntax::kind::SyntaxKind::CaretEq) => {
+                        Some(crate::hir::BinaryOp::BitXor)
+                    }
+                    Some(kagari_syntax::kind::SyntaxKind::ShlEq) => Some(crate::hir::BinaryOp::Shl),
+                    Some(kagari_syntax::kind::SyntaxKind::ShrEq) => Some(crate::hir::BinaryOp::Shr),
                     _ => None,
                 },
                 target: stmt

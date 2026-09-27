@@ -574,3 +574,7 @@ Version 77/runtime ABI v77 add unsigned 64-bit constants and execution values,
 including the full usize range. Numeric literals preserve their checked scalar
 types and precision; unsuffixed floating-point literals now default to f64.
 Earlier artifact versions are rejected before execution.
+
+Version 78/runtime ABI v78 retain concrete integer width and signedness in numeric
+operations, including compound typed-path operations. Verification checks operand
+representations and operation arity before execution. Earlier artifacts are rejected.

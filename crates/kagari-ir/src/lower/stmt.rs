@@ -82,7 +82,19 @@ impl FunctionLowerer<'_, '_> {
                 if self.current_block_terminated() {
                     return Ok(());
                 }
-                self.commit_place(location, op, src)?;
+                let numeric = match (
+                    op,
+                    self.analyzed.typed.type_table.place_type(target),
+                    self.analyzed.typed.type_table.expr_type(value),
+                ) {
+                    (
+                        Some(op),
+                        Some(kagari_hir::types::TypeId::Builtin(input)),
+                        Some(kagari_hir::types::TypeId::Builtin(rhs)),
+                    ) => crate::module::numeric::NumericOperation::binary(op, input, rhs),
+                    _ => None,
+                };
+                self.commit_place(location, op, numeric, src)?;
                 Ok(())
             }
             hir::StmtKind::Return { expr } => {

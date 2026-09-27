@@ -10,6 +10,22 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::Numeric {
+                dst,
+                operation,
+                lhs,
+                rhs,
+            } => {
+                let lhs = self.current_frame()?.read_register(lhs)?;
+                let rhs = rhs
+                    .map(|r| {
+                        self.current_frame()
+                            .and_then(|frame| frame.read_register(r).map_err(Into::into))
+                    })
+                    .transpose()?;
+                let value = kagari_runtime::numeric::fixed_integer(operation, lhs, rhs)?;
+                self.current_frame_mut()?.write_register(dst, value)?;
+            }
             BytecodeInstruction::MapResultError {
                 dst,
                 original,

@@ -105,11 +105,22 @@ impl<'a> Parser<'a> {
             TokenKind::MinusEq,
             TokenKind::StarEq,
             TokenKind::SlashEq,
-        ]) {
+            TokenKind::PercentEq,
+            TokenKind::AmpEq,
+            TokenKind::PipeEq,
+            TokenKind::CaretEq,
+        ]) && !matches!(
+            self.joint_shift(),
+            Some(SyntaxKind::ShlEq | SyntaxKind::ShrEq)
+        ) {
             return false;
         }
         self.start_node_at(checkpoint, SyntaxKind::AssignStmt);
-        self.bump();
+        if self.joint_shift().is_some() {
+            self.bump_joint_shift();
+        } else {
+            self.bump();
+        }
         self.parse_expr();
         self.bump_trivia();
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);

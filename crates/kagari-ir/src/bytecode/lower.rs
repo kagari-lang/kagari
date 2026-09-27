@@ -936,6 +936,17 @@ fn lower_instruction(
                 implementation,
             }
         }
+        Instruction::Numeric {
+            dst,
+            operation,
+            lhs,
+            rhs,
+        } => BytecodeInstruction::Numeric {
+            dst: lower_value(*dst),
+            operation: *operation,
+            lhs: lower_value(*lhs),
+            rhs: rhs.map(lower_value),
+        },
         Instruction::MapResultError {
             dst,
             original,
@@ -1153,6 +1164,7 @@ fn lower_constant(constant: &Constant) -> ConstantOperand {
 
 fn lower_binary_op(op: IrBinaryOp) -> BinaryOp {
     match op {
+        IrBinaryOp::Numeric(op) => BinaryOp::Numeric(op),
         IrBinaryOp::Add => BinaryOp::Add,
         IrBinaryOp::Sub => BinaryOp::Sub,
         IrBinaryOp::Mul => BinaryOp::Mul,

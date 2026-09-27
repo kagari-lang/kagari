@@ -29,6 +29,12 @@ pub struct PathRef {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    Numeric {
+        dst: IrValue,
+        operation: super::numeric::NumericOperation,
+        lhs: IrValue,
+        rhs: Option<IrValue>,
+    },
     MapResultError {
         dst: IrValue,
         original: IrValue,
@@ -374,6 +380,10 @@ impl Instruction {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),
+            Self::Numeric { .. } => EffectSet {
+                may_trap: true,
+                ..EffectSet::default()
+            },
             Self::Unary { op, operand, .. } => EffectSet {
                 may_trap: matches!(op, UnaryOp::Neg)
                     && matches!(operand.ty, ValueType::I32 | ValueType::I64),
@@ -386,7 +396,8 @@ impl Instruction {
                 ) && lhs.ty == ValueType::HeapObject;
                 EffectSet {
                     reads_aggregate: heap_comparison,
-                    may_trap: heap_comparison
+                    may_trap: matches!(op, BinaryOp::Numeric(_))
+                        || heap_comparison
                         || (matches!(
                             op,
                             BinaryOp::Add
@@ -581,6 +592,7 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
+    Numeric(crate::module::numeric::NumericOperation),
     Add,
     Sub,
     Mul,

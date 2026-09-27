@@ -353,3 +353,21 @@ index trap; it does not infer a cause by rereading array length after a failed
 write. Earlier payload/handle/execution rejections keep their own categories.
 Reflective writes continue to expose ordinary bounds failures as reflective-write
 errors; embedding classifies them as script failures rather than engine faults.
+
+## Fixed-width bitwise operations
+
+Integer `&`, `|`, `^` and `!` operate on the operand's declared width. Binary
+bitwise operands have the same type. `<<` and `>>` accept any integer count,
+return the left operand's type, and trap for negative counts or counts at least
+that type's width. Left shift discards high bits; signed right shift extends the
+sign and unsigned right shift fills with zero. These rules also apply to consts.
+
+Precedence, from tight to loose, is arithmetic, shifts, `&`, `^`, `|`, comparison,
+equality, `&&`, `||`. The shift characters must be adjacent; nested generic
+closing brackets continue to parse independently. `%=` and bitwise compound
+assignments use the existing evaluate-location, evaluate-RHS, read, check, commit
+sequence. Invalid shifts do not commit a target change.
+
+Operator traits `BitAnd`, `BitOr`, `BitXor`, `Shl`, `Shr` and `Not` use ordinary
+static dispatch. User implementations may choose an associated Output type.
+Compound assignment remains restricted to primitive operations.

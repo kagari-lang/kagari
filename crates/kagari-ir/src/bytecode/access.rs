@@ -530,6 +530,25 @@ pub(super) fn verify(
                     }
                     produced = Some((*dst, Fact::typed(AbiType::Trait(target.clone()))));
                 }
+                I::Numeric {
+                    dst,
+                    operation,
+                    lhs,
+                    rhs,
+                } => {
+                    let (left, right, output) = operation.contract().ok_or_else(invalid)?;
+                    if let Some(value) = get(*lhs)
+                        && !flows(&value, &left)
+                    {
+                        return Err(invalid());
+                    }
+                    if let (Some(value), Some(expected)) = (rhs.and_then(get), right)
+                        && !flows(&value, &expected)
+                    {
+                        return Err(invalid());
+                    }
+                    produced = Some((*dst, Fact::typed(output)));
+                }
                 I::MapResultError { dst, error, ty, .. } => {
                     if let (Some(value), AbiType::StandardEnum { args, .. }) = (get(*error), ty)
                         && !flows(&value, &args[1])

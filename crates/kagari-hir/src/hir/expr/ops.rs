@@ -11,6 +11,12 @@ pub enum BinaryOp {
     Mul,
     Div,
     Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+
     Eq,
     NotEq,
     IdentityEq,

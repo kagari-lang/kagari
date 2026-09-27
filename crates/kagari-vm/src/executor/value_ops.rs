@@ -29,7 +29,12 @@ impl Executor<'_> {
         rhs: Value,
     ) -> Result<Value, VmError> {
         match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
+            BinaryOp::Numeric(_)
+            | BinaryOp::Add
+            | BinaryOp::Sub
+            | BinaryOp::Mul
+            | BinaryOp::Div
+            | BinaryOp::Rem => {
                 kagari_runtime::numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError)
             }
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {

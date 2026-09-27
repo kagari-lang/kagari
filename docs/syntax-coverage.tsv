@@ -174,3 +174,7 @@ FORMAT_END	covered	examples/syntax/string-interpolation.kgr	-
 FORMAT_OPEN	covered	examples/syntax/string-interpolation.kgr	-
 FORMAT_CLOSE	covered	examples/syntax/string-interpolation.kgr	-
 FORMAT_TEXT	covered	examples/syntax/string-interpolation.kgr	-
+bit_or_expr	covered	examples/syntax/bitwise.kgr	-
+bit_xor_expr	covered	examples/syntax/bitwise.kgr	-
+bit_and_expr	covered	examples/syntax/bitwise.kgr	-
+shift_expr	covered	examples/syntax/bitwise.kgr	-

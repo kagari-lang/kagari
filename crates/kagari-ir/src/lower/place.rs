@@ -230,6 +230,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         place: PreparedPlace,
         op: Option<hir::BinaryOp>,
+        numeric: Option<crate::module::numeric::NumericOperation>,
         rhs: IrValue,
     ) -> Result<(), IrLoweringError> {
         if let Some(path) = place.host_path {
@@ -242,7 +243,9 @@ impl FunctionLowerer<'_, '_> {
                     root_or_view,
                     path,
                     dynamic_args: place.dynamic_args,
-                    op: Self::lower_binary_op(op),
+                    op: numeric
+                        .map(crate::module::BinaryOp::Numeric)
+                        .unwrap_or_else(|| Self::lower_binary_op(op)),
                     value: rhs,
                 });
             } else {
@@ -300,7 +303,9 @@ impl FunctionLowerer<'_, '_> {
             let dst = self.alloc_temp(current.ty);
             self.emit(Instruction::Binary {
                 dst,
-                op: Self::lower_binary_op(op),
+                op: numeric
+                    .map(crate::module::BinaryOp::Numeric)
+                    .unwrap_or_else(|| Self::lower_binary_op(op)),
                 lhs: current,
                 rhs,
             });

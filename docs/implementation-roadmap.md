@@ -519,3 +519,16 @@ origins under GC, missing bounds, rejected TryFrom/chained conversions, and trap
 cleanup. Formatting, workspace/all-targets clippy with warnings denied, and
 `git diff --check` passed. This uses the existing v77 execution instructions and
 does not change the artifact layout.
+
+## Numeric operations for hardware models
+
+- [x] N01: fixed-width bitwise operations, shifts, compound assignment and const evaluation.
+- [x] N02: BitAnd/BitOr/BitXor/Shl/Shr and integer Not static dispatch.
+- [ ] N03: wrapping, checked, overflowing and saturating integer methods.
+- [ ] N04: numeric casts, built-in From/TryFrom conversions and typed conversion errors.
+- [ ] N05: signed offset wrapping and bit rotations.
+- [ ] N06: 6502 examples, boundary tests, artifacts and final validation.
+
+Ordinary integer arithmetic traps on overflow in every build mode. Explicit
+numeric operations follow Rust rules, with 64-bit isize/usize in Kagari. JIT
+optimization, compact buffers and fixed-length arrays are separate work.

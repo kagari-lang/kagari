@@ -6,6 +6,7 @@ mod decode_limits;
 pub mod diagnostic;
 pub mod host_interface;
 pub mod identity;
+pub mod integer;
 pub mod line_index;
 pub mod literal;
 pub mod source;

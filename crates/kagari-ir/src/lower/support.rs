@@ -323,6 +323,11 @@ impl FunctionLowerer<'_, '_> {
             hir::BinaryOp::Mul => BinaryOp::Mul,
             hir::BinaryOp::Div => BinaryOp::Div,
             hir::BinaryOp::Rem => BinaryOp::Rem,
+            hir::BinaryOp::BitAnd
+            | hir::BinaryOp::BitOr
+            | hir::BinaryOp::BitXor
+            | hir::BinaryOp::Shl
+            | hir::BinaryOp::Shr => unreachable!("bit operations retain numeric contracts"),
             hir::BinaryOp::Eq => BinaryOp::Eq,
             hir::BinaryOp::NotEq => BinaryOp::NotEq,
             hir::BinaryOp::IdentityEq => BinaryOp::IdentityEq,

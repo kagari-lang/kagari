@@ -247,6 +247,11 @@ impl BinaryExpr {
                             | SyntaxKind::Star
                             | SyntaxKind::Slash
                             | SyntaxKind::Percent
+                            | SyntaxKind::Amp
+                            | SyntaxKind::Pipe
+                            | SyntaxKind::Caret
+                            | SyntaxKind::Shl
+                            | SyntaxKind::Shr
                             | SyntaxKind::IdentityEq
                             | SyntaxKind::IdentityNotEq
                             | SyntaxKind::EqEq

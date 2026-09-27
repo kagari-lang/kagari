@@ -129,6 +129,20 @@ pub(crate) fn binary_result(
     lhs: ValueType,
     rhs: ValueType,
 ) -> Result<ValueType, ContractError> {
+    if let BinaryOp::Numeric(operation) = op {
+        let (left, right, output) =
+            operation
+                .contract()
+                .ok_or(ContractError::InvalidOperation {
+                    reason: "invalid numeric contract",
+                })?;
+        let right = right.ok_or(ContractError::InvalidOperation {
+            reason: "numeric binary requires rhs",
+        })?;
+        expect_type(lhs, left.representation(), "numeric lhs")?;
+        expect_type(rhs, right.representation(), "numeric rhs")?;
+        return Ok(output.representation());
+    }
     expect_type(rhs, lhs, "binary rhs")?;
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem

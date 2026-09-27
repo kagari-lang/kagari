@@ -245,7 +245,10 @@ impl<'a> BodyChecker<'a> {
                 let target_ty = self.resolve_assignment_target_type(*target, env);
                 // Write permission does not erase the known target type needed by
                 // contextual inference and tooling after an invalid assignment.
-                let expected_ty = self.type_table.place_type(*target);
+                let shifting = matches!(op, Some(BinaryOp::Shl | BinaryOp::Shr));
+                let expected_ty = (!shifting)
+                    .then(|| self.type_table.place_type(*target))
+                    .flatten();
                 let value_ty = self.infer_expr_with_coercion(*value, env, expected_ty.as_ref());
                 let Ok(completes) = super::completion::expr_can_complete(
                     &self.lowered.module,
@@ -265,7 +268,9 @@ impl<'a> BodyChecker<'a> {
                     );
                 }
                 match target_ty {
-                    Some(expected) if completes && expected.conflicts_with(&value_ty) => {
+                    Some(expected)
+                        if completes && !shifting && expected.conflicts_with(&value_ty) =>
+                    {
                         self.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
                                 expected: display_type_id(&expected),
@@ -3721,6 +3726,34 @@ impl<'a> BodyChecker<'a> {
                     lhs_ty
                 }
             }
+            BinaryOp::BitAnd
+            | BinaryOp::BitOr
+            | BinaryOp::BitXor
+            | BinaryOp::Shl
+            | BinaryOp::Shr => {
+                let integer = |ty: &TypeId| {
+                    ty.is_unresolved()
+                        || matches!(ty, TypeId::Builtin(b) if b.integer_layout().is_some())
+                };
+                if !integer(&lhs_ty)
+                    || !integer(&rhs_ty)
+                    || (!matches!(op, BinaryOp::Shl | BinaryOp::Shr)
+                        && lhs_ty.conflicts_with(&rhs_ty))
+                {
+                    self.emit_binary_operand_type_mismatch(
+                        op,
+                        "integer operands or an applicable operator trait",
+                        &lhs_ty,
+                        &rhs_ty,
+                        rhs_expr,
+                    );
+                }
+                if produces_operands {
+                    lhs_ty
+                } else {
+                    TypeId::Unknown
+                }
+            }
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
                 if (lhs_ty.conflicts_with(&rhs_ty)
                     && !lhs_ty.can_weaken_to(&rhs_ty)
@@ -3856,6 +3889,12 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::Mul => "*",
             BinaryOp::Div => "/",
             BinaryOp::Rem => "%",
+            BinaryOp::BitAnd => "&",
+            BinaryOp::BitOr => "|",
+            BinaryOp::BitXor => "^",
+            BinaryOp::Shl => "<<",
+            BinaryOp::Shr => ">>",
+
             BinaryOp::Eq => "==",
             BinaryOp::NotEq => "!=",
             BinaryOp::IdentityEq => "===",

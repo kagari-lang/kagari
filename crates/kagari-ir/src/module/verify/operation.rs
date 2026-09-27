@@ -36,6 +36,31 @@ pub(super) fn verify(
         }
     }
     match instruction {
+        Numeric {
+            dst,
+            operation,
+            lhs,
+            rhs,
+        } => {
+            let (left, right, result) = operation.contract().ok_or_else(|| {
+                contract(ContractError::InvalidOperation {
+                    reason: "invalid numeric contract",
+                })
+            })?;
+            context.expect(lhs.ty, left.representation(), "numeric input")?;
+            context.expect(dst.ty, result.representation(), "numeric output")?;
+            match (right, rhs) {
+                (Some(ty), Some(value)) => {
+                    context.expect(value.ty, ty.representation(), "numeric rhs")?
+                }
+                (None, None) => {}
+                _ => {
+                    return Err(contract(ContractError::InvalidOperation {
+                        reason: "numeric arity",
+                    }));
+                }
+            }
+        }
         LoadConst { dst, constant } => {
             let ty = match constant {
                 Constant::Unit => ValueType::Unit,

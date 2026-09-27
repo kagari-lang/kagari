@@ -190,6 +190,7 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
+    Numeric(crate::module::numeric::NumericOperation),
     Add,
     Sub,
     Mul,
@@ -207,6 +208,12 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
+    Numeric {
+        dst: Register,
+        operation: crate::module::numeric::NumericOperation,
+        lhs: Register,
+        rhs: Option<Register>,
+    },
     MapResultError {
         dst: Register,
         original: Register,

@@ -2028,7 +2028,7 @@ fn struct_fields_infer_and_check_only_normally_produced_values() {
 
 #[test]
 fn unary_constraints_apply_only_to_normally_produced_operands() {
-    for (operator, good, bad) in [("-", "7", "false"), ("!", "true", "7")] {
+    for (operator, good, bad) in [("-", "7", "false"), ("!", "true", "7.0")] {
         for (operand, valid) in [
             ("if true { return 42; } else { return 7; }".to_owned(), true),
             (format!("if true {{ return 42; }} else {{ {good} }}"), true),

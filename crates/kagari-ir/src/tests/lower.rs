@@ -844,6 +844,10 @@ fn assert_value_matches_temp_layout(function: &IrFunction, value: IrValue) {
 
 fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
     match instruction {
+        Instruction::Numeric { dst, lhs, rhs, .. } => [Some(*dst), Some(*lhs), *rhs]
+            .into_iter()
+            .flatten()
+            .collect(),
         Instruction::MapResultError {
             dst,
             original,

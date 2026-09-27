@@ -23,6 +23,12 @@ pub enum StandardTrait {
     Mul,
     Div,
     Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+
     Neg,
     Not,
     Index,
@@ -37,7 +43,7 @@ pub enum StandardTrait {
     Product,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 29] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -50,6 +56,11 @@ impl StandardTrait {
         Self::Mul,
         Self::Div,
         Self::Rem,
+        Self::BitAnd,
+        Self::BitOr,
+        Self::BitXor,
+        Self::Shl,
+        Self::Shr,
         Self::Neg,
         Self::Not,
         Self::Index,
@@ -77,6 +88,12 @@ impl StandardTrait {
             Self::Mul => "Mul",
             Self::Div => "Div",
             Self::Rem => "Rem",
+            Self::BitAnd => "BitAnd",
+            Self::BitOr => "BitOr",
+            Self::BitXor => "BitXor",
+            Self::Shl => "Shl",
+            Self::Shr => "Shr",
+
             Self::Neg => "Neg",
             Self::Not => "Not",
             Self::Index => "Index",
@@ -99,6 +116,11 @@ impl StandardTrait {
             | Self::Mul
             | Self::Div
             | Self::Rem
+            | Self::BitAnd
+            | Self::BitOr
+            | Self::BitXor
+            | Self::Shl
+            | Self::Shr
             | Self::Neg
             | Self::Not
             | Self::Index => "ops",
@@ -158,7 +180,16 @@ impl StandardTrait {
     pub fn binary_operator(self) -> bool {
         matches!(
             self,
-            Self::Add | Self::Sub | Self::Mul | Self::Div | Self::Rem
+            Self::Add
+                | Self::Sub
+                | Self::Mul
+                | Self::Div
+                | Self::Rem
+                | Self::BitAnd
+                | Self::BitOr
+                | Self::BitXor
+                | Self::Shl
+                | Self::Shr
         )
     }
     pub fn operator(self) -> bool {
@@ -251,6 +282,31 @@ pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<Ty
                             | BuiltinType::F64
                     )
                 ))
+    {
+        return Some(receiver.clone());
+    }
+    if matches!(
+        kind,
+        StandardTrait::BitAnd
+            | StandardTrait::BitOr
+            | StandardTrait::BitXor
+            | StandardTrait::Shl
+            | StandardTrait::Shr
+    ) {
+        let [TypeId::Builtin(rhs)] = interface.arguments.as_slice() else {
+            return None;
+        };
+        let TypeId::Builtin(lhs) = receiver else {
+            return None;
+        };
+        return (lhs.integer_layout().is_some()
+            && rhs.integer_layout().is_some()
+            && (matches!(kind, StandardTrait::Shl | StandardTrait::Shr) || lhs == rhs))
+            .then(|| receiver.clone());
+    }
+    if kind == StandardTrait::Not
+        && interface.arguments.is_empty()
+        && matches!(receiver, TypeId::Builtin(ty) if ty.integer_layout().is_some())
     {
         return Some(receiver.clone());
     }

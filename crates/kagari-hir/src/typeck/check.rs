@@ -1617,7 +1617,10 @@ fn validate_const_initializers(
 
                     let supported = match op {
                         PrefixOp::Neg => surface::supports_unary_negation(&expr_ty),
-                        PrefixOp::Not => expr_ty == TypeId::Builtin(BuiltinType::Bool),
+                        PrefixOp::Not => {
+                            expr_ty == TypeId::Builtin(BuiltinType::Bool)
+                                || matches!(expr_ty, TypeId::Builtin(b) if b.integer_layout().is_some())
+                        }
                     };
                     if !supported {
                         self.emit_invalid_const(
@@ -1687,6 +1690,19 @@ fn validate_const_initializers(
 
     fn supports_const_binary(op: &BinaryOp, lhs: Option<&TypeId>, rhs: Option<&TypeId>) -> bool {
         match (op, lhs, rhs) {
+            (
+                BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr,
+                Some(TypeId::Builtin(left)),
+                Some(TypeId::Builtin(right)),
+            ) => {
+                left.integer_layout().is_some()
+                    && right.integer_layout().is_some()
+                    && (matches!(op, BinaryOp::Shl | BinaryOp::Shr) || left == right)
+            }
             (
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
                 Some(lhs),

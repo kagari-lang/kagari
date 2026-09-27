@@ -139,6 +139,12 @@ pub(crate) fn lower_binary_op(kind: Option<SyntaxKind>) -> BinaryOp {
         Some(SyntaxKind::Star) => BinaryOp::Mul,
         Some(SyntaxKind::Slash) => BinaryOp::Div,
         Some(SyntaxKind::Percent) => BinaryOp::Rem,
+        Some(SyntaxKind::Amp) => BinaryOp::BitAnd,
+        Some(SyntaxKind::Pipe) => BinaryOp::BitOr,
+        Some(SyntaxKind::Caret) => BinaryOp::BitXor,
+        Some(SyntaxKind::Shl) => BinaryOp::Shl,
+        Some(SyntaxKind::Shr) => BinaryOp::Shr,
+
         Some(SyntaxKind::EqEq) => BinaryOp::Eq,
         Some(SyntaxKind::NotEq) => BinaryOp::NotEq,
         Some(SyntaxKind::IdentityEq) => BinaryOp::IdentityEq,

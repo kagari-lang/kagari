@@ -87,6 +87,12 @@ impl BodyChecker<'_> {
             BinaryOp::Mul => Some(crate::builtin::traits::StandardTrait::Mul),
             BinaryOp::Div => Some(crate::builtin::traits::StandardTrait::Div),
             BinaryOp::Rem => Some(crate::builtin::traits::StandardTrait::Rem),
+            BinaryOp::BitAnd => Some(crate::builtin::traits::StandardTrait::BitAnd),
+            BinaryOp::BitOr => Some(crate::builtin::traits::StandardTrait::BitOr),
+            BinaryOp::BitXor => Some(crate::builtin::traits::StandardTrait::BitXor),
+            BinaryOp::Shl => Some(crate::builtin::traits::StandardTrait::Shl),
+            BinaryOp::Shr => Some(crate::builtin::traits::StandardTrait::Shr),
+
             _ => None,
         };
         let numeric_context =
@@ -103,6 +109,11 @@ impl BodyChecker<'_> {
         let lhs_ty = lhs_completes.then_some(lhs_ty);
         let rhs_context = if let Some(protocol) = arithmetic {
             lhs_ty.as_ref().and_then(|left| {
+                if matches!(op, BinaryOp::Shl | BinaryOp::Shr)
+                    && matches!(left, TypeId::Builtin(_) | TypeId::Inference(_))
+                {
+                    return None;
+                }
                 let inputs: Vec<_> = self
                     .trait_bounds_for(left, env)
                     .into_iter()
@@ -110,7 +121,7 @@ impl BodyChecker<'_> {
                     .filter_map(|bound| bound.arguments.into_iter().next())
                     .collect();
                 if inputs.is_empty() && matches!(left, TypeId::Inference(_) | TypeId::Builtin(_)) {
-                    return Some(left.clone());
+                    return (!matches!(op, BinaryOp::Shl | BinaryOp::Shr)).then(|| left.clone());
                 }
                 let first = inputs.first()?;
                 inputs

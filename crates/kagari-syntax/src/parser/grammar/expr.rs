@@ -130,14 +130,76 @@ impl<'a> Parser<'a> {
 
     fn parse_comparison_expr(&mut self) {
         let checkpoint = self.checkpoint();
-        self.parse_additive_expr();
+        self.parse_bit_or_expr();
 
         loop {
             self.bump_trivia();
-            if !self.at_any(&[TokenKind::Lt, TokenKind::Gt, TokenKind::Le, TokenKind::Ge]) {
+            if self.joint_shift().is_some()
+                || !self.at_any(&[TokenKind::Lt, TokenKind::Gt, TokenKind::Le, TokenKind::Ge])
+            {
                 break;
             }
             self.bump();
+            self.parse_bit_or_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_bit_or_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_bit_xor_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::Pipe) {
+                break;
+            }
+            self.bump();
+            self.parse_bit_xor_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_bit_xor_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_bit_and_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::Caret) {
+                break;
+            }
+            self.bump();
+            self.parse_bit_and_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_bit_and_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_shift_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::Amp) {
+                break;
+            }
+            self.bump();
+            self.parse_shift_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_shift_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_additive_expr();
+        loop {
+            self.bump_trivia();
+            if !matches!(self.joint_shift(), Some(SyntaxKind::Shl | SyntaxKind::Shr)) {
+                break;
+            }
+            self.bump_joint_shift();
             self.parse_additive_expr();
             self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
             self.finish_node();
