@@ -71,3 +71,30 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn capacities_preserve_collection_contents_and_order() {
+    execute(
+        r#"
+fn main() -> i32 {
+    val list:ArrayList<i32> = ArrayList::with_capacity(8usize);
+    std::debug::assert(list.is_empty() && list.capacity()>=8usize,"list initial");
+    list.push(42);
+    list.reserve(16usize);
+    std::debug::assert(list.capacity()>=17usize && list.len()==1usize && list[0usize]==42,"list reserve");
+    val map:LinkedHashMap<i32,String> = LinkedHashMap::with_capacity(8usize);
+    map.insert(2,"b");map.insert(1,"a");
+    map.reserve(16usize);
+    std::debug::assert(map.capacity()>=18usize && map.len()==2usize,"map reserve");
+    std::debug::assert(map.keys()[0usize]==2,"map order");
+    val set:LinkedHashSet<i32> = LinkedHashSet::with_capacity(8usize);
+    set.insert(2);set.insert(1);set.reserve(16usize);
+    std::debug::assert(set.capacity()>=18usize && set.len()==2usize,"set reserve");
+    std::debug::assert(set.iter().next()==Some(2),"set order");
+    for x in list { list.reserve(32usize); }
+    std::debug::assert(list[0usize]==42,"reservation does not invalidate iteration");
+    42
+}
+"#,
+    );
+}

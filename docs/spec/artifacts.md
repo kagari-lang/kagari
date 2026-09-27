@@ -675,3 +675,9 @@ KBC/runtime ABI v94 extends MutableList's required methods and adds verified
 array mutation bindings. Extend source traversal is lowered before one storage
 commit; internal storage arguments must have matching element types. Previous
 products are rejected.
+
+## Concrete collection capacity (v95)
+
+KBC/runtime ABI v95 adds typed capacity constructors, queries and reservation
+bindings for concrete collections. Reservations retain write/allocation effects;
+previous products are rejected.

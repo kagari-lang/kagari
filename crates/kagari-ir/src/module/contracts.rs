@@ -325,6 +325,19 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
+        ArrayWithCapacity | MapWithCapacity | SetWithCapacity => {
+            expect_arg_ty(args, 0, ValueType::U64, "initial capacity")?;
+            verify_call_dst(dst, ValueType::HeapObject)?;
+        }
+        ArrayCapacity | MapCapacity | SetCapacity => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "collection receiver")?;
+            verify_call_dst(dst, ValueType::U64)?;
+        }
+        ArrayReserve | MapReserve | SetReserve => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "collection receiver")?;
+            expect_arg_ty(args, 1, ValueType::U64, "additional capacity")?;
+            verify_call_dst(dst, ValueType::Unit)?;
+        }
         ArraySwap | ArrayReverse | ArrayTruncate | ArrayExtendStorage => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "array mutation receiver")?;
             if intrinsic == ArrayExtendStorage {

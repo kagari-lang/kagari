@@ -473,3 +473,54 @@ impl<K: Eq + Hash, V> MutableMap<K, V> for LinkedHashMap<K, V> {
     #[intrinsic(MapClear)]
     fn clear(self) -> ();
 }
+
+impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
+    /// Construct empty storage with room for at least capacity elements.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(MapWithCapacity)]
+    pub fn with_capacity(capacity: usize) -> LinkedHashMap<K, V>;
+
+    /// Return the number of elements that fit without growing storage.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(MapCapacity)]
+    pub fn capacity(self) -> usize;
+
+    /// Reserve room for at least additional elements beyond the current length.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(MapReserve)]
+    pub fn reserve(self, additional: usize) -> ();
+
+}

@@ -133,6 +133,10 @@ pub fn invoke_with_callbacks(
         ArrayPop => array_pop(gc, args),
         ArrayInsert => array_insert(gc, args),
         ArrayRemove => array_remove(gc, args),
+        ArrayWithCapacity | ArrayCapacity | ArrayReserve | MapWithCapacity | MapCapacity
+        | MapReserve | SetWithCapacity | SetCapacity | SetReserve => {
+            collection_capacity(gc, intrinsic, args)
+        }
         ArrayExtend => Err(BuiltinError::new(
             "extend requires prepared source lowering",
         )),
@@ -256,6 +260,45 @@ pub fn invoke_with_callbacks(
         DebugAssert => debug_assert(args),
         DebugAssertEq => debug_assert_eq(gc, args),
         DebugPanic => debug_panic(args),
+    }
+}
+
+fn collection_capacity(
+    gc: &GcHeap,
+    intrinsic: StandardIntrinsic,
+    args: &[Value],
+) -> Result<Value, BuiltinError> {
+    use StandardIntrinsic::*;
+    if matches!(
+        intrinsic,
+        ArrayWithCapacity | MapWithCapacity | SetWithCapacity
+    ) {
+        let [Value::U64(capacity)] = args else {
+            return Err(BuiltinError::new("capacity constructor requires usize"));
+        };
+        let capacity = usize::try_from(*capacity)
+            .map_err(|_| BuiltinError::new("capacity exceeds platform limit"))?;
+        let value = match intrinsic {
+            ArrayWithCapacity => Value::Array(gc.alloc_array(vec![])?),
+            MapWithCapacity => Value::Map(gc.alloc_map(vec![])?),
+            _ => Value::Set(gc.alloc_set(vec![])?),
+        };
+        gc.reserve_collection(&value, capacity)?;
+        return Ok(value);
+    }
+    match args {
+        [value] if matches!(intrinsic, ArrayCapacity | MapCapacity | SetCapacity) => {
+            Ok(Value::U64(gc.collection_capacity(value)? as u64))
+        }
+        [value, Value::U64(additional)]
+            if matches!(intrinsic, ArrayReserve | MapReserve | SetReserve) =>
+        {
+            let additional = usize::try_from(*additional)
+                .map_err(|_| BuiltinError::new("capacity exceeds platform limit"))?;
+            gc.reserve_collection(value, additional)?;
+            Ok(Value::Unit)
+        }
+        _ => Err(BuiltinError::new("invalid capacity operands")),
     }
 }
 

@@ -739,7 +739,10 @@ pub(super) fn verify(
                             }
                             if matches!(
                                 intrinsic,
-                                S::ArraySwap
+                                S::ArrayReserve
+                                    | S::MapReserve
+                                    | S::SetReserve
+                                    | S::ArraySwap
                                     | S::ArrayReverse
                                     | S::ArrayTruncate
                                     | S::ArrayExtendStorage

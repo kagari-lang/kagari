@@ -625,7 +625,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] C01: Map snapshot interface methods and copy_from naming.
 - [x] C02: List endpoint, membership, prefix/suffix and binary search queries.
 - [x] C03: List reordering, truncation, prepared extension and swap removal.
-- [ ] C04: Concrete collection capacity construction and reservation.
+- [x] C04: Concrete collection capacity construction and reservation.
 - [ ] C05: Set relationships and symmetric difference over readonly interfaces.
 - [ ] C06: Guarded Map get_or_insert_with and update operations.
 - [ ] C07: Prepared retain, stable sorting and adjacent deduplication.
@@ -677,3 +677,9 @@ C03 validation: 25 array/collection tests pass, including interface reordering,
 truncation, prepared self-extension and unordered removal. Failure tests preserve
 slots after invalid swap or mutation during iteration. Extend's readonly List
 input is snapshotted before the storage commit. KBC/runtime ABI is v94.
+
+C04 validation: 12 capacity/array tests pass, covering all concrete storage
+classes, reservation during iteration, order preservation and overflow failure
+without modification. Workspace clippy passes. Live heap units still measure
+stored values rather than allocator capacity; preparation uses allocation limits.
+KBC/runtime ABI is v95.

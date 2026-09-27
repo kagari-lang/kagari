@@ -431,3 +431,54 @@ impl<T: Eq + Hash> MutableSet<T> for LinkedHashSet<T> {
     #[intrinsic(SetClear)]
     fn clear(self) -> ();
 }
+
+impl<T: Eq + Hash> LinkedHashSet<T> {
+    /// Construct empty storage with room for at least capacity elements.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(SetWithCapacity)]
+    pub fn with_capacity(capacity: usize) -> LinkedHashSet<T>;
+
+    /// Return the number of elements that fit without growing storage.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(SetCapacity)]
+    pub fn capacity(self) -> usize;
+
+    /// Reserve room for at least additional elements beyond the current length.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(SetReserve)]
+    pub fn reserve(self, additional: usize) -> ();
+
+}

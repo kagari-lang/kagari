@@ -221,6 +221,16 @@ pub struct StandardModuleSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StandardIntrinsic {
+    ArrayWithCapacity,
+    ArrayCapacity,
+    ArrayReserve,
+    MapWithCapacity,
+    MapCapacity,
+    MapReserve,
+    SetWithCapacity,
+    SetCapacity,
+    SetReserve,
+
     StringParse,
     ParseNumber(BuiltinType),
     ParseRadix(BuiltinType),
@@ -903,7 +913,10 @@ pub fn collection_read_method(intrinsic: StandardIntrinsic) -> bool {
     use StandardIntrinsic::*;
     matches!(
         intrinsic,
-        ArrayLen
+        ArrayCapacity
+            | MapCapacity
+            | SetCapacity
+            | ArrayLen
             | ArrayIsEmpty
             | ArrayGet
             | ArrayJoin

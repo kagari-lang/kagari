@@ -190,3 +190,11 @@ Swap validates both indices first. Truncate never grows. ArrayList::swap_remove
 returns Option, consistent with remove, and replaces the removed slot with the
 last element; its order is intentionally unstable. Reordering rejects active
 native iteration and invalidates earlier closed cursors through the revision.
+
+ArrayList, LinkedHashMap and LinkedHashSet expose with_capacity, capacity and
+reserve. Reserve takes an additional count relative to current length and may
+overallocate; no exact growth strategy is promised. Reservation preserves length,
+order and identity and does not invalidate positional iteration. Failed capacity
+preparation preserves logical contents. Capacity preparation is charged to the
+allocation budget; live heap units continue counting stored values, not allocator
+capacity or physical bytes. These APIs are concrete-storage operations.

@@ -686,3 +686,54 @@ impl<T> MutableList<T> for ArrayList<T> {
     #[intrinsic(CollectionSet)]
     fn set(self, index: usize, value: T);
 }
+
+impl<T> ArrayList<T> {
+    /// Construct empty storage with room for at least capacity elements.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: ArrayList<i32> = ArrayList::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(ArrayWithCapacity)]
+    pub fn with_capacity(capacity: usize) -> ArrayList<T>;
+
+    /// Return the number of elements that fit without growing storage.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: ArrayList<i32> = ArrayList::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(ArrayCapacity)]
+    pub fn capacity(self) -> usize;
+
+    /// Reserve room for at least additional elements beyond the current length.
+    ///
+    /// Capacity is an implementation detail and may exceed the requested minimum.
+    /// Reservation never changes length, order or object identity. Size overflow
+    /// or allocation failure traps without changing the logical contents.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: ArrayList<i32> = ArrayList::with_capacity(8usize);
+    /// values.reserve(16usize);
+    /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
+    /// ```
+    #[intrinsic(ArrayReserve)]
+    pub fn reserve(self, additional: usize) -> ();
+
+}

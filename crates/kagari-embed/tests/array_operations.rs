@@ -241,6 +241,7 @@ fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
         ("a.copy_within(3..3, 4);", vec![1, 2, 3]),
         ("a.copy_from([1, 2]);", vec![1, 2, 3]),
         ("a.swap(0usize, 9usize);", vec![1, 2, 3]),
+        ("a.reserve(18446744073709551615usize);", vec![1, 2, 3]),
         ("for x in a { a.reverse(); }", vec![1, 2, 3]),
         ("for x in a { a.swap_remove(0usize); }", vec![1, 2, 3]),
         ("a.copy_within(Region { a }, 0);", vec![9, 2]),
