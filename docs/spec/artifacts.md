@@ -623,3 +623,9 @@ Version 86/runtime ABI v86 add the declared, string-constrained List and Iterato
 join operations. They lower to ordinary traversal and the existing ArrayJoin storage
 intrinsic. Runtime interface tables preserve declaration ordinals for omitted native
 defaults using vacant bindings. Version 85 products are rejected before execution.
+
+## String query intrinsics (v87)
+
+KBC/runtime ABI v87 adds Unicode trimming, byte-offset search and prefix/suffix
+stripping. Operand and destination representations are checked before execution.
+Earlier artifacts are rejected without migration.

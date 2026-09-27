@@ -875,4 +875,30 @@ mod collection_access_tests {
             );
         }
     }
+    #[test]
+    fn string_queries_navigate_to_documented_declarations() {
+        let text = "fn main() { val text = \"hello\"; text.strip_prefix(\"he\"); }";
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("string-api.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let file = snapshot.file(id).unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+        let offset = text.find("strip_prefix").unwrap();
+        let definition = file.definition_at(offset).unwrap();
+        let api = file.standard_api_at(offset).unwrap();
+        assert!(api.documentation.contains("# Examples"));
+        let source = snapshot.source(definition.location.file).unwrap();
+        assert_eq!(
+            &source.text()[definition.location.range.start..definition.location.range.end],
+            "strip_prefix"
+        );
+    }
 }

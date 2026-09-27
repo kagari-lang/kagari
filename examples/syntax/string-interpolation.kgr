@@ -1,6 +1,10 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/string-interpolation.kgr
 // Result: main returns 42.
 fn main() -> i32 {
+    val padded = "  hello 😀  ";
+    val clean = padded.trim();
+    std::debug::assert(clean.find("😀") == Some(6usize), "byte offset");
+    std::debug::assert(clean.strip_prefix("hello ") == Some("😀"), "prefix");
     val name = "Kagari";
     val score = 40;
     val message = f"Hello {name}, score={score + 2}";

@@ -564,6 +564,13 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | SetDifference
                 | ArrayJoin
                 | StringSlice
+                | StringTrim
+                | StringTrimStart
+                | StringTrimEnd
+                | StringFind
+                | StringRfind
+                | StringStripPrefix
+                | StringStripSuffix
                 | OptionMap
                 | OptionAndThen
                 | OptionOkOr

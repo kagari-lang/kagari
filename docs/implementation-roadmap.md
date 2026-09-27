@@ -610,3 +610,36 @@ previously passing executable standard-library documentation test. The final run
 skipped only that unchanged documentation test after fixing completion filtering
 and the native-witness assertion. All 12 standard API query tests, formatting,
 workspace/all-targets clippy with warnings denied and diff checks passed.
+
+## Standard library completion
+
+This sequence extends the source-declared API without borrowed views, ownership
+transfer APIs or compatibility aliases. Each checkpoint updates declarations,
+runtime/lowering contracts, documentation and executable acceptance cases.
+
+- [x] S01: Unicode trimming, substring search and prefix/suffix stripping.
+- [ ] S02: Lazy string splitting, bounded splitting, lines and whitespace.
+- [ ] S03: Replacement, repetition, case conversion and byte/boundary iteration.
+- [ ] S04: Lazy Option/Result combinators, flattening and transposition.
+- [ ] S05: FromStr, typed parsing and integer radix parsing.
+- [ ] C01: Map snapshot interface methods and copy_from naming.
+- [ ] C02: List endpoint, membership, prefix/suffix and binary search queries.
+- [ ] C03: List reordering, truncation, prepared extension and swap removal.
+- [ ] C04: Concrete collection capacity construction and reservation.
+- [ ] C05: Set relationships and symmetric difference over readonly interfaces.
+- [ ] C06: Guarded Map get_or_insert_with and update operations.
+- [ ] C07: Prepared retain, stable sorting and adjacent deduplication.
+- [ ] C08: Lazy snapshot windows/chunks and immediate range removal.
+
+Callback mutations prepare changes before committing; callback failure preserves
+the target's slots/order, while previously completed object side effects remain.
+Callbacks cannot modify the target container through aliases. Lazy windows/chunks
+produce independent readonly shallow snapshots at yield time. Strings use UTF-8
+byte offsets and Unicode scalar iteration, without implicit normalization.
+
+Compact buffers, live sublist views, double-ended iteration, StringBuilder and
+generalized Try/FromResidual remain separate follow-up work.
+
+S01 validation: source, serialized-artifact and JIT-fallback acceptance passed
+with collection threshold one; definition navigation resolves the documented SDK
+member. KBC/runtime ABI v87 rejects previous formats.

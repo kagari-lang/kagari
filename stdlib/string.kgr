@@ -25,6 +25,97 @@
 pub type String;
 
 impl String {
+    /// Remove leading and trailing Unicode whitespace.
+    ///
+    /// Uses the Unicode White_Space property, not only ASCII spaces. Interior whitespace is preserved.
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("  hello  ".trim() == "hello", "trim");
+    /// ```
+    #[intrinsic(StringTrim)]
+    pub fn trim(self) -> String;
+
+    /// Remove leading Unicode whitespace.
+    ///
+    /// Trailing and interior whitespace are preserved.
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("  hello  ".trim_start() == "hello  ", "trim_start");
+    /// ```
+    #[intrinsic(StringTrimStart)]
+    pub fn trim_start(self) -> String;
+
+    /// Remove trailing Unicode whitespace.
+    ///
+    /// Leading and interior whitespace are preserved.
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("  hello  ".trim_end() == "  hello", "trim_end");
+    /// ```
+    #[intrinsic(StringTrimEnd)]
+    pub fn trim_end(self) -> String;
+
+    /// Return the first matching substring byte offset.
+    ///
+    /// Returns None when absent. An empty needle matches at byte offset zero.
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("éhello".find("hello") == Some(2usize), "find");
+    /// ```
+    #[intrinsic(StringFind)]
+    pub fn find(self, needle: String) -> Option<usize>;
+
+    /// Return the last matching substring byte offset.
+    ///
+    /// Returns None when absent. An empty needle matches at len_bytes().
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("ababa".rfind("aba") == Some(2usize), "rfind");
+    /// ```
+    #[intrinsic(StringRfind)]
+    pub fn rfind(self, needle: String) -> Option<usize>;
+
+    /// Remove one matching prefix.
+    ///
+    /// Returns None when absent. An empty prefix succeeds without changing the contents.
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("hello".strip_prefix("he") == Some("llo"), "strip_prefix");
+    /// ```
+    #[intrinsic(StringStripPrefix)]
+    pub fn strip_prefix(self, prefix: String) -> Option<String>;
+
+    /// Remove one matching suffix.
+    ///
+    /// Returns None when absent. An empty suffix succeeds without changing the contents.
+    /// The receiver is unchanged; matching does not normalize Unicode.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("hello".strip_suffix("lo") == Some("hel"), "strip_suffix");
+    /// ```
+    #[intrinsic(StringStripSuffix)]
+    pub fn strip_suffix(self, suffix: String) -> Option<String>;
+
     /// Return the UTF-8 byte length.
     ///
     /// The input string is not modified. String equality compares contents.

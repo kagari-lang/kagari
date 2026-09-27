@@ -126,3 +126,13 @@ locations come from those declarations. The build validates the supported native
 signatures and intrinsic bindings. Static constructors do not appear as instance
 completion candidates. Iterable inheritance through a generic associated Iter
 retains the originating Item equality constraints.
+
+## String query semantics
+
+String search and slicing use UTF-8 byte offsets. `find`/`rfind` return the first/last
+substring offset or `None`; empty patterns match zero/the byte length respectively.
+`strip_prefix` and `strip_suffix` remove exactly one match, returning `Some` even
+for an empty pattern. Trimming uses Unicode White_Space; start/end variants retain
+whitespace on the opposite end. No operation normalizes Unicode or mutates its
+receiver. Returned strings own their contents; optional results are ordinary
+GC-rooted Option values.

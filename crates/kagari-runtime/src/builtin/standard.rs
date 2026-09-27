@@ -193,6 +193,8 @@ pub fn invoke_with_callbacks(
         StringStartsWith => string_starts_with(args),
         StringEndsWith => string_ends_with(args),
         StringSlice => string_slice(gc, args),
+        StringTrim | StringTrimStart | StringTrimEnd | StringFind | StringRfind
+        | StringStripPrefix | StringStripSuffix => string_query(gc, intrinsic, args),
         OptionIsSome => option_is_some(gc, args),
         OptionIsNone => option_is_none(gc, args),
         OptionUnwrapOr => option_unwrap_or(gc, args),
@@ -582,6 +584,61 @@ fn set_difference(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .filter(|value| gc.set_contains(rhs, value) == Some(false))
         .collect();
     set_value(gc, values)
+}
+
+fn string_query(
+    gc: &GcHeap,
+    intrinsic: StandardIntrinsic,
+    args: &[Value],
+) -> Result<Value, BuiltinError> {
+    use StandardIntrinsic::*;
+    let Some(Value::Str(text)) = args.first() else {
+        return Err(BuiltinError::new("string query requires a string receiver"));
+    };
+    if matches!(intrinsic, StringTrim | StringTrimStart | StringTrimEnd) {
+        if args.len() != 1 {
+            return Err(BuiltinError::new("trim expects one argument"));
+        }
+        return copy_string(match intrinsic {
+            StringTrim => text.trim(),
+            StringTrimStart => text.trim_start(),
+            _ => text.trim_end(),
+        });
+    }
+    let [_, Value::Str(needle)] = args else {
+        return Err(BuiltinError::new("string query requires a string pattern"));
+    };
+    if matches!(intrinsic, StringFind | StringRfind) {
+        let found = if intrinsic == StringFind {
+            text.find(needle)
+        } else {
+            text.rfind(needle)
+        };
+        return match found {
+            Some(index) => option_some(gc, Value::U64(index as u64)),
+            None => option_none(gc),
+        };
+    }
+    let stripped = if intrinsic == StringStripPrefix {
+        text.strip_prefix(needle.as_str())
+    } else {
+        text.strip_suffix(needle.as_str())
+    };
+    match stripped {
+        Some(value) => option_some(gc, copy_string(value)?),
+        None => option_none(gc),
+    }
+}
+
+fn copy_string(text: &str) -> Result<Value, BuiltinError> {
+    let mut output = String::new();
+    output.try_reserve_exact(text.len()).map_err(|_| {
+        BuiltinError::from(crate::error::RuntimeError::resource_limit(
+            "string allocation",
+        ))
+    })?;
+    output.push_str(text);
+    Ok(Value::Str(output))
 }
 
 fn string_len_bytes(args: &[Value]) -> Result<Value, BuiltinError> {

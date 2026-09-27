@@ -430,6 +430,15 @@ pub(crate) fn verify_intrinsic(
             expect_arg_ty(args, 1, ValueType::Str, "join separator")?;
             verify_call_dst(dst, ValueType::Str)?;
         }
+        StringTrim | StringTrimStart | StringTrimEnd => {
+            expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
+            verify_call_dst(dst, ValueType::Str)?;
+        }
+        StringFind | StringRfind | StringStripPrefix | StringStripSuffix => {
+            expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
+            expect_arg_ty(args, 1, ValueType::Str, "string pattern")?;
+            verify_call_dst(dst, ValueType::HeapObject)?;
+        }
         StringConcat => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             expect_arg_ty(args, 1, ValueType::Str, "standard intrinsic argument")?;
