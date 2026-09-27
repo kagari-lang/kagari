@@ -2711,6 +2711,28 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
+            for implementation in crate::builtin::declarations::implementations(ty) {
+                let declaration = implementation.trait_declaration().item.identity();
+                if !crate::builtin::traits::StandardTrait::from_id(&declaration)
+                    .is_some_and(crate::builtin::traits::StandardTrait::collection)
+                {
+                    continue;
+                }
+                if let Some(arguments) = implementation.arguments(ty) {
+                    let applied = crate::types::NominalType {
+                        declaration,
+                        arguments: implementation
+                            .trait_arguments
+                            .iter()
+                            .map(|t| t.instantiate(&arguments))
+                            .collect(),
+                        associated_types: Default::default(),
+                    };
+                    if !implemented.contains(&applied) {
+                        implemented.push(applied);
+                    }
+                }
+            }
             for kind in crate::builtin::traits::StandardTrait::ALL {
                 let interface = kind.intrinsic_view(ty);
                 if crate::builtin::traits::intrinsic_holds(

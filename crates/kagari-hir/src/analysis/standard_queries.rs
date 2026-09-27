@@ -238,7 +238,59 @@ impl FileAnalysis {
             arguments.insert("Self", ty.clone());
             method.bounds.iter().all(|(target, constraints)| {
                 if !matches!(target, declarations::ApiType::Named("Self", _)) {
-                    return true;
+                    let owner = surface::STANDARD_TRAITS
+                        .iter()
+                        .find(|t| {
+                            t.methods
+                                .iter()
+                                .any(|m| m.item.identity() == item.identity())
+                        })
+                        .unwrap();
+                    let owner_id = owner.item.identity();
+                    let mut bindings = arguments.clone();
+                    if let Some(implementation) = declarations::implementations(&ty)
+                        .into_iter()
+                        .find(|i| i.trait_declaration().item.identity() == owner_id)
+                    {
+                        bindings.extend(implementation.arguments(&ty).unwrap());
+                    } else if let TypeId::Trait(interface) = &ty {
+                        if let Some(parent) = self
+                            .result
+                            .facts()
+                            .aggregates
+                            .trait_closure(interface, &ty, &Default::default())
+                            .unwrap_or_default()
+                            .into_iter()
+                            .find(|n| n.declaration == owner_id)
+                        {
+                            bindings.extend(owner.generics.iter().copied().zip(parent.arguments));
+                        }
+                    }
+                    let actual = target.instantiate(&bindings);
+                    if actual.is_unresolved() {
+                        return true;
+                    }
+                    return constraints.iter().all(|constraint| {
+                        let required = constraint.nominal(&bindings);
+                        crate::builtin::traits::intrinsic_applies(
+                            &required,
+                            &actual,
+                            Some(&self.result.facts().aggregates),
+                            &Default::default(),
+                        ) || self
+                            .result
+                            .facts()
+                            .aggregates
+                            .concrete_interface_implementation(
+                                &required,
+                                &actual,
+                                &Default::default(),
+                                4096,
+                                64,
+                                &Default::default(),
+                            )
+                            .is_ok_and(|i| i.is_some())
+                    });
                 }
                 constraints.iter().all(|constraint| {
                     use crate::builtin::traits::{self, StandardTrait};
@@ -900,5 +952,33 @@ mod collection_access_tests {
             &source.text()[definition.location.range.start..definition.location.range.end],
             "strip_prefix"
         );
+    }
+    #[test]
+    fn list_completion_filters_total_order_requirement() {
+        for (element, value, ordered) in [("i32", "1", true), ("f64", "1.0", false)] {
+            let text = format!("fn main() {{ val values: List<{element}> = [{value}]; values. }}");
+            let mut sources = SourceDatabase::default();
+            let id = sources
+                .set("list-completion.kgr", text.clone(), SourceLayer::Base)
+                .unwrap();
+            let snapshot = AnalysisDatabase::default()
+                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .unwrap();
+            let items = snapshot
+                .file(id)
+                .unwrap()
+                .standard_method_completions(text.find("values. }").unwrap() + 7);
+            assert_eq!(
+                items
+                    .iter()
+                    .any(|item| item.path.last().unwrap().1 == "binary_search"),
+                ordered
+            );
+            assert!(
+                items
+                    .iter()
+                    .any(|item| item.path.last().unwrap().1 == "contains")
+            );
+        }
     }
 }

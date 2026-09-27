@@ -661,3 +661,10 @@ are checked before execution. Previous formats are rejected.
 KBC/runtime ABI v92 records Map's standard snapshot defaults and the renamed
 array copy operation. Snapshot results have readonly List interface tables.
 Previous products are rejected.
+
+## List queries (v93)
+
+KBC/runtime ABI v93 includes source-declared List query defaults. Native witnesses
+inherit their standard methods without requiring duplicate inherent declarations.
+Queries lower to verified control flow and ordinary comparison dispatch. Previous
+products are rejected.

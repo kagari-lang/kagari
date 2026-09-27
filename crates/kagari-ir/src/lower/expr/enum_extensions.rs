@@ -13,7 +13,7 @@ fn enum_args(ty: &TypeId) -> Result<&[TypeId], IrLoweringError> {
 }
 
 impl FunctionLowerer<'_, '_> {
-    fn branch_enum_value(
+    pub(super) fn branch_enum_value(
         &mut self,
         condition: IrValue,
         output: &TypeId,

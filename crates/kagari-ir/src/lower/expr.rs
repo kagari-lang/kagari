@@ -4,6 +4,7 @@ mod enum_extensions;
 mod equality;
 mod iterators;
 mod keys;
+mod list_queries;
 mod operators;
 mod standard;
 mod terminals;

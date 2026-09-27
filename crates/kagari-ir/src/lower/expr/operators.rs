@@ -227,6 +227,17 @@ impl FunctionLowerer<'_, '_> {
             if matches!(operation, MapKeysView | MapValuesView | MapEntriesView) {
                 return self.lower_map_view_snapshot(operation, &ty, args[0]);
             }
+            if matches!(
+                operation,
+                ListFirst
+                    | ListLast
+                    | ListContains
+                    | ListStartsWith
+                    | ListEndsWith
+                    | ListBinarySearch
+            ) {
+                return self.lower_list_query(operation, &ty, args);
+            }
             if operation == ListJoin {
                 if matches!(ty, TypeId::Array(_, _)) {
                     return Ok(self.emit_intrinsic(

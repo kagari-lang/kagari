@@ -171,3 +171,12 @@ order, without imposing Eq/Hash on the interface. Native concrete maps retain
 their direct snapshot path. These traversal defaults cannot be overridden.
 The writable array copy operation is named copy_from; the former slice-oriented
 spelling is removed, without an alias.
+
+List provides first/last, membership, prefix/suffix matching and binary_search as
+standard defaults, including for user implementations. Membership and positional
+matching require PartialEq; binary_search requires Ord and ascending sorted input.
+It returns Ok(a matching index) or Err(the insertion index); duplicate matches may
+select any equal position. Empty prefixes/suffixes match. Multi-element queries
+retain an iteration guard while comparison callbacks run, rejecting structural
+changes through aliases of native backing storage. Custom List implementations
+must keep len/get/index and iteration consistent. The default methods are sealed.

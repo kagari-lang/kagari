@@ -59,6 +59,13 @@ pub struct ApiGeneric {
 pub enum NativeDefaultMethod {
     Join,
     ListJoin,
+    ListFirst,
+    ListLast,
+    ListContains,
+    ListStartsWith,
+    ListEndsWith,
+    ListBinarySearch,
+
     MapKeysView,
     MapValuesView,
     MapEntriesView,

@@ -623,7 +623,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] S04: Lazy Option/Result combinators, flattening and transposition.
 - [x] S05: FromStr, typed parsing and integer radix parsing.
 - [x] C01: Map snapshot interface methods and copy_from naming.
-- [ ] C02: List endpoint, membership, prefix/suffix and binary search queries.
+- [x] C02: List endpoint, membership, prefix/suffix and binary search queries.
 - [ ] C03: List reordering, truncation, prepared extension and swap removal.
 - [ ] C04: Concrete collection capacity construction and reservation.
 - [ ] C05: Set relationships and symmetric difference over readonly interfaces.
@@ -668,3 +668,7 @@ readonly Map snapshots with non-hashable keys, object aliases, generic calls and
 rejection of writes and the removed copy name. Native protocol identities no
 longer recursively initialize the contract catalog when one protocol returns
 another protocol. KBC/runtime ABI is v92.
+
+C02 validation: native/read-only/custom List queries, generic PartialEq, custom
+ordering, insertion positions, empty inputs and Ord rejection pass across source,
+artifact and JIT fallback with frequent GC. Artifact/runtime ABI is v93.
