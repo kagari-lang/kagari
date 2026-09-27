@@ -11,8 +11,8 @@ follow-up owners are recorded. Use Conventional Commits with `Architecture-Step:
 the final integration phase must restore all required checks and behavior.
 
 A00–A03 are complete at their documented phase boundaries. A04 now migrates the
-existing Cranelift subset and native fixtures to verified MIR; the workspace still
-has the recorded backend build errors. See the active plan's ledger for scoped
+existing Cranelift subset and native fixtures to verified MIR. The backend and
+SDK suites now pass; legacy VM native fixtures still prevent workspace test builds. See the active plan's ledger for scoped
 validation and the remaining A05 acceptance requirements.
 
 [Foundation refactor](foundation-refactor.md) records the completed R01–R18 track.

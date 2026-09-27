@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::rc::Rc;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -112,7 +113,7 @@ unsafe impl CodegenBackend for Backend {
         };
         Ok(NativeCompilationProduct {
             artifact,
-            owner: Arc::new(Owner(self.dropped.clone())),
+            owner: Rc::new(Owner(self.dropped.clone())),
         })
     }
 }

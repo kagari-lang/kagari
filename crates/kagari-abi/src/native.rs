@@ -1,7 +1,7 @@
 use crate::ids::{DebugPointId, FunctionRef};
 use crate::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use std::fmt;
-use std::sync::Arc;
+use std::rc::Rc;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BackendId(String);
 
@@ -147,10 +147,12 @@ pub struct ExecutableDebugPoint {
 pub trait NativeCodeOwner: fmt::Debug {}
 
 /// Compiler output pairs executable metadata with its memory lifetime.
+/// Sharing is within the host thread, matching prepared programs and runtime
+/// installations; this contract does not authorize cross-thread execution.
 #[derive(Debug, Clone)]
 pub struct NativeCompilationProduct {
     pub artifact: ExecutableFunctionArtifact,
-    pub owner: Arc<dyn NativeCodeOwner>,
+    pub owner: Rc<dyn NativeCodeOwner>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

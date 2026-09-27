@@ -40,7 +40,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
         .compile_to_artifact(
             SourceFile::new(
                 "native-origin.kgr",
-                "fn main()->i32 {\n    val large=2147483647;\n    large+1\n}",
+                "fn main()->i32 {\n\n    2147483647+1\n}",
             ),
             Default::default(),
             Default::default(),
@@ -77,6 +77,10 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
                     &context.cancellation,
                 )
                 .unwrap();
+            assert!(matches!(
+                prepared,
+                kagari_vm::PreparedNativeEntry::Native(_)
+            ));
             runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)

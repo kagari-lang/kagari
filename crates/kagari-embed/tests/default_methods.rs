@@ -184,7 +184,12 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
+            &PreparedProgram::from_artifact(
+                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap(),
             Default::default(),
         )
         .unwrap();

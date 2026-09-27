@@ -1,6 +1,5 @@
 use std::ffi::c_void;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::native::{
@@ -102,7 +101,7 @@ fn prepared(vm: &Vm, module: &LoadedModule, entry: JitCompiledFunction) -> Prepa
     };
     let product = Rc::new(NativeCompilationProduct {
         artifact,
-        owner: Arc::new(StaticCode),
+        owner: Rc::new(StaticCode),
     });
     // Static ABI fixture; trap probe intentionally exercises failure propagation.
     PreparedNativeEntry::Native(

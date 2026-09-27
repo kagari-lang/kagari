@@ -18,3 +18,10 @@ cranelift-frontend.workspace = true
 cranelift-jit.workspace = true
 cranelift-module.workspace = true
 cranelift-native.workspace = true
+
+[dev-dependencies]
+kagari-bytecode.workspace = true
+kagari-common.workspace = true
+kagari-compiler = { workspace = true, features = ["source"] }
+kagari-embed = { workspace = true, features = ["source"] }
+kagari-runtime.workspace = true

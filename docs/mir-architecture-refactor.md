@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A03 complete; A04 Cranelift migration is next; workspace build is broken.
+Status: A00-A03 complete; A04 Cranelift migration is in progress; workspace test build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -451,10 +451,10 @@ completed with the bounded public MIR passes. A03 completes with the native
 registry reconciliation checkpoint below. Source compilation, verified MIR analyses,
 frontend-free bytecode lowering, runtime/VM prepared execution, portable artifacts,
 shared SDK preparation/reload and feature isolation have scoped passing evidence.
-SDK callers are migrated; the workspace remains broken in the A04 Cranelift
-implementation and legacy VM/backend fixtures. Mixed SDK native suites cannot yet
-build through their real backend dependency. Resume A04 MIR-to-CLIF translation,
-code-memory ownership and native fixture migration. A05 final acceptance has not
+SDK callers and the Cranelift production backend now compile; real native tests
+and the full SDK suite pass. The workspace test build remains broken in legacy
+VM native fixtures. Resume A04 migration of those fixtures to their intended
+SDK/backend/VM owners and complete native acceptance coverage. A05 final acceptance has not
 run, and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
@@ -473,7 +473,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
 | A03 | Complete with native registry reconciliation; runtime/VM prepared execution, portable MIR/v103 artifacts, SDK features/cache/reload and migrated callers | 196 runtime tests + one doc test, eight VM prepared tests, ten SDK preparation tests, five CLI tests and four feature-mode consumers at exit; earlier 55 source SDK tests and seven examples; scoped clippy, structure, fmt and diff pass | A04 owns 22 Cranelift library errors and native fixtures; mixed SDK suites await the real backend; A05 full acceptance remains |
-| A04 | Next: verified MIR-to-CLIF and owned native products | Carried backend check fails with 22 errors | Obsolete runtime/bytecode imports and backend methods; bytecode-shaped MIR access; legacy native fixtures |
+| A04 | Verified MIR-to-CLIF scalar emission, explicit links and owned code memory | Seven backend tests; 407 SDK tests plus two new real-native tests; native runtime/VM/CLI tests; scoped clippy and structure pass | VM lib-test check has 32 obsolete native fixture errors; A04 owns fixture migration and remaining native acceptance |
 | A05 | Not started | Not run | None recorded |
 
 ### A00 checkpoint: foundation imports (2026-09-27)
@@ -1908,6 +1908,79 @@ are wired but still await typechecking/execution against that real backend. The
 A03 source and artifact path has the scoped evidence above and the earlier 55-test,
 seven-example checkpoint. Full workspace clippy/tests and A05's complete behavior
 matrix/measurements remain required; this exit is not final acceptance.
+
+### A04 checkpoint: Cranelift compiles verified MIR and owns native code (2026-09-28)
+
+Replaced the bytecode-fed Cranelift implementation with verified MIR-to-CLIF
+emission. The backend contains configuration/host ISA setup, MIR emission/code
+ownership and scalar legalization modules. It has no production bytecode, runtime,
+compiler, SDK, HIR or syntax dependency. Runtime invocation and status mapping are
+no longer backend methods. The unsafe backend implementation compiles the existing
+zero-argument, straight-line Unit/Bool/i32 subset: constants, moves, supported
+unary/binary operations and return. Logical budget checkpoints preserve optimized
+point charges; new control flow, locals/calls, numeric families and GC coverage
+remain unsupported. No LLVM work or expanded language subset was added.
+
+Every emitted instruction and return calls the declared budget helper using the
+sealed analysis's logical offset. The runtime helper reads the corresponding
+verified bytecode point charge and records its location before charging, preserving
+budget/trap ordering. Empty scalar stack maps and overflow descriptors use the
+same offsets. Result stores use ABI field offsets. Helper identity, signature,
+address and uniqueness are checked from the supplied link description; malformed
+links are compiler errors, not unsupported fallback decisions. Configuration
+identifies Cranelift version, all general flags, host triple/pointer width and ISA
+flags.
+
+Each successful product owns its own finalized JIT module; final-owner drop calls
+Cranelift's explicit `free_memory`. Backend destruction and later compilations do
+not retire installed pages. Failed compilation drops its unpublished module. The
+ABI owner is now `Rc<dyn NativeCodeOwner>`, matching prepared programs and installed
+handles on the host thread; this replaces the misleading non-Send/non-Sync `Arc`
+without unsafe thread-safety assertions or a lint suppression. Updated all native
+fixtures to the intended owner type. Cross-thread execution remains out of scope.
+
+Migrated all five backend test behaviors from raw bytecode/direct invocation to
+verified MIR and runtime installation. Added malformed-link diagnostics, backend
+and program lifetime tests, arithmetic overflow/budget point checks and real SDK
+source/encoded-artifact native execution versus unsupported pre-entry fallback.
+Corrected the SDK overflow trace fixture to avoid unsupported local operations and
+explicitly require `PreparedNativeEntry::Native`; it now proves native/interpreter
+origin parity. Two residual SDK caller/import errors exposed after the backend
+build was restored were corrected without changing their behavior assertions.
+
+Validation:
+
+- `cargo test -p kagari-codegen-cranelift`: seven tests pass; scalar tests invoke
+  actual executable pointers after dropping the backend, including later-compile
+  survival. Checked add/subtract/multiply/negation failures test every surrounding
+  budget boundary, exact logical offsets, steps and root/frame cleanup.
+- `cargo test -p kagari-embed`: 407 tests pass through the real backend dependency.
+  The subsequently strengthened native overflow trace test passes on its own.
+  `cargo test -p kagari-embed --test cranelift_preparation`: two new tests pass,
+  explicitly asserting Native versus InterpreterFallback and zero preparation
+  instruction effects. Source and encoded native entries survive backend/program
+  drop. Logs: `target/a04-sdk-{tests,native-trace,real-native-tests}.log`.
+- `cargo test -p kagari-runtime --test native_execution`: 15 pass;
+  `cargo test -p kagari-vm --test prepared_execution`: eight pass;
+  `cargo test -p kagari-cli --features jit`: five pass.
+- `cargo clippy -p kagari-codegen-cranelift -p kagari-embed --all-targets -- -D warnings`
+  passes. Structure: 511 Rust files, zero violations/exceptions. Formatting and
+  diff checks pass. Reviewed imports, ownership/freeing on all compile exits, ABI
+  stores, checked scalar lowering and logical-point/helper boundaries.
+- `cargo tree -p kagari-codegen-cranelift --edges normal --prefix none` confirms
+  only codegen/MIR/ABI/common and Cranelift support dependencies. Compiler, SDK,
+  runtime and bytecode are dev-only test fixtures. Log:
+  `target/a04-backend-production-graph.log`.
+- `cargo test -p kagari-vm --lib --no-run` still fails with 32 diagnostics, now
+  localized to legacy VM native fixtures: missing codegen/Cranelift imports,
+  removed runtime-owned backend traits and private old helper imports. Do not
+  restore production compiler/backend dependencies to fix these. A04 owns moving
+  actual compiler tests to SDK/backend and rewriting generic VM decisions against
+  prepared native entries. Log: `target/a04-vm-legacy-check.log`.
+
+The previous 22 Cranelift library errors are resolved. A04 remains open for legacy
+VM fixture migration and its full genuine-native/fallback matrix; A05 workspace
+checks, final architecture documentation and baseline measurements are still due.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

@@ -1,3 +1,4 @@
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::SourceFile;
 use kagari_embed::BytecodeArtifact;
 use kagari_embed::ExecutionContext;

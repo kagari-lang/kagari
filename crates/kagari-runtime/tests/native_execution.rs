@@ -127,7 +127,7 @@ fn product(entry: JitCompiledFunction, dropped: Arc<AtomicUsize>) -> Rc<NativeCo
     };
     Rc::new(NativeCompilationProduct {
         artifact,
-        owner: Arc::new(Owner(dropped)),
+        owner: Rc::new(Owner(dropped)),
     })
 }
 fn install(runtime: &mut Runtime, entry: JitCompiledFunction) -> InstalledNativeFunction {

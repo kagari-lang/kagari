@@ -95,7 +95,7 @@ mod native {
     use kagari_mir::{Constant, Instruction, Terminator};
     use kagari_runtime::{CapabilitySet, LanguageProfile, jit_abi::jit_consume_instruction_step};
     use kagari_vm::JitExecutionStatus;
-    use std::{ffi::c_void, sync::Arc};
+    use std::{ffi::c_void, rc::Rc};
 
     #[derive(Debug)]
     struct StaticCode;
@@ -154,7 +154,7 @@ mod native {
             };
             Ok(NativeCompilationProduct {
                 artifact,
-                owner: Arc::new(StaticCode),
+                owner: Rc::new(StaticCode),
             })
         }
     }

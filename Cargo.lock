@@ -346,8 +346,13 @@ dependencies = [
  "cranelift-module",
  "cranelift-native",
  "kagari-abi",
+ "kagari-bytecode",
  "kagari-codegen",
+ "kagari-common",
+ "kagari-compiler",
+ "kagari-embed",
  "kagari-mir",
+ "kagari-runtime",
  "thiserror",
 ]
 
