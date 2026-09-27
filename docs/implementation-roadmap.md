@@ -321,7 +321,7 @@ Commit. No compatibility aliases are retained.
   blocks; remove method attributes and migrate native API calls and queries.
 - [x] I02: unify Iterable/Iterator and iter, including derived iterator identity,
   for-loop conversion, associated outputs and user-defined protocols.
-- [ ] I03: FromIterator and target-directed collect for all six collection types
+- [x] I03: FromIterator and target-directed collect for all six collection types
   and user-defined collections; fresh shallow construction and checked key insertion.
 - [ ] I04: lazy map, filter, filter_map, take, skip, enumerate, zip and chain.
 - [ ] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
@@ -346,3 +346,11 @@ the old helpers in I05. KBC/runtime ABI v65 rejects earlier artifacts.
 Iteration, conversion, declaration examples and embedding tests passed; the HIR
 recovery assertion now recognizes ordinary trait-bound diagnostics. git diff --check
 passed.
+
+I03 adds generic standard method contracts, FromIterator<T> and Iterator::collect<C>.
+All six collection targets share construction with existing from(array) factories.
+User destinations use statically specialized ordinary frames. Method bounds substitute
+Self and associated outputs before checking. Native defaults appear in portable
+implementation contracts without fictitious script bodies. KBC/runtime ABI v66 rejects
+earlier artifacts. HIR, IR and embedding tests passed, including invalid bounds,
+fresh destination access, user destinations, duplicate policies and API documentation.

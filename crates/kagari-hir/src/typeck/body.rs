@@ -2636,7 +2636,15 @@ impl<'a> BodyChecker<'a> {
                                 super::ConstraintTarget::Standard(*standard)
                             }
                             super::ConstraintTarget::Trait(bound) => {
-                                super::ConstraintTarget::Trait(bound.instantiate(&substitution))
+                                let TypeId::Trait(bound) = self.aggregates.normalize_type(
+                                    &TypeId::Trait(bound.clone())
+                                        .with_self(self_owner, &self_ty)
+                                        .instantiate(&substitution)
+                                        .with_associated_types(interface),
+                                ) else {
+                                    unreachable!("trait method bound");
+                                };
+                                super::ConstraintTarget::Trait(bound)
                             }
                         })
                         .collect(),

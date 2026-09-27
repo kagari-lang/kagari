@@ -32,9 +32,10 @@ pub enum StandardTrait {
     TryInto,
     Iterator,
     Iterable,
+    FromIterator,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 22] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -56,6 +57,7 @@ impl StandardTrait {
         Self::TryInto,
         Self::Iterator,
         Self::Iterable,
+        Self::FromIterator,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -80,6 +82,7 @@ impl StandardTrait {
             Self::TryInto => "TryInto",
             Self::Iterator => "Iterator",
             Self::Iterable => "Iterable",
+            Self::FromIterator => "FromIterator",
         }
     }
     pub fn namespace(self) -> &'static str {
@@ -94,7 +97,7 @@ impl StandardTrait {
             | Self::Not
             | Self::Index => "ops",
             Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
-            Self::Iterator | Self::Iterable => "iter",
+            Self::Iterator | Self::Iterable | Self::FromIterator => "iter",
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -259,6 +262,21 @@ pub fn intrinsic_applies(
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
     };
+    if kind == StandardTrait::FromIterator {
+        let Some(item) = collection_item(receiver) else {
+            return false;
+        };
+        if interface.arguments.as_slice() != [item] || !interface.associated_types.is_empty() {
+            return false;
+        }
+        return match receiver {
+            TypeId::Map { key, .. } | TypeId::Set(key, _) => {
+                intrinsic_holds(StandardTrait::Eq, key, catalog, bounds)
+                    && intrinsic_holds(StandardTrait::Hash, key, catalog, bounds)
+            }
+            _ => true,
+        };
+    }
     if kind.iteration() {
         return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {
             interface.arguments.is_empty()
@@ -288,6 +306,16 @@ pub fn intrinsic_applies(
     }
 }
 
+pub fn collection_item(receiver: &TypeId) -> Option<TypeId> {
+    match receiver {
+        TypeId::Array(item, _) | TypeId::Set(item, _) => Some((**item).clone()),
+        TypeId::Map { key, value, .. } => {
+            Some(TypeId::Tuple(vec![(**key).clone(), (**value).clone()]))
+        }
+        _ => None,
+    }
+}
+
 pub fn ordering_type(optional: bool) -> TypeId {
     let ordering = TypeId::StandardEnum {
         kind: super::surface::StandardEnum::Ordering,
@@ -314,7 +342,7 @@ pub fn intrinsic_holds(
     if protocol.iteration() {
         return iteration_outputs(protocol, ty, catalog, bounds).is_some();
     }
-    if protocol.conversion() {
+    if protocol.conversion() || protocol == StandardTrait::FromIterator {
         return false;
     }
     if protocol.operator() {

@@ -40,8 +40,24 @@ pub struct ApiAssociatedType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiMethod {
     pub item: ApiItem,
+    pub iterator: Option<IteratorMethod>,
+    pub generics: &'static [(&'static str, &'static [ApiBound])],
     pub params: &'static [ApiParameter],
     pub result: ApiType,
+}
+
+/// Native defaults retain ordinary trait identities and checked generic signatures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IteratorMethod {
+    Collect,
+}
+
+pub fn iterator_method(id: &kagari_common::identity::DefinitionId) -> Option<IteratorMethod> {
+    surface::STANDARD_TRAITS
+        .iter()
+        .flat_map(|t| t.methods)
+        .find(|m| m.item.identity() == *id)
+        .and_then(|m| m.iterator)
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiTrait {
@@ -411,25 +427,48 @@ impl ApiTrait {
                 .methods
                 .iter()
                 .enumerate()
-                .map(|(slot, method)| MethodSignature {
-                    has_default: false,
-                    declaration: method.item.declaration(),
-                    id: method.item.identity(),
-                    owner: id.clone(),
-                    slot,
-                    name: method.item.path.last().unwrap().1.into(),
-                    generic_params: generics.clone(),
-                    bounds: Default::default(),
-                    params: method
-                        .params
-                        .iter()
-                        .map(|p| MethodParameter {
-                            name: p.name.into(),
-                            writeability: Writeability::Val,
-                            ty: p.ty.instantiate(&arguments),
-                        })
-                        .collect(),
-                    return_type: method.result.instantiate(&arguments),
+                .map(|(slot, method)| {
+                    let mut arguments = arguments.clone();
+                    let mut parameters = generics.clone();
+                    let mut method_bounds = crate::typeck::GenericBounds::new();
+                    for (position, (name, _)) in method.generics.iter().enumerate() {
+                        let parameter = GenericParameterType {
+                            owner: method.item.identity(),
+                            position,
+                            name: (*name).into(),
+                        };
+                        arguments.insert(name, TypeId::Generic(parameter.clone()));
+                        parameters.push(parameter);
+                    }
+                    for (name, bounds) in method.generics {
+                        method_bounds.insert(
+                            arguments[name].clone(),
+                            bounds
+                                .iter()
+                                .map(|b| ConstraintTarget::Trait(b.nominal(&arguments)))
+                                .collect(),
+                        );
+                    }
+                    MethodSignature {
+                        has_default: method.iterator.is_some(),
+                        declaration: method.item.declaration(),
+                        id: method.item.identity(),
+                        owner: id.clone(),
+                        slot,
+                        name: method.item.path.last().unwrap().1.into(),
+                        generic_params: parameters,
+                        bounds: method_bounds,
+                        params: method
+                            .params
+                            .iter()
+                            .map(|p| MethodParameter {
+                                name: p.name.into(),
+                                writeability: Writeability::Val,
+                                ty: p.ty.instantiate(&arguments),
+                            })
+                            .collect(),
+                        return_type: method.result.instantiate(&arguments),
+                    }
                 })
                 .collect(),
         }

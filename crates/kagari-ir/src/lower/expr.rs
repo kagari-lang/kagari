@@ -1,5 +1,6 @@
 mod collections;
 mod equality;
+mod iterators;
 mod keys;
 mod operators;
 mod standard;
@@ -1455,7 +1456,13 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             }
-            return self.lower_applied_operator(interface, receiver_type, &method, &values);
+            return self.lower_applied_method(
+                interface,
+                receiver_type,
+                &method,
+                &call.type_arguments,
+                &values,
+            );
         }
 
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
@@ -1889,7 +1896,7 @@ impl FunctionLowerer<'_, '_> {
                                 | SetFrom
                                 | MutableSetFrom
                         ) {
-                            return self.lower_collection_factory(expr, intrinsic, lowered[0]);
+                            return self.lower_collection_factory(expr, lowered[0]);
                         }
                         let base = call.receiver.or_else(|| args.first().copied());
                         if let Some(base) = base {

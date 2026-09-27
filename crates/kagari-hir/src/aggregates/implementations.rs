@@ -521,7 +521,10 @@ impl AggregateCatalog {
                 .collect::<Option<Vec<_>>>()?;
             let target = implementation.methods.get(method).cloned().or_else(|| {
                 self.trait_method(method)
-                    .filter(|method| method.has_default)
+                    .filter(|method| {
+                        method.has_default
+                            && crate::builtin::declarations::iterator_method(&method.id).is_none()
+                    })
                     .map(|_| {
                         let mut target = implementation.id.clone();
                         target
@@ -550,8 +553,10 @@ impl AggregateCatalog {
             .methods
             .iter()
             .find(|method| method.id.path.last() == Some(&name))?;
-        (method.has_default && !implementation.methods.contains_key(&method.id))
-            .then_some((implementation, method))
+        (method.has_default
+            && crate::builtin::declarations::iterator_method(&method.id).is_none()
+            && !implementation.methods.contains_key(&method.id))
+        .then_some((implementation, method))
     }
 
     pub fn implementation_methods(
@@ -563,7 +568,9 @@ impl AggregateCatalog {
             .flat_map(|contract| &contract.methods)
             .filter_map(|method| {
                 implementation.methods.get(&method.id).cloned().or_else(|| {
-                    method.has_default.then(|| {
+                    (method.has_default
+                        && crate::builtin::declarations::iterator_method(&method.id).is_none())
+                    .then(|| {
                         let mut target = implementation.id.clone();
                         target
                             .path

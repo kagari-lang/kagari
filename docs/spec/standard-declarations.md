@@ -58,10 +58,14 @@ Native declarations bind existing engine representations; they do not define emp
 script structs. Enum variant order and payload counts are checked against the
 runtime discriminant contract. Primitive scalar representations remain engine-owned.
 
-All 21 standard traits derive their public contracts from these sources, including
+All standard traits derive their public contracts from these sources, including
 supertraits, generic parameters, methods, associated types and associated bounds.
 Trait solving and native implementations remain engine code. Declaration identities
 and member locations refer to the bundled source text, not placeholder spans.
+Method-local generic parameters and their bounds retain method-owned identities
+through analysis and portable ABI validation. Engine-supplied iterator defaults are
+marked with intrinsic attributes; user implementations need only supply required
+methods and may provide ordinary explicit overrides of default methods.
 
 Documentation examples for functions, types and traits execute both directly and
 after artifact serialization. Nested members document their role within the enclosing

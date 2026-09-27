@@ -691,3 +691,24 @@ Interpolated `f"..."` expressions use standard Display/Debug dispatch and the sa
 native join operation. See [interpolated strings](syntax.md#interpolated-strings)
 for evaluation order, escaping and propagation rules. String `+`, builders and
 extended format options are separate features.
+
+## Collection construction from iteration
+
+`FromIterator<T>` declares `fn from_iter<I: Iterable<Item = T>>(source: I) -> Self`.
+`Iterator::collect<C: FromIterator<Self::Item>>(self) -> C` selects the destination
+from the expected result type. It consumes remaining progress through the first
+None; calling iter on a collection starts independent progress. Both protocols are
+static-only. The same generic contract applies to user-defined destinations.
+
+Array<T> and MutableArray<T> preserve input order. Set<T> and MutableSet<T> deduplicate
+with the canonical Eq/Hash protocol. Map<K,V> and MutableMap<K,V> accept (K,V) pairs;
+the last value wins for equal keys. Set elements and map keys require Eq + Hash.
+All native constructors create fresh shallow storage; read-only destinations do
+not reuse the input container. References inside elements preserve identity.
+Existing from(array) factories share this construction implementation.
+
+Native associated calls such as Array::from_iter(source) infer item types from the
+source. User implementations can use ordinary script loops and return their own
+nominal type. Construction failures do not return a partial destination; completed
+callback side effects remain. Native cursor guards release on exhaustion, loop
+exit or execution cleanup.

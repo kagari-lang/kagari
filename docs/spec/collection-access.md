@@ -296,7 +296,7 @@ declared types.
 
 Acceptance is exercised by collection-access integration tests, standard API
 executable documentation, source-query tests and the workspace example harness.
-Artifacts use format/runtime ABI v64. Semantic parameter, local, register and
+Collection access was introduced in format/runtime ABI v64. Semantic parameter, local, register and
 return contracts are encoded and fingerprinted independently of physical slots;
 loading validates access flow before execution, including host calls and interface
 method contracts. Validation caps fixed-point scans at 64 to bound malformed

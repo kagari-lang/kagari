@@ -856,7 +856,7 @@ pub(crate) fn standard_trait_contract(
                                     .collect(),
                             })
                             .collect(),
-                        default_methods: vec![],
+                        default_methods: contract.methods.iter().filter(|m| m.has_default).map(|m| m.slot).collect(),
                         generic_params: contract
                             .generic_params
                             .iter()
@@ -876,8 +876,17 @@ pub(crate) fn standard_trait_contract(
                             .iter()
                             .map(|method| FunctionAbi {
                                 name: method.name.clone(),
-                                generic_params: vec![],
-                                bounds: vec![],
+                                generic_params: method.generic_params.iter()
+                                    .skip(contract.generic_params.len())
+                                    .map(|p| GenericParameterAbi { owner: p.owner.clone(), position: p.position })
+                                    .collect(),
+                                bounds: standard_bounds(method.bounds.iter().map(|(ty, bounds)| GenericBoundAbi {
+                                    ty: AbiType::from_checked_type(ty),
+                                    constraints: bounds.iter().map(|bound| match bound {
+                                        kagari_hir::typeck::ConstraintTarget::Standard(s) => ConstraintAbi::Standard(*s),
+                                        kagari_hir::typeck::ConstraintTarget::Trait(t) => ConstraintAbi::Trait(NominalAbiType::from_checked_type(t)),
+                                    }).collect(),
+                                }).collect()),
                                 params: method
                                     .params
                                     .iter()
@@ -895,4 +904,14 @@ pub(crate) fn standard_trait_contract(
                 .collect()
         })[kind as usize],
     )
+}
+
+fn standard_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
+    for bound in &mut bounds {
+        bound.constraints.sort();
+        bound.constraints.dedup();
+    }
+    bounds.retain(|bound| !bound.constraints.is_empty());
+    bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
+    bounds
 }

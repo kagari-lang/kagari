@@ -146,14 +146,26 @@ pub fn declarations(
                 .unwrap();
             }
             for method in def.methods() {
+                let iterator = attribute(&method, "intrinsic")
+                    .map(|binding| {
+                        assert_eq!(name, "Iterator", "native defaults belong to Iterator");
+                        let operation = binding
+                            .strip_prefix("Iterator")
+                            .expect("iterator operation");
+                        format!("Some(super::declarations::IteratorMethod::{operation})")
+                    })
+                    .unwrap_or("None".into());
                 assert!(
                     method.body().is_none(),
                     "standard protocols have no source default body"
                 );
-                assert!(
-                    method.generic_params().is_none(),
-                    "unexpected generic standard method"
-                );
+                let generics = method
+                    .generic_params()
+                    .into_iter()
+                    .flat_map(|p| p.params().collect::<Vec<_>>())
+                    .map(|p| format!("({:?}, &[{}])", p.name_text().unwrap(), bounds(p.bounds())))
+                    .collect::<Vec<_>>()
+                    .join(",");
                 let path = [
                     ("Trait", name.clone()),
                     ("Method", method.name_text().unwrap()),
@@ -181,7 +193,7 @@ pub fn declarations(
                     .unwrap_or("ApiType::Tuple(&[])".into());
                 writeln!(
                     methods,
-                    "ApiMethod{{item:{declaration},params:&[{params}],result:{result}}},"
+                    "ApiMethod{{item:{declaration},iterator:{iterator},generics:&[{generics}],params:&[{params}],result:{result}}},"
                 )
                 .unwrap();
             }

@@ -117,6 +117,25 @@ pub trait Iterator {
     type Item;
     /// Advance once and return the next item, or None.
     fn next(self) -> Option<Self::Item>;
+
+    /// Collect remaining items into the destination selected by the result type.
+    ///
+    /// This terminal operation drives next until its first None. The destination's
+    /// FromIterator implementation determines storage and duplicate handling.
+    /// Array targets preserve order, Set targets deduplicate with Eq/Hash, and Map
+    /// targets collect (key, value) pairs with the last value winning for equal keys.
+    /// Native targets allocate fresh shallow storage. Annotate the result to choose
+    /// read-only or mutable access. Earlier callback effects remain after a trap.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [20, 22].iter().collect();
+    /// val unique: MutableSet<i32> = [20, 20, 22].iter().collect();
+    /// std::debug::assert_eq(values.len(), unique.len(), "unique items");
+    /// ```
+    #[intrinsic(IteratorCollect)]
+    fn collect<C: FromIterator<Self::Item>>(self) -> C;
 }
 
 /// Obtain an iterator without transferring ownership of the source.
@@ -144,6 +163,35 @@ pub trait Iterable {
     type Iter: Iterator<Item = Self::Item>;
     /// Create or obtain the iterator.
     fn iter(self) -> Self::Iter;
+}
+
+/// Construct a collection from the items of an iterable source.
+///
+/// The destination chooses its storage and duplicate policy. Construction uses
+/// ordinary element values and does not deep-copy referenced objects. Native Array,
+/// MutableArray, Set, MutableSet, Map and MutableMap implement this protocol. Their
+/// from_iter constructors infer element types from the source. User-defined
+/// collections can implement this protocol with the same generic source contract.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Total { val value: i32 }
+/// impl FromIterator<i32> for Total {
+///     fn from_iter<I: Iterable<Item = i32>>(source: I) -> Self {
+///         var value = 0;
+///         for item in source { value += item; }
+///         Total { value }
+///     }
+/// }
+/// fn main() {
+///     val total = Total::from_iter([20, 22]);
+///     std::debug::assert_eq(total.value, 42, "collected");
+/// }
+/// ```
+pub trait FromIterator<T> {
+    /// Construct Self by consuming the source's iteration items.
+    fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
 }
 
 /// A native iterator retaining its source and current position.

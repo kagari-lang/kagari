@@ -57,6 +57,42 @@ fn main()->i32 {val a=Range{start:0,end:7};val b=Counter{value:0,end:7};sum(a)+s
 }
 
 #[test]
+fn collect_uses_from_iterator_for_native_and_user_defined_destinations() {
+    execute(
+        r#"
+struct Total { val value: i32 }
+impl FromIterator<i32> for Total {
+    fn from_iter<I: Iterable<Item=i32>>(source:I)->Self {
+        var value=0; for item in source {value+=item;} Total{value}
+    }
+}
+fn build<I:Iterator<Item=i32>, C:FromIterator<i32>>(source:I)->C {source.collect()}
+fn main()->i32 {
+    val array:Array<i32> = [20,22].iter().collect();
+    val mutable:MutableArray<i32> = array.iter().collect(); mutable.push(20);
+    val set:Set<i32> = mutable.iter().collect();
+    val writable:MutableSet<i32> = mutable.iter().collect(); writable.insert(22);
+    val map:Map<String,i32> = [("key",20),("key",22)].iter().collect();
+    val writable_map:MutableMap<String,i32> = map.iter().collect();
+    writable_map.insert("other",20);
+    std::debug::assert_eq(set.len(),[0,0].len(),"deduplication");
+    std::debug::assert_eq(map.get("key"),Some(22),"last value wins");
+    val total:Total=build(array.iter());
+    std::debug::assert_eq(Total::from_iter(array).value,42,"associated construction");
+    val copied=Array::from_iter(array.iter());
+    val copied_set=MutableSet::from_iter(copied);
+    val copied_map=Map::from_iter([("answer",42)]);
+    std::debug::assert_eq(copied_set.len(),[0,0].len(),"inferred set constructor");
+    std::debug::assert_eq(copied_map.get("answer"),Some(42),"inferred map constructor");
+    total.value
+}
+
+
+"#,
+    );
+}
+
+#[test]
 fn native_iterators_support_generic_bounds_and_unicode() {
     execute(
         r#"
@@ -372,4 +408,29 @@ impl Iterator for Counter{type Item=i32;fn next(self)->Option<i32>{self.calls.ne
 fn main()->i32{val calls=Calls{source:0,into:0,next:0};var total=0;for x in make(calls){total+=x;if total==42 {break;}}std::debug::assert_eq(calls.source,1,"source once");std::debug::assert_eq(calls.into,1,"into once");std::debug::assert_eq(calls.next,2,"no next after break");total}
 "#,
     );
+}
+
+#[test]
+fn collection_protocol_bounds_reject_invalid_sources_and_destinations() {
+    for source in [
+        "fn main(){ val a: Array<String> = [1].iter().collect(); }",
+        "fn main(){ val a: Set<f32> = [1.0].iter().collect(); }",
+        "fn main(){ val a: Map<i32,i32> = [1].iter().collect(); }",
+        "fn main(){ val a: i32 = [1].iter().collect(); }",
+        "fn main(){ [1].iter().collect(); }",
+        "fn main(){ Array<i32>::from_iter(1); }",
+        "impl FromIterator<i32> for MutableArray<i32>{ fn from_iter<I:Iterable<Item=i32>>(source:I)->Self { [] } }",
+        "struct C{} impl FromIterator<i32> for C{ fn from_iter<I:Iterable<Item=String>>(source:I)->Self { C{} } }",
+    ] {
+        assert!(
+            KagariEngine::default()
+                .compile_to_artifact(
+                    SourceFile::new("invalid-collection-protocol.kgr", source),
+                    Default::default(),
+                    Default::default(),
+                )
+                .is_err(),
+            "{source}"
+        );
+    }
 }

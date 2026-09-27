@@ -51,6 +51,7 @@ impl BodyChecker<'_> {
                     let protocol = match member {
                         "from" => StandardTrait::From,
                         "try_from" => StandardTrait::TryFrom,
+                        "from_iter" => StandardTrait::FromIterator,
                         _ => return None,
                     };
                     let context = TypeContext {
@@ -59,7 +60,7 @@ impl BodyChecker<'_> {
                         self_type: None,
                         implementation: None,
                     };
-                    let (target, qualified) = if let Some(id) = explicit_type {
+                    let (mut target, qualified) = if let Some(id) = explicit_type {
                         if let crate::hir::TypeKind::Projection {
                             receiver,
                             trait_ref,
@@ -101,6 +102,29 @@ impl BodyChecker<'_> {
                             None,
                         )
                     };
+                    if protocol == StandardTrait::FromIterator
+                        && explicit_type.is_none()
+                        && let Some(constructor) = surface::standard_type_constructor(owner)
+                        && matches!(
+                            constructor.name,
+                            "Array" | "MutableArray" | "Set" | "MutableSet" | "Map" | "MutableMap"
+                        )
+                        && let Some(source) = args.first()
+                    {
+                        let input = self.infer_expr_type(*source, env);
+                        if let Some(item) = self.infer_iteration(site, &input, env) {
+                            let arguments = if matches!(constructor.name, "Map" | "MutableMap") {
+                                match item {
+                                    TypeId::Tuple(items) if items.len() == 2 => items,
+                                    _ => vec![],
+                                }
+                            } else {
+                                vec![item]
+                            };
+                            target = surface::standard_generic_type(constructor.name, arguments)
+                                .unwrap_or(TypeId::Error);
+                        }
+                    }
                     if target.is_unresolved() {
                         return None;
                     }
@@ -166,11 +190,22 @@ impl BodyChecker<'_> {
         } else {
             target.clone()
         };
+        let input_argument = if protocol == StandardTrait::FromIterator {
+            match self.infer_iteration(site, &input, env) {
+                Some(item) => item,
+                None => {
+                    self.conversion_error(site, "from_iter requires Iterable");
+                    return Some(TypeId::Error);
+                }
+            }
+        } else {
+            input.clone()
+        };
         let mut interface = protocol.nominal();
         interface.arguments.push(if protocol.reverse_conversion() {
             target.clone()
         } else {
-            input.clone()
+            input_argument
         });
         if qualified.as_ref().is_some_and(|ty|!matches!(ty,TypeId::Trait(n) if n.declaration==interface.declaration && n.arguments==interface.arguments)) {
             self.conversion_error(site,"qualified conversion does not match the source type");
@@ -211,6 +246,9 @@ impl BodyChecker<'_> {
             },
             source_expr,
         );
+        if protocol == StandardTrait::FromIterator {
+            self.type_table.insert_type_arguments(site, vec![input]);
+        }
         Some(match error {
             Some(error) => TypeId::StandardEnum {
                 kind: surface::StandardEnum::Result,

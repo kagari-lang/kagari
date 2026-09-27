@@ -399,10 +399,39 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
                 .expect("impl identity"),
         )
         .expect("impl signature");
-    for target in module.aggregates.implementation_methods(implementation) {
-        let Some((implementation, method)) = module.aggregates.default_method(&target) else {
-            continue;
-        };
+    let mut defaults = module
+        .aggregates
+        .implementation_methods(implementation)
+        .into_iter()
+        .filter_map(|target| {
+            module
+                .aggregates
+                .default_method(&target)
+                .map(|(implementation, method)| (target, implementation, method))
+        })
+        .collect::<Vec<_>>();
+    if let Some(contract) = module
+        .aggregates
+        .trait_(&implementation.trait_type.declaration)
+    {
+        for method in &contract.methods {
+            if kagari_hir::builtin::declarations::iterator_method(&method.id).is_some()
+                && !implementation.methods.contains_key(&method.id)
+            {
+                let mut target = implementation.id.clone();
+                target.path.push(
+                    method
+                        .id
+                        .path
+                        .last()
+                        .expect("native method identity")
+                        .clone(),
+                );
+                defaults.push((target, implementation, method));
+            }
+        }
+    }
+    for (target, implementation, method) in defaults {
         let contract = module
             .aggregates
             .trait_(&method.owner)

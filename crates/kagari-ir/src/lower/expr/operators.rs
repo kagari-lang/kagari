@@ -25,7 +25,7 @@ impl FunctionLowerer<'_, '_> {
             .type_table
             .expr_type(receiver)
             .ok_or(IrLoweringError::MissingExprType(receiver))?;
-        self.lower_applied_operator(interface, receiver, &method, args)
+        self.lower_applied_method(interface, receiver, &method, &call.type_arguments, args)
     }
 
     pub(crate) fn lower_applied_operator(
@@ -35,6 +35,22 @@ impl FunctionLowerer<'_, '_> {
         method: &kagari_common::identity::DefinitionId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
+        self.lower_applied_method(interface, receiver, method, &[], args)
+    }
+
+    pub(crate) fn lower_applied_method(
+        &mut self,
+        interface: kagari_hir::types::NominalType,
+        receiver: TypeId,
+        method: &kagari_common::identity::DefinitionId,
+        method_arguments: &[TypeId],
+        args: &[IrValue],
+    ) -> Result<IrValue, IrLoweringError> {
+        let method_arguments = self.planner.arguments(
+            method_arguments,
+            &self.instance.substitution,
+            self.function.debug.source_span,
+        )?;
         let ty = self
             .planner
             .arguments(
@@ -54,6 +70,38 @@ impl FunctionLowerer<'_, '_> {
         else {
             unreachable!()
         };
+
+        if kagari_hir::builtin::declarations::iterator_method(method).is_some()
+            && self
+                .planner
+                .catalog
+                .implementation_method(method, &interface, &ty)
+                .is_none()
+        {
+            let target = method_arguments
+                .first()
+                .ok_or(IrLoweringError::MissingBinding("collect destination"))?;
+            let item = self.iterator_item(&ty)?;
+            let mut contract = StandardTrait::FromIterator.nominal();
+            contract.arguments.push(item);
+            return self.lower_applied_method(
+                contract,
+                target.clone(),
+                &StandardTrait::FromIterator.contract().methods[0].id,
+                std::slice::from_ref(&ty),
+                args,
+            );
+        }
+        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromIterator)
+            && kagari_hir::builtin::traits::intrinsic_applies(
+                &interface,
+                &ty,
+                Some(self.planner.catalog),
+                &Default::default(),
+            )
+        {
+            return self.lower_collect(&ty, &method_arguments[0], args[0]);
+        }
 
         if let Some((required, target)) =
             kagari_hir::builtin::traits::conversion_requirement(&interface, &ty)
@@ -116,6 +164,14 @@ impl FunctionLowerer<'_, '_> {
             .zip(interface.arguments.iter().cloned())
             .collect();
         substitution.insert_receiver(contract.id.clone(), ty.clone());
+        substitution.extend(
+            signature
+                .generic_params
+                .iter()
+                .skip(contract.generic_params.len())
+                .cloned()
+                .zip(method_arguments.iter().cloned()),
+        );
         let result = self.planner.catalog.normalize_type(
             &signature
                 .return_type
@@ -124,11 +180,12 @@ impl FunctionLowerer<'_, '_> {
                 .with_associated_types(&interface),
         );
         let result_ty = self.value_type(&result)?;
-        let callee = if let Some((declaration, arguments)) = self
+        let callee = if let Some((declaration, mut arguments)) = self
             .planner
             .catalog
             .implementation_method(method, &interface, &ty)
         {
+            arguments.extend(method_arguments);
             if declaration.module == *self.planner.owner().lowered.source.module_identity() {
                 CallTarget::Function(self.planner.enqueue_declaration(
                     &declaration,
