@@ -1,15 +1,12 @@
 use kagari_abi::layout::EnumLayout;
 use kagari_abi::layout::StructLayout;
 use kagari_abi::slots::SemanticSlots;
-use kagari_abi::types::AbiType;
 use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_abi::types::NominalAbiType;
 use kagari_common::SourceFile;
 use kagari_common::Span;
 use kagari_common::host_interface::HostTypeDeclaration;
-use kagari_common::identity::DefinitionId;
 use kagari_common::identity::ModuleIdentity;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::ids::BlockId;

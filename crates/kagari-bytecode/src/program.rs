@@ -12,6 +12,7 @@ use kagari_abi::standard::traits::StandardTrait;
 use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
+use kagari_abi::types::TypeAbiKind;
 use kagari_abi::types::verify;
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
@@ -78,7 +79,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
-                matches!(item, crate::module::PublicAbiItem::Type(ty) if ty.kind == crate::module::TypeAbiKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+                matches!(item, PublicAbiItem::Type(ty) if ty.kind == TypeAbiKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
             }) else { continue; };
             if !layout::struct_abi_matches(
                 slice::from_ref(layout),
@@ -151,7 +152,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
-                matches!(item, crate::module::PublicAbiItem::Type(ty) if ty.kind == crate::module::TypeAbiKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
+                matches!(item, PublicAbiItem::Type(ty) if ty.kind == TypeAbiKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
             }) else { continue; };
             if !layout::enum_abi_matches(
                 slice::from_ref(layout),
@@ -188,15 +189,12 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             if let Some(contract) = abi::standard_trait_contract(&instance.declaration) {
                 let kind =
                     StandardTrait::from_id(&instance.declaration).expect("standard contract");
-                if !kind.host_implementable()
-                    && matches!(table.for_type, crate::module::abi::AbiType::Host(_))
+                if !kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
                     || !table.native_bridge
                         && !kind.conversion()
                         && !matches!(
                             table.for_type,
-                            crate::module::abi::AbiType::Struct(_)
-                                | crate::module::abi::AbiType::Enum(_)
-                                | crate::module::abi::AbiType::Host(_)
+                            AbiType::Struct(_) | AbiType::Enum(_) | AbiType::Host(_)
                         )
                     || !verify::interface_contract_matches(table, contract, &Default::default())
                 {
@@ -230,7 +228,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let Some(PublicAbiItem::Trait(interface)) = owner
                 .public_items
                 .iter()
-                .find(|item| matches!(item, crate::module::PublicAbiItem::Trait(interface) if &interface.name == trait_name))
+                .find(|item| matches!(item, PublicAbiItem::Trait(interface) if &interface.name == trait_name))
             else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };

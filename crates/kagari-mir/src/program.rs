@@ -1,4 +1,5 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
+use kagari_abi::types::inheritance;
 
 use kagari_abi::contracts;
 use kagari_abi::representation::ValueType;
@@ -6,9 +7,6 @@ use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_common::identity::DefinitionKind;
-use kagari_hir::aggregates;
-use kagari_hir::types::GenericParameterType;
-use kagari_hir::types::TypeId;
 use std::collections::{HashMap, HashSet};
 
 use kagari_common::{
@@ -211,15 +209,7 @@ pub fn verify_program(
                             return false;
                         };
                         table.declaration == request.declaration
-                            && table
-                                .instantiate(
-                                    &request
-                                        .arguments
-                                        .iter()
-                                        .map(AbiType::from_checked_type)
-                                        .collect::<Vec<_>>(),
-                                )
-                                .is_some()
+                            && table.instantiate(&request.arguments).is_some()
                     })
                 });
             if !valid {
@@ -248,36 +238,17 @@ pub fn verify_program(
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
             if let Instruction::UpcastInterface { source, target, .. } = instruction {
-                let ancestry = aggregates::trait_inheritance_closure(
-                    &source.to_checked_type(),
-                    &TypeId::Trait(source.to_checked_type()),
+                let ancestry = inheritance::trait_closure(
+                    source,
+                    &AbiType::Trait(source.clone()),
                     cancel,
                     &|id| {
-                        if let Some(record) = abi::standard_trait_contract(id) {
-                            return Some((
-                                record
-                                    .generic_params
-                                    .iter()
-                                    .map(|p| GenericParameterType {
-                                        owner: p.owner.clone(),
-                                        position: p.position,
-                                        name: String::new(),
-                                    })
-                                    .collect(),
-                                record
-                                    .supertraits
-                                    .iter()
-                                    .map(|p| p.to_checked_type())
-                                    .collect(),
-                            ));
-                        }
                         let owner = *indices.get(&id.module)?;
                         if owner != index && !dependencies.contains(&owner) {
                             return None;
                         }
                         let abi = &modules[owner].abi;
-                        let record = abi
-                            .trait_contracts
+                        abi.trait_contracts
                             .iter()
                             .find(|record| record.declaration == *id)
                             .map(|record| &record.abi)
@@ -293,26 +264,10 @@ pub fn verify_program(
                                     }
                                     _ => None,
                                 })
-                            })?;
-                        Some((
-                            record
-                                .generic_params
-                                .iter()
-                                .map(|param| GenericParameterType {
-                                    owner: param.owner.clone(),
-                                    position: param.position,
-                                    name: String::new(),
-                                })
-                                .collect(),
-                            record
-                                .supertraits
-                                .iter()
-                                .map(|parent| parent.to_checked_type())
-                                .collect(),
-                        ))
+                            })
                     },
                 );
-                if !ancestry.is_ok_and(|parents| parents.contains(&target.to_checked_type())) {
+                if !ancestry.is_ok_and(|parents| parents.contains(target)) {
                     return Err(error(
                         &module.identity,
                         ProgramErrorKind::InterfaceContract(target.declaration.clone()),

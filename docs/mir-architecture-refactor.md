@@ -869,6 +869,52 @@ rather than restoring HIR. Bytecode access and descriptor argument matching also
 need portable operations. A02 still owns concrete source-request handoff and MIR
 analysis seals; the recorded A03-A05 work and final behavior matrix remain open.
 
+### A01 checkpoint: portable ancestry and access validation (2026-09-28)
+
+MIR now builds without HIR. Shared ABI trait ancestry substitutes applied generic
+arguments, associated outputs and receivers, preserves parent order, deduplicates
+diamonds and rejects declaration cycles, missing contracts, invalid arity and
+bounded-work exhaustion. MIR program upcast checks use this operation with lookup
+restricted to the permitted dependency closure. Concrete interface requests use
+portable arguments directly.
+
+Bytecode access validation now consumes portable collection capabilities, scalar
+bounds, enum payloads and standard declaration arguments. Collection weakening
+changes only outer access; element types remain invariant. Standard argument
+binding preserves the first known binding and left-to-right traversal, leaving
+operand access checks to validate subsequent occurrences. Unknown element types
+do not erase a known storage constructor's mutability. Array repetition retains
+its value-only rules and rejects shared payloads. ABI owns integer range bounds,
+which source scalar validation also uses.
+
+Validation and carried errors:
+
+- `cargo test -p kagari-abi -p kagari-hir -p kagari-mir`: 26 ABI unit tests,
+  353 HIR unit tests and both MIR compile-fail seal doctests pass (381 total).
+  Seven new tests cover ancestry substitution, diamonds, expanding cycles,
+  generated standard parents, cancellation, access invariance, shared repetition
+  payloads and partial standard bindings. Test inventory retains all prior cases
+  and now contains 1,333 `#[test]` functions.
+- `cargo clippy -p kagari-abi -p kagari-hir -p kagari-mir --all-targets -- -D warnings`:
+  passes. Structure check covers 460 Rust files with zero findings/exceptions.
+  Reviewed production imports, module ownership, new API visibility and bounded
+  walks. Formatting and diff checks pass.
+- `cargo check --workspace --all-targets`: still fails (exit 101). Bytecode now
+  reports 31 errors in each library/test target, concentrated in its remaining
+  HIR-based linked trait catalog and removed checked-type conversions (A01).
+  With MIR compiling, Cranelift reports 20 library errors and 44 test-target
+  errors: obsolete bytecode/runtime imports, the removed invocation method,
+  incompatible compile interface, and old function/product fields. These are
+  owned by the planned A04 verified-MIR backend rewrite; do not restore its old
+  dependencies. Compiler/runtime integration remains incompletely enumerated
+  behind these failures. Workspace tests and clippy have not passed.
+
+A01 remains open. Continue replacing bytecode's linked trait proofs with portable
+implementation matching, intrinsic capabilities, complete projection normalization
+and associated bounds. Preserve ownership, uniqueness, cancellation and proof
+limits. The previous MIR compilation errors are resolved; MIR analysis seals and
+concrete source lowering remain A02 work. A03-A05 acceptance remains outstanding.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

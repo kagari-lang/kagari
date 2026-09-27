@@ -21,7 +21,6 @@ use kagari_abi::types::PublicAbiItem;
 use kagari_abi::types::verify;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
-use kagari_hir::builtin::declarations;
 use std::collections::HashSet;
 use std::iter;
 

@@ -1,3 +1,5 @@
+pub mod access;
+pub mod inheritance;
 pub mod matching;
 pub mod substitution;
 pub mod verify;
@@ -292,7 +294,7 @@ impl AbiType {
         true
     }
 
-    pub(crate) fn instantiate(&self, owner: &DefinitionId, arguments: &[AbiType]) -> Option<Self> {
+    pub fn instantiate(&self, owner: &DefinitionId, arguments: &[AbiType]) -> Option<Self> {
         let result = TypeSubstitution::for_owner(owner, arguments)
             .apply(self, &CancellationToken::default())
             .ok()?;

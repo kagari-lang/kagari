@@ -109,17 +109,9 @@ impl ScalarValue {
     }
 
     pub fn integer(value: i128, ty: BuiltinType) -> Result<Self, &'static str> {
-        let (min, max) = match ty {
-            BuiltinType::I8 => (i8::MIN as i128, i8::MAX as i128),
-            BuiltinType::I16 => (i16::MIN as i128, i16::MAX as i128),
-            BuiltinType::I32 => (i32::MIN as i128, i32::MAX as i128),
-            BuiltinType::I64 | BuiltinType::ISize => (i64::MIN as i128, i64::MAX as i128),
-            BuiltinType::U8 => (0, u8::MAX as i128),
-            BuiltinType::U16 => (0, u16::MAX as i128),
-            BuiltinType::U32 => (0, u32::MAX as i128),
-            BuiltinType::U64 | BuiltinType::USize => (0, u64::MAX as i128),
-            _ => return Err("integer literal requires an integer type"),
-        };
+        let (min, max) = ty
+            .integer_bounds()
+            .ok_or("integer literal requires an integer type")?;
         if !(min..=max).contains(&value) {
             return Err("integer literal is outside the target type range");
         }

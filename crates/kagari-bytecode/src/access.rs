@@ -1,6 +1,9 @@
 //! Access-flow validation runs after physical operand and layout validation.
 
+use kagari_abi::standard::application::StandardArguments;
 use kagari_abi::standard::surface as standard_surface;
+use kagari_abi::types::access;
+use kagari_common::cancellation::CancellationToken;
 
 use crate::ModuleRef;
 
@@ -25,11 +28,6 @@ use kagari_abi::types::NominalAbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_abi::types::verify as abi_verify;
 use kagari_common::collection::CollectionAccess as Access;
-use kagari_hir::builtin::declarations::Arguments;
-use kagari_hir::builtin::surface;
-use kagari_hir::typeck::ScalarValue;
-use kagari_hir::types;
-use kagari_hir::types::TypeId;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
@@ -38,7 +36,7 @@ struct Fact {
 }
 impl Fact {
     fn typed(ty: AbiType) -> Self {
-        let access = ty.to_checked_type().collection_access();
+        let access = ty.collection_access();
         Self {
             ty: Some(ty),
             access,
@@ -53,16 +51,12 @@ impl Fact {
 }
 fn flows(source: &Fact, target: &AbiType) -> bool {
     if source.access == Some(Access::ReadOnly)
-        && target.to_checked_type().collection_access() == Some(Access::Mutable)
+        && target.collection_access() == Some(Access::Mutable)
     {
         return false;
     }
     match &source.ty {
-        Some(source) => {
-            let source = source.to_checked_type();
-            let target = target.to_checked_type();
-            !source.conflicts_with(&target) || source.can_weaken_to(&target)
-        }
+        Some(source) => source == target || source.can_weaken_to(target),
         None => true,
     }
 }
@@ -209,7 +203,9 @@ pub(super) fn verify(
                     let ty = if let Some(value) = number
                         && let Some(AbiType::Builtin(declared)) =
                             semantic.registers.get(&dst.index())
-                        && ScalarValue::integer(value, *declared).is_ok()
+                        && declared
+                            .integer_bounds()
+                            .is_some_and(|(min, max)| (min..=max).contains(&value))
                         && AbiType::Builtin(*declared).representation()
                             == AbiType::Builtin(ty).representation()
                     {
@@ -279,24 +275,23 @@ pub(super) fn verify(
                         let Some(item) = &value.ty else {
                             return Err(invalid());
                         };
-                        if !types::supports_array_repetition(&item.to_checked_type(), |instance| {
-                            let layout = module.enumerations.iter().find(|layout| {
-                                layout.declaration == instance.declaration
-                                    && layout
-                                        .arguments
+                        if !access::supports_array_repetition(
+                            item,
+                            |instance| {
+                                let layout = module.enumerations.iter().find(|layout| {
+                                    layout.declaration == instance.declaration
+                                        && layout.arguments == instance.arguments
+                                })?;
+                                Some(
+                                    layout
+                                        .variants
                                         .iter()
-                                        .map(AbiType::to_checked_type)
-                                        .eq(instance.arguments.iter().cloned())
-                            })?;
-                            Some(
-                                layout
-                                    .variants
-                                    .iter()
-                                    .flat_map(|v| &v.payload)
-                                    .map(AbiType::to_checked_type)
-                                    .collect(),
-                            )
-                        }) {
+                                        .flat_map(|variant| variant.payload.iter().cloned())
+                                        .collect(),
+                                )
+                            },
+                            &CancellationToken::default(),
+                        ) {
                             return Err(invalid());
                         }
                         if !flows(&count, &AbiType::Builtin(B::USize)) {
@@ -909,35 +904,39 @@ pub(super) fn verify(
                             if let Some(spec) =
                                 standard_surface::standard_function_by_intrinsic(*intrinsic)
                             {
-                                let mut bindings: Arguments = spec
-                                    .type_params
-                                    .iter()
-                                    .map(|name| (*name, TypeId::Unknown))
-                                    .collect();
+                                let cancel = CancellationToken::default();
+                                let mut bindings = StandardArguments::new(spec.type_params);
                                 for (parameter, actual) in spec.api.params.iter().zip(&facts) {
                                     if let Some(ty) = &actual.ty {
-                                        parameter.ty.infer(&ty.to_checked_type(), &mut bindings);
+                                        bindings
+                                            .bind(&parameter.ty, ty, &cancel)
+                                            .map_err(|_| invalid())?;
                                     }
                                 }
                                 for (index, (parameter, actual)) in
                                     spec.api.params.iter().zip(&facts).enumerate()
                                 {
-                                    let mut expected = parameter.ty.instantiate(&bindings);
-                                    if index == 0
-                                        && standard_surface::collection_read_method(*intrinsic)
+                                    if let Some(mut expected) = bindings
+                                        .resolve(&parameter.ty, &cancel)
+                                        .map_err(|_| invalid())?
                                     {
-                                        expected = expected.read_only_view().unwrap_or(expected);
-                                    }
-                                    if expected.is_concrete()
-                                        && !flows(actual, &AbiType::from_checked_type(&expected))
-                                    {
-                                        return Err(invalid());
+                                        if index == 0
+                                            && standard_surface::collection_read_method(*intrinsic)
+                                        {
+                                            expected =
+                                                expected.read_only_view().unwrap_or(expected);
+                                        }
+                                        if expected.is_concrete() && !flows(actual, &expected) {
+                                            return Err(invalid());
+                                        }
                                     }
                                 }
-                                let ty = spec.api.result.instantiate(&bindings);
-                                result.access = ty.collection_access();
-                                if ty.is_concrete() {
-                                    result.ty = Some(AbiType::from_checked_type(&ty));
+                                let ty = bindings
+                                    .resolve(&spec.api.result, &cancel)
+                                    .map_err(|_| invalid())?;
+                                result.access = bindings.collection_access(&spec.api.result);
+                                if let Some(ty) = ty.filter(AbiType::is_concrete) {
+                                    result.ty = Some(ty);
                                 }
                             }
                         }

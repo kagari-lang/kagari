@@ -23,12 +23,12 @@ use crate::verifier::verify_jump;
 use crate::verifier::verify_standard_intrinsic_call;
 use kagari_abi::contracts;
 use kagari_abi::contracts::RuntimeHelperKind;
+use kagari_abi::operations;
 use kagari_abi::operations::UnaryOp as MirUnaryOp;
 use kagari_abi::representation::ValueType;
 use kagari_abi::types as abi;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::PublicAbiItem;
-use kagari_mir::instruction;
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
     function: &BytecodeFunction,
@@ -109,7 +109,7 @@ pub(super) fn verify_instruction(
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "bound destination")?;
             expect_register_ty(function, *value, ValueType::HeapObject, "bound range")?;
-            if !instruction::range_bound_valid(range, bound) {
+            if !operations::range_bound_valid(range, bound) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "invalid range bound contract",
@@ -123,7 +123,7 @@ pub(super) fn verify_instruction(
             ty,
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "range destination")?;
-            if !instruction::range_operands_valid(
+            if !operations::range_operands_valid(
                 ty,
                 start.map(|r| register_ty(function, r)).transpose()?,
                 end.map(|r| register_ty(function, r)).transpose()?,
@@ -301,7 +301,7 @@ pub(super) fn verify_instruction(
             error,
             ty,
         } => {
-            let payload = instruction::mapped_error_payload(ty).ok_or(
+            let payload = operations::mapped_error_payload(ty).ok_or(
                 BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "invalid mapped Result contract",

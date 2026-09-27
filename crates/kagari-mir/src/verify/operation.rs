@@ -3,7 +3,6 @@ use crate::Constant;
 use crate::Instruction;
 use crate::MirFunction;
 use crate::MirModule;
-use crate::instruction;
 use crate::instruction::RuntimeHelper;
 use crate::verify::Context;
 use crate::verify::MirVerificationError;
@@ -11,6 +10,7 @@ use crate::verify::MirVerificationErrorKind as Error;
 use contracts::RuntimeHelperKind;
 use kagari_abi::contracts;
 use kagari_abi::contracts::ContractError;
+use kagari_abi::operations;
 use kagari_abi::operations::range_operands_valid;
 use kagari_abi::representation::ValueType;
 use kagari_abi::types as abi;
@@ -252,7 +252,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "bound destination")?;
             context.expect(value.ty, ValueType::HeapObject, "bound range")?;
-            if !instruction::range_bound_valid(range, bound) {
+            if !operations::range_bound_valid(range, bound) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "invalid range bound contract",
                 }));
@@ -363,7 +363,7 @@ pub(super) fn verify(
             error,
             ty,
         } => {
-            let payload = instruction::mapped_error_payload(ty)
+            let payload = operations::mapped_error_payload(ty)
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             context.expect(original.ty, ValueType::HeapObject, "original Result")?;
             context.expect(error.ty, payload, "mapped error")?;

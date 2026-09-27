@@ -1,3 +1,4 @@
+use crate::Register;
 use crate::artifact::*;
 
 #[test]
@@ -39,7 +40,7 @@ fn typed_path_operands_preflight_before_decoding_registers() {
         dst: crate::Register::new(0),
         root_or_view: crate::Register::new(1),
         path: crate::PathId::new(0),
-        dynamic_args: vec![crate::bytecode::Register::new(2); MAX_ARTIFACT_NESTED_RECORDS + 1],
+        dynamic_args: vec![Register::new(2); MAX_ARTIFACT_NESTED_RECORDS + 1],
     };
     let bytes = codec().serialize(&instruction).unwrap();
     let error = codec()

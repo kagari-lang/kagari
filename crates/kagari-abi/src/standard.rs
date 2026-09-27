@@ -1,3 +1,4 @@
+pub mod application;
 pub(crate) mod contracts;
 pub mod declarations;
 pub(crate) mod native;

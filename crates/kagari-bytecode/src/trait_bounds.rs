@@ -12,6 +12,7 @@ use kagari_abi::types::InterfaceTableAbi;
 use kagari_abi::types::NominalAbiType;
 use kagari_abi::types::PublicAbiItem;
 use kagari_abi::types::TraitAbi;
+use kagari_abi::types::inheritance as trait_inheritance;
 use kagari_abi::types::verify;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::DefinitionId;
@@ -92,17 +93,10 @@ pub fn interface_ancestors(
     receiver: &AbiType,
     closure: &[&BytecodeModule],
 ) -> Option<Vec<NominalAbiType>> {
-    inheritance(
-        &interface.to_checked_type(),
-        &receiver.to_checked_type(),
-        closure,
-    )
-    .map(|parents| {
-        parents
-            .iter()
-            .map(NominalAbiType::from_checked_type)
-            .collect()
+    trait_inheritance::trait_closure(interface, receiver, &CancellationToken::default(), &|id| {
+        contract(id, closure)
     })
+    .ok()
 }
 
 fn executable_interface(

@@ -1,3 +1,4 @@
+use kagari_common::integer;
 use kagari_common::numeric::NumberType;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
@@ -21,6 +22,11 @@ pub enum BuiltinType {
 }
 
 impl BuiltinType {
+    pub fn integer_bounds(self) -> Option<(i128, i128)> {
+        self.integer_layout()
+            .map(|(bits, signed)| integer::bounds(bits, signed))
+    }
+
     pub fn integer_layout(self) -> Option<(u32, bool)> {
         Some(match self {
             BuiltinType::I8 => (8, true),
