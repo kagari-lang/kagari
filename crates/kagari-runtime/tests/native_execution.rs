@@ -23,7 +23,7 @@ use kagari_runtime::jit_abi::jit_consume_instruction_step;
 use kagari_runtime::value::Value;
 use kagari_runtime::{
     BackendInvocationError, CapabilitySet, InstalledNativeFunction, LanguageProfile,
-    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
+    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, VerifiedProgram,
 };
 
 #[derive(Debug)]
@@ -430,4 +430,30 @@ fn execution_observers_prevent_native_entry_without_debug_callbacks() {
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     drop(session);
     assert_clean(&runtime);
+}
+
+#[test]
+fn shared_verified_program_identity_survives_independent_runtime_linking() {
+    let verified = VerifiedProgram::new(program()).unwrap();
+    let separate = VerifiedProgram::new(program()).unwrap();
+    let mut first = runtime(None);
+    let mut second = runtime(None);
+    let a = first
+        .load_verified_program("first", verified.clone())
+        .unwrap();
+    let b = second
+        .load_verified_program("second", verified.clone())
+        .unwrap();
+    let c = second
+        .load_verified_program("separate", separate.clone())
+        .unwrap();
+    assert!(a.verified_program().same_version(&verified));
+    assert!(a.verified_program().same_version(b.verified_program()));
+    assert!(Arc::ptr_eq(&a.bytecode, &b.bytecode));
+    assert_eq!(a.program_fingerprint(), c.program_fingerprint());
+    assert!(!a.verified_program().same_version(c.verified_program()));
+    assert!(first.validate_loaded_module(&b).is_err());
+    assert!(second.validate_loaded_module(&a).is_err());
+    drop(verified);
+    assert!(a.verified_program().same_version(b.verified_program()));
 }

@@ -451,9 +451,9 @@ completes with the bounded public MIR passes checkpoint below. Source compilatio
 verified MIR analyses and frontend-free bytecode lowering pass their scoped checks.
 Runtime, VM and SDK libraries now build at their intended execution boundary.
 The workspace remains intentionally broken in legacy VM/backend tests, SDK/CLI
-native callers and the A04 backend implementation. Resume A03 native preparation,
-SDK native preparation, shared caching and feature integration; A05 final acceptance
-has not run and the overall refactor is not complete.
+native callers and the A04 backend implementation. Shared SDK preparation and native
+caching now build; resume A03 reload preparation, feature separation and caller
+migration. A05 final acceptance has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -470,7 +470,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | `279e6d6` runtime fixtures; `51f00ec` native installation/invocation; VM/SDK prepared execution boundary | 415 runtime/compiler/ABI tests plus one seal doc test at prior checkpoint; eight new VM tests, VM/SDK library clippy, structure, fmt and diff pass | Portable codec, canonical correspondence and v103 opaque MIR envelopes pass focused checks; shared version/target/options cache, SDK preparation, feature separation and caller migration remain |
+| A03 | Runtime installation, VM prepared execution, portable MIR/v103 artifacts and shared SDK preparation/cache | 401 core tests + one seal doc test; eight SDK harness tests; scoped clippy, structure, fmt and diff pass | Reload preparation, source/native feature separation, legacy registry reconciliation and caller migration remain; Cranelift library carries 22 A04 errors |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1583,6 +1583,82 @@ Validation:
 A03 remains in progress. Continue SDK preparation and immutable-version native
 cache ownership, trust registration for executable products, feature separation
 and legacy caller migration. A04 backend implementation and A05 final gates remain.
+
+### A03 checkpoint: shared SDK native preparation and trusted products (2026-09-28)
+
+Added SDK `program::PreparedProgram`, an immutable version shared by clones.
+Construction validates the artifact envelope and all supplied portable MIR before
+linking or user effects. It retains verified bytecode and freshly checked MIR,
+not source text or opaque unverified input. SDK `load_program` now takes a borrowed
+prepared program and links shared bytecode into fresh runtime instances. Artifact
+compatibility belongs to preparation; `LoadOptions` now selects only the module
+name. This is a direct breaking caller migration, not an old-signature adapter.
+Existing load callers still need migration in the next A03 integration unit.
+
+Runtime linked programs retain their `VerifiedProgram` identity. `same_version`
+uses shared immutable allocation identity, not fingerprints or structural equality;
+independent equal programs cannot authorize each other's prepared code. This does
+not share mutable instances, host bindings or authority across runtimes.
+
+`KagariRuntime::prepare_native` compiles before script entry and installs products
+through runtime's existing unsafe installation boundary. The SDK cache belongs to
+the prepared version and keys module/function, backend, target/features, complete
+backend options and runtime/helper ABI versions. It shares owned products across
+runtime loads; each installation still pins that runtime's execution/dependency
+versions. Successful and unsupported decisions are cached; compiler failures and
+cancelled results are not. A 4096-decision limit bounds the cache and leaves hits
+usable after capacity. Backend callbacks run without cache borrows; insertion
+rechecks capacity and any reentrant population. Missing MIR and unsupported input
+produce explicit pre-entry fallback; other compile errors remain errors.
+
+Made `CodegenBackend` an unsafe implementation contract and replaced separate
+identity/target queries with `BackendConfiguration`. Implementations must accurately
+name all compilation settings, emit host-callable code implementing the exact
+verified input and retain pages/links after backend destruction. Safe arbitrary
+plugin implementations can no longer authorize executable pointers implicitly.
+SDK checks product descriptors and configuration stability before caching. ABI
+owns helper signatures, runtime supplies process-lifetime symbol addresses, and
+compiler `native_links` resolves complete unique non-null bindings. No runtime
+instance is passed to codegen. Runtime/helper wire versions are unchanged.
+
+Validation:
+
+- `cargo test -p kagari-abi -p kagari-codegen -p kagari-compiler -p kagari-runtime`:
+  401 tests and one runtime seal doc test pass. Native runtime integration now has
+  13 tests, including shared identity across independently linked runtimes and
+  rejection of equal-but-distinct verified programs. Compiler core tests verify
+  helper binding signatures and missing/duplicate/unknown/null rejection.
+- Eight SDK tests pass: default/bytecode-only exports, canonical mismatch rejection,
+  cross-runtime cache reuse, separate installations, retained code after backend
+  drop, configuration separation, cancellation/discard/retry, policy rejection,
+  bounded cache hits, and unsupported fallback versus real compiler failures.
+  Static ABI fixture code validates preparation/lifetime behavior, not A04 codegen.
+- Normal SDK tests remain blocked by their Cranelift dev-dependency. To exercise
+  these tracked tests independently, generated an ignored standalone Cargo manifest
+  at `target/a03-sdk-harness/Cargo.toml`: `[workspace]`, path dependencies on ABI,
+  bytecode, codegen, common, compiler, embed, MIR, runtime and VM, two `[[test]]`
+  paths to SDK `native_artifacts.rs`/`native_preparation.rs`, and `[profile.dev]`
+  `opt-level = 1`. Copied the workspace lockfile. Ran
+  `cargo test --offline --manifest-path target/a03-sdk-harness/Cargo.toml --target-dir target`
+  and corresponding all-target clippy with `-- -D warnings`; both pass. This uses
+  the repository's normal target directory and Cargo parallelism. It does not
+  disable backend tests or establish that the full SDK/workspace passes.
+- All-target clippy for the four core crates, SDK library clippy, and compiler
+  all-target clippy with `--no-default-features`, each with `-D warnings`: pass.
+  Structure: 501 Rust files, zero violations/exceptions; formatting and diff pass.
+  Reviewed trait safety, symbol lifetime, version identity, cache ownership/reentry,
+  private seal exposure, module boundaries and imports.
+- `cargo check -p kagari-codegen-cranelift --lib`: fails with 22 errors, including
+  obsolete bytecode/runtime imports, removed identity/invocation trait methods,
+  the now-required unsafe backend contract, and flat MIR instruction access.
+  A04 owns the implementation. A03 owns existing SDK/CLI load/preparation callers,
+  reload integration, feature split and descriptor-only registry reconciliation.
+  Logs: `target/a03-preparation-*.log`, `target/a03-sdk-harness-*.log`.
+
+A03 remains open. Continue prepared reload/publication so fresh versions keep the
+same shared cache contract, then source/native feature isolation and direct caller
+migration. Do not restore compilation inside VM or trust arbitrary safe backend
+products. A04 actual machine-code migration and A05 full gates are still required.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

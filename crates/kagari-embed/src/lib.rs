@@ -1,4 +1,6 @@
 use kagari_bytecode::ArtifactBuildOptions;
+pub mod program;
+use crate::program::PreparedProgram;
 use kagari_bytecode::ArtifactCompatibility;
 use kagari_bytecode::ArtifactValidationError;
 use kagari_bytecode::BytecodeInstruction;
@@ -397,20 +399,17 @@ impl KagariRuntime {
 
     pub fn load_program(
         &mut self,
-        artifact: BytecodeArtifact,
+        program: &PreparedProgram,
         options: LoadOptions,
     ) -> LoadResult<LoadedModule> {
-        artifact
-            .validate_for_loader(&options.compatibility)
-            .map_err(EmbeddingError::artifact_validation)?;
         let module_name = options.module_name.unwrap_or_else(|| {
-            artifact.program.modules[artifact.program.root.index()]
+            program.bytecode().modules()[program.bytecode().root().index()]
                 .source_name
                 .clone()
         });
         self.vm
             .runtime_mut()
-            .load_program(module_name, artifact.program)
+            .load_verified_program(module_name, program.bytecode().clone())
             .map_err(EmbeddingError::load)
     }
 
@@ -540,7 +539,6 @@ pub enum NativeInputExport {
 #[derive(Debug, Clone, Default)]
 pub struct LoadOptions {
     pub module_name: Option<String>,
-    pub compatibility: ArtifactCompatibility,
 }
 
 #[derive(Debug, Clone, Default)]

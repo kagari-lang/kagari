@@ -1,5 +1,19 @@
+use crate::native::NativeType;
 use std::ffi::c_void;
 pub const JIT_CONSUME_INSTRUCTION_STEP_SYMBOL: &str = "kagari_runtime.consume_instruction_step";
+
+#[derive(Debug, Clone, Copy)]
+pub struct NativeHelperSignature {
+    pub symbol: &'static str,
+    pub parameters: &'static [NativeType],
+    pub results: &'static [NativeType],
+}
+
+pub const NATIVE_HELPER_SIGNATURES: &[NativeHelperSignature] = &[NativeHelperSignature {
+    symbol: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
+    parameters: &[NativeType::Pointer, NativeType::I64],
+    results: &[NativeType::I32],
+}];
 
 pub const JIT_STATUS_OK: i32 = 0;
 

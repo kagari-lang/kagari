@@ -2,6 +2,7 @@ use kagari_bytecode::native_input::PortableMir;
 use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact};
 use kagari_common::SourceFile;
 use kagari_compiler::native_input::verify_native_input;
+use kagari_embed::program::PreparedProgram;
 use kagari_embed::{ArtifactOptions, ExecutionContext, KagariEngine, NativeInputExport};
 use kagari_runtime::value::Value;
 
@@ -47,7 +48,14 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
         }
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        assert_eq!(
+            program.has_native_input(),
+            native_input == NativeInputExport::PortableMir
+        );
+        let loaded = runtime.load_program(&program, Default::default()).unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, "main", &[], &context)

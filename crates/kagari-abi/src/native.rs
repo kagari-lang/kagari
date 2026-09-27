@@ -160,6 +160,13 @@ pub enum NativeType {
     I64,
 }
 
+/// Runtime-owned process address. Compiler orchestration supplies the ABI signature.
+#[derive(Debug, Clone)]
+pub struct NativeHelperSymbol {
+    pub symbol: String,
+    pub address: usize,
+}
+
 #[derive(Debug, Clone)]
 pub struct NativeHelperDeclaration {
     pub symbol: String,

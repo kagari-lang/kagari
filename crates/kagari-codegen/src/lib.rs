@@ -46,9 +46,30 @@ impl<'a> BackendFunctionInput<'a> {
     }
 }
 
-pub trait CodegenBackend {
-    fn backend_id(&self) -> BackendId;
-    fn target(&self) -> BackendTarget;
+/// Complete code-generation identity for reuse across runtime installations.
+/// Backends expose every setting affecting generated code in `options`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BackendConfiguration {
+    pub backend: BackendId,
+    pub target: BackendTarget,
+    pub options: Vec<(String, String)>,
+}
+
+/// Trusted in-process native compiler. Ordinary safe plugin implementations cannot
+/// authorize executable pointers for safe SDK installation.
+///
+/// # Safety
+/// Given verified input and correctly bound helper symbols, successful products
+/// must implement that exact function's semantics, point charges, roots and native
+/// ABI without unwinding across C boundaries. Code must run on this host, including
+/// its instruction-set features. Products must retain all executable pages and
+/// referenced links independently of the backend's lifetime and later compiles.
+/// `configuration` must identify all code-generation settings and remain accurate
+/// for the compile call; equal configurations must permit sharing their products.
+/// Unsupported input must fail before any script effects. Descriptors must match
+/// the declared backend, target, function and current runtime/helper ABI.
+pub unsafe trait CodegenBackend {
+    fn configuration(&self) -> BackendConfiguration;
     fn compile_function(
         &mut self,
         input: BackendFunctionInput<'_>,

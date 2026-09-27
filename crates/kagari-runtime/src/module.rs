@@ -143,6 +143,12 @@ impl VerifiedProgram {
         &self.modules
     }
 
+    /// Identity of the immutable verified program, shared by clones and loads.
+    /// Equal bytecode or a matching compatibility hash does not imply this identity.
+    pub fn same_version(&self, other: &Self) -> bool {
+        self.root == other.root && Arc::ptr_eq(&self.modules, &other.modules)
+    }
+
     pub(crate) fn dependencies(&self) -> &ReloadDependencySnapshot {
         &self.dependencies
     }
@@ -150,6 +156,7 @@ impl VerifiedProgram {
 
 #[derive(Debug)]
 struct LinkedProgram {
+    code: VerifiedProgram,
     root: ModuleRef,
     fingerprint: ArtifactFingerprint,
     modules: Vec<LinkedModule>,
@@ -179,6 +186,10 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    pub fn verified_program(&self) -> &VerifiedProgram {
+        &self.program.code
+    }
+
     pub fn program_fingerprint(&self) -> ArtifactFingerprint {
         self.program.fingerprint
     }
@@ -507,6 +518,7 @@ impl ModuleStore {
             })
             .collect();
         let program = Arc::new(LinkedProgram {
+            code: program,
             root,
             fingerprint,
             modules,

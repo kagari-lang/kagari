@@ -12,13 +12,22 @@ pub enum NativeInputError {
     #[error("native preparation cancelled")]
     Cancelled,
     #[error("invalid portable MIR: {0}")]
-    Mir(#[from] MirCodecError),
+    Mir(MirCodecError),
     #[error("invalid native preparation bytecode: {0}")]
     Bytecode(String),
     #[error("MIR-to-bytecode lowering failed: {0:?}")]
     Lowering(BytecodeLoweringError),
     #[error("portable MIR does not reproduce the supplied bytecode program")]
     Mismatch,
+}
+
+impl From<MirCodecError> for NativeInputError {
+    fn from(error: MirCodecError) -> Self {
+        match error {
+            MirCodecError::Cancelled => Self::Cancelled,
+            error => Self::Mir(error),
+        }
+    }
 }
 
 /// Reverify native input and establish complete canonical correspondence. Callers
