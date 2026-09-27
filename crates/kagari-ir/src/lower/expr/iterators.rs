@@ -3,6 +3,7 @@ use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},
 };
+use kagari_common::collection::CollectionAccess;
 use kagari_hir::{
     builtin::{
         surface::StandardEnum,
@@ -37,10 +38,7 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
         let element = input_args[0].clone();
-        let buffer_type = TypeId::Array(
-            Box::new(element.clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let buffer_type = TypeId::Array(Box::new(element.clone()), CollectionAccess::Mutable);
         let buffer = self.collection_new(&buffer_type)?;
         let optional = TypeId::StandardEnum {
             kind: StandardEnum::Option,

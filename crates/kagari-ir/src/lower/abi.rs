@@ -1,10 +1,22 @@
+use crate::module::abi::AssociatedConstAbi;
+use crate::module::abi::AssociatedTypeAbi;
+use crate::module::abi::AssociatedTypeFamilyAbi;
+use crate::module::abi::NominalAbiType;
+use kagari_hir::declarations::DeclarationId;
+use kagari_hir::resolver::ResolvedName;
+use kagari_hir::typeck::ConstraintTarget;
+use kagari_hir::typeck::GenericBounds;
+use kagari_hir::typeck::ScalarValue;
+use kagari_hir::types;
+use kagari_hir::types::GenericParameterType;
+use kagari_hir::types::TypeId;
 use kagari_hir::{
     AnalyzedModule,
     hir::{self, FunctionKind, Item, Visibility},
 };
 
 // Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
-fn const_abi_value(value: &kagari_hir::typeck::ScalarValue) -> String {
+fn const_abi_value(value: &ScalarValue) -> String {
     use kagari_hir::typeck::ScalarValue;
     match value {
         ScalarValue::Unit => "const-v1:unit".to_owned(),
@@ -147,17 +159,15 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     associated_consts: trait_item
                         .associated_consts
                         .iter()
-                        .map(|member| crate::module::abi::AssociatedConstAbi {
-                            declaration: kagari_hir::types::associated_const_id(
+                        .map(|member| AssociatedConstAbi {
+                            declaration: types::associated_const_id(
                                 match &module
                                     .declarations
-                                    .target(kagari_hir::resolver::ResolvedName::Trait(id))
+                                    .target(ResolvedName::Trait(id))
                                     .expect("trait declaration")
                                     .id
                                 {
-                                    kagari_hir::declarations::DeclarationId::Definition(owner) => {
-                                        owner
-                                    }
+                                    DeclarationId::Definition(owner) => owner,
                                     _ => unreachable!("nominal trait"),
                                 },
                                 &member.name,
@@ -186,43 +196,38 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                         .supertraits
                         .iter()
                         .filter_map(|reference| {
-                            let kagari_hir::typeck::ConstraintTarget::Trait(parent) =
+                            let ConstraintTarget::Trait(parent) =
                                 module.typed.type_table.constraint(reference.ty)?
                             else {
                                 return None;
                             };
-                            Some(crate::module::abi::NominalAbiType::from_checked_type(
-                                &parent,
-                            ))
+                            Some(NominalAbiType::from_checked_type(&parent))
                         })
                         .collect(),
                     associated_types: trait_item
                         .associated_types
                         .iter()
                         .map(|member| {
-                            let kagari_hir::declarations::DeclarationId::Definition(owner) =
-                                &module
-                                    .declarations
-                                    .target(kagari_hir::resolver::ResolvedName::Trait(id))
-                                    .expect("trait identity")
-                                    .id
+                            let DeclarationId::Definition(owner) = &module
+                                .declarations
+                                .target(ResolvedName::Trait(id))
+                                .expect("trait identity")
+                                .id
                             else {
                                 unreachable!("nominal trait")
                             };
-                            crate::module::abi::AssociatedTypeAbi {
+                            AssociatedTypeAbi {
                                 generic_params: generic_param_abi(module, &member.generic_params),
                                 parameter_bounds: module
                                     .typed
                                     .type_table
-                                    .associated_type_parameters(
-                                        &kagari_hir::types::associated_type_id(owner, &member.name),
-                                    )
+                                    .associated_type_parameters(&types::associated_type_id(
+                                        owner,
+                                        &member.name,
+                                    ))
                                     .map(|inputs| checked_bounds(&inputs.bounds))
                                     .unwrap_or_default(),
-                                declaration: kagari_hir::types::associated_type_id(
-                                    owner,
-                                    &member.name,
-                                ),
+                                declaration: types::associated_type_id(owner, &member.name),
                                 bounds: {
                                     let mut bounds = member
                                         .bounds
@@ -262,11 +267,11 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     trait_contracts.push(TraitContract {
                         declaration: match &module
                             .declarations
-                            .target(kagari_hir::resolver::ResolvedName::Trait(id))
+                            .target(ResolvedName::Trait(id))
                             .expect("checked trait declaration identity")
                             .id
                         {
-                            kagari_hir::declarations::DeclarationId::Definition(id) => id.clone(),
+                            DeclarationId::Definition(id) => id.clone(),
                             _ => unreachable!("nominal trait declaration"),
                         },
                         abi,
@@ -287,7 +292,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             .constraint(reference.ty)
             .expect("checked impl trait")
         {
-            kagari_hir::typeck::ConstraintTarget::Trait(ty) => kagari_hir::types::TypeId::Trait(ty),
+            ConstraintTarget::Trait(ty) => TypeId::Trait(ty),
             _ => unreachable!("user trait impl"),
         };
         let for_type = &impl_block
@@ -312,7 +317,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 .expect("impl signature")
                 .associated_type_families
                 .iter()
-                .map(|(id, family)| crate::module::abi::AssociatedTypeFamilyAbi {
+                .map(|(id, family)| AssociatedTypeFamilyAbi {
                     declaration: id.clone(),
                     generic_params: family
                         .inputs
@@ -425,7 +430,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
         let own = method_params.iter().enumerate().map(|(position, param)| {
             (
                 param.clone(),
-                kagari_hir::types::TypeId::Generic(kagari_hir::types::GenericParameterType {
+                TypeId::Generic(GenericParameterType {
                     owner: target.clone(),
                     position,
                     name: param.name.clone(),
@@ -439,7 +444,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
             .zip(implementation.trait_type.arguments.iter().cloned())
             .chain(own)
             .collect();
-        let normalize = |ty: &kagari_hir::types::TypeId| {
+        let normalize = |ty: &TypeId| {
             abi_type(
                 module,
                 &ty.with_associated_types(&implementation.trait_type)
@@ -454,20 +459,16 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
                 !contract
                     .generic_params
                     .iter()
-                    .any(|param| **ty == kagari_hir::types::TypeId::Generic(param.clone()))
+                    .any(|param| **ty == TypeId::Generic(param.clone()))
             })
             .map(|(ty, constraints)| GenericBoundAbi {
                 ty: normalize(ty),
                 constraints: constraints
                     .iter()
                     .map(|constraint| match constraint {
-                        kagari_hir::typeck::ConstraintTarget::Standard(value) => {
-                            ConstraintAbi::Standard(*value)
-                        }
-                        kagari_hir::typeck::ConstraintTarget::Trait(ty) => {
-                            let AbiType::Trait(ty) =
-                                normalize(&kagari_hir::types::TypeId::Trait(ty.clone()))
-                            else {
+                        ConstraintTarget::Standard(value) => ConstraintAbi::Standard(*value),
+                        ConstraintTarget::Trait(ty) => {
+                            let AbiType::Trait(ty) = normalize(&TypeId::Trait(ty.clone())) else {
                                 unreachable!("trait bound");
                             };
                             ConstraintAbi::Trait(ty)
@@ -525,7 +526,7 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
     })
 }
 
-fn abi_type(module: &AnalyzedModule, ty: &kagari_hir::types::TypeId) -> AbiType {
+fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> AbiType {
     AbiType::from_checked_type(&module.aggregates.normalize_type(ty))
 }
 
@@ -558,12 +559,11 @@ fn generic_param_abi(
     params
         .iter()
         .map(|param| {
-            let kagari_hir::declarations::DeclarationId::GenericParameter { owner, position } =
-                &module
-                    .declarations
-                    .generic_parameter(param.id)
-                    .expect("checked generic declaration")
-                    .id
+            let DeclarationId::GenericParameter { owner, position } = &module
+                .declarations
+                .generic_parameter(param.id)
+                .expect("checked generic declaration")
+                .id
             else {
                 unreachable!("generic declaration identity")
             };
@@ -575,14 +575,10 @@ fn generic_param_abi(
         .collect()
 }
 
-fn constraint_abi(target: kagari_hir::typeck::ConstraintTarget) -> ConstraintAbi {
+fn constraint_abi(target: ConstraintTarget) -> ConstraintAbi {
     match target {
-        kagari_hir::typeck::ConstraintTarget::Standard(constraint) => {
-            ConstraintAbi::Standard(constraint)
-        }
-        kagari_hir::typeck::ConstraintTarget::Trait(ty) => {
-            ConstraintAbi::Trait(crate::module::abi::NominalAbiType::from_checked_type(&ty))
-        }
+        ConstraintTarget::Standard(constraint) => ConstraintAbi::Standard(constraint),
+        ConstraintTarget::Trait(ty) => ConstraintAbi::Trait(NominalAbiType::from_checked_type(&ty)),
     }
 }
 
@@ -614,7 +610,7 @@ fn parameter_bounds(module: &AnalyzedModule, params: &[hir::GenericParam]) -> Ve
     canonical_bounds(bounds)
 }
 
-fn checked_bounds(bounds: &kagari_hir::typeck::GenericBounds) -> Vec<GenericBoundAbi> {
+fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBoundAbi> {
     canonical_bounds(
         bounds
             .iter()

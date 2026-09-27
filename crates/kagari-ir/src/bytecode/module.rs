@@ -1,3 +1,7 @@
+use crate::module::EnumLayout;
+use crate::module::StructLayout;
+use crate::module::abi::AbiType;
+use crate::module::function::SemanticSlots;
 use crate::{
     bytecode::instruction::{
         BytecodeInstruction, ConstantOperand, FunctionRef, JumpTarget, LocalSlot, PathId, Register,
@@ -5,14 +9,17 @@ use crate::{
     module::{ConcreteFunctionIdentity, EffectSet, PublicAbiItem, TraitContract, ValueType},
 };
 use kagari_common::Span;
+use kagari_common::host_interface::HostInterface;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::ModuleIdentity;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeModule {
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub dependencies: Vec<super::ModuleRef>,
-    pub host_interface: kagari_common::host_interface::HostInterface,
-    pub identity: kagari_common::identity::ModuleIdentity,
+    pub host_interface: HostInterface,
+    pub identity: ModuleIdentity,
     pub source_name: String,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub module_slots: BytecodeModuleSlotBuffer,
@@ -21,9 +28,9 @@ pub struct BytecodeModule {
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub types: BytecodeTypeTable,
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub structures: Vec<crate::module::StructLayout>,
+    pub structures: Vec<StructLayout>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub enumerations: Vec<crate::module::EnumLayout>,
+    pub enumerations: Vec<EnumLayout>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub interface_tables: Vec<InterfaceTableRecord>,
     #[serde(deserialize_with = "crate::decode_limits::table")]
@@ -70,7 +77,7 @@ pub struct BytecodeFunction {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
-    pub semantic: crate::module::function::SemanticSlots,
+    pub semantic: SemanticSlots,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
@@ -129,15 +136,15 @@ pub struct InterfaceTableRecord {
     /// Ordered impl arguments. An empty record for a generic template retains
     /// static method instances and cannot be selected by MakeInterface.
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<crate::module::abi::AbiType>,
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub arguments: Vec<AbiType>,
+    pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub methods: Vec<InterfaceMethodSlot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceMethodSlot {
-    pub method: kagari_common::identity::DefinitionId,
+    pub method: DefinitionId,
     pub function: FunctionRef,
 }
 

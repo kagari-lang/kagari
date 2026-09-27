@@ -1,4 +1,13 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
+
+use super::declarations;
+use super::numeric;
+use super::surface;
+use super::surface::STANDARD_TRAITS;
+use super::surface::StandardEnum;
+use super::surface::StandardModule;
+use crate::aggregates;
+use crate::types;
 use crate::{
     aggregates::{AggregateCatalog, TraitSignature},
     typeck::{ConstraintTarget, GenericBounds},
@@ -7,6 +16,8 @@ use crate::{
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
+use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -257,7 +268,7 @@ impl StandardTrait {
         }
         if let Some(output) = intrinsic_output(&view, receiver) {
             view.associated_types.insert(
-                crate::types::associated_type_id(&view.declaration, "Output"),
+                types::associated_type_id(&view.declaration, "Output"),
                 output,
             );
         }
@@ -289,7 +300,7 @@ pub(crate) fn identity(kind: StandardTrait) -> DefinitionId {
     }
 }
 fn build_contract(kind: StandardTrait) -> TraitSignature {
-    super::surface::STANDARD_TRAITS
+    STANDARD_TRAITS
         .iter()
         .find(|spec| spec.item.identity() == identity(kind))
         .expect("standard trait declaration")
@@ -317,10 +328,7 @@ pub fn callable_signature(interface: &NominalType) -> Option<TypeId> {
     };
     let result = interface
         .associated_types
-        .get(&crate::types::associated_type_id(
-            &interface.declaration,
-            "Output",
-        ))
+        .get(&types::associated_type_id(&interface.declaration, "Output"))
         .cloned()
         .unwrap_or(TypeId::Unknown);
     Some(TypeId::Function {
@@ -402,7 +410,7 @@ pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<Ty
     }
     if kind.binary_operator()
         && interface.arguments.as_slice() == [receiver.clone()]
-        && super::surface::supports_arithmetic(receiver, receiver)
+        && surface::supports_arithmetic(receiver, receiver)
     {
         Some(receiver.clone())
     } else {
@@ -445,13 +453,12 @@ pub fn intrinsic_applies(
         return parsing_error(receiver).is_some_and(|error| {
             interface.arguments.is_empty()
                 && interface.associated_types.iter().all(|(id, ty)| {
-                    *id == crate::types::associated_type_id(&interface.declaration, "Err")
-                        && *ty == error
+                    *id == types::associated_type_id(&interface.declaration, "Err") && *ty == error
                 })
         });
     }
     if kind.collection() {
-        return super::declarations::implementations(receiver)
+        return declarations::implementations(receiver)
             .iter()
             .any(|implementation| {
                 implementation
@@ -465,7 +472,7 @@ pub fn intrinsic_applies(
             && numeric_aggregation_item(receiver).is_some();
     }
     if kind == StandardTrait::RangeBounds {
-        return super::declarations::implementations(receiver)
+        return declarations::implementations(receiver)
             .into_iter()
             .any(|i| i.applied_arguments(receiver, interface).is_some());
     }
@@ -505,7 +512,7 @@ pub fn intrinsic_applies(
             }
             return false;
         }
-        return super::declarations::implementations(receiver)
+        return declarations::implementations(receiver)
             .into_iter()
             .any(|implementation| {
                 let Some(arguments) = implementation.applied_arguments(receiver, interface) else {
@@ -536,15 +543,15 @@ pub fn intrinsic_applies(
         {
             if kind == StandardTrait::From
                 && interface.associated_types.is_empty()
-                && super::numeric::lossless_from(*source, *target)
+                && numeric::lossless_from(*source, *target)
             {
                 return true;
             }
             if kind == StandardTrait::TryFrom
-                && let Some(error) = super::numeric::try_error(*source, *target)
+                && let Some(error) = numeric::try_error(*source, *target)
             {
                 return interface.associated_types.iter().all(|(member, ty)| {
-                    *member == crate::types::associated_type_id(&interface.declaration, "Error")
+                    *member == types::associated_type_id(&interface.declaration, "Error")
                         && *ty == error
                 });
             }
@@ -558,8 +565,7 @@ pub fn intrinsic_applies(
             return false;
         };
         interface.associated_types.iter().all(|(member, ty)| {
-            *member == crate::types::associated_type_id(&interface.declaration, "Output")
-                && *ty == output
+            *member == types::associated_type_id(&interface.declaration, "Output") && *ty == output
         })
     } else {
         interface.arguments.is_empty()
@@ -586,7 +592,7 @@ pub fn lifted_collection_requirement(
     if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::FromIterator) {
         return None;
     }
-    for implementation in super::declarations::implementations(receiver) {
+    for implementation in declarations::implementations(receiver) {
         let Some(arguments) = implementation.applied_arguments(receiver, interface) else {
             continue;
         };
@@ -606,12 +612,12 @@ pub fn lifted_collection_requirement(
 
 pub fn ordering_type(optional: bool) -> TypeId {
     let ordering = TypeId::StandardEnum {
-        kind: super::surface::StandardEnum::Ordering,
+        kind: StandardEnum::Ordering,
         args: vec![],
     };
     if optional {
         TypeId::StandardEnum {
-            kind: super::surface::StandardEnum::Option,
+            kind: StandardEnum::Option,
             args: vec![ordering],
         }
     } else {
@@ -666,7 +672,7 @@ pub fn intrinsic_holds(
             }
             TypeId::Builtin(_) => true,
             TypeId::StandardEnum {
-                kind: super::surface::StandardEnum::Ordering,
+                kind: StandardEnum::Ordering,
                 ..
             } => true,
             _ => false,
@@ -678,7 +684,7 @@ pub fn intrinsic_holds(
         return catalog.standard_protocol_holds(protocol, ty, bounds);
     }
     let mut pending = vec![(ty.clone(), 0usize)];
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     while let Some((ty, depth)) = pending.pop() {
         if seen.len() >= 4096 || depth > 64 {
             return false;
@@ -741,10 +747,10 @@ pub fn intrinsic_holds(
     true
 }
 
-pub fn in_module(module: super::surface::StandardModule, name: &str) -> Option<StandardTrait> {
+pub fn in_module(module: StandardModule, name: &str) -> Option<StandardTrait> {
     StandardTrait::ALL.into_iter().find(|kind| {
         kind.name() == name
-            && super::surface::standard_modules().iter().any(|spec| {
+            && surface::standard_modules().iter().any(|spec| {
                 spec.kind == module && spec.path == format!("std::{}", kind.namespace())
             })
     })
@@ -767,13 +773,13 @@ pub fn conversion_requirement(
     let mut required = forward.nominal();
     required.arguments.push(receiver.clone());
     for (member, ty) in &interface.associated_types {
-        if *member != crate::types::associated_type_id(&interface.declaration, "Error")
+        if *member != types::associated_type_id(&interface.declaration, "Error")
             || !kind.fallible_conversion()
         {
             return None;
         }
         required.associated_types.insert(
-            crate::types::associated_type_id(&required.declaration, "Error"),
+            types::associated_type_id(&required.declaration, "Error"),
             ty.clone(),
         );
     }
@@ -785,9 +791,9 @@ pub fn iteration_outputs(
     receiver: &TypeId,
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
-) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
+) -> Option<BTreeMap<DefinitionId, TypeId>> {
     if let TypeId::Trait(interface) = receiver {
-        let inherited = crate::aggregates::trait_inheritance_closure(
+        let inherited = aggregates::trait_inheritance_closure(
             interface,
             receiver,
             &Default::default(),
@@ -812,27 +818,24 @@ pub fn iteration_outputs(
     } else {
         kind
     };
-    if let Some(implementation) = super::declarations::implementations(receiver)
+    if let Some(implementation) = declarations::implementations(receiver)
         .into_iter()
         .find(|i| i.interface == declared_kind.name())
     {
         let arguments = implementation.arguments(receiver)?;
         let id = identity(kind);
-        let mut outputs: std::collections::BTreeMap<_, _> = implementation
+        let mut outputs: BTreeMap<_, _> = implementation
             .associated_types
             .iter()
             .map(|(member, ty)| {
                 (
-                    crate::types::associated_type_id(&id, member.path.last().unwrap().1),
+                    types::associated_type_id(&id, member.path.last().unwrap().1),
                     ty.instantiate(&arguments),
                 )
             })
             .collect();
         if kind != declared_kind {
-            outputs.insert(
-                crate::types::associated_type_id(&id, "Iter"),
-                receiver.clone(),
-            );
+            outputs.insert(types::associated_type_id(&id, "Iter"), receiver.clone());
         }
         return Some(outputs);
     }
@@ -859,7 +862,7 @@ pub fn iteration_outputs(
     if !available {
         return None;
     }
-    let member = crate::types::associated_type_id(&iterator.declaration, "Item");
+    let member = types::associated_type_id(&iterator.declaration, "Item");
     let item = bounds
         .get(receiver)
         .into_iter()
@@ -882,11 +885,8 @@ pub fn iteration_outputs(
     let id = identity(kind);
     Some(
         [
-            (crate::types::associated_type_id(&id, "Item"), item),
-            (
-                crate::types::associated_type_id(&id, "Iter"),
-                receiver.clone(),
-            ),
+            (types::associated_type_id(&id, "Item"), item),
+            (types::associated_type_id(&id, "Iter"), receiver.clone()),
         ]
         .into_iter()
         .collect(),
@@ -900,13 +900,13 @@ pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Optio
     {
         return None;
     }
-    let item = crate::types::associated_type_id(&interface.declaration, "Item");
-    let iterator = crate::types::associated_type_id(&interface.declaration, "Iter");
+    let item = types::associated_type_id(&interface.declaration, "Item");
+    let iterator = types::associated_type_id(&interface.declaration, "Iter");
     let mut required = StandardTrait::Iterator.nominal();
     for (member, ty) in &interface.associated_types {
         if *member == item {
             required.associated_types.insert(
-                crate::types::associated_type_id(&required.declaration, "Item"),
+                types::associated_type_id(&required.declaration, "Item"),
                 ty.clone(),
             );
         } else if *member != iterator || ty != receiver {
@@ -952,7 +952,7 @@ pub fn parsing_error(receiver: &TypeId) -> Option<TypeId> {
         return None;
     };
     (kind.number_type().is_some() || *kind == BuiltinType::Bool).then(|| TypeId::StandardEnum {
-        kind: super::surface::StandardEnum::ParseError,
+        kind: StandardEnum::ParseError,
         args: vec![],
     })
 }

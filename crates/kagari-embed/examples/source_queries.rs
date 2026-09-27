@@ -1,10 +1,14 @@
 //! Run with `cargo run -p kagari-embed --example source_queries`.
+
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     line_index::PositionEncoding,
     source_database::SourceLayer,
 };
 use kagari_embed::KagariEngine;
+use kagari_hir::declarations::DeclarationId;
+use kagari_hir::resolver::ResolvedName;
+use kagari_hir::types::TypeId;
 
 fn main() -> kagari_embed::CompileResult<()> {
     let engine = KagariEngine::default();
@@ -89,7 +93,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         .iter()
         .find(|d| d.name == "good")
         .expect("good declaration");
-    let kagari_hir::declarations::DeclarationId::Definition(good) = &good.id else {
+    let DeclarationId::Definition(good) = &good.id else {
         panic!("function has a definition identity");
     };
     let body = engine
@@ -216,7 +220,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         .body
         .expressions()
         .find_map(|(id, _)| match facts.names.expr_resolution(id) {
-            Some(kagari_hir::resolver::ResolvedName::RuntimeHelper(helper)) => Some(helper),
+            Some(ResolvedName::RuntimeHelper(helper)) => Some(helper),
             _ => None,
         })
         .expect("resolved prelude helper");
@@ -276,7 +280,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         .expect("resolved annotation");
     println!("type {} -> {:?}", point_type.name, point_type.id);
     let nominal = analysis.type_at(annotation).expect("nominal type fact");
-    let kagari_hir::types::TypeId::Struct(definition) = &nominal else {
+    let TypeId::Struct(definition) = &nominal else {
         panic!("Point has a struct identity");
     };
     assert_eq!(
@@ -293,7 +297,7 @@ fn main() -> kagari_embed::CompileResult<()> {
         .definition_at(text.find("value.show()").expect("generic method call") + "value.".len())
         .expect("nominal trait method target");
     println!("trait method {} -> {:?}", method.name, method.id);
-    let kagari_hir::declarations::DeclarationId::Definition(method_id) = &method.id else {
+    let DeclarationId::Definition(method_id) = &method.id else {
         unreachable!("nominal method");
     };
     let contract = analysis

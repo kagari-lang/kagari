@@ -1,7 +1,30 @@
+use crate::bytecode::BytecodeVerificationError;
+use crate::bytecode::JumpTarget;
+use crate::decode_limits::MAX_FUNCTIONS;
+use crate::decode_limits::MAX_INSTRUCTIONS;
+use crate::decode_limits::MAX_MODULES;
+use crate::decode_limits::MAX_NESTED_RECORDS;
+use crate::decode_limits::MAX_TABLE_RECORDS;
+use crate::module::EffectSet;
+use crate::module::FunctionAbi;
+use crate::module::abi::AbiType;
+use crate::module::abi::AssociatedTypeAbi;
+use crate::module::abi::ConstraintAbi;
+use crate::module::abi::GenericBoundAbi;
+use crate::module::abi::GenericParameterAbi;
+use crate::module::function::SemanticSlots;
+use bincode::DefaultOptions;
+use bincode::ErrorKind;
 use bincode::Options;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
+use kagari_common::host_interface::HostInterface;
+use kagari_common::host_interface::HostPathSegmentDeclaration;
+use kagari_common::host_interface::HostValueType;
+use kagari_common::identity::DefinitionId;
 use kagari_common::identity::ModuleIdentity;
+use std::io;
+use std::io::Write;
 
 use crate::{
     bytecode::{
@@ -14,14 +37,14 @@ use serde::{Deserialize, Serialize};
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
 pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 101;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
-pub const MAX_ARTIFACT_MODULES: usize = crate::decode_limits::MAX_MODULES;
-pub const MAX_ARTIFACT_FUNCTIONS: usize = crate::decode_limits::MAX_FUNCTIONS;
-pub const MAX_ARTIFACT_INSTRUCTIONS: usize = crate::decode_limits::MAX_INSTRUCTIONS;
-pub const MAX_ARTIFACT_TABLE_RECORDS: usize = crate::decode_limits::MAX_TABLE_RECORDS;
-pub const MAX_ARTIFACT_NESTED_RECORDS: usize = crate::decode_limits::MAX_NESTED_RECORDS;
+pub const MAX_ARTIFACT_MODULES: usize = MAX_MODULES;
+pub const MAX_ARTIFACT_FUNCTIONS: usize = MAX_FUNCTIONS;
+pub const MAX_ARTIFACT_INSTRUCTIONS: usize = MAX_INSTRUCTIONS;
+pub const MAX_ARTIFACT_TABLE_RECORDS: usize = MAX_TABLE_RECORDS;
+pub const MAX_ARTIFACT_NESTED_RECORDS: usize = MAX_NESTED_RECORDS;
 
 fn codec() -> impl Options {
-    bincode::DefaultOptions::new()
+    DefaultOptions::new()
         .with_fixint_encoding()
         .with_little_endian()
         .reject_trailing_bytes()
@@ -338,7 +361,7 @@ pub struct ArtifactFingerprint(pub u64);
 
 impl ArtifactFingerprint {
     /// Canonical required ABI set; documentation and import slot order do not affect it.
-    pub fn of_host_interface(interface: &kagari_common::host_interface::HostInterface) -> Self {
+    pub fn of_host_interface(interface: &HostInterface) -> Self {
         let mut functions = interface.functions.clone();
         for function in &mut functions {
             function.documentation.clear();
@@ -375,19 +398,19 @@ impl ArtifactFingerprint {
     /// This is a compatibility fingerprint, not authentication or a signature.
     pub fn of_serialized(value: &impl Serialize) -> Self {
         struct Sink(u64);
-        impl std::io::Write for Sink {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        impl Write for Sink {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
                 for byte in bytes {
                     self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
                 }
                 Ok(bytes.len())
             }
-            fn flush(&mut self) -> std::io::Result<()> {
+            fn flush(&mut self) -> io::Result<()> {
                 Ok(())
             }
         }
         let mut sink = Sink(Self::of_str("kagari-canonical-v2").0);
-        bincode::DefaultOptions::new()
+        DefaultOptions::new()
             .with_fixint_encoding()
             .with_little_endian()
             .serialize_into(&mut sink, value)
@@ -663,29 +686,23 @@ fn module_nested_count_limit(module: &BytecodeModule, total: &mut usize) -> bool
     true
 }
 
-fn add_abi_bounds(
-    bounds: &[crate::module::abi::GenericBoundAbi],
-    add: &mut impl FnMut(usize) -> bool,
-) -> bool {
+fn add_abi_bounds(bounds: &[GenericBoundAbi], add: &mut impl FnMut(usize) -> bool) -> bool {
     bounds.iter().all(|bound| {
         add(bound.constraints.len())
             && bound.constraints.iter().all(|constraint| match constraint {
-                crate::module::abi::ConstraintAbi::Trait(ty) => add(ty.arguments.len()),
+                ConstraintAbi::Trait(ty) => add(ty.arguments.len()),
                 _ => true,
             })
     })
 }
 
-fn generic_identity_limit(
-    params: &[crate::module::abi::GenericParameterAbi],
-    bounds: &[crate::module::abi::GenericBoundAbi],
-) -> bool {
+fn generic_identity_limit(params: &[GenericParameterAbi], bounds: &[GenericBoundAbi]) -> bool {
     params.iter().all(|param| param.owner.within_path_limit())
         && bounds.iter().all(|bound| {
             bound.ty.within_wire_limits()
                 && bound.constraints.iter().all(|constraint| match constraint {
-                    crate::module::abi::ConstraintAbi::Standard(_) => true,
-                    crate::module::abi::ConstraintAbi::Trait(ty) => {
+                    ConstraintAbi::Standard(_) => true,
+                    ConstraintAbi::Trait(ty) => {
                         ty.declaration.within_path_limit()
                             && ty.arguments.iter().all(|arg| arg.within_wire_limits())
                             && ty.associated_types.iter().all(|(member, value)| {
@@ -696,26 +713,24 @@ fn generic_identity_limit(
         })
 }
 
-fn associated_identity_limit(members: &[crate::module::abi::AssociatedTypeAbi]) -> bool {
+fn associated_identity_limit(members: &[AssociatedTypeAbi]) -> bool {
     members.iter().all(|member| {
         member.declaration.within_path_limit()
             && generic_identity_limit(&member.generic_params, &member.parameter_bounds)
             && member.bounds.iter().all(|bound| match bound {
-                crate::module::abi::ConstraintAbi::Standard(_) => true,
-                crate::module::abi::ConstraintAbi::Trait(ty) => {
-                    crate::module::abi::AbiType::Trait(ty.clone()).within_wire_limits()
-                }
+                ConstraintAbi::Standard(_) => true,
+                ConstraintAbi::Trait(ty) => AbiType::Trait(ty.clone()).within_wire_limits(),
             })
     })
 }
 
-fn function_abi_identity_limit(function: &crate::module::FunctionAbi) -> bool {
+fn function_abi_identity_limit(function: &FunctionAbi) -> bool {
     generic_identity_limit(&function.generic_params, &function.bounds)
 }
 
 fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     use crate::module::PublicAbiItem;
-    let valid = |ty: &crate::module::abi::AbiType| ty.within_wire_limits();
+    let valid = |ty: &AbiType| ty.within_wire_limits();
     module.interface_tables.iter().all(|table| {
         table.declaration.within_path_limit()
             && table.arguments.iter().all(&valid)
@@ -791,11 +806,9 @@ fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     })
 }
 
-fn host_identity_limit(interface: &kagari_common::host_interface::HostInterface) -> bool {
-    let valid = |id: &kagari_common::identity::DefinitionId| id.within_path_limit();
-    let value = |ty: &kagari_common::host_interface::HostValueType| {
-        ty.nominal_references().into_iter().all(valid)
-    };
+fn host_identity_limit(interface: &HostInterface) -> bool {
+    let valid = |id: &DefinitionId| id.within_path_limit();
+    let value = |ty: &HostValueType| ty.nominal_references().into_iter().all(valid);
     interface.types.iter().all(|ty| {
         valid(&ty.id)
             && ty
@@ -814,13 +827,11 @@ fn host_identity_limit(interface: &kagari_common::host_interface::HostInterface)
     }) && interface.paths.iter().all(|path| {
         valid(&path.root)
             && path.segments.iter().all(|segment| match segment {
-                kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) => valid(id),
-                kagari_common::host_interface::HostPathSegmentDeclaration::Index(index) => {
+                HostPathSegmentDeclaration::Field(id) => valid(id),
+                HostPathSegmentDeclaration::Index(index) => {
                     value(&index.collection) && value(&index.index) && value(&index.result)
                 }
-                kagari_common::host_interface::HostPathSegmentDeclaration::Virtual(
-                    virtual_step,
-                ) => value(&virtual_step.result),
+                HostPathSegmentDeclaration::Virtual(virtual_step) => value(&virtual_step.result),
             })
     })
 }
@@ -1177,7 +1188,7 @@ impl VerificationMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionLayoutMetadata {
-    pub semantic: crate::module::function::SemanticSlots,
+    pub semantic: SemanticSlots,
     pub function: FunctionRef,
     #[serde(deserialize_with = "crate::decode_limits::table")]
     pub params: Vec<ValueType>,
@@ -1192,14 +1203,14 @@ pub struct FunctionLayoutMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionEffectMetadata {
     pub function: FunctionRef,
-    pub effects: crate::module::EffectSet,
+    pub effects: EffectSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ControlFlowTargetMetadata {
     pub function: FunctionRef,
     #[serde(deserialize_with = "crate::decode_limits::table")]
-    pub targets: Vec<crate::bytecode::JumpTarget>,
+    pub targets: Vec<JumpTarget>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1368,7 +1379,7 @@ pub enum ArtifactValidationError {
     #[error("artifact public ABI fingerprints mismatch")]
     PublicAbiFingerprintMismatch,
     #[error("artifact bytecode verification failed: {0}")]
-    Bytecode(crate::bytecode::BytecodeVerificationError),
+    Bytecode(BytecodeVerificationError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -1383,8 +1394,8 @@ impl ArtifactCodecError {
     }
 }
 
-impl From<Box<bincode::ErrorKind>> for ArtifactCodecError {
-    fn from(error: Box<bincode::ErrorKind>) -> Self {
+impl From<Box<ErrorKind>> for ArtifactCodecError {
+    fn from(error: Box<ErrorKind>) -> Self {
         Self {
             message: error.to_string(),
         }

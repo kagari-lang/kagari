@@ -1,25 +1,39 @@
 //! Recheck associated outputs and host trait bounds against the dependency closure.
+
+use super::BytecodeInstruction;
 use super::BytecodeModule;
+use crate::module::abi;
+use crate::module::abi::NominalAbiType;
+use crate::module::abi::TraitAbi;
+use crate::module::abi::verify;
 use crate::module::{
     PublicAbiItem,
     abi::{AbiType, ConstraintAbi, InterfaceTableAbi},
 };
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::DefinitionPathSegment;
+use kagari_hir::aggregates;
+use kagari_hir::host::HostDeclarations;
+use kagari_hir::typeck;
+use kagari_hir::typeck::GenericBounds;
+use kagari_hir::types::NominalType;
+use kagari_hir::types::TypeSubstitution;
 use kagari_hir::{
     aggregates::{AggregateCatalog, ImplementationSignature},
     builtin::traits::StandardTrait,
     typeck::ConstraintTarget,
     types::{GenericParameterType, TypeId},
 };
+use std::collections::HashSet;
 
 const MAX_IMPLEMENTATIONS: usize = 4096;
 const MAX_MATCH_CHECKS: usize = 100_000;
 const MAX_PROOF_DEPTH: usize = 64;
 
-fn contract<'a>(
-    id: &kagari_common::identity::DefinitionId,
-    closure: &[&'a BytecodeModule],
-) -> Option<&'a crate::module::abi::TraitAbi> {
-    if let Some(contract) = crate::module::abi::standard_trait_contract(id) {
+fn contract<'a>(id: &DefinitionId, closure: &[&'a BytecodeModule]) -> Option<&'a TraitAbi> {
+    if let Some(contract) = abi::standard_trait_contract(id) {
         return Some(contract);
     }
     let owner = closure.iter().find(|module| module.identity == id.module)?;
@@ -33,7 +47,7 @@ fn contract<'a>(
                 PublicAbiItem::Trait(record)
                     if id.path.len() == 1
                         && id.path[0].name == record.name
-                        && id.path[0].kind == kagari_common::identity::DefinitionKind::Trait
+                        && id.path[0].kind == DefinitionKind::Trait
                         && id.path[0].occurrence == 0 =>
                 {
                     Some(record)
@@ -44,43 +58,38 @@ fn contract<'a>(
 }
 
 fn inheritance(
-    interface: &kagari_hir::types::NominalType,
+    interface: &NominalType,
     receiver: &TypeId,
     closure: &[&BytecodeModule],
-) -> Option<Vec<kagari_hir::types::NominalType>> {
-    kagari_hir::aggregates::trait_inheritance_closure(
-        interface,
-        receiver,
-        &Default::default(),
-        &|id| {
-            let record = contract(id, closure)?;
-            Some((
-                record
-                    .generic_params
-                    .iter()
-                    .map(|parameter| GenericParameterType {
-                        owner: parameter.owner.clone(),
-                        position: parameter.position,
-                        name: String::new(),
-                    })
-                    .collect(),
-                record
-                    .supertraits
-                    .iter()
-                    .map(|parent| parent.to_checked_type())
-                    .collect(),
-            ))
-        },
-    )
+) -> Option<Vec<NominalType>> {
+    aggregates::trait_inheritance_closure(interface, receiver, &Default::default(), &|id| {
+        let record = contract(id, closure)?;
+        Some((
+            record
+                .generic_params
+                .iter()
+                .map(|parameter| GenericParameterType {
+                    owner: parameter.owner.clone(),
+                    position: parameter.position,
+                    name: String::new(),
+                })
+                .collect(),
+            record
+                .supertraits
+                .iter()
+                .map(|parent| parent.to_checked_type())
+                .collect(),
+        ))
+    })
     .ok()
 }
 
 /// Read the bounded applied parent closure from portable trait contracts.
 pub fn interface_ancestors(
-    interface: &crate::module::abi::NominalAbiType,
-    receiver: &crate::module::abi::AbiType,
+    interface: &NominalAbiType,
+    receiver: &AbiType,
     closure: &[&BytecodeModule],
-) -> Option<Vec<crate::module::abi::NominalAbiType>> {
+) -> Option<Vec<NominalAbiType>> {
     inheritance(
         &interface.to_checked_type(),
         &receiver.to_checked_type(),
@@ -89,13 +98,13 @@ pub fn interface_ancestors(
     .map(|parents| {
         parents
             .iter()
-            .map(crate::module::abi::NominalAbiType::from_checked_type)
+            .map(NominalAbiType::from_checked_type)
             .collect()
     })
 }
 
 fn executable_interface(
-    applied: &crate::module::abi::NominalAbiType,
+    applied: &NominalAbiType,
     receiver: &AbiType,
     closure: &[&BytecodeModule],
 ) -> bool {
@@ -107,9 +116,7 @@ fn executable_interface(
         return false;
     }
     for view in views {
-        if kagari_hir::builtin::traits::StandardTrait::from_id(&view.declaration)
-            .is_some_and(|kind| !kind.dynamic())
-        {
+        if StandardTrait::from_id(&view.declaration).is_some_and(|kind| !kind.dynamic()) {
             return false;
         }
         let Some(record) = contract(&view.declaration, closure) else {
@@ -132,14 +139,13 @@ fn executable_interface(
             .iter()
             .find(|module| module.identity == view.declaration.module)
             .or_else(|| {
-                crate::module::abi::standard_trait_contract(&view.declaration)
-                    .and_then(|_| closure.first())
+                abi::standard_trait_contract(&view.declaration).and_then(|_| closure.first())
             })
         else {
             return false;
         };
         for slot in 0..record.methods.len() {
-            if crate::module::abi::interface_method_types(
+            if abi::interface_method_types(
                 &owner.identity,
                 &owner.public_items,
                 &owner.trait_contracts,
@@ -162,10 +168,10 @@ fn signature(table: &InterfaceTableAbi) -> Option<ImplementationSignature> {
 /// Check constructor references even in unused portable templates.
 fn projection_uses_valid(
     ty: &TypeId,
-    assumptions: Option<&kagari_hir::typeck::GenericBounds>,
+    assumptions: Option<&GenericBounds>,
     catalog: &AggregateCatalog,
     closure: &[&BytecodeModule],
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> bool {
     let mut pending = vec![ty.clone()];
     let mut remaining = 8192usize;
@@ -197,7 +203,7 @@ fn projection_uses_valid(
                 return false;
             }
             if let Some(assumptions) = assumptions {
-                let mut substitution: kagari_hir::types::TypeSubstitution = record
+                let mut substitution: TypeSubstitution = record
                     .generic_params
                     .iter()
                     .zip(&interface.arguments)
@@ -221,7 +227,7 @@ fn projection_uses_valid(
                     for required in &bound.constraints {
                         let valid = match required {
                             ConstraintAbi::Standard(required) => {
-                                kagari_hir::typeck::type_satisfies_standard_constraint(
+                                typeck::type_satisfies_standard_constraint(
                                     &actual,
                                     *required,
                                     assumptions,
@@ -270,7 +276,7 @@ pub(super) fn trait_bounds_match(
             }
         }
     }
-    let mut host_ids = std::collections::HashSet::new();
+    let mut host_ids = HashSet::new();
     for host in closure
         .iter()
         .flat_map(|dependency| &dependency.host_interface.types)
@@ -279,7 +285,7 @@ pub(super) fn trait_bounds_match(
             continue;
         }
         for (index, implementation) in host.trait_implementations.iter().enumerate() {
-            if kagari_hir::builtin::traits::StandardTrait::from_id(&implementation.trait_id)
+            if StandardTrait::from_id(&implementation.trait_id)
                 .is_some_and(|kind| kind.equality_protocol())
             {
                 return false;
@@ -288,16 +294,15 @@ pub(super) fn trait_bounds_match(
                 return false;
             }
             let mut id = host.id.clone();
-            id.path
-                .push(kagari_common::identity::DefinitionPathSegment {
-                    kind: kagari_common::identity::DefinitionKind::Impl,
-                    name: String::new(),
-                    occurrence: index as u32,
-                });
+            id.path.push(DefinitionPathSegment {
+                kind: DefinitionKind::Impl,
+                name: String::new(),
+                occurrence: index as u32,
+            });
             signatures.push(ImplementationSignature {
                 associated_type_families: Default::default(),
                 id,
-                trait_type: kagari_hir::host::HostDeclarations::trait_type(implementation),
+                trait_type: HostDeclarations::trait_type(implementation),
                 for_type: TypeId::Host(host.id.clone()),
                 generic_params: Vec::new(),
                 bounds: Default::default(),
@@ -315,7 +320,7 @@ pub(super) fn trait_bounds_match(
         return false;
     }
     for layout in closure.iter().flat_map(|module| &module.enumerations) {
-        let ty = kagari_hir::types::NominalType {
+        let ty = NominalType {
             declaration: layout.declaration.clone(),
             arguments: layout
                 .arguments
@@ -333,13 +338,13 @@ pub(super) fn trait_bounds_match(
             return false;
         }
     }
-    let cancel = kagari_common::cancellation::CancellationToken::default();
+    let cancel = CancellationToken::default();
     for instruction in module
         .functions
         .iter()
         .flat_map(|function| &function.instructions)
     {
-        if let super::BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
+        if let BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
             let Some(parents) =
                 interface_ancestors(source, &AbiType::Trait(source.clone()), closure)
             else {
@@ -349,7 +354,7 @@ pub(super) fn trait_bounds_match(
                 return false;
             }
         }
-        if let super::BytecodeInstruction::MakeInterface {
+        if let BytecodeInstruction::MakeInterface {
             module: owner,
             implementation,
             ..
@@ -413,7 +418,7 @@ pub(super) fn trait_bounds_match(
                 return None;
             };
             Some((
-                kagari_common::identity::DefinitionId {
+                DefinitionId {
                     module: member.identity.clone(),
                     path: vec![kagari_common::identity::DefinitionPathSegment {
                         kind: kagari_common::identity::DefinitionKind::Trait,
@@ -429,7 +434,7 @@ pub(super) fn trait_bounds_match(
             .iter()
             .map(|record| (record.declaration.clone(), &record.abi));
         for (id, record) in public.chain(private) {
-            let applied = kagari_hir::types::NominalType {
+            let applied = NominalType {
                 declaration: id.clone(),
                 associated_types: Default::default(),
                 arguments: record
@@ -534,11 +539,9 @@ pub(super) fn trait_bounds_match(
                 .iter()
                 .filter(|member| member.generic_params.is_empty())
                 .count()
-            || !crate::module::abi::verify::interface_constants_match(table, contract)
-            || !crate::module::abi::verify::interface_families_match(table, contract, &cancel)
-            || !crate::module::abi::verify::interface_methods_match(
-                table, contract, &catalog, &cancel,
-            )
+            || !verify::interface_constants_match(table, contract)
+            || !verify::interface_families_match(table, contract, &cancel)
+            || !verify::interface_methods_match(table, contract, &catalog, &cancel)
         {
             return false;
         }
@@ -572,7 +575,7 @@ pub(super) fn trait_bounds_match(
             }
         }
         let checked = interface.to_checked_type();
-        let substitution: kagari_hir::types::TypeSubstitution = contract
+        let substitution: TypeSubstitution = contract
             .generic_params
             .iter()
             .map(|parameter| GenericParameterType {
@@ -687,7 +690,7 @@ pub(super) fn trait_bounds_match(
                     }
                 };
                 let proven = match &required {
-                    ConstraintTarget::Standard(value) => kagari_hir::typeck::type_satisfies_standard_constraint(&actual, *value, &available),
+                    ConstraintTarget::Standard(value) => typeck::type_satisfies_standard_constraint(&actual, *value, &available),
                     ConstraintTarget::Trait(required) => available.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(required))))
                         || catalog.intrinsic_implementation(required, &actual, &available) || matches!(catalog.concrete_interface_implementation(required, &actual, &available, MAX_MATCH_CHECKS, MAX_PROOF_DEPTH, &cancel), Ok(Some(_))),
                 };
@@ -753,7 +756,7 @@ pub(super) fn trait_bounds_match(
             let Some(trait_abi) = trait_abi else {
                 return false;
             };
-            let applied = kagari_hir::host::HostDeclarations::trait_type(implementation);
+            let applied = HostDeclarations::trait_type(implementation);
             let substitution = trait_abi
                 .generic_params
                 .iter()
@@ -788,7 +791,7 @@ pub(super) fn trait_bounds_match(
                 for constraint in constraints {
                     match constraint {
                         ConstraintAbi::Standard(standard) => {
-                            if !kagari_hir::typeck::type_satisfies_standard_constraint(
+                            if !typeck::type_satisfies_standard_constraint(
                                 &actual,
                                 *standard,
                                 &Default::default(),

@@ -1,5 +1,7 @@
 use kagari_ir::bytecode::{BinaryOp, ConstantOperand, UnaryOp};
+use kagari_runtime::numeric;
 use kagari_runtime::value::Value;
+use kagari_runtime::value_semantics;
 
 use crate::error::VmError;
 use crate::executor::Executor;
@@ -19,7 +21,7 @@ impl Executor<'_> {
     }
 
     pub(crate) fn apply_unary(op: UnaryOp, value: Value) -> Result<Value, VmError> {
-        kagari_runtime::numeric::unary(op, value).map_err(VmError::RuntimeError)
+        numeric::unary(op, value).map_err(VmError::RuntimeError)
     }
 
     pub(crate) fn apply_binary(
@@ -34,13 +36,10 @@ impl Executor<'_> {
             | BinaryOp::Sub
             | BinaryOp::Mul
             | BinaryOp::Div
-            | BinaryOp::Rem => {
-                kagari_runtime::numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError)
-            }
+            | BinaryOp::Rem => numeric::binary(op, lhs, rhs).map_err(VmError::RuntimeError),
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
-                let equal =
-                    kagari_runtime::value_semantics::identity_equal(self.runtime.gc(), &lhs, &rhs)
-                        .map_err(VmError::RuntimeError)?;
+                let equal = value_semantics::identity_equal(self.runtime.gc(), &lhs, &rhs)
+                    .map_err(VmError::RuntimeError)?;
                 Ok(Value::Bool(if op == BinaryOp::IdentityEq {
                     equal
                 } else {
@@ -48,9 +47,8 @@ impl Executor<'_> {
                 }))
             }
             BinaryOp::Eq | BinaryOp::NotEq => {
-                let equal =
-                    kagari_runtime::value_semantics::script_equal(self.runtime.gc(), &lhs, &rhs)
-                        .map_err(VmError::RuntimeError)?;
+                let equal = value_semantics::script_equal(self.runtime.gc(), &lhs, &rhs)
+                    .map_err(VmError::RuntimeError)?;
                 Ok(Value::Bool(if op == BinaryOp::Eq { equal } else { !equal }))
             }
             BinaryOp::Lt => match (lhs, rhs) {

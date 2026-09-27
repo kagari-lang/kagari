@@ -1,4 +1,12 @@
+use super::instances::Instance;
+use super::instances::InstancePlanner;
+use crate::module::abi::AbiType;
+use hir::StmtKind;
+use hir::Writeability;
+use kagari_hir::resolver::ResolvedName;
+use kagari_hir::types::TypeId;
 use std::collections::{HashMap, HashSet};
+use std::slice;
 
 use kagari_common::Span;
 use kagari_hir::typeck::TypedFunction;
@@ -23,8 +31,8 @@ pub(crate) struct LoopScope {
 
 pub(crate) struct FunctionLowerer<'a, 'p> {
     pub(crate) analyzed: &'a AnalyzedModule,
-    pub(crate) instance: super::instances::Instance,
-    pub(crate) planner: &'p mut super::instances::InstancePlanner<'a>,
+    pub(crate) instance: Instance,
+    pub(crate) planner: &'p mut InstancePlanner<'a>,
     pub(crate) function: IrFunction,
     pub(crate) current_block: BlockId,
 
@@ -42,8 +50,8 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         analyzed: &'a AnalyzedModule,
         hir_function: &hir::Function,
         typed_function: &TypedFunction,
-        instance: super::instances::Instance,
-        planner: &'p mut super::instances::InstancePlanner<'a>,
+        instance: Instance,
+        planner: &'p mut InstancePlanner<'a>,
     ) -> Result<Self, super::IrLoweringError> {
         let entry = BlockId::new(0);
         let span = analyzed.lowered.source_map.function_span(hir_function.id);
@@ -95,9 +103,9 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                     return None;
                 }
                 match &stmt.kind {
-                    hir::StmtKind::Binding {
+                    StmtKind::Binding {
                         local,
-                        writeability: hir::Writeability::Var,
+                        writeability: Writeability::Var,
                         ..
                     } => Some(*local),
                     _ => None,
@@ -115,9 +123,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             })
             .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
             .filter_map(|resolved| match resolved {
-                kagari_hir::resolver::ResolvedName::Local(id) if mutable_locals.contains(id) => {
-                    Some(*id)
-                }
+                ResolvedName::Local(id) if mutable_locals.contains(id) => Some(*id),
                 _ => None,
             })
             .collect();
@@ -142,11 +148,11 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             params.insert(param.id, local);
         }
 
-        let concrete = |ty: &kagari_hir::types::TypeId| {
+        let concrete = |ty: &TypeId| {
             let ty = planner
-                .arguments(std::slice::from_ref(ty), &instance.substitution, span)?
+                .arguments(slice::from_ref(ty), &instance.substitution, span)?
                 .remove(0);
-            Ok::<_, super::IrLoweringError>(crate::module::abi::AbiType::from_checked_type(&ty))
+            Ok::<_, super::IrLoweringError>(AbiType::from_checked_type(&ty))
         };
         function.semantic.result = Some(concrete(&typed_function.return_type)?);
         for (index, param) in typed_function.params.iter().enumerate() {
@@ -170,19 +176,16 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         })
     }
 
-    pub(crate) fn semantic_type(
-        &self,
-        ty: &kagari_hir::types::TypeId,
-    ) -> Result<crate::module::abi::AbiType, super::IrLoweringError> {
+    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<AbiType, super::IrLoweringError> {
         let concrete = self
             .planner
             .arguments(
-                std::slice::from_ref(ty),
+                slice::from_ref(ty),
                 &self.instance.substitution,
                 self.function.debug.source_span,
             )?
             .remove(0);
-        Ok(crate::module::abi::AbiType::from_checked_type(&concrete))
+        Ok(AbiType::from_checked_type(&concrete))
     }
 
     pub(crate) fn finish(mut self) -> IrFunction {
@@ -315,10 +318,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .unwrap_or(self.function.debug.source_span)
     }
 
-    pub(crate) fn value_type(
-        &self,
-        ty: &kagari_hir::types::TypeId,
-    ) -> Result<ValueType, super::IrLoweringError> {
+    pub(crate) fn value_type(&self, ty: &TypeId) -> Result<ValueType, super::IrLoweringError> {
         self.planner.value_type(
             ty,
             &self.instance.substitution,

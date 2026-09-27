@@ -1,8 +1,14 @@
 use kagari_common::Span;
 use kagari_ir::bytecode::{BytecodeFunction, DebugPointId, FunctionRef, LocalSlot, SafeDebugPoint};
+use kagari_runtime::ExecutionEvent;
+use kagari_runtime::ExecutionObserver;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::gc::RootSet;
+use kagari_runtime::module::LoadedModule;
 use kagari_runtime::{
     DebugVisibilityPolicy, ModuleId, Runtime, RuntimeError, SecurityContext, value::Value,
 };
+use std::cell::RefCell;
 
 use crate::VmError;
 use kagari_runtime::ExecutionFrame;
@@ -126,7 +132,7 @@ pub struct DebugBinding {
     pub local: LocalSlot,
     pub value: Value,
     pub is_parameter: bool,
-    roots: kagari_runtime::gc::RootSet,
+    roots: RootSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -245,7 +251,7 @@ impl DebugSession {
 
     pub(crate) fn resolve_module(
         &mut self,
-        member: &kagari_runtime::module::LoadedModule,
+        member: &LoadedModule,
         runtime: &Runtime,
     ) -> Result<(), VmError> {
         let module_id = member.id;
@@ -551,31 +557,29 @@ fn source_span_for(function: &BytecodeFunction, instruction_offset: usize) -> Sp
 }
 
 #[derive(Debug)]
-pub(crate) struct SharedDebugSession(pub std::cell::RefCell<DebugSession>);
+pub(crate) struct SharedDebugSession(pub RefCell<DebugSession>);
 
-impl kagari_runtime::ExecutionObserver for SharedDebugSession {
+impl ExecutionObserver for SharedDebugSession {
     fn observe(
         &self,
         runtime: &Runtime,
-        event: kagari_runtime::ExecutionEvent,
+        event: ExecutionEvent,
         frames: &[ExecutionFrame],
     ) -> Result<(), RuntimeError> {
         let mut session = self.0.try_borrow_mut().map_err(|_| {
             RuntimeError::new(
-                kagari_runtime::RuntimeErrorKind::EngineFault,
+                RuntimeErrorKind::EngineFault,
                 "debug session borrowed across execution",
             )
         })?;
         let result = match event {
-            kagari_runtime::ExecutionEvent::BeforeInstruction => {
-                session.before_instruction(runtime, frames)
-            }
-            kagari_runtime::ExecutionEvent::Trap => session.record_trap(runtime, frames),
+            ExecutionEvent::BeforeInstruction => session.before_instruction(runtime, frames),
+            ExecutionEvent::Trap => session.record_trap(runtime, frames),
         };
         result.map_err(|error| match error {
             VmError::RuntimeError(error) => error,
             error => RuntimeError::new(
-                kagari_runtime::RuntimeErrorKind::EngineFault,
+                RuntimeErrorKind::EngineFault,
                 format!("debug observation failed: {error:?}"),
             ),
         })

@@ -4,6 +4,7 @@ use kagari_hir::{
     builtin::surface::{StandardEnum, StandardIntrinsic},
     types::{BuiltinType, TypeId},
 };
+use std::slice;
 
 fn enum_args(ty: &TypeId) -> Result<&[TypeId], IrLoweringError> {
     match ty {
@@ -50,7 +51,7 @@ impl FunctionLowerer<'_, '_> {
         let concrete = self
             .planner
             .arguments(
-                std::slice::from_ref(output),
+                slice::from_ref(output),
                 &self.instance.substitution,
                 self.function.debug.source_span,
             )?

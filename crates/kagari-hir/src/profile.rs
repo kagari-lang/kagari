@@ -1,3 +1,4 @@
+use kagari_common::Span;
 use kagari_common::{Diagnostic, DiagnosticKind};
 
 use crate::{
@@ -138,6 +139,6 @@ fn validate_interface_values(
     }
 }
 
-fn profile_error(feature: &'static str, span: kagari_common::Span) -> Diagnostic {
+fn profile_error(feature: &'static str, span: Span) -> Diagnostic {
     Diagnostic::error(DiagnosticKind::ProfileFeatureDisabled { feature }).with_span(span)
 }

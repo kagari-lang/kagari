@@ -1,4 +1,9 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
+
+use kagari_common::host_interface;
+use kagari_common::host_interface::HostFieldDeclaration;
+use kagari_common::host_interface::HostPathDeclaration;
+use kagari_common::host_interface::HostTypeDeclaration;
 use kagari_common::host_interface::{HostValueType, HostVirtualSegmentDeclaration};
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
@@ -34,26 +39,19 @@ fn main() {
         },
         ..Default::default()
     });
-    let mut player = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
-        "Player",
-    );
+    let mut player = HostTypeRegistration::new(HostTypeDeclaration::new("game.Player"), "Player");
     // Nominal identity can differ from the export label and is shared with
     // offline host signatures; registration does not derive identity from slots.
-    player.declaration.id = kagari_common::host_interface::host_type_identity("game.PlayerState");
+    player.declaration.id = host_interface::host_type_identity("game.PlayerState");
     player.declaration.ownership = HostTypeOwnership::HostRoot;
     player.declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
-        &player.declaration.id,
-        "hp",
-        kagari_common::host_interface::HostValueType::I32,
-    );
+    let mut hp = HostFieldDeclaration::new(&player.declaration.id, "hp", HostValueType::I32);
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     let hp_declaration = hp.id.clone();
     player.declaration.fields.push(hp);
 
-    let path_declaration = kagari_common::host_interface::HostPathDeclaration {
+    let path_declaration = HostPathDeclaration {
         root: player.declaration.id.clone(),
         segments: vec![
             kagari_common::host_interface::HostPathSegmentDeclaration::Field(hp_declaration),

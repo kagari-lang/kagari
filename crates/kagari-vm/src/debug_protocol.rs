@@ -1,4 +1,6 @@
 use kagari_runtime::value::Value;
+use std::cell::Ref;
+use std::cell::RefMut;
 
 use crate::{
     BreakpointId, DebugFrameId, DebugPause, DebugSession, DebugWatch, ResolvedBreakpoint,
@@ -251,13 +253,13 @@ impl<S: DebugAdapterEventSink> DebugProtocolAdapter<S> {
     }
 }
 
-fn session(vm: &Vm) -> Result<std::cell::Ref<'_, DebugSession>, VmError> {
+fn session(vm: &Vm) -> Result<Ref<'_, DebugSession>, VmError> {
     vm.debug_session().ok_or(VmError::UnsupportedInstruction(
         "debug_session_not_attached",
     ))
 }
 
-fn session_mut(vm: &mut Vm) -> Result<std::cell::RefMut<'_, DebugSession>, VmError> {
+fn session_mut(vm: &mut Vm) -> Result<RefMut<'_, DebugSession>, VmError> {
     vm.debug_session_mut()
         .ok_or(VmError::UnsupportedInstruction(
             "debug_session_not_attached",

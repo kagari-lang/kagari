@@ -1,5 +1,23 @@
+use crate::ErrorTrace;
+use crate::ExecutionPhase;
+use crate::ModuleKey;
+use crate::module::LoadedModule;
+use crate::module::RetainedRuntimeProgram;
+use crate::module::StructLayoutRef;
+use crate::resource::ResourceState;
+use crate::resource::TemporaryHeap;
+use crate::value::EnumTag;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
+use kagari_common::identity::DefinitionId;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::module::ValueType;
+use kagari_ir::module::abi::AbiType;
+use kagari_ir::module::abi::NominalAbiType;
+use kagari_ir::module::abi::StandardEnumKind;
+use std::ops::Bound;
+use std::slice;
+use std::sync::Arc;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
@@ -21,18 +39,18 @@ use crate::value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueFiel
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {
-    pub(crate) method: kagari_common::identity::DefinitionId,
-    pub(crate) function: kagari_ir::bytecode::FunctionRef,
-    pub(crate) parameter_types: Vec<kagari_ir::module::abi::AbiType>,
-    pub(crate) return_type: kagari_ir::module::abi::AbiType,
+    pub(crate) method: DefinitionId,
+    pub(crate) function: FunctionRef,
+    pub(crate) parameter_types: Vec<AbiType>,
+    pub(crate) return_type: AbiType,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceValueSnapshot {
     pub(crate) data: Value,
-    pub(crate) concrete_type: kagari_ir::module::abi::AbiType,
-    pub(crate) interface_type: kagari_ir::module::abi::NominalAbiType,
-    pub(crate) implementation: crate::module::LoadedModule,
+    pub(crate) concrete_type: AbiType,
+    pub(crate) interface_type: NominalAbiType,
+    pub(crate) implementation: LoadedModule,
     pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
 }
 
@@ -140,7 +158,7 @@ pub struct GcCollection {
 struct ObjectSlot {
     revision: u64,
     generation: u64,
-    initialization_owner: Option<crate::ModuleKey>,
+    initialization_owner: Option<ModuleKey>,
     object: Option<HeapObject>,
 }
 
@@ -159,8 +177,8 @@ pub enum GcObjectKind {
 
 #[derive(Debug, Clone)]
 pub struct ClosureValueSnapshot {
-    pub implementation: crate::LoadedModule,
-    pub function: kagari_ir::bytecode::FunctionRef,
+    pub implementation: LoadedModule,
+    pub function: FunctionRef,
     pub captures: Vec<Value>,
 }
 
@@ -170,21 +188,21 @@ enum HeapObject {
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexMap<MapKey, ()>),
-    Enum(EnumValueSnapshot, Option<std::sync::Arc<crate::ErrorTrace>>),
+    Enum(EnumValueSnapshot, Option<Arc<ErrorTrace>>),
     Struct {
-        layout: crate::module::StructLayoutRef,
+        layout: StructLayoutRef,
         fields: Vec<Value>,
     },
     Interface {
         snapshot: Box<InterfaceValueSnapshot>,
-        _retention: crate::module::RetainedRuntimeProgram,
+        _retention: RetainedRuntimeProgram,
     },
     Closure {
         snapshot: Box<ClosureValueSnapshot>,
-        _retention: crate::module::RetainedRuntimeProgram,
+        _retention: RetainedRuntimeProgram,
     },
     Cell {
-        ty: kagari_ir::module::ValueType,
+        ty: ValueType,
         value: Value,
     },
 }
@@ -240,7 +258,7 @@ pub struct GcHeap {
     free: RefCell<Vec<usize>>,
     roots: RefCell<Vec<Weak<RefCell<Vec<Value>>>>>,
     stats: RefCell<CollectorStats>,
-    resources: Rc<crate::resource::ResourceState>,
+    resources: Rc<ResourceState>,
     next_collection: Cell<usize>,
     iterations: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     mutations: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
@@ -263,7 +281,7 @@ impl GcHeap {
     pub(crate) fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()
     }
-    pub fn new(config: GcHeapConfig, resources: Rc<crate::resource::ResourceState>) -> Self {
+    pub fn new(config: GcHeapConfig, resources: Rc<ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
@@ -363,7 +381,7 @@ impl GcHeap {
 
     pub(crate) fn alloc_struct(
         &self,
-        layout: crate::module::StructLayoutRef,
+        layout: StructLayoutRef,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -385,7 +403,7 @@ impl GcHeap {
 
     pub(crate) fn alloc_enum(
         &self,
-        tag: crate::value::EnumTag,
+        tag: EnumTag,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -400,20 +418,18 @@ impl GcHeap {
             ));
         }
         let trace = matches!(tag, crate::value::EnumTag::ResultErr)
-            .then(|| crate::ErrorTrace::capture(&self.resources));
+            .then(|| ErrorTrace::capture(&self.resources));
         self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }, trace))
     }
 
     /// Diagnostic-only metadata; never participates in equality or key hashing.
-    pub fn result_error_trace(&self, value: &Value) -> Option<std::sync::Arc<crate::ErrorTrace>> {
+    pub fn result_error_trace(&self, value: &Value) -> Option<Arc<ErrorTrace>> {
         let Value::Enum(id) = value else {
             return None;
         };
         let objects = self.objects.borrow();
         match self.object_ref(&objects, *id)? {
-            HeapObject::Enum(snapshot, trace)
-                if snapshot.tag == crate::value::EnumTag::ResultErr =>
-            {
+            HeapObject::Enum(snapshot, trace) if snapshot.tag == EnumTag::ResultErr => {
                 trace.clone()
             }
             _ => None,
@@ -439,19 +455,14 @@ impl GcHeap {
         }
         self.alloc_object(HeapObject::Enum(
             EnumValueSnapshot {
-                tag: crate::value::EnumTag::ResultErr,
+                tag: EnumTag::ResultErr,
                 fields: vec![error],
             },
             Some(trace),
         ))
     }
 
-    pub(crate) fn matches_abi(
-        &self,
-        value: &Value,
-        ty: &kagari_ir::module::abi::AbiType,
-        owner: &crate::module::LoadedModule,
-    ) -> bool {
+    pub(crate) fn matches_abi(&self, value: &Value, ty: &AbiType, owner: &LoadedModule) -> bool {
         use crate::value::EnumTag;
         use kagari_ir::module::abi::AbiType;
         let mut pending = vec![(value.clone(), ty)];
@@ -497,15 +508,15 @@ impl GcHeap {
                 (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
                     let Some(snapshot) = self.enum_snapshot(id) else { return false; };
                     let index = match (kind, snapshot.tag) {
-                        (kagari_ir::module::abi::StandardEnumKind::Bound, EnumTag::BoundUnbounded) => continue,
-                        (kagari_ir::module::abi::StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 0,
-                        (kagari_ir::module::abi::StandardEnumKind::ParseError, EnumTag::ParseError(index)) if index < 5 => continue,
-                        (kagari_ir::module::abi::StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => continue,
-                        (kagari_ir::module::abi::StandardEnumKind::Ordering, EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater) => continue,
-                        (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionNone) => continue,
-                        (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionSome)
-                        | (kagari_ir::module::abi::StandardEnumKind::Result, EnumTag::ResultOk) => 0,
-                        (kagari_ir::module::abi::StandardEnumKind::Result, EnumTag::ResultErr) => 1,
+                        (StandardEnumKind::Bound, EnumTag::BoundUnbounded) => continue,
+                        (StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 0,
+                        (StandardEnumKind::ParseError, EnumTag::ParseError(index)) if index < 5 => continue,
+                        (StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => continue,
+                        (StandardEnumKind::Ordering, EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater) => continue,
+                        (StandardEnumKind::Option, EnumTag::OptionNone) => continue,
+                        (StandardEnumKind::Option, EnumTag::OptionSome)
+                        | (StandardEnumKind::Result, EnumTag::ResultOk) => 0,
+                        (StandardEnumKind::Result, EnumTag::ResultErr) => 1,
                         _ => return false,
                     };
                     let Some(ty) = args.get(index) else { return false; };
@@ -846,8 +857,8 @@ impl GcHeap {
     pub fn array_copy_within(
         &self,
         target: HeapObjectId,
-        start: std::ops::Bound<usize>,
-        end: std::ops::Bound<usize>,
+        start: Bound<usize>,
+        end: Bound<usize>,
         destination: usize,
     ) -> Result<(), RuntimeError> {
         use std::ops::Bound;
@@ -900,7 +911,7 @@ impl GcHeap {
     fn prepare_array_copy(
         &self,
         length: usize,
-    ) -> Result<(Vec<Value>, crate::resource::TemporaryHeap<'_>), RuntimeError> {
+    ) -> Result<(Vec<Value>, TemporaryHeap<'_>), RuntimeError> {
         self.resources.consume_instruction_steps(length as u64)?;
         // Temporary copies must fit the session's allocation and memory limits.
         let temporary = self.resources.reserve_temporary_heap(length)?;
@@ -1119,7 +1130,7 @@ impl GcHeap {
         Ok(())
     }
 
-    pub fn struct_layout(&self, id: HeapObjectId) -> Option<crate::module::StructLayoutRef> {
+    pub fn struct_layout(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
         self.with_struct(id, |layout, _| layout.clone())
     }
     pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
@@ -1146,7 +1157,7 @@ impl GcHeap {
     pub fn struct_get_slot(
         &self,
         id: HeapObjectId,
-        expected: &crate::module::StructLayoutRef,
+        expected: &StructLayoutRef,
         slot: usize,
     ) -> Option<Value> {
         self.with_struct(id, |layout, fields| {
@@ -1160,7 +1171,7 @@ impl GcHeap {
     pub fn struct_set_slot(
         &self,
         id: HeapObjectId,
-        expected: &crate::module::StructLayoutRef,
+        expected: &StructLayoutRef,
         slot: usize,
         next_value: Value,
     ) -> Result<(), RuntimeError> {
@@ -1216,7 +1227,7 @@ impl GcHeap {
     pub(crate) fn alloc_interface(
         &self,
         snapshot: InterfaceValueSnapshot,
-        retention: crate::module::RetainedRuntimeProgram,
+        retention: RetainedRuntimeProgram,
     ) -> Result<InterfaceObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         // Runtime::make_interface checks the full receiver ABI, including host
@@ -1241,7 +1252,7 @@ impl GcHeap {
     pub(crate) fn alloc_closure(
         &self,
         snapshot: ClosureValueSnapshot,
-        retention: crate::module::RetainedRuntimeProgram,
+        retention: RetainedRuntimeProgram,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !snapshot
@@ -1262,7 +1273,7 @@ impl GcHeap {
 
     pub(crate) fn alloc_cell(
         &self,
-        ty: kagari_ir::module::ValueType,
+        ty: ValueType,
         value: Value,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -1275,11 +1286,7 @@ impl GcHeap {
         self.alloc_object(HeapObject::Cell { ty, value })
     }
 
-    pub(crate) fn cell_get(
-        &self,
-        id: HeapObjectId,
-        ty: kagari_ir::module::ValueType,
-    ) -> Result<Value, RuntimeError> {
+    pub(crate) fn cell_get(&self, id: HeapObjectId, ty: ValueType) -> Result<Value, RuntimeError> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id) {
             Some(HeapObject::Cell { ty: actual, value }) if *actual == ty => Ok(value.clone()),
@@ -1293,7 +1300,7 @@ impl GcHeap {
     pub(crate) fn cell_set(
         &self,
         id: HeapObjectId,
-        ty: kagari_ir::module::ValueType,
+        ty: ValueType,
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
@@ -1367,7 +1374,7 @@ impl GcHeap {
     }
 
     pub fn trace_value(&self, value: &Value) -> Option<Vec<HeapObjectId>> {
-        self.trace_values(std::slice::from_ref(value))
+        self.trace_values(slice::from_ref(value))
     }
 
     fn root_snapshots(&self) -> Vec<Value> {
@@ -1491,19 +1498,17 @@ impl GcHeap {
     }
 
     pub(crate) fn validate_candidate_value(&self, value: &Value) -> bool {
-        let Some(session) = self.resources.active_session().filter(|session| {
-            session.options.phase == crate::ExecutionPhase::CandidateInitialization
-        }) else {
+        let Some(session) = self
+            .resources
+            .active_session()
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+        else {
             return true;
         };
         self.validate_candidate_value_for(session.root.program_root().key(), value)
     }
 
-    pub(crate) fn validate_candidate_value_for(
-        &self,
-        owner: crate::ModuleKey,
-        value: &Value,
-    ) -> bool {
+    pub(crate) fn validate_candidate_value_for(&self, owner: ModuleKey, value: &Value) -> bool {
         if !value.is_default_heap_payload() {
             return false;
         }
@@ -1529,9 +1534,7 @@ impl GcHeap {
         let initialization_owner = self
             .resources
             .active_session()
-            .filter(|session| {
-                session.options.phase == crate::ExecutionPhase::CandidateInitialization
-            })
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
             .map(|session| session.root.program_root().key());
         let mut objects = self.objects.borrow_mut();
         let slot = if let Some(index) = self.free.borrow_mut().pop() {
@@ -1582,9 +1585,11 @@ impl GcHeap {
         id: HeapObjectId,
     ) -> Option<&'a HeapObject> {
         let object = self.object_ref(objects, id)?;
-        if let Some(session) = self.resources.active_session().filter(|session| {
-            session.options.phase == crate::ExecutionPhase::CandidateInitialization
-        }) && objects[id.slot].initialization_owner != Some(session.root.program_root().key())
+        if let Some(session) = self
+            .resources
+            .active_session()
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+            && objects[id.slot].initialization_owner != Some(session.root.program_root().key())
         {
             return None;
         }
@@ -1603,9 +1608,11 @@ impl GcHeap {
         if slot.generation != id.generation {
             return None;
         }
-        if let Some(session) = self.resources.active_session().filter(|session| {
-            session.options.phase == crate::ExecutionPhase::CandidateInitialization
-        }) && slot.initialization_owner != Some(session.root.program_root().key())
+        if let Some(session) = self
+            .resources
+            .active_session()
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+            && slot.initialization_owner != Some(session.root.program_root().key())
         {
             return None;
         }
@@ -1832,7 +1839,7 @@ impl GcHeap {
     fn with_struct<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&crate::module::StructLayoutRef, &Vec<Value>) -> R,
+        f: impl FnOnce(&StructLayoutRef, &Vec<Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
@@ -1851,7 +1858,7 @@ impl GcHeap {
     fn with_struct_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&crate::module::StructLayoutRef, &mut Vec<Value>) -> R,
+        f: impl FnOnce(&StructLayoutRef, &mut Vec<Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
         match self.object_mut(&mut objects, id)? {

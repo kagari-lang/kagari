@@ -1,3 +1,4 @@
+use kagari_common::host_interface::HostValueType;
 use kagari_hir::types::{BuiltinType, TypeId};
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +21,7 @@ pub enum ValueType {
 }
 
 impl ValueType {
-    pub fn from_host_type(ty: &kagari_common::host_interface::HostValueType) -> Self {
+    pub fn from_host_type(ty: &HostValueType) -> Self {
         use kagari_common::host_interface::HostValueType as Host;
         match ty {
             Host::Unit => Self::Unit,

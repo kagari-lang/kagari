@@ -1,4 +1,6 @@
 use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 
@@ -9,8 +11,8 @@ pub(super) fn infer(
     actual: &TypeId,
     parameters: &[GenericParameterType],
     substitution: &mut TypeSubstitution,
-    cancel: &kagari_common::cancellation::CancellationToken,
-) -> Result<(), kagari_common::cancellation::Cancelled> {
+    cancel: &CancellationToken,
+) -> Result<(), Cancelled> {
     let mut pending = vec![(expected, actual)];
     while let Some((expected, actual)) = pending.pop() {
         cancel.check()?;

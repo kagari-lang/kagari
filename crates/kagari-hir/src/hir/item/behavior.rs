@@ -1,3 +1,5 @@
+use crate::hir::ConstId;
+use crate::hir::GenericParamId;
 use crate::hir::{FunctionId, ImplId, MethodId, StructId, TraitId, TraitMethodId, TypeRefId};
 
 use super::Visibility;
@@ -40,7 +42,7 @@ pub struct AssociatedConst {
     pub name: String,
     pub name_ref: TypeRefId,
     pub ty: TypeRefId,
-    pub initializer: Option<crate::hir::ConstId>,
+    pub initializer: Option<ConstId>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +84,7 @@ pub struct ImplMethod {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericParam {
-    pub id: crate::hir::GenericParamId,
+    pub id: GenericParamId,
     pub name: String,
     pub bounds: TraitRefBuffer,
 }

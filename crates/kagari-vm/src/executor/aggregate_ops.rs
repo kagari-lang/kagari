@@ -1,4 +1,9 @@
+use kagari_ir::bytecode::EnumId;
 use kagari_ir::bytecode::{FieldRef, Register, StructId};
+use kagari_ir::module::abi::AbiType;
+use kagari_ir::module::instruction::StandardEnumOp;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::value::EnumTag;
 use kagari_runtime::value::Value;
 
 use crate::error::VmError;
@@ -8,7 +13,7 @@ impl Executor<'_> {
     pub(crate) fn test_enum_variant(
         &self,
         value: Register,
-        enumeration: kagari_ir::bytecode::EnumId,
+        enumeration: EnumId,
         variant: u32,
     ) -> Result<Value, VmError> {
         let Value::Enum(handle) = self.current_frame()?.read_register(value)? else {
@@ -32,7 +37,7 @@ impl Executor<'_> {
     pub(crate) fn read_enum_payload(
         &self,
         value: Register,
-        enumeration: kagari_ir::bytecode::EnumId,
+        enumeration: EnumId,
         variant: u32,
         index: u32,
     ) -> Result<Value, VmError> {
@@ -61,7 +66,7 @@ impl Executor<'_> {
 
     pub(crate) fn make_enum(
         &self,
-        enumeration: kagari_ir::bytecode::EnumId,
+        enumeration: EnumId,
         variant: u32,
         fields: &[Register],
     ) -> Result<Value, VmError> {
@@ -74,7 +79,7 @@ impl Executor<'_> {
             .enum_variant(enumeration, variant)
             .ok_or(VmError::TypeMismatch("invalid enum variant layout"))?;
         self.runtime
-            .alloc_enum(kagari_runtime::value::EnumTag::Declared(layout), fields)
+            .alloc_enum(EnumTag::Declared(layout), fields)
             .map(Value::Enum)
             .map_err(VmError::RuntimeError)
     }
@@ -225,7 +230,7 @@ impl Executor<'_> {
                     .gc()
                     .array_set(handle, index, value)
                     .map_err(|error| {
-                        if error.kind() == kagari_runtime::RuntimeErrorKind::IndexOutOfBounds {
+                        if error.kind() == RuntimeErrorKind::IndexOutOfBounds {
                             VmError::InvalidIndex(index)
                         } else {
                             VmError::from(error)
@@ -252,8 +257,8 @@ impl Executor<'_> {
     pub(crate) fn standard_enum_operation(
         &self,
         value: Option<Register>,
-        ty: &kagari_ir::module::abi::AbiType,
-        op: kagari_ir::module::instruction::StandardEnumOp,
+        ty: &AbiType,
+        op: StandardEnumOp,
     ) -> Result<Value, VmError> {
         use kagari_ir::module::{
             abi::{AbiType, StandardEnumKind},

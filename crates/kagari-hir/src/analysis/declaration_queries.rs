@@ -1,18 +1,31 @@
 //! Declaration queries stop before body name resolution, typing or const evaluation.
+use crate::declare_analysis;
+
 use super::*;
+use crate::imports::ModuleGraph;
+use crate::lower;
+use crate::resolver::DeclarationNames;
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
     declarations::{Declaration, DeclarationId, Declarations},
 };
+use kagari_common::Diagnostic;
 use kagari_common::Span;
+use kagari_syntax::Parse;
 use kagari_syntax::ast::AstNode;
+use kagari_syntax::ast::Item;
+use kagari_syntax::ast::SourceFile as AstSourceFile;
+use kagari_syntax::parser;
+use std::collections::BTreeMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Debug)]
 pub struct FileDeclarations {
-    pub(super) parsed: kagari_syntax::Parse,
+    pub(super) parsed: Parse,
     pub(super) declared: DeclaredAnalysis,
     diagnostics: DiagnosticBuffer,
 }
@@ -26,7 +39,7 @@ impl FileDeclarations {
         &self.declared.lowered.source
     }
 
-    pub fn syntax(&self) -> kagari_syntax::ast::SourceFile {
+    pub fn syntax(&self) -> AstSourceFile {
         self.parsed.syntax()
     }
 
@@ -35,12 +48,12 @@ impl FileDeclarations {
         &self.declared.declarations
     }
 
-    pub fn names(&self) -> &crate::resolver::DeclarationNames {
+    pub fn names(&self) -> &DeclarationNames {
         self.declared.names.facts()
     }
 
     /// Parse and declaration diagnostics, excluding name/type errors in bodies.
-    pub fn diagnostics(&self) -> &[kagari_common::Diagnostic] {
+    pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
 }
@@ -49,8 +62,8 @@ impl FileDeclarations {
 pub struct DeclarationSnapshot {
     revision: Revision,
     host_revision: u64,
-    pub(super) graph: Arc<crate::imports::ModuleGraph>,
-    pub(super) files: Arc<std::collections::BTreeMap<FileId, Arc<FileDeclarations>>>,
+    pub(super) graph: Arc<ModuleGraph>,
+    pub(super) files: Arc<BTreeMap<FileId, Arc<FileDeclarations>>>,
 }
 
 impl DeclarationSnapshot {
@@ -63,7 +76,7 @@ impl DeclarationSnapshot {
     pub fn file(&self, id: FileId) -> Option<&Arc<FileDeclarations>> {
         self.files.get(&id)
     }
-    pub fn module_graph(&self) -> &crate::imports::ModuleGraph {
+    pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
     }
     pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
@@ -103,9 +116,9 @@ impl AnalysisDatabase {
     ) -> Result<DeclarationSnapshot, Cancelled> {
         cancel.check()?;
         let previous = self.declaration_cache.as_ref();
-        let mut lowered_files = std::collections::BTreeMap::new();
-        let mut pending = std::collections::VecDeque::from_iter(source.files().cloned());
-        let mut generated = std::collections::HashSet::new();
+        let mut lowered_files = BTreeMap::new();
+        let mut pending = VecDeque::from_iter(source.files().cloned());
+        let mut generated = HashSet::new();
         while let Some(file) = pending.pop_front() {
             cancel.check()?;
             let old = previous
@@ -114,18 +127,14 @@ impl AnalysisDatabase {
             let (parsed, lowered) = match old {
                 Some(old) => (old.parsed.clone(), old.declared.lowered.clone()),
                 None => {
-                    let parsed =
-                        kagari_syntax::parser::parse_with_limits(&file, self.parse_limits, cancel)?;
-                    let lowered = crate::lower::lower_module_controlled(
-                        file.clone(),
-                        &parsed.syntax(),
-                        cancel,
-                    );
+                    let parsed = parser::parse_with_limits(&file, self.parse_limits, cancel)?;
+                    let lowered =
+                        lower::lower_module_controlled(file.clone(), &parsed.syntax(), cancel);
                     (parsed, Arc::new(lowered))
                 }
             };
             for item in parsed.syntax().items() {
-                let kagari_syntax::ast::Item::ModuleDef(module) = item else {
+                let Item::ModuleDef(module) = item else {
                     continue;
                 };
                 let (Some(name), Some(block)) = (module.name_text(), module.block()) else {
@@ -159,12 +168,12 @@ impl AnalysisDatabase {
             }
             lowered_files.insert(file.id(), (parsed, lowered));
         }
-        let graph = Arc::new(crate::imports::ModuleGraph::build(
+        let graph = Arc::new(ModuleGraph::build(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
             &self.hosts,
             cancel,
         )?);
-        let mut files = std::collections::BTreeMap::new();
+        let mut files = BTreeMap::new();
         for (id, (parsed, lowered)) in lowered_files {
             cancel.check()?;
             let imports = graph
@@ -182,8 +191,7 @@ impl AnalysisDatabase {
             let file = if let Some(old) = old {
                 old.clone()
             } else {
-                let declared =
-                    crate::declare_analysis(lowered, self.hosts.clone(), imports, cancel);
+                let declared = declare_analysis(lowered, self.hosts.clone(), imports, cancel);
                 let mut diagnostics = declared.names.diagnostics.clone();
                 diagnostics.extend(parsed.diagnostics().iter().cloned());
                 Arc::new(FileDeclarations {

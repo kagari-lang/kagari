@@ -426,7 +426,7 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | `ec0bf1a` foundation imports; `2cf5fb3` behavioral test modules; 45 enum globs replaced by qualified variants | Checker: 32 tests pass; full audit: exit 1, 2,792 remaining findings, no exceptions; workspace clippy and 1,315 tests pass at enum checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
+| A00 | `ec0bf1a` foundation imports; `2cf5fb3` test modules; `957b691` enum dispatch; explicit paths across all crates | Checker: 32 tests pass; full audit: exit 1, 71 remaining findings, no exceptions; workspace clippy and 1,315 tests pass at explicit-path checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -506,6 +506,30 @@ Validation:
 - `uv run --locked scripts/check_structure.py --json`: exit 1, 2,792 findings
   (2,710 qualified paths, 44 globs, 18 re-export locations, 9 parent traversals,
   11 oversized files). No exceptions or parse errors. A01 remains gated.
+
+### A00 checkpoint: explicit module dependencies (2026-09-28)
+
+Checkpoint commit subject: `refactor: import module dependencies explicitly`.
+Replaced use-site qualified paths with explicit imports or short module names
+across all production crates, build scripts and SDK examples. Removed repeated
+parent traversal. Reviewed same-named HIR/IR/bytecode operations and source types;
+keep distinct aliases where contracts differ and reuse imports of the same owner.
+No crate graph, public visibility, ABI version or execution policy changed.
+The CLI's optional backend import retains its JIT feature guard.
+
+Validation:
+
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo test --workspace`: 1,315 tests pass; doc tests pass.
+- `cargo check -p kagari-cli --features jit`: pass (default CLI also covered).
+- `cargo fmt --all -- --check` and `git diff --check`: pass.
+- `uv run --locked scripts/check_structure.py --json`: exit 1, 71 findings in
+  402 files: 42 parent/module wildcard imports, 18 re-export locations and 11
+  oversized files. Zero qualified paths, parent traversals, parse errors or
+  exceptions. The earlier enum audit ran before the final two grouped-enum fixes;
+  this fresh audit includes those fixes and supersedes that intermediate count.
+- Remaining A00 work also includes moving unjustified function-local imports to
+  module scope while reviewing ownership, followed by the complete A00 exit gates.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

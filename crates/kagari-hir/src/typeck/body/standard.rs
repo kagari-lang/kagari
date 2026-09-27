@@ -1,4 +1,7 @@
 use super::*;
+use crate::hir::PatternId;
+use crate::typeck::completion;
+use surface::StandardEnum;
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.
@@ -124,13 +127,8 @@ impl BodyChecker<'_> {
             let index = variant.payload().filter(|_| i == 0);
             let expected = index.map(|index| types[index].clone());
             let actual = self.infer_expr_with_coercion(*arg, env, expected.as_ref());
-            if !crate::typeck::completion::expr_can_complete(
-                &self.lowered.module,
-                self.names,
-                *arg,
-                self.cancel,
-            )
-            .unwrap_or(false)
+            if !completion::expr_can_complete(&self.lowered.module, self.names, *arg, self.cancel)
+                .unwrap_or(false)
             {
                 continue;
             }
@@ -152,13 +150,8 @@ impl BodyChecker<'_> {
         }
         self.type_table.insert_standard_constructor(site, variant);
         if args.iter().any(|arg| {
-            !crate::typeck::completion::expr_can_complete(
-                &self.lowered.module,
-                self.names,
-                *arg,
-                self.cancel,
-            )
-            .unwrap_or(false)
+            !completion::expr_can_complete(&self.lowered.module, self.names, *arg, self.cancel)
+                .unwrap_or(false)
         }) {
             return Some(TypeId::Unknown);
         }
@@ -181,7 +174,7 @@ impl BodyChecker<'_> {
 
     pub(super) fn check_standard_pattern(
         &mut self,
-        pattern: crate::hir::PatternId,
+        pattern: PatternId,
         expected: &TypeId,
         env: &mut BodyTypeEnv,
     ) -> bool {
@@ -242,7 +235,7 @@ impl BodyChecker<'_> {
             {
                 let mut args = args.clone();
                 args[0] = expected.cloned().unwrap_or(TypeId::Unknown);
-                if *kind == surface::StandardEnum::Result {
+                if *kind == StandardEnum::Result {
                     args[1] = source_error;
                 }
                 Some(TypeId::StandardEnum { kind: *kind, args })
@@ -250,13 +243,8 @@ impl BodyChecker<'_> {
             _ => None,
         };
         let ty = self.infer_expr_type_expected(operand, env, context.as_ref());
-        if !crate::typeck::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            operand,
-            self.cancel,
-        )
-        .unwrap_or(false)
+        if !completion::expr_can_complete(&self.lowered.module, self.names, operand, self.cancel)
+            .unwrap_or(false)
         {
             return TypeId::Unknown;
         }
@@ -303,7 +291,7 @@ impl BodyChecker<'_> {
                 kind: target,
                 args: target_args,
             } if target == *kind && target_args.len() == kind.spec().arity => {
-                if *kind == surface::StandardEnum::Result {
+                if *kind == StandardEnum::Result {
                     use crate::builtin::traits::StandardTrait;
                     let source = args[1].clone();
                     let target = target_args[1].clone();

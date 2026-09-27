@@ -1,3 +1,8 @@
+use super::contracts;
+use super::instruction::CallTarget;
+use kagari_common::identity::DefinitionKind;
+use smallvec::SmallVec;
+use std::iter;
 use std::{collections::HashSet, ops::Deref};
 
 use kagari_common::{Span, cancellation::CancellationToken};
@@ -153,7 +158,7 @@ pub fn verify_ir(
                 .declaration
                 .path
                 .last()
-                .is_none_or(|part| part.kind != kagari_common::identity::DefinitionKind::Impl)
+                .is_none_or(|part| part.kind != DefinitionKind::Impl)
         {
             return Err(context.error(IrVerificationErrorKind::InvalidInterfaceTable));
         }
@@ -250,7 +255,7 @@ impl Context<'_> {
         expected: ValueType,
         label: &'static str,
     ) -> Result<(), IrVerificationError> {
-        super::contracts::expect_type(found, expected, label)
+        contracts::expect_type(found, expected, label)
             .map_err(|e| self.error(IrVerificationErrorKind::Contract(e)))
     }
     fn value(self, function: &IrFunction, value: IrValue) -> Result<(), IrVerificationError> {
@@ -301,7 +306,7 @@ fn verify_function(
             "parameter local",
         )?;
     }
-    let mut debug_local_ids = std::collections::HashSet::new();
+    let mut debug_local_ids = HashSet::new();
     for local in &function.debug.locals {
         context.check_cancel()?;
         if !debug_local_ids.insert(local.local) {
@@ -331,7 +336,7 @@ fn verify_function(
     {
         return Err(context.error(IrVerificationErrorKind::InvalidDebugMetadata));
     }
-    let mut scoped_locals = std::collections::HashSet::new();
+    let mut scoped_locals = HashSet::new();
     for (index, scope) in scopes.iter().enumerate().skip(1) {
         context.check_cancel()?;
         let Some(local) = scope.local else {
@@ -422,7 +427,7 @@ fn verify_function(
     flow::verify(function, context)
 }
 
-fn successors(terminator: &Terminator) -> smallvec::SmallVec<[BlockId; 2]> {
+fn successors(terminator: &Terminator) -> SmallVec<[BlockId; 2]> {
     match terminator {
         Terminator::Jump(target) => smallvec::smallvec![*target],
         Terminator::Branch {
@@ -434,11 +439,11 @@ fn successors(terminator: &Terminator) -> smallvec::SmallVec<[BlockId; 2]> {
     }
 }
 
-fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
+fn inputs(instruction: &Instruction) -> SmallVec<[IrValue; 4]> {
     match instruction {
         Instruction::Convert { src, .. } => smallvec::smallvec![*src],
         Instruction::Numeric { lhs, rhs, .. } => {
-            std::iter::once(*lhs).chain(rhs.iter().copied()).collect()
+            iter::once(*lhs).chain(rhs.iter().copied()).collect()
         }
         Instruction::MapResultError {
             original, error, ..
@@ -463,10 +468,10 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         Instruction::Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
         Instruction::Call { callee, args, .. } => {
             let mut values = args.clone();
-            if let super::instruction::CallTarget::Value(value) = callee {
+            if let CallTarget::Value(value) = callee {
                 values.push(*value);
             }
-            if let super::instruction::CallTarget::Closure { value, .. } = callee {
+            if let CallTarget::Closure { value, .. } = callee {
                 values.push(*value);
             }
             values

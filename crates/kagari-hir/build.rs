@@ -1,3 +1,8 @@
+use api::NativeFunction;
+use ast::Attribute;
+use ast::Item;
+use std::env;
+use std::fs;
 #[path = "build/api.rs"]
 mod api;
 #[path = "build/implementations.rs"]
@@ -59,7 +64,7 @@ fn attribute(node: &impl AstNode, name: &str) -> Option<String> {
     let attrs = node
         .syntax()
         .children()
-        .filter_map(ast::Attribute::cast)
+        .filter_map(Attribute::cast)
         .filter(|a| a.path().and_then(|p| p.text()).as_deref() == Some(name))
         .collect::<Vec<_>>();
     assert!(attrs.len() <= 1, "duplicate {name} attribute");
@@ -71,7 +76,7 @@ fn attribute(node: &impl AstNode, name: &str) -> Option<String> {
 }
 
 fn main() {
-    let root = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../stdlib");
+    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../../stdlib");
     let mut items = String::new();
     let mut traits = String::new();
     let mut enums = String::new();
@@ -90,7 +95,7 @@ fn main() {
         let file = format!("{}.kgr", module.to_lowercase());
         let path = root.join(&file);
         println!("cargo:rerun-if-changed={}", path.display());
-        let text = std::fs::read_to_string(&path).expect("standard declaration source");
+        let text = fs::read_to_string(&path).expect("standard declaration source");
         let uri = format!("kagari://std/{file}");
         writeln!(sources, "({uri:?}, {text:?}),").unwrap();
         let source = SourceFile::new(&uri, &text);
@@ -115,9 +120,9 @@ fn main() {
         let mut exports = BTreeSet::new();
         let mut native_functions = Vec::new();
         for item in parsed.syntax().items() {
-            if let Some(function) = api::NativeFunction::cast(item.syntax().clone()) {
+            if let Some(function) = NativeFunction::cast(item.syntax().clone()) {
                 native_functions.push((None, function));
-            } else if let ast::Item::ImplBlock(implementation) = item {
+            } else if let Item::ImplBlock(implementation) = item {
                 if implementation.trait_ref().is_some() {
                     assert!(
                         implementation_bindings.insert((
@@ -139,7 +144,7 @@ fn main() {
                 for method in implementation.methods() {
                     native_functions.push((
                         Some(implementation.clone()),
-                        api::NativeFunction::cast(method.syntax().clone()).unwrap(),
+                        NativeFunction::cast(method.syntax().clone()).unwrap(),
                     ));
                 }
             }
@@ -345,8 +350,8 @@ fn main() {
     let out = format!(
         "{out}\npub const STANDARD_IMPLEMENTATIONS:&[super::declarations::ApiImplementation]=&[{implementations}];"
     );
-    std::fs::write(
-        PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("standard_api.rs"),
+    fs::write(
+        PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("standard_api.rs"),
         out,
     )
     .unwrap();

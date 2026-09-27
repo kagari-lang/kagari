@@ -1,7 +1,18 @@
 use super::*;
+use crate::builtin::declarations;
+use crate::builtin::numeric;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::typeck;
+use crate::typeck::ConstraintTarget;
+use crate::typeck::GenericBounds;
+use crate::typeck::associated;
+use crate::types;
+use crate::types::AssociatedTypeFamily;
 use crate::types::TypeSubstitution;
 use crate::types::{GenericParameterType, NominalType};
 use std::collections::HashSet;
+use std::iter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImplementationSearchError {
@@ -14,8 +25,8 @@ struct SearchBudget<'a> {
     depth: usize,
     max_depth: usize,
     cancel: &'a CancellationToken,
-    assumptions: &'a crate::typeck::GenericBounds,
-    defaults: HashSet<(crate::builtin::traits::StandardTrait, TypeId)>,
+    assumptions: &'a GenericBounds,
+    defaults: HashSet<(StandardTrait, TypeId)>,
 }
 
 impl SearchBudget<'_> {
@@ -33,12 +44,12 @@ impl SearchBudget<'_> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplementationSignature {
-    pub associated_type_families: BTreeMap<DefinitionId, crate::types::AssociatedTypeFamily>,
+    pub associated_type_families: BTreeMap<DefinitionId, AssociatedTypeFamily>,
     pub id: DefinitionId,
     pub trait_type: NominalType,
     pub for_type: TypeId,
     pub generic_params: Vec<GenericParameterType>,
-    pub bounds: crate::typeck::GenericBounds,
+    pub bounds: GenericBounds,
     /// Trait method identity to implementation method identity.
     pub methods: BTreeMap<DefinitionId, DefinitionId>,
 }
@@ -60,7 +71,7 @@ impl AggregateCatalog {
             };
             if self.implementations.values().any(|candidate| {
                 candidate.trait_type.declaration == other.contract().id
-                    && crate::typeck::possibly_overlapping_impls(
+                    && typeck::possibly_overlapping_impls(
                         &candidate.for_type,
                         &implementation.for_type,
                     )
@@ -87,10 +98,7 @@ impl AggregateCatalog {
                         (source, TypeId::Generic(_)) => {
                             !occurs_in_constructor(&implementation.for_type, source)
                         }
-                        _ => crate::typeck::possibly_overlapping_impls(
-                            input,
-                            &implementation.for_type,
-                        ),
+                        _ => typeck::possibly_overlapping_impls(input, &implementation.for_type),
                     }
                 })
         {
@@ -106,7 +114,7 @@ impl AggregateCatalog {
             {
                 return Some("host conversion implementations are not supported");
             }
-            let owned=std::iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
+            let owned=iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
                 matches!(ty,TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
             });
             return (!owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
@@ -152,9 +160,9 @@ impl AggregateCatalog {
 
     pub fn standard_protocol_holds(
         &self,
-        protocol: crate::builtin::traits::StandardTrait,
+        protocol: StandardTrait,
         ty: &TypeId,
-        assumptions: &crate::typeck::GenericBounds,
+        assumptions: &GenericBounds,
     ) -> bool {
         let cancel = CancellationToken::default();
         let mut budget = SearchBudget {
@@ -171,7 +179,7 @@ impl AggregateCatalog {
 
     fn standard_holds(
         &self,
-        protocol: crate::builtin::traits::StandardTrait,
+        protocol: StandardTrait,
         ty: &TypeId,
         visiting: &mut HashSet<(NominalType, TypeId)>,
         budget: &mut SearchBudget<'_>,
@@ -197,7 +205,7 @@ impl AggregateCatalog {
         }
         if let Some(constraints) = budget.assumptions.get(ty) {
             for constraint in constraints {
-                if let crate::typeck::ConstraintTarget::Trait(nominal) = constraint
+                if let ConstraintTarget::Trait(nominal) = constraint
                     && (nominal == &protocol.nominal()
                         || protocol == StandardTrait::PartialEq
                             && nominal == &StandardTrait::Eq.nominal())
@@ -246,7 +254,7 @@ impl AggregateCatalog {
                 return Ok(true);
             }
             if !protocol.equality_protocol() {
-                return Ok(crate::builtin::traits::intrinsic_holds(
+                return Ok(traits::intrinsic_holds(
                     protocol,
                     ty,
                     None,
@@ -296,7 +304,7 @@ impl AggregateCatalog {
                 budget.defaults.remove(&(protocol, ty.clone()));
                 result
             } else {
-                Ok(crate::builtin::traits::intrinsic_holds(
+                Ok(traits::intrinsic_holds(
                     protocol,
                     ty,
                     None,
@@ -311,55 +319,48 @@ impl AggregateCatalog {
         self.implementations.get(id).map(AsRef::as_ref)
     }
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
-        crate::typeck::associated::normalize(ty, &|interface, receiver, member, arguments| {
+        associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
-                && crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                    == Some(crate::builtin::traits::StandardTrait::FromStr)
-                && *member == crate::types::associated_type_id(&interface.declaration, "Err")
-                && let Some(error) = crate::builtin::traits::parsing_error(receiver)
+                && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromStr)
+                && *member == types::associated_type_id(&interface.declaration, "Err")
+                && let Some(error) = traits::parsing_error(receiver)
             {
                 return Some(error);
             }
 
             if arguments.is_empty()
-                && crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                    == Some(crate::builtin::traits::StandardTrait::TryFrom)
-                && *member == crate::types::associated_type_id(&interface.declaration, "Error")
+                && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::TryFrom)
+                && *member == types::associated_type_id(&interface.declaration, "Error")
                 && let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
                     (receiver, interface.arguments.as_slice())
             {
-                return crate::builtin::numeric::try_error(*source, *target);
+                return numeric::try_error(*source, *target);
             }
 
             if arguments.is_empty()
-                && let Some(kind) =
-                    crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                && let Some(kind) = StandardTrait::from_id(&interface.declaration)
                 && kind.iteration()
-                && let Some(outputs) = crate::builtin::traits::iteration_outputs(
-                    kind,
-                    receiver,
-                    Some(self),
-                    &Default::default(),
-                )
+                && let Some(outputs) =
+                    traits::iteration_outputs(kind, receiver, Some(self), &Default::default())
                 && let Some(output) = outputs.get(member)
             {
                 return Some(output.clone());
             }
             if arguments.is_empty()
-                && *member == crate::types::associated_type_id(&interface.declaration, "Error")
+                && *member == types::associated_type_id(&interface.declaration, "Error")
                 && let Some((required, target)) =
-                    crate::builtin::traits::conversion_requirement(interface, receiver)
+                    traits::conversion_requirement(interface, receiver)
             {
                 return Some(TypeId::Projection {
                     receiver: Box::new(target),
-                    member: crate::types::associated_type_id(&required.declaration, "Error"),
+                    member: types::associated_type_id(&required.declaration, "Error"),
                     interface: Box::new(required),
                     arguments: vec![],
                 });
             }
             if arguments.is_empty()
-                && *member == crate::types::associated_type_id(&interface.declaration, "Output")
-                && let Some(output) = crate::builtin::traits::intrinsic_output(interface, receiver)
+                && *member == types::associated_type_id(&interface.declaration, "Output")
+                && let Some(output) = traits::intrinsic_output(interface, receiver)
             {
                 return Some(output);
             }
@@ -374,7 +375,7 @@ impl AggregateCatalog {
                     .cloned();
             }
             let script = self.implementations.values().filter_map(|implementation| {
-                let substitution = crate::typeck::match_implementation(
+                let substitution = typeck::match_implementation(
                     &implementation.trait_type,
                     interface,
                     &implementation.for_type,
@@ -451,7 +452,7 @@ impl AggregateCatalog {
                         .arguments
                         .iter()
                         .all(TypeId::is_concrete))
-                    && crate::typeck::possibly_overlapping_impls(
+                    && typeck::possibly_overlapping_impls(
                         &candidate.for_type,
                         &implementation.for_type,
                     )
@@ -496,7 +497,7 @@ impl AggregateCatalog {
                                 return None;
                             }
                             Some((
-                                crate::types::associated_type_id(
+                                types::associated_type_id(
                                     &trait_type.declaration,
                                     &member.path.last()?.name,
                                 ),
@@ -550,8 +551,7 @@ impl AggregateCatalog {
                 self.trait_method(method)
                     .filter(|method| {
                         method.has_default
-                            && crate::builtin::declarations::native_default_method(&method.id)
-                                .is_none()
+                            && declarations::native_default_method(&method.id).is_none()
                     })
                     .map(|_| {
                         let mut target = implementation.id.clone();
@@ -582,7 +582,7 @@ impl AggregateCatalog {
             .iter()
             .find(|method| method.id.path.last() == Some(&name))?;
         (method.has_default
-            && crate::builtin::declarations::native_default_method(&method.id).is_none()
+            && declarations::native_default_method(&method.id).is_none()
             && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
@@ -597,8 +597,7 @@ impl AggregateCatalog {
             .filter_map(|method| {
                 implementation.methods.get(&method.id).cloned().or_else(|| {
                     (method.has_default
-                        && crate::builtin::declarations::native_default_method(&method.id)
-                            .is_none())
+                        && declarations::native_default_method(&method.id).is_none())
                     .then(|| {
                         let mut target = implementation.id.clone();
                         target
@@ -626,7 +625,7 @@ impl AggregateCatalog {
         &self,
         trait_type: &NominalType,
         receiver: &TypeId,
-        assumptions: &crate::typeck::GenericBounds,
+        assumptions: &GenericBounds,
         max_checks: usize,
         max_depth: usize,
         cancel: &CancellationToken,
@@ -673,9 +672,7 @@ impl AggregateCatalog {
         max_depth: usize,
         cancel: &CancellationToken,
     ) -> Result<usize, ImplementationSearchError> {
-        if let Some((required, target)) =
-            crate::builtin::traits::conversion_requirement(trait_type, receiver)
-        {
+        if let Some((required, target)) = traits::conversion_requirement(trait_type, receiver) {
             return self
                 .implementation_count_bounded(&required, &target, max_checks, max_depth, cancel);
         }
@@ -706,12 +703,7 @@ impl AggregateCatalog {
             }
         }
         if count == 0
-            && crate::builtin::traits::intrinsic_applies(
-                trait_type,
-                receiver,
-                Some(self),
-                &Default::default(),
-            )
+            && traits::intrinsic_applies(trait_type, receiver, Some(self), &Default::default())
         {
             count = 1;
         }
@@ -727,7 +719,7 @@ impl AggregateCatalog {
         budget: &mut SearchBudget<'_>,
     ) -> Result<Option<TypeSubstitution>, ImplementationSearchError> {
         budget.check_candidate()?;
-        let Some(matched) = crate::typeck::match_implementation(
+        let Some(matched) = typeck::match_implementation(
             &implementation.trait_type,
             trait_type,
             &implementation.for_type,
@@ -749,14 +741,14 @@ impl AggregateCatalog {
                         .check()
                         .map_err(|_| ImplementationSearchError::Cancelled)?;
                     let satisfied = match constraint {
-                        crate::typeck::ConstraintTarget::Standard(standard) => {
-                            crate::typeck::type_satisfies_standard_constraint(
+                        ConstraintTarget::Standard(standard) => {
+                            typeck::type_satisfies_standard_constraint(
                                 &actual,
                                 *standard,
                                 budget.assumptions,
                             )
                         }
-                        crate::typeck::ConstraintTarget::Trait(required) => {
+                        ConstraintTarget::Trait(required) => {
                             if budget.depth >= budget.max_depth {
                                 return Err(ImplementationSearchError::LimitExceeded);
                             }
@@ -770,13 +762,11 @@ impl AggregateCatalog {
                                 continue;
                             }
                             let (mut required, mut actual) =
-                                crate::builtin::traits::conversion_requirement(&required, &actual)
+                                traits::conversion_requirement(&required, &actual)
                                     .unwrap_or((required, actual.clone()));
                             let mut lifted = 0;
                             while let Some((inner, destination)) =
-                                crate::builtin::traits::lifted_collection_requirement(
-                                    &required, &actual,
-                                )
+                                traits::lifted_collection_requirement(&required, &actual)
                             {
                                 budget.check_candidate()?;
                                 lifted += 1;
@@ -787,7 +777,7 @@ impl AggregateCatalog {
                                 actual = destination;
                             }
                             if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, crate::typeck::ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
-                            if crate::builtin::traits::intrinsic_applies(
+                            if traits::intrinsic_applies(
                                 &required,
                                 &actual,
                                 None,
@@ -798,9 +788,7 @@ impl AggregateCatalog {
                             if required.arguments.is_empty()
                                 && required.associated_types.is_empty()
                                 && let Some(protocol) =
-                                    crate::builtin::traits::StandardTrait::from_id(
-                                        &required.declaration,
-                                    )
+                                    StandardTrait::from_id(&required.declaration)
                                 && self.standard_holds(protocol, &actual, visiting, budget)?
                             {
                                 continue;
@@ -818,7 +806,7 @@ impl AggregateCatalog {
                                     }
                                 }
                                 if let Some(iterator) =
-                                    crate::builtin::traits::iterator_requirement(&required, &actual)
+                                    traits::iterator_requirement(&required, &actual)
                                 {
                                     if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b|matches!(b,crate::typeck::ConstraintTarget::Trait(n) if n.satisfies(&iterator)))) {return Ok(true);}
                                     for candidate in self.implementations.values() {

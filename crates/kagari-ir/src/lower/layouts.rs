@@ -1,4 +1,5 @@
 //! Reachable concrete aggregate layouts share the function instantiation budget.
+
 use super::{IrLoweringError, instances::InstancePlanner};
 use crate::module::{
     EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout,
@@ -10,6 +11,8 @@ use kagari_hir::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use std::collections::{HashSet, VecDeque};
+use std::mem;
+use std::slice;
 
 pub(super) fn collect(
     module: &AnalyzedModule,
@@ -70,7 +73,7 @@ pub(super) fn collect(
     }
     // Expression roots are recorded only when lowering visits reachable code.
     // Preserve visit order so layout slots and artifact bytes are stable.
-    pending.extend(std::mem::take(&mut planner.layout_roots));
+    pending.extend(mem::take(&mut planner.layout_roots));
     let mut seen = HashSet::new();
     let mut structures = Vec::new();
     let mut enumerations = Vec::new();
@@ -113,7 +116,7 @@ pub(super) fn collect(
                 let mut fields = Vec::new();
                 for field in &template.fields {
                     let ty = planner
-                        .arguments(std::slice::from_ref(&field.ty), &substitution, span)?
+                        .arguments(slice::from_ref(&field.ty), &substitution, span)?
                         .remove(0);
                     planner.value_type(&ty, &TypeSubstitution::default(), span)?;
                     fields.push(StructFieldLayout {

@@ -1,4 +1,7 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
+use kagari_vm::reenter;
+
+use std::slice;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -61,10 +64,9 @@ fn main() {
     runtime
         .register_host_function(HostFunction::new(standard_log(), move |call, _| {
             let scratch = Value::Array(call.runtime().alloc_array(vec![Value::I32(3)]).unwrap());
-            call.retain_temporaries(std::slice::from_ref(&scratch))
-                .unwrap();
+            call.retain_temporaries(slice::from_ref(&scratch)).unwrap();
             let root = call.runtime().execution_root().unwrap();
-            let value = kagari_vm::reenter(call, &root, make, &[])
+            let value = reenter(call, &root, make, &[])
                 .map_err(|error| HostError::new(format!("script callback failed: {error:?}")))?;
             call.runtime().collect_garbage().unwrap();
             assert!(call.runtime().gc().validate_value(&scratch));

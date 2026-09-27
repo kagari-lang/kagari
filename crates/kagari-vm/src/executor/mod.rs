@@ -1,3 +1,7 @@
+use kagari_ir::bytecode::Register;
+use kagari_runtime::ExecutionEvent;
+use std::cell::Ref;
+use std::cell::RefMut;
 mod aggregate_ops;
 mod dispatch;
 mod value_ops;
@@ -54,7 +58,7 @@ impl<'a> Executor<'a> {
             self.current_frame_mut()?.prepare_instruction();
             self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
             self.runtime
-                .observe_execution(kagari_runtime::ExecutionEvent::BeforeInstruction)?;
+                .observe_execution(ExecutionEvent::BeforeInstruction)?;
 
             let instruction = {
                 let mut frame = self.current_frame_mut()?;
@@ -83,8 +87,7 @@ impl<'a> Executor<'a> {
                             .runtime
                             .validate_interface_method_result(method, &value)
                     {
-                        self.runtime
-                            .observe_execution(kagari_runtime::ExecutionEvent::Trap)?;
+                        self.runtime.observe_execution(ExecutionEvent::Trap)?;
                         return Err(VmError::RuntimeError(error));
                     }
                     let return_dst = self.current_frame()?.return_dst();
@@ -105,8 +108,7 @@ impl<'a> Executor<'a> {
                                 self.runtime.quarantine_execution_invariant(reason),
                             ));
                         }
-                        self.runtime
-                            .observe_execution(kagari_runtime::ExecutionEvent::Trap)?;
+                        self.runtime.observe_execution(ExecutionEvent::Trap)?;
                         return Err(error);
                     }
                 }
@@ -117,13 +119,11 @@ impl<'a> Executor<'a> {
     pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
         Ok(self.current_frame()?.loaded().clone())
     }
-    pub(crate) fn current_frame(&self) -> Result<std::cell::Ref<'_, ExecutionFrame>, VmError> {
+    pub(crate) fn current_frame(&self) -> Result<Ref<'_, ExecutionFrame>, VmError> {
         Ok(self.stack.current()?)
     }
 
-    pub(crate) fn current_frame_mut(
-        &self,
-    ) -> Result<std::cell::RefMut<'_, ExecutionFrame>, VmError> {
+    pub(crate) fn current_frame_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, VmError> {
         Ok(self.stack.current_mut()?)
     }
 
@@ -132,7 +132,7 @@ impl<'a> Executor<'a> {
         module: ModuleRef,
         function: FunctionRef,
         args: &[Value],
-        return_dst: Option<kagari_ir::bytecode::Register>,
+        return_dst: Option<Register>,
     ) -> Result<(), VmError> {
         Ok(self.stack.push(module, function, args, return_dst)?)
     }

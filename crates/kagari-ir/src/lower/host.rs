@@ -1,15 +1,21 @@
 use super::IrLoweringError;
+use crate::module::CallTarget;
+use crate::module::Instruction;
+use crate::module::IrFunction;
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::{
     host_interface::{HostPathSegmentDeclaration, HostTypeDeclaration},
     identity::DefinitionId,
 };
+use kagari_hir::host::HostDeclarations;
 use std::collections::{BTreeMap, BTreeSet};
+use std::iter;
 
 pub(super) fn collect(
-    hosts: &kagari_hir::host::HostDeclarations,
+    hosts: &HostDeclarations,
     roots: BTreeSet<DefinitionId>,
-    functions: &[crate::module::IrFunction],
-    cancel: &kagari_common::cancellation::CancellationToken,
+    functions: &[IrFunction],
+    cancel: &CancellationToken,
 ) -> Result<Vec<HostTypeDeclaration>, IrLoweringError> {
     let mut pending: Vec<_> = roots.into_iter().collect();
     for instruction in functions
@@ -47,8 +53,8 @@ pub(super) fn collect(
                 }
             }
         }
-        if let crate::module::Instruction::Call {
-            callee: crate::module::CallTarget::HostFunction(function),
+        if let Instruction::Call {
+            callee: CallTarget::HostFunction(function),
             ..
         } = instruction
         {
@@ -56,7 +62,7 @@ pub(super) fn collect(
                 .params
                 .iter()
                 .map(|p| &p.ty)
-                .chain(std::iter::once(&function.return_type))
+                .chain(iter::once(&function.return_type))
             {
                 pending.extend(ty.nominal_references().into_iter().cloned());
             }

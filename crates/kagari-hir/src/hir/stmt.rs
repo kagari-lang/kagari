@@ -1,3 +1,5 @@
+use crate::hir::BinaryOp;
+use crate::hir::Condition;
 use smallvec::SmallVec;
 
 use crate::hir::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId, Writeability};
@@ -24,14 +26,14 @@ pub enum StmtKind {
     },
     Assign {
         target: PlaceId,
-        op: Option<crate::hir::BinaryOp>,
+        op: Option<BinaryOp>,
         value: ExprId,
     },
     Return {
         expr: Option<ExprId>,
     },
     While {
-        condition: crate::hir::Condition,
+        condition: Condition,
         body: BlockId,
     },
     Loop {

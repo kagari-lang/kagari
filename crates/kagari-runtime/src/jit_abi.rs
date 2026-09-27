@@ -1,3 +1,4 @@
+use crate::RuntimeErrorKind;
 use crate::{Runtime, value::Value};
 
 pub const JIT_CONSUME_INSTRUCTION_STEP_SYMBOL: &str = "kagari_runtime.consume_instruction_step";
@@ -82,17 +83,17 @@ pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime, o
     }
     if let Err(error) = runtime.gc_safepoint() {
         return match error.kind() {
-            crate::RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
-            crate::RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
-            crate::RuntimeErrorKind::ResourceLimitExceeded => JIT_STATUS_RESOURCE_LIMIT,
+            RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
+            RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
+            RuntimeErrorKind::ResourceLimitExceeded => JIT_STATUS_RESOURCE_LIMIT,
             _ => JIT_STATUS_INVALID_HEAP_REFERENCE,
         };
     }
     match runtime.consume_instruction_step() {
         Ok(()) => JIT_STATUS_OK,
         Err(error) => match error.kind() {
-            crate::RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
-            crate::RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
+            RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
+            RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
             _ => JIT_STATUS_RESOURCE_LIMIT,
         },
     }

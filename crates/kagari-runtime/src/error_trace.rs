@@ -1,7 +1,19 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
+
+use crate::LoadedModule;
+use crate::ResourceState;
+use crate::RuntimeError;
+use crate::RuntimeErrorKind;
+use crate::session::SessionState;
+use crate::value::Value;
+use crate::value_semantics;
 use crate::{Runtime, frame::ExecutionFrame};
 use kagari_common::Span;
 use kagari_ir::bytecode::{ArtifactFingerprint, FunctionRef};
+use kagari_ir::module::abi::AbiType;
+use std::fmt;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 pub const MAX_ERROR_FRAMES: usize = 128;
@@ -28,7 +40,7 @@ pub struct ErrorTrace {
     pub incomplete: bool,
 }
 impl ErrorTrace {
-    pub(crate) fn capture(resources: &crate::ResourceState) -> Arc<Self> {
+    pub(crate) fn capture(resources: &ResourceState) -> Arc<Self> {
         let Some(session) = resources.active_session() else {
             return Arc::new(Self {
                 incomplete: true,
@@ -37,7 +49,7 @@ impl ErrorTrace {
         };
         Self::capture_session(&session)
     }
-    pub(crate) fn capture_session(session: &crate::session::SessionState) -> Arc<Self> {
+    pub(crate) fn capture_session(session: &SessionState) -> Arc<Self> {
         let Ok(frames) = session.frames.try_borrow() else {
             return Arc::new(Self {
                 incomplete: true,
@@ -113,8 +125,8 @@ fn label(value: &str, incomplete: &mut bool) -> Option<String> {
     result.push_str(&value[..end]);
     Some(result)
 }
-impl std::fmt::Display for ErrorTrace {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for ErrorTrace {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for frame in &self.frames {
             write!(f, "\n  at {} ({}", frame.function_name, frame.source_uri)?;
             if let (Some(line), Some(column)) = (frame.line, frame.column) {
@@ -138,7 +150,7 @@ impl Runtime {
         ErrorTrace::capture(&self.resources)
     }
     /// Native backends publish their logical program point before a budget check.
-    pub fn record_native_instruction(&self, offset: usize) -> Result<(), crate::RuntimeError> {
+    pub fn record_native_instruction(&self, offset: usize) -> Result<(), RuntimeError> {
         if let Some(session) = self.resources.active_session() {
             let mut frames = session.frames.try_borrow_mut().map_err(|_| {
                 self.resources
@@ -158,20 +170,20 @@ pub struct ResultFailure {
     pub message: String,
     pub trace: Arc<ErrorTrace>,
 }
-impl std::fmt::Display for ResultFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for ResultFailure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "{}{}", self.message, self.trace)
     }
 }
 impl Runtime {
-    pub fn result_failure(&self, value: &crate::value::Value) -> Option<ResultFailure> {
+    pub fn result_failure(&self, value: &Value) -> Option<ResultFailure> {
         let trace = self.gc.result_error_trace(value)?;
-        let crate::value::Value::Enum(id) = value else {
+        let Value::Enum(id) = value else {
             return None;
         };
         let snapshot = self.gc.enum_snapshot(*id)?;
         let payload = snapshot.fields.first()?;
-        let preview = crate::value_semantics::format_value(
+        let preview = value_semantics::format_value(
             &self.gc,
             payload,
             !matches!(payload, crate::value::Value::Str(_)),
@@ -189,11 +201,11 @@ impl Runtime {
     }
     pub fn map_result_error(
         &self,
-        owner: &crate::LoadedModule,
-        original: &crate::value::Value,
-        error: crate::value::Value,
-        ty: &kagari_ir::module::abi::AbiType,
-    ) -> Result<crate::value::Value, crate::RuntimeError> {
+        owner: &LoadedModule,
+        original: &Value,
+        error: Value,
+        ty: &AbiType,
+    ) -> Result<Value, RuntimeError> {
         use kagari_ir::module::abi::{AbiType, StandardEnumKind};
         self.validate_loaded_module(owner)?;
         if let AbiType::StandardEnum {
@@ -203,13 +215,10 @@ impl Runtime {
             && args.len() == 2
             && self.gc.matches_abi(&error, &args[1], owner)
         {
-            return self
-                .gc
-                .map_result_error(original, error)
-                .map(crate::value::Value::Enum);
+            return self.gc.map_result_error(original, error).map(Value::Enum);
         }
-        Err(crate::RuntimeError::new(
-            crate::RuntimeErrorKind::ScriptTrap,
+        Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
             "invalid mapped Result error type",
         ))
     }

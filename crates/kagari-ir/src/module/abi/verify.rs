@@ -1,13 +1,26 @@
 //! Validate serialized semantic types independently of display strings.
+
 use super::*;
 use crate::module::layout::LayoutValidationError;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
+use kagari_common::host_interface;
+use kagari_common::range::RangeKind;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
+use kagari_hir::aggregates::AggregateCatalog;
+use kagari_hir::builtin::declarations;
+use kagari_hir::builtin::traits;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::types;
+use kagari_hir::types::GenericParameterType;
+use kagari_hir::types::TypeId;
+use kagari_hir::types::TypeSubstitution;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
+use std::iter;
 
 type Parameters = HashSet<(DefinitionId, usize)>;
 
@@ -20,7 +33,7 @@ fn native_bridge_valid(table: &InterfaceTableAbi) -> bool {
         && table.bounds.is_empty()
         && table.trait_type.is_concrete()
         && table.for_type.is_concrete()
-        && kagari_hir::builtin::traits::native_interface_applies(
+        && traits::native_interface_applies(
             &applied.to_checked_type(),
             &table.for_type.to_checked_type(),
         )
@@ -274,7 +287,7 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
                     .map_or("", |part| part.name.as_str());
                 !name.is_empty()
                     && members.insert(&member.declaration)
-                    && member.declaration == kagari_hir::types::associated_const_id(&owner, name)
+                    && member.declaration == types::associated_const_id(&owner, name)
                     && scalar_const_type(&member.ty)
                     && member
                         .default_value
@@ -293,7 +306,7 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
             ty.associated_types.iter().all(|member| {
                 members.insert(&member.declaration)
                     && member.declaration
-                        == kagari_hir::types::associated_type_id(
+                        == types::associated_type_id(
                             &owner,
                             member
                                 .declaration
@@ -351,10 +364,7 @@ fn required_methods_present(table: &InterfaceTableAbi, interface: &TraitAbi) -> 
             .methods
             .iter()
             .any(|actual| actual.name == method.name)
-            || kagari_hir::builtin::declarations::native_trait_default(
-                &instance.declaration,
-                &method.name,
-            )
+            || declarations::native_trait_default(&instance.declaration, &method.name)
     })
 }
 
@@ -436,12 +446,11 @@ fn families_valid(
             .map_or("", |part| part.name.as_str());
         !name.is_empty()
             && seen.insert(&family.declaration)
-            && family.declaration
-                == kagari_hir::types::associated_type_id(&interface.declaration, name)
+            && family.declaration == types::associated_type_id(&interface.declaration, name)
             && !family.generic_params.is_empty()
             && parameters(
                 &family.generic_params,
-                &kagari_hir::types::associated_type_id(&table.declaration, name),
+                &types::associated_type_id(&table.declaration, name),
                 outer,
             )
             .is_some_and(|params| {
@@ -478,13 +487,13 @@ pub(crate) fn interface_families_match(
         if member.generic_params.len() != family.generic_params.len() {
             return false;
         }
-        let mut substitution: kagari_hir::types::TypeSubstitution = instance
+        let mut substitution: TypeSubstitution = instance
             .arguments
             .iter()
             .enumerate()
             .map(|(position, value)| {
                 (
-                    kagari_hir::types::GenericParameterType {
+                    GenericParameterType {
                         owner: instance.declaration.clone(),
                         position,
                         name: String::new(),
@@ -499,18 +508,16 @@ pub(crate) fn interface_families_match(
                     .zip(&family.generic_params)
                     .map(|(expected, actual)| {
                         (
-                            kagari_hir::types::GenericParameterType {
+                            GenericParameterType {
                                 owner: expected.owner.clone(),
                                 position: expected.position,
                                 name: String::new(),
                             },
-                            kagari_hir::types::TypeId::Generic(
-                                kagari_hir::types::GenericParameterType {
-                                    owner: actual.owner.clone(),
-                                    position: actual.position,
-                                    name: String::new(),
-                                },
-                            ),
+                            TypeId::Generic(GenericParameterType {
+                                owner: actual.owner.clone(),
+                                position: actual.position,
+                                name: String::new(),
+                            }),
                         )
                     }),
             )
@@ -573,9 +580,7 @@ fn same_method_contract(
     let Some(signature) = table.checked_signature() else {
         return false;
     };
-    let Some(catalog) =
-        kagari_hir::aggregates::AggregateCatalog::from_implementation_signatures([signature])
-    else {
+    let Some(catalog) = AggregateCatalog::from_implementation_signatures([signature]) else {
         return false;
     };
     method_contract_matches(
@@ -592,7 +597,7 @@ fn same_method_contract(
 pub(crate) fn interface_methods_match(
     table: &InterfaceTableAbi,
     interface: &TraitAbi,
-    catalog: &kagari_hir::aggregates::AggregateCatalog,
+    catalog: &AggregateCatalog,
     cancel: &CancellationToken,
 ) -> bool {
     let AbiType::Trait(instance) = &table.trait_type else {
@@ -623,7 +628,7 @@ fn method_contract_matches(
     implemented: &FunctionAbi,
     instance: &NominalAbiType,
     table: &InterfaceTableAbi,
-    catalog: &kagari_hir::aggregates::AggregateCatalog,
+    catalog: &AggregateCatalog,
     defer_projection: bool,
     cancel: &CancellationToken,
 ) -> bool {
@@ -632,13 +637,13 @@ fn method_contract_matches(
     {
         return false;
     }
-    let mut substitution: kagari_hir::types::TypeSubstitution = instance
+    let mut substitution: TypeSubstitution = instance
         .arguments
         .iter()
         .enumerate()
         .map(|(position, argument)| {
             (
-                kagari_hir::types::GenericParameterType {
+                GenericParameterType {
                     owner: instance.declaration.clone(),
                     position,
                     name: String::new(),
@@ -654,12 +659,12 @@ fn method_contract_matches(
             .zip(&implemented.generic_params)
             .map(|(expected, actual)| {
                 (
-                    kagari_hir::types::GenericParameterType {
+                    GenericParameterType {
                         owner: expected.owner.clone(),
                         position: expected.position,
                         name: String::new(),
                     },
-                    kagari_hir::types::TypeId::Generic(kagari_hir::types::GenericParameterType {
+                    TypeId::Generic(GenericParameterType {
                         owner: actual.owner.clone(),
                         position: actual.position,
                         name: String::new(),
@@ -678,16 +683,15 @@ fn method_contract_matches(
     // A module-only shape check cannot normalize outputs supplied by a dependency.
     // The linked verifier repeats the full comparison with its complete catalog.
     if defer_projection
-        && std::iter::once(expected(&declared.return_type))
-            .chain(std::iter::once(actual(&implemented.return_type)))
+        && iter::once(expected(&declared.return_type))
+            .chain(iter::once(actual(&implemented.return_type)))
             .chain(declared.params.iter().map(|p| expected(&p.ty)))
             .chain(implemented.params.iter().map(|p| actual(&p.ty)))
             .any(|ty| ty.contains_projection() && !ty.is_unresolved())
     {
         return true;
     }
-    let bounds = |function: &FunctionAbi,
-                  normalize: &dyn Fn(&AbiType) -> kagari_hir::types::TypeId| {
+    let bounds = |function: &FunctionAbi, normalize: &dyn Fn(&AbiType) -> TypeId| {
         function
             .bounds
             .iter()
@@ -719,7 +723,7 @@ fn method_contract_matches(
                 }
                 Some((AbiType::from_checked_type(&target), constraints))
             })
-            .collect::<Option<std::collections::BTreeMap<_, _>>>()
+            .collect::<Option<BTreeMap<_, _>>>()
     };
     cancel.check().is_ok()
         && bounds(declared, &expected)
@@ -863,7 +867,7 @@ fn signature_valid(
         .params
         .iter()
         .map(|param| &param.ty)
-        .chain(std::iter::once(&function.return_type))
+        .chain(iter::once(&function.return_type))
         .all(|ty| type_valid(ty, params, self_owner, cancel))
 }
 fn nominal_valid(id: &DefinitionId, kind: DefinitionKind) -> bool {
@@ -897,7 +901,7 @@ fn type_valid(
                     return false;
                 }
                 if *member
-                    != kagari_hir::types::associated_type_id(
+                    != types::associated_type_id(
                         &interface.declaration,
                         member.path.last().map_or("", |p| p.name.as_str()),
                     )
@@ -909,7 +913,7 @@ fn type_valid(
                 pending.extend(arguments);
                 for (binding, value) in &interface.associated_types {
                     if *binding
-                        != kagari_hir::types::associated_type_id(
+                        != types::associated_type_id(
                             &interface.declaration,
                             binding.path.last().map_or("", |part| part.name.as_str()),
                         )
@@ -932,7 +936,7 @@ fn type_valid(
             }
             AbiType::Builtin(_) => {}
             AbiType::Host(id) => {
-                if kagari_common::host_interface::validate_host_type_identity(id).is_err() {
+                if host_interface::validate_host_type_identity(id).is_err() {
                     return false;
                 }
             }
@@ -942,7 +946,7 @@ fn type_valid(
                 pending.push(result);
             }
             AbiType::Range(ty, kind) => {
-                if *kind == kagari_common::range::RangeKind::Full {
+                if *kind == RangeKind::Full {
                     if **ty != AbiType::Builtin(BuiltinType::Unit) {
                         return false;
                     }
@@ -974,9 +978,7 @@ fn type_valid(
             }
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
                 if ty.declaration.module.package.0 == "kagari-std" {
-                    let Some(kind) =
-                        kagari_hir::builtin::traits::StandardTrait::from_id(&ty.declaration)
-                    else {
+                    let Some(kind) = StandardTrait::from_id(&ty.declaration) else {
                         return false;
                     };
                     if ty.arguments.len() != kind.contract().generic_params.len()
@@ -998,7 +1000,7 @@ fn type_valid(
                 }
                 for (member, value) in &ty.associated_types {
                     if *member
-                        != kagari_hir::types::associated_type_id(
+                        != types::associated_type_id(
                             &ty.declaration,
                             member.path.last().map_or("", |p| p.name.as_str()),
                         )

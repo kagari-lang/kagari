@@ -1,9 +1,16 @@
 //! Script equality is independent of Rust's structural Value comparisons.
+
+use crate::value::EnumTag;
 use crate::{
     RuntimeError, RuntimeErrorKind,
     gc::{GcHeap, GcObjectKind},
     value::Value,
 };
+use kagari_ir::module::abi;
+use std::cmp::Ordering;
+use std::fmt;
+use std::fmt::Error;
+use std::fmt::Write;
 
 /// Collection interface boxes preserve the identity of their underlying object.
 pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
@@ -11,8 +18,7 @@ pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
         return None;
     };
     let snapshot = gc.interface_snapshot(*id)?;
-    kagari_ir::module::abi::is_collection_interface(&snapshot.interface_type.declaration)
-        .then_some(snapshot.data)
+    abi::is_collection_interface(&snapshot.interface_type.declaration).then_some(snapshot.data)
 }
 
 /// Identity is available only for script object categories, never allocation
@@ -141,14 +147,10 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
             self.push_str(ch.encode_utf8(&mut [0; 4]));
         }
     }
-    impl std::fmt::Write for Output {
-        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+    impl Write for Output {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
             self.push_str(text);
-            if self.failed {
-                Err(std::fmt::Error)
-            } else {
-                Ok(())
-            }
+            if self.failed { Err(Error) } else { Ok(()) }
         }
     }
     fn render(
@@ -234,11 +236,7 @@ pub fn format_value(gc: &GcHeap, value: &Value, debug: bool) -> Result<String, R
 }
 
 /// Builtin ordering leaves user dispatch to the checked call site.
-pub fn builtin_order(
-    gc: &GcHeap,
-    a: &Value,
-    b: &Value,
-) -> Result<Option<std::cmp::Ordering>, RuntimeError> {
+pub fn builtin_order(gc: &GcHeap, a: &Value, b: &Value) -> Result<Option<Ordering>, RuntimeError> {
     let invalid = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
@@ -249,7 +247,7 @@ pub fn builtin_order(
         return Err(invalid());
     }
     Ok(match (a, b) {
-        (Value::Unit, Value::Unit) => Some(std::cmp::Ordering::Equal),
+        (Value::Unit, Value::Unit) => Some(Ordering::Equal),
         (Value::Bool(a), Value::Bool(b)) => a.partial_cmp(b),
         (Value::I32(a), Value::I32(b)) => a.partial_cmp(b),
         (Value::I64(a), Value::I64(b)) => a.partial_cmp(b),
@@ -258,9 +256,9 @@ pub fn builtin_order(
         (Value::Str(a), Value::Str(b)) => a.partial_cmp(b),
         (Value::Enum(a), Value::Enum(b)) => {
             let rank = |id| match gc.enum_snapshot(id)?.tag {
-                crate::value::EnumTag::OrderingLess => Some(0),
-                crate::value::EnumTag::OrderingEqual => Some(1),
-                crate::value::EnumTag::OrderingGreater => Some(2),
+                EnumTag::OrderingLess => Some(0),
+                EnumTag::OrderingEqual => Some(1),
+                EnumTag::OrderingGreater => Some(2),
                 _ => None,
             };
             Some(

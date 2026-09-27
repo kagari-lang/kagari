@@ -1,8 +1,11 @@
 use super::declarations::{
     ApiAssociatedType, ApiBound, ApiFunction, ApiItem, ApiMethod, ApiParameter, ApiTrait, ApiType,
 };
+use super::traits;
+use super::traits::StandardTrait;
 use crate::types::{BuiltinType, TypeId};
 use kagari_common::collection::CollectionAccess;
+use kagari_common::integer::IntegerMethod;
 use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
 
@@ -235,7 +238,7 @@ pub enum StandardIntrinsic {
     StringParse,
     ParseNumber(BuiltinType),
     ParseRadix(BuiltinType),
-    Integer(kagari_common::integer::IntegerMethod, BuiltinType),
+    Integer(IntegerMethod, BuiltinType),
     ArrayRetain,
     MapRetain,
     SetRetain,
@@ -858,17 +861,8 @@ pub fn supports_const_type(ty: &TypeId) -> bool {
 }
 
 pub fn supports_hash_key(ty: &TypeId) -> bool {
-    super::traits::intrinsic_holds(
-        super::traits::StandardTrait::Eq,
-        ty,
-        None,
-        &Default::default(),
-    ) && super::traits::intrinsic_holds(
-        super::traits::StandardTrait::Hash,
-        ty,
-        None,
-        &Default::default(),
-    )
+    traits::intrinsic_holds(StandardTrait::Eq, ty, None, &Default::default())
+        && traits::intrinsic_holds(StandardTrait::Hash, ty, None, &Default::default())
 }
 
 fn builtin_family(ty: &TypeId) -> Option<BuiltinTypeFamily> {
@@ -916,7 +910,7 @@ pub fn standard_associated_function(path: &str) -> Option<&'static StandardFunct
     })
 }
 
-pub fn range_kind(name: &str) -> Option<kagari_common::range::RangeKind> {
+pub fn range_kind(name: &str) -> Option<RangeKind> {
     Some(match name.strip_prefix("std::ops::").unwrap_or(name) {
         "Range" => RangeKind::Exclusive,
         "RangeInclusive" => RangeKind::Inclusive,

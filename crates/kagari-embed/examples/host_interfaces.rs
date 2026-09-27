@@ -1,5 +1,7 @@
 //! Offline host associated-output declarations and dynamic interface binding.
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
+
+use kagari_common::host_interface::PathAccess;
 use kagari_common::{
     host_interface::{
         HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
@@ -9,6 +11,7 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
+use kagari_embed::JitPolicy;
 use kagari_embed::{
     BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
 };
@@ -55,7 +58,7 @@ fn compile_offline() -> (
     };
     let mut host = HostTypeDeclaration::new("demo.Counter");
     host.ownership = HostTypeOwnership::HostRoot;
-    host.path_access = kagari_common::host_interface::PathAccess::ReadOnly;
+    host.path_access = PathAccess::ReadOnly;
     let method = HostMethodDeclaration::new(
         &host.id,
         "read",
@@ -127,9 +130,9 @@ fn context(jit: bool) -> ExecutionContext {
             ..Default::default()
         },
         jit_policy: if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         },
         ..Default::default()
     }

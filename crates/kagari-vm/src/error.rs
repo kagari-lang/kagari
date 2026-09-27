@@ -1,14 +1,17 @@
 use kagari_ir::bytecode::{BytecodeVerificationError, CallTarget, FunctionRef, ModuleSlot};
+use kagari_runtime::ErrorTrace;
+use kagari_runtime::RuntimeErrorKind;
 use kagari_runtime::{
     BackendDiagnostic, BackendInvocationError, RuntimeError, builtin::BuiltinError,
     host::HostError, reflection::ReflectionError,
 };
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum VmError {
     Traced {
         error: Box<VmError>,
-        trace: std::sync::Arc<kagari_runtime::ErrorTrace>,
+        trace: Arc<ErrorTrace>,
     },
     MissingFunction(String),
     AmbiguousFunction(String),
@@ -33,7 +36,7 @@ pub enum VmError {
 
 impl From<BuiltinError> for VmError {
     fn from(error: BuiltinError) -> Self {
-        if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap {
+        if error.kind() == RuntimeErrorKind::ScriptTrap {
             Self::BuiltinError(error)
         } else {
             Self::RuntimeError(error.into_runtime_error())
@@ -54,7 +57,7 @@ impl VmError {
             _ => self,
         }
     }
-    pub fn trace(&self) -> Option<&std::sync::Arc<kagari_runtime::ErrorTrace>> {
+    pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
         match self {
             Self::Traced { trace, .. } => Some(trace),
             Self::RuntimeError(error) => error.trace(),
@@ -62,7 +65,7 @@ impl VmError {
             _ => None,
         }
     }
-    pub(crate) fn with_trace(self, trace: std::sync::Arc<kagari_runtime::ErrorTrace>) -> Self {
+    pub(crate) fn with_trace(self, trace: Arc<ErrorTrace>) -> Self {
         if self
             .trace()
             .is_some_and(|previous| !previous.frames.is_empty())

@@ -1,4 +1,20 @@
+use crate::module::abi::InterfaceTableAbi;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::DefinitionPathSegment;
+use kagari_common::identity::ModuleIdentity;
+use kagari_hir::CheckedAnalysis;
+use kagari_hir::aggregates::AggregateCatalog;
+use kagari_hir::builtin::declarations;
+use kagari_hir::builtin::declarations::NativeDefaultMethod;
+use kagari_hir::builtin::traits;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::typeck::ScalarValue;
+use kagari_hir::types::NominalType;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::slice;
 
 use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
 use kagari_hir::{
@@ -37,30 +53,26 @@ impl Default for IrLoweringOptions {
 pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
     pub iterator: Option<IteratorInstance>,
-    pub origin: kagari_common::identity::ModuleIdentity,
+    pub origin: ModuleIdentity,
     pub id: InstanceId,
     pub function: hir::FunctionId,
     pub key: FunctionInstance,
     pub substitution: TypeSubstitution,
     pub closure: Option<hir::ExprId>,
-    pub native_method: Option<(
-        TypeId,
-        kagari_hir::types::NominalType,
-        kagari_common::identity::DefinitionId,
-    )>,
-    pub protocol: Option<(kagari_hir::builtin::traits::StandardTrait, TypeId)>,
+    pub native_method: Option<(TypeId, NominalType, DefinitionId)>,
+    pub protocol: Option<(StandardTrait, TypeId)>,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct CallableInstance {
     pub receiver: TypeId,
-    pub interface: kagari_hir::types::NominalType,
+    pub interface: NominalType,
     pub span: Span,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct IteratorInstance {
-    pub operation: kagari_hir::builtin::declarations::NativeDefaultMethod,
+    pub operation: NativeDefaultMethod,
     pub captures: Vec<TypeId>,
     pub output: TypeId,
     pub span: Span,
@@ -68,23 +80,18 @@ pub(super) struct IteratorInstance {
 
 pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
-    pub catalog: &'a kagari_hir::aggregates::AggregateCatalog,
-    modules: HashMap<kagari_common::identity::ModuleIdentity, &'a AnalyzedModule>,
+    pub catalog: &'a AggregateCatalog,
+    modules: HashMap<ModuleIdentity, &'a AnalyzedModule>,
     pub options: &'a IrLoweringOptions,
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
-    pub host_types: std::collections::BTreeSet<kagari_common::identity::DefinitionId>,
-    pub host_interfaces: Vec<(
-        kagari_common::identity::DefinitionId,
-        TypeId,
-        kagari_hir::types::NominalType,
-        Span,
-    )>,
-    pub native_tables: Vec<crate::module::abi::InterfaceTableAbi>,
+    pub host_types: BTreeSet<DefinitionId>,
+    pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
+    pub native_tables: Vec<InterfaceTableAbi>,
     pub interface_instances: Vec<FunctionInstance>,
     keys: HashMap<FunctionInstance, InstanceId>,
     generic_count: usize,
-    interfaces: std::collections::HashSet<(kagari_common::identity::DefinitionId, Vec<TypeId>)>,
+    interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
     instruction_count: usize,
     failure: Option<Diagnostic>,
 }
@@ -111,13 +118,11 @@ impl<'a> InstancePlanner<'a> {
         };
         body.interface = interface;
         let mut declaration = parent.key.declaration.clone();
-        declaration
-            .path
-            .push(kagari_common::identity::DefinitionPathSegment {
-                kind: kagari_common::identity::DefinitionKind::Function,
-                name: "$callable".into(),
-                occurrence: body.span.start as u32,
-            });
+        declaration.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Function,
+            name: "$callable".into(),
+            occurrence: body.span.start as u32,
+        });
         let key = FunctionInstance {
             declaration,
             arguments: vec![body.receiver.clone(), TypeId::Trait(body.interface.clone())],
@@ -151,13 +156,11 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, IrLoweringError> {
         self.check()?;
         let mut declaration = parent.key.declaration.clone();
-        declaration
-            .path
-            .push(kagari_common::identity::DefinitionPathSegment {
-                kind: kagari_common::identity::DefinitionKind::Function,
-                name: format!("$iterator_{:?}", body.operation),
-                occurrence: body.span.start as u32,
-            });
+        declaration.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Function,
+            name: format!("$iterator_{:?}", body.operation),
+            occurrence: body.span.start as u32,
+        });
         let key = FunctionInstance {
             declaration,
             arguments: body
@@ -193,7 +196,7 @@ impl<'a> InstancePlanner<'a> {
     pub fn new(
         module: &'a AnalyzedModule,
         options: &'a IrLoweringOptions,
-        modules: &'a [kagari_hir::CheckedAnalysis],
+        modules: &'a [CheckedAnalysis],
     ) -> Self {
         Self {
             catalog: &module.aggregates,
@@ -226,12 +229,12 @@ impl<'a> InstancePlanner<'a> {
     pub fn enqueue_protocol(
         &mut self,
         parent: &Instance,
-        protocol: kagari_hir::builtin::traits::StandardTrait,
+        protocol: StandardTrait,
         ty: &TypeId,
         span: Span,
     ) -> Result<InstanceId, IrLoweringError> {
         self.check()?;
-        let declaration = kagari_common::identity::DefinitionId {
+        let declaration = DefinitionId {
             module: self.module.lowered.source.module_identity().clone(),
             path: vec![kagari_common::identity::DefinitionPathSegment {
                 kind: kagari_common::identity::DefinitionKind::Function,
@@ -271,10 +274,7 @@ impl<'a> InstancePlanner<'a> {
         self.record_layout_root(ty, &Default::default(), span)?;
         Ok(id)
     }
-    pub fn constant(
-        &self,
-        declaration: &kagari_common::identity::DefinitionId,
-    ) -> Option<kagari_hir::typeck::ScalarValue> {
+    pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
         let module = self.modules.get(&declaration.module)?;
         let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
             return None;
@@ -284,7 +284,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub fn enqueue_declaration(
         &mut self,
-        declaration: &kagari_common::identity::DefinitionId,
+        declaration: &DefinitionId,
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, IrLoweringError> {
@@ -386,9 +386,9 @@ impl<'a> InstancePlanner<'a> {
     pub fn host_interface(
         &mut self,
         receiver: &TypeId,
-        interface: &kagari_hir::types::NominalType,
+        interface: &NominalType,
         span: Span,
-    ) -> Result<kagari_common::identity::DefinitionId, IrLoweringError> {
+    ) -> Result<DefinitionId, IrLoweringError> {
         self.check()?;
         if let Some((id, ..)) = self
             .host_interfaces
@@ -418,9 +418,9 @@ impl<'a> InstancePlanner<'a> {
     pub fn native_interface(
         &mut self,
         receiver: &TypeId,
-        interface: &kagari_hir::types::NominalType,
+        interface: &NominalType,
         span: Span,
-    ) -> Result<kagari_common::identity::DefinitionId, IrLoweringError> {
+    ) -> Result<DefinitionId, IrLoweringError> {
         use crate::module::abi::{
             AbiType, FunctionAbi, InterfaceTableAbi, NominalAbiType, ParameterAbi,
         };
@@ -471,7 +471,7 @@ impl<'a> InstancePlanner<'a> {
             .ok_or(IrLoweringError::MissingBinding("native bridge origin"))?;
         let mut methods = Vec::new();
         for method in &contract.methods {
-            if kagari_hir::builtin::declarations::native_default_method(&method.id).is_some() {
+            if declarations::native_default_method(&method.id).is_some() {
                 continue;
             }
             let mut id = declaration.clone();
@@ -563,7 +563,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub(super) fn record_interface(
         &mut self,
-        declaration: &kagari_common::identity::DefinitionId,
+        declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
     ) -> Result<(), IrLoweringError> {
@@ -585,7 +585,7 @@ impl<'a> InstancePlanner<'a> {
     pub fn require_parent_interfaces(
         &mut self,
         receiver: &TypeId,
-        interface: &kagari_hir::types::NominalType,
+        interface: &NominalType,
         span: Span,
     ) -> Result<(), IrLoweringError> {
         let parents = self
@@ -594,7 +594,7 @@ impl<'a> InstancePlanner<'a> {
             .trait_closure(interface, receiver, &self.options.cancel)
             .map_err(|_| IrLoweringError::MissingBinding("checked inheritance closure"))?;
         for parent in parents.into_iter().skip(1) {
-            if kagari_hir::builtin::traits::native_interface_applies(&parent, receiver) {
+            if traits::native_interface_applies(&parent, receiver) {
                 self.native_interface(receiver, &parent, span)?;
                 continue;
             }
@@ -646,7 +646,7 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<(), IrLoweringError> {
         let concrete = self
-            .arguments(std::slice::from_ref(ty), substitution, span)?
+            .arguments(slice::from_ref(ty), substitution, span)?
             .remove(0);
         self.layout_roots.push((concrete, span));
         Ok(())
@@ -737,13 +737,11 @@ impl<'a> InstancePlanner<'a> {
     ) -> Result<InstanceId, IrLoweringError> {
         self.check()?;
         let mut declaration = parent.key.declaration.clone();
-        declaration
-            .path
-            .push(kagari_common::identity::DefinitionPathSegment {
-                kind: kagari_common::identity::DefinitionKind::Function,
-                name: format!("closure_{}", closure.index()),
-                occurrence: 0,
-            });
+        declaration.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Function,
+            name: format!("closure_{}", closure.index()),
+            occurrence: 0,
+        });
         let key = FunctionInstance {
             declaration,
             arguments: parent.key.arguments.clone(),
@@ -898,7 +896,7 @@ fn instantiate(
             args: args.iter().map(&mut child).collect::<Result<_, _>>()?,
         },
         TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) => {
-            let instance = kagari_hir::types::NominalType {
+            let instance = NominalType {
                 associated_types: nominal
                     .associated_types
                     .iter()
@@ -925,7 +923,7 @@ fn instantiate(
         } => TypeId::Projection {
             arguments: arguments.iter().map(&mut child).collect::<Result<_, _>>()?,
             receiver: Box::new(child(receiver)?),
-            interface: Box::new(kagari_hir::types::NominalType {
+            interface: Box::new(NominalType {
                 declaration: interface.declaration.clone(),
                 arguments: interface
                     .arguments

@@ -1,4 +1,17 @@
+use crate::hir::AssociatedConst;
+use crate::hir::AssociatedType;
+use crate::hir::ConstOwner;
+use crate::hir::FieldId;
+use crate::hir::ReceiverKind;
+use crate::hir::TypeData;
+use crate::hir::TypeKind;
+use crate::hir::VariantId;
+use crate::lower::context;
+use ast::Item as AstItem;
+use ast::Visibility as AstVisibility;
+use kagari_common::Span;
 use kagari_syntax::ast;
+use smallvec::SmallVec;
 
 use crate::hir::{
     BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, GenericParam,
@@ -10,9 +23,9 @@ use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 fn lower_visibility(visibility: ast::Visibility) -> Visibility {
     match visibility {
-        ast::Visibility::Private => Visibility::Private,
-        ast::Visibility::PublicSuper => Visibility::PublicSuper,
-        ast::Visibility::Public => Visibility::Public,
+        AstVisibility::Private => Visibility::Private,
+        AstVisibility::PublicSuper => Visibility::PublicSuper,
+        AstVisibility::Public => Visibility::Public,
     }
 }
 
@@ -23,7 +36,7 @@ impl Lowerer {
                 break;
             }
             match item {
-                ast::Item::ModuleDef(module_def) => {
+                AstItem::ModuleDef(module_def) => {
                     let hir_module = self.lower_module_decl(&module_def);
                     if hir_module.visibility == Visibility::Public {
                         self.module.exports.push(Export {
@@ -34,8 +47,8 @@ impl Lowerer {
                     self.module.items.push(Item::Module(hir_module.id));
                     self.module.modules.push(hir_module);
                 }
-                ast::Item::UseDecl(use_decl) => self.lower_use_decl(&use_decl),
-                ast::Item::TraitDef(trait_def) => {
+                AstItem::UseDecl(use_decl) => self.lower_use_decl(&use_decl),
+                AstItem::TraitDef(trait_def) => {
                     let hir_trait = self.lower_trait(&trait_def);
                     if hir_trait.visibility == Visibility::Public {
                         self.module.exports.push(Export {
@@ -46,12 +59,12 @@ impl Lowerer {
                     self.module.items.push(Item::Trait(hir_trait.id));
                     self.module.traits.push(hir_trait);
                 }
-                ast::Item::ImplBlock(impl_block) => {
+                AstItem::ImplBlock(impl_block) => {
                     let hir_impl = self.lower_impl(&impl_block);
                     self.module.items.push(Item::Impl(hir_impl.id));
                     self.module.impls.push(hir_impl);
                 }
-                ast::Item::FnDef(function) => {
+                AstItem::FnDef(function) => {
                     let hir_function = self.lower_function(&function);
                     if hir_function.visibility == Visibility::Public {
                         self.module.exports.push(Export {
@@ -62,7 +75,7 @@ impl Lowerer {
                     self.module.items.push(Item::Function(hir_function.id));
                     self.module.functions.push(hir_function);
                 }
-                ast::Item::ConstDef(const_def) => {
+                AstItem::ConstDef(const_def) => {
                     let hir_const = self.lower_const(&const_def);
                     if hir_const.visibility == Visibility::Public {
                         self.module.exports.push(Export {
@@ -73,7 +86,7 @@ impl Lowerer {
                     self.module.items.push(Item::Const(hir_const.id));
                     self.module.consts.push(hir_const);
                 }
-                ast::Item::StructDef(struct_def) => {
+                AstItem::StructDef(struct_def) => {
                     let hir_struct = self.lower_struct(&struct_def);
                     if hir_struct.visibility == Visibility::Public {
                         self.module.exports.push(Export {
@@ -84,7 +97,7 @@ impl Lowerer {
                     self.module.items.push(Item::Struct(hir_struct.id));
                     self.module.structs.push(hir_struct);
                 }
-                ast::Item::EnumDef(enum_def) => {
+                AstItem::EnumDef(enum_def) => {
                     let hir_enum = self.lower_enum(&enum_def);
                     if hir_enum.visibility == Visibility::Public {
                         self.module.exports.push(Export {
@@ -103,7 +116,7 @@ impl Lowerer {
         let id = self.source_map.push_module(syntax_span(module_def));
         if let Some(name) = module_def.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Module(id), token_span(&name));
+                .insert_item_name(Item::Module(id), token_span(&name));
         }
         ModuleDecl {
             id,
@@ -155,7 +168,7 @@ impl Lowerer {
         &mut self,
         visibility: Visibility,
         path: &str,
-        span: kagari_common::Span,
+        span: Span,
         alias: Option<String>,
         glob: bool,
     ) {
@@ -179,7 +192,7 @@ impl Lowerer {
         let id = self.source_map.push_trait(syntax_span(trait_def));
         if let Some(name) = trait_def.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Trait(id), token_span(&name));
+                .insert_item_name(Item::Trait(id), token_span(&name));
         }
         let generic_params = trait_def
             .generic_params()
@@ -192,7 +205,7 @@ impl Lowerer {
         TraitDef {
             associated_consts: trait_def
                 .associated_consts()
-                .map(|item| self.lower_associated_const(&item, crate::hir::ConstOwner::Trait(id)))
+                .map(|item| self.lower_associated_const(&item, ConstOwner::Trait(id)))
                 .collect(),
             id,
             supertraits: trait_def
@@ -227,7 +240,7 @@ impl Lowerer {
             id,
             associated_consts: impl_block
                 .associated_consts()
-                .map(|item| self.lower_associated_const(&item, crate::hir::ConstOwner::Impl(id)))
+                .map(|item| self.lower_associated_const(&item, ConstOwner::Impl(id)))
                 .collect(),
             generic_params,
             trait_ref: impl_block
@@ -246,18 +259,18 @@ impl Lowerer {
         }
     }
 
-    fn lower_associated_type(&mut self, item: &ast::AssociatedType) -> crate::hir::AssociatedType {
+    fn lower_associated_type(&mut self, item: &ast::AssociatedType) -> AssociatedType {
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
                 .as_ref()
                 .map(token_span)
                 .unwrap_or_else(|| syntax_span(item)),
-            crate::hir::TypeData {
-                kind: crate::hir::TypeKind::Named(name.clone()),
+            TypeData {
+                kind: TypeKind::Named(name.clone()),
             },
         );
-        crate::hir::AssociatedType {
+        AssociatedType {
             generic_params: item
                 .generic_params()
                 .map(|params| self.lower_generic_params(&params))
@@ -290,7 +303,7 @@ impl Lowerer {
             has_default: method.body().is_some(),
             id,
             name: method.name_text().unwrap_or_default(),
-            receiver: crate::hir::ReceiverKind::Value,
+            receiver: ReceiverKind::Value,
             function: function_id,
         }
     }
@@ -325,7 +338,7 @@ impl Lowerer {
         let id = self.source_map.push_function(syntax_span(method));
         if let Some(name) = method.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Function(id), token_span(&name));
+                .insert_item_name(Item::Function(id), token_span(&name));
         }
         let previous_owner = self
             .source_map
@@ -406,7 +419,7 @@ impl Lowerer {
         let id = self.source_map.push_function(syntax_span(function));
         if let Some(name) = function.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Function(id), token_span(&name));
+                .insert_item_name(Item::Function(id), token_span(&name));
         }
         let previous_owner = self
             .source_map
@@ -512,7 +525,7 @@ impl Lowerer {
 
     pub(crate) fn lower_trait_ref(&mut self, trait_ref: &ast::TraitRef) -> TraitRef {
         let name = trait_ref.path_text().unwrap_or_default();
-        let args: smallvec::SmallVec<[TypeRefId; 4]> = trait_ref
+        let args: SmallVec<[TypeRefId; 4]> = trait_ref
             .generic_args()
             .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
             .unwrap_or_default();
@@ -521,8 +534,8 @@ impl Lowerer {
             let inputs = inputs.types().map(|ty| self.lower_type(&ty)).collect();
             let tuple = self.alloc_type(
                 input_span,
-                crate::hir::TypeData {
-                    kind: crate::hir::TypeKind::Tuple(inputs),
+                TypeData {
+                    kind: TypeKind::Tuple(inputs),
                 },
             );
             let output = if let Some(output) = trait_ref.callable_output() {
@@ -530,13 +543,13 @@ impl Lowerer {
             } else {
                 let end = token_span(trait_ref).end;
                 self.alloc_type(
-                    kagari_common::Span { start: end, end },
-                    crate::hir::TypeData {
-                        kind: crate::hir::TypeKind::Tuple(Default::default()),
+                    Span { start: end, end },
+                    TypeData {
+                        kind: TypeKind::Tuple(Default::default()),
                     },
                 )
             };
-            crate::hir::TypeKind::Generic {
+            TypeKind::Generic {
                 name,
                 args: smallvec::smallvec![tuple],
                 bindings: vec![("Output".into(), output)],
@@ -544,11 +557,11 @@ impl Lowerer {
                 callable_syntax: true,
             }
         } else if trait_ref.generic_args().is_none() {
-            crate::hir::TypeKind::Named(name)
+            TypeKind::Named(name)
         } else {
             let list = trait_ref.generic_args().expect("generic arguments");
             let bindings = self.lower_associated_bindings(&list);
-            crate::hir::TypeKind::Generic {
+            TypeKind::Generic {
                 name,
                 args,
                 bindings,
@@ -556,10 +569,7 @@ impl Lowerer {
                 positional_after_binding: list.positional_after_binding(),
             }
         };
-        let ty = self.alloc_type(
-            crate::lower::context::token_span(trait_ref),
-            crate::hir::TypeData { kind },
-        );
+        let ty = self.alloc_type(context::token_span(trait_ref), TypeData { kind });
         if let Some(name) = trait_ref.path().and_then(|path| path.segments().last()) {
             self.source_map.insert_type_name(ty, token_span(&name));
         }
@@ -570,7 +580,7 @@ impl Lowerer {
         let id = self.source_map.push_const(syntax_span(const_def));
         if let Some(name) = const_def.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Const(id), token_span(&name));
+                .insert_item_name(Item::Const(id), token_span(&name));
         }
         let previous_owner = self
             .source_map
@@ -593,15 +603,15 @@ impl Lowerer {
     fn lower_associated_const(
         &mut self,
         item: &ast::ConstDef,
-        owner: crate::hir::ConstOwner,
-    ) -> crate::hir::AssociatedConst {
+        owner: ConstOwner,
+    ) -> AssociatedConst {
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
                 .map(|name| token_span(&name))
                 .unwrap_or_else(|| syntax_span(item)),
-            crate::hir::TypeData {
-                kind: crate::hir::TypeKind::Named(name.clone()),
+            TypeData {
+                kind: TypeKind::Named(name.clone()),
             },
         );
         let (ty, initializer) = if item.initializer().is_some() {
@@ -621,7 +631,7 @@ impl Lowerer {
                 None,
             )
         };
-        crate::hir::AssociatedConst {
+        AssociatedConst {
             name,
             name_ref,
             ty,
@@ -633,7 +643,7 @@ impl Lowerer {
         let id = self.source_map.push_struct(syntax_span(struct_def));
         if let Some(name) = struct_def.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Struct(id), token_span(&name));
+                .insert_item_name(Item::Struct(id), token_span(&name));
         }
         let generic_params = struct_def
             .generic_params()
@@ -646,7 +656,7 @@ impl Lowerer {
                     .fields()
                     .enumerate()
                     .map(|(slot, field)| {
-                        let field_id = crate::hir::FieldId::new(self.source_map.arena(), id, slot);
+                        let field_id = FieldId::new(self.source_map.arena(), id, slot);
                         self.source_map.insert_field(
                             field_id,
                             field
@@ -688,7 +698,7 @@ impl Lowerer {
         let id = self.source_map.push_enum(syntax_span(enum_def));
         if let Some(name) = enum_def.name() {
             self.source_map
-                .insert_item_name(crate::hir::Item::Enum(id), token_span(&name));
+                .insert_item_name(Item::Enum(id), token_span(&name));
         }
         let generic_params = enum_def
             .generic_params()
@@ -701,8 +711,7 @@ impl Lowerer {
                     .variants()
                     .enumerate()
                     .map(|(slot, variant)| {
-                        let variant_id =
-                            crate::hir::VariantId::new(self.source_map.arena(), id, slot);
+                        let variant_id = VariantId::new(self.source_map.arena(), id, slot);
                         self.source_map.insert_variant(
                             variant_id,
                             variant

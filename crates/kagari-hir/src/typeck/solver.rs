@@ -1,3 +1,4 @@
+use crate::hir::TypeRefId;
 use crate::types::BuiltinType;
 use std::collections::HashMap;
 
@@ -9,14 +10,14 @@ use crate::{hir::ExprId, types::TypeId};
 #[derive(Default)]
 pub(super) struct Solver {
     variables: HashMap<(ExprId, usize), u32>,
-    holes: HashMap<crate::hir::TypeRefId, u32>,
+    holes: HashMap<TypeRefId, u32>,
     bindings: Vec<Option<TypeId>>,
-    numeric: HashMap<u32, crate::types::BuiltinType>,
+    numeric: HashMap<u32, BuiltinType>,
     pub revision: usize,
 }
 
 impl Solver {
-    pub fn annotation_hole(&mut self, site: crate::hir::TypeRefId) -> TypeId {
+    pub fn annotation_hole(&mut self, site: TypeRefId) -> TypeId {
         let next = self.bindings.len() as u32;
         let id = *self.holes.entry(site).or_insert_with(|| {
             self.bindings.push(None);
@@ -24,11 +25,7 @@ impl Solver {
         });
         self.resolve(&TypeId::Inference(id))
     }
-    pub fn numeric_variable(
-        &mut self,
-        site: ExprId,
-        fallback: crate::types::BuiltinType,
-    ) -> TypeId {
+    pub fn numeric_variable(&mut self, site: ExprId, fallback: BuiltinType) -> TypeId {
         let variable = self.variable(site, 1);
         let TypeId::Inference(id) = variable else {
             unreachable!()
@@ -110,13 +107,12 @@ impl Solver {
                         continue;
                     }
                     if let Some(fallback) = self.numeric.get(id).copied() {
-                        let floating = fallback == crate::types::BuiltinType::F64;
+                        let floating = fallback == BuiltinType::F64;
                         let admissible = match ty {
-                            TypeId::Inference(other) => {
-                                self.numeric.get(other).is_none_or(|other| {
-                                    (*other == crate::types::BuiltinType::F64) == floating
-                                })
-                            }
+                            TypeId::Inference(other) => self
+                                .numeric
+                                .get(other)
+                                .is_none_or(|other| (*other == BuiltinType::F64) == floating),
                             TypeId::Builtin(target) => {
                                 if floating {
                                     matches!(target, BuiltinType::F32 | BuiltinType::F64)

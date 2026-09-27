@@ -6,6 +6,7 @@ use crate::{
         instruction::{IterOp, StandardEnumOp as Op},
     },
 };
+use kagari_common::collection::CollectionAccess;
 use kagari_hir::{
     builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},
@@ -39,10 +40,7 @@ impl FunctionLowerer<'_, '_> {
         )?;
         let length = self.list_call(source, &item, "len", &[args[0]])?;
         let size_type = TypeId::Builtin(BuiltinType::USize);
-        let state_type = TypeId::Array(
-            Box::new(size_type.clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let state_type = TypeId::Array(Box::new(size_type.clone()), CollectionAccess::Mutable);
         let state = self.alloc_temp(ValueType::HeapObject);
         self.emit(Instruction::MakeArray {
             dst: state,
@@ -131,10 +129,7 @@ impl FunctionLowerer<'_, '_> {
         self.emit_intrinsic(StandardIntrinsic::IterResume, &[args[3]], ValueType::Unit);
         let end = self.sort_bound(start, args[1], args[4])?;
         let count = self.query_binary(BinaryOp::Sub, end, start, ValueType::U64);
-        let storage = TypeId::Array(
-            Box::new(item.clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let storage = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
         let snapshot = self.collection_new(&storage)?;
         let member = TypeId::StandardEnum {
             kind: StandardEnum::Option,

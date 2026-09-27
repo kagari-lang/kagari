@@ -1,3 +1,5 @@
+use crate::HostBorrowKind;
+use crate::value::EphemeralValue;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{ExecutionSession, HostCallGuard, Runtime, RuntimeError, gc::RootSet, value::Value};
@@ -89,14 +91,14 @@ impl<'a> HostResourceScope<'a> {
                         "host path view belongs to another registry or has an unregistered root",
                     ));
                 }
-                Value::Ephemeral(crate::value::EphemeralValue::HostRef(token)) => self
+                Value::Ephemeral(EphemeralValue::HostRef(token)) => self
                     .runtime
                     .host_borrows
-                    .validate(*token, crate::HostBorrowKind::Shared)?,
-                Value::Ephemeral(crate::value::EphemeralValue::HostMut(token)) => self
+                    .validate(*token, HostBorrowKind::Shared)?,
+                Value::Ephemeral(EphemeralValue::HostMut(token)) => self
                     .runtime
                     .host_borrows
-                    .validate(*token, crate::HostBorrowKind::Unique)?,
+                    .validate(*token, HostBorrowKind::Unique)?,
                 _ => {}
             }
         }

@@ -1,4 +1,16 @@
+use super::abi::AbiType;
+use super::abi::NominalAbiType;
+use super::abi::verify;
+use super::numeric::NumericOperation;
+use crate::module::abi::StandardEnumKind;
+use crate::module::numeric::NumericConversion;
+use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_common::host_interface::HostPathDeclaration;
+use kagari_common::identity::DefinitionId;
+use kagari_common::range::RangeKind;
 use kagari_hir::builtin::surface::StandardIntrinsic;
+use kagari_hir::types::BuiltinType;
+use kagari_hir::types::TypeId;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
@@ -13,13 +25,13 @@ pub struct IrValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AggregateFieldRef {
-    pub owner: super::abi::NominalAbiType,
+    pub owner: NominalAbiType,
     pub slot: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathRef {
-    pub declaration: Option<kagari_common::host_interface::HostPathDeclaration>,
+    pub declaration: Option<HostPathDeclaration>,
     pub contract_fingerprint: u64,
     pub root_ty: ValueType,
     pub result_ty: ValueType,
@@ -32,11 +44,11 @@ pub enum Instruction {
     Convert {
         dst: IrValue,
         src: IrValue,
-        conversion: crate::module::numeric::NumericConversion,
+        conversion: NumericConversion,
     },
     Numeric {
         dst: IrValue,
-        operation: super::numeric::NumericOperation,
+        operation: NumericOperation,
         lhs: IrValue,
         rhs: Option<IrValue>,
     },
@@ -44,18 +56,18 @@ pub enum Instruction {
         dst: IrValue,
         original: IrValue,
         error: IrValue,
-        ty: super::abi::AbiType,
+        ty: AbiType,
     },
     Iter {
         dst: IrValue,
         value: Option<IrValue>,
-        ty: super::abi::AbiType,
+        ty: AbiType,
         op: IterOp,
     },
     StandardEnum {
         dst: IrValue,
         value: Option<IrValue>,
-        ty: super::abi::AbiType,
+        ty: AbiType,
         op: StandardEnumOp,
     },
     LoadConst {
@@ -109,15 +121,15 @@ pub enum Instruction {
     RangeBound {
         dst: IrValue,
         value: IrValue,
-        range: crate::module::abi::AbiType,
-        bound: crate::module::abi::AbiType,
+        range: AbiType,
+        bound: AbiType,
         upper: bool,
     },
     MakeRange {
         dst: IrValue,
         start: Option<IrValue>,
         end: Option<IrValue>,
-        ty: crate::module::abi::AbiType,
+        ty: AbiType,
     },
     RepeatArray {
         dst: IrValue,
@@ -148,36 +160,36 @@ pub enum Instruction {
     UpcastInterface {
         dst: IrValue,
         value: IrValue,
-        source: super::abi::NominalAbiType,
-        target: super::abi::NominalAbiType,
+        source: NominalAbiType,
+        target: NominalAbiType,
     },
     MakeInterface {
         dst: IrValue,
         value: IrValue,
-        implementation: kagari_common::identity::DefinitionId,
-        arguments: Vec<super::abi::AbiType>,
+        implementation: DefinitionId,
+        arguments: Vec<AbiType>,
     },
     MakeStruct {
         dst: IrValue,
-        structure: super::abi::NominalAbiType,
+        structure: NominalAbiType,
         fields: StructFieldInitBuffer,
     },
     MakeEnum {
         dst: IrValue,
-        enumeration: super::abi::NominalAbiType,
+        enumeration: NominalAbiType,
         variant: usize,
         fields: ValueBuffer,
     },
     TestEnumVariant {
         dst: IrValue,
         value: IrValue,
-        enumeration: super::abi::NominalAbiType,
+        enumeration: NominalAbiType,
         variant: usize,
     },
     ReadEnumPayload {
         dst: IrValue,
         value: IrValue,
-        enumeration: super::abi::NominalAbiType,
+        enumeration: NominalAbiType,
         variant: usize,
         index: usize,
     },
@@ -244,9 +256,9 @@ pub enum Terminator {
 #[derive(Debug, Clone)]
 pub enum CallTarget {
     SourceFunction(Box<SourceFunctionContract>),
-    Function(crate::module::ids::InstanceId),
+    Function(InstanceId),
     InterfaceMethod(Box<InterfaceCallContract>),
-    HostFunction(Box<kagari_common::host_interface::HostFunctionDeclaration>),
+    HostFunction(Box<HostFunctionDeclaration>),
     Value(IrValue),
     Closure {
         value: IrValue,
@@ -259,7 +271,7 @@ pub enum CallTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceCallContract {
-    pub interface: super::abi::NominalAbiType,
+    pub interface: NominalAbiType,
     pub method_slot: u32,
 }
 
@@ -718,7 +730,7 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
-    Numeric(crate::module::numeric::NumericOperation),
+    Numeric(NumericOperation),
     Add,
     Sub,
     Mul,
@@ -749,8 +761,8 @@ pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 /// Unlinked declaration contract. It cannot be encoded as an executable call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFunctionContract {
-    pub declaration: kagari_common::identity::DefinitionId,
-    pub arguments: Vec<kagari_hir::types::TypeId>,
+    pub declaration: DefinitionId,
+    pub arguments: Vec<TypeId>,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
 }
@@ -762,14 +774,9 @@ pub enum StandardEnumOp {
     Read(u32),
 }
 impl StandardEnumOp {
-    pub fn contract(
-        self,
-        ty: &super::abi::AbiType,
-    ) -> Option<(Option<super::ValueType>, super::ValueType)> {
+    pub fn contract(self, ty: &AbiType) -> Option<(Option<super::ValueType>, super::ValueType)> {
         use super::{ValueType, abi::AbiType};
-        if !ty.within_wire_limits()
-            || !super::abi::verify::concrete_type_valid(ty, &Default::default())
-        {
+        if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
             return None;
         }
         let AbiType::StandardEnum { kind, args } = ty else {
@@ -804,14 +811,9 @@ pub enum IterOp {
     Close,
 }
 impl IterOp {
-    pub fn contract(
-        self,
-        ty: &super::abi::AbiType,
-    ) -> Option<(Option<super::ValueType>, super::ValueType)> {
+    pub fn contract(self, ty: &AbiType) -> Option<(Option<super::ValueType>, super::ValueType)> {
         use super::{ValueType, abi::AbiType};
-        if !ty.within_wire_limits()
-            || !super::abi::verify::concrete_type_valid(ty, &Default::default())
-        {
+        if !ty.within_wire_limits() || !verify::concrete_type_valid(ty, &Default::default()) {
             return None;
         }
         let input = match self {
@@ -830,7 +832,7 @@ impl IterOp {
                 AbiType::Array(_, _) | AbiType::Map { .. } | AbiType::Set(_, _) => {
                     ValueType::HeapObject
                 }
-                AbiType::Builtin(kagari_hir::types::BuiltinType::String) => ValueType::Str,
+                AbiType::Builtin(BuiltinType::String) => ValueType::Str,
                 _ => return None,
             },
             Self::Next | Self::Close => {
@@ -850,7 +852,7 @@ impl IterOp {
         ))
     }
 
-    pub fn closure_item(ty: &super::abi::AbiType) -> Option<&super::abi::AbiType> {
+    pub fn closure_item(ty: &AbiType) -> Option<&AbiType> {
         use super::abi::AbiType;
         let AbiType::Tuple(fields) = ty else {
             return None;
@@ -869,7 +871,7 @@ impl IterOp {
             }
         }
         let AbiType::StandardEnum {
-            kind: crate::module::abi::StandardEnumKind::Option,
+            kind: StandardEnumKind::Option,
             args,
         } = result.as_ref()
         else {
@@ -879,7 +881,7 @@ impl IterOp {
     }
 }
 
-pub fn mapped_error_payload(ty: &super::abi::AbiType) -> Option<super::ValueType> {
+pub fn mapped_error_payload(ty: &AbiType) -> Option<super::ValueType> {
     if !matches!(
         ty,
         super::abi::AbiType::StandardEnum {
@@ -894,7 +896,7 @@ pub fn mapped_error_payload(ty: &super::abi::AbiType) -> Option<super::ValueType
 
 /// Validate endpoint presence and physical types using the range's semantic type.
 pub fn range_operands_valid(
-    ty: &super::abi::AbiType,
+    ty: &AbiType,
     start: Option<ValueType>,
     end: Option<ValueType>,
 ) -> bool {
@@ -903,12 +905,12 @@ pub fn range_operands_valid(
         return false;
     };
     ty.within_wire_limits()
-        && super::abi::verify::concrete_type_valid(ty, &Default::default())
+        && verify::concrete_type_valid(ty, &Default::default())
         && start == kind.has_start().then(|| item.representation())
         && end == kind.has_end().then(|| item.representation())
 }
 
-pub fn range_bound_valid(range: &super::abi::AbiType, bound: &super::abi::AbiType) -> bool {
+pub fn range_bound_valid(range: &AbiType, bound: &AbiType) -> bool {
     use super::abi::{AbiType, StandardEnumKind};
     let (
         AbiType::Range(item, kind),
@@ -922,10 +924,10 @@ pub fn range_bound_valid(range: &super::abi::AbiType, bound: &super::abi::AbiTyp
     };
     range.within_wire_limits()
         && bound.within_wire_limits()
-        && super::abi::verify::concrete_type_valid(range, &Default::default())
-        && super::abi::verify::concrete_type_valid(bound, &Default::default())
+        && verify::concrete_type_valid(range, &Default::default())
+        && verify::concrete_type_valid(bound, &Default::default())
         && args.len() == 1
-        && (*kind == kagari_common::range::RangeKind::Full || args[0] == **item)
+        && (*kind == RangeKind::Full || args[0] == **item)
 }
 
 /// Native string traversal has a typed tuple of constructor arguments.
@@ -939,7 +941,7 @@ pub enum StringIterKind {
     Lines,
 }
 impl StringIterKind {
-    pub fn source_type(self) -> super::abi::AbiType {
+    pub fn source_type(self) -> AbiType {
         use super::abi::{AbiType, BuiltinType};
         let string = AbiType::Builtin(BuiltinType::String);
         AbiType::Tuple(match self {
@@ -948,7 +950,7 @@ impl StringIterKind {
             Self::Whitespace | Self::Lines | Self::Bytes | Self::CharIndices => vec![string],
         })
     }
-    pub fn item_type(self) -> super::abi::AbiType {
+    pub fn item_type(self) -> AbiType {
         use super::abi::{AbiType, BuiltinType};
         match self {
             Self::Bytes => AbiType::Builtin(BuiltinType::U8),
@@ -959,7 +961,7 @@ impl StringIterKind {
             _ => AbiType::Builtin(BuiltinType::String),
         }
     }
-    pub fn valid_source(self, ty: &super::abi::AbiType) -> bool {
+    pub fn valid_source(self, ty: &AbiType) -> bool {
         *ty == self.source_type()
     }
 }

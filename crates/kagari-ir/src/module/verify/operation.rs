@@ -1,9 +1,16 @@
 use super::{Context, IrVerificationError, IrVerificationErrorKind as Error};
+use crate::module::abi::AbiType;
+use crate::module::instruction;
 use crate::module::{
     CallTarget, Constant, Instruction, IrFunction, IrModule, ValueType,
     contracts::{self, ContractError},
     instruction::RuntimeHelper,
 };
+use crate::module::{abi, instruction::range_operands_valid};
+use contracts::RuntimeHelperKind;
+use kagari_common::host_interface::HostInterface;
+use kagari_common::host_interface::PathAccess;
+use std::collections::HashSet;
 
 pub(super) fn verify(
     module: &IrModule,
@@ -15,7 +22,7 @@ pub(super) fn verify(
     if let Some(path) = instruction.path_reference()
         && let Some(declaration) = &path.declaration
     {
-        let catalog = kagari_common::host_interface::HostInterface {
+        let catalog = HostInterface {
             types: module.host_types.clone(),
             ..Default::default()
         };
@@ -28,8 +35,7 @@ pub(super) fn verify(
             != path.contract_fingerprint
             || path.root_ty != ValueType::HostHandle
             || path.result_ty != ValueType::from_host_type(&resolved.result)
-            || (!path.read_only
-                && declaration.access != kagari_common::host_interface::PathAccess::ReadWrite)
+            || (!path.read_only && declaration.access != PathAccess::ReadWrite)
         {
             return Err(context.error(Error::InvalidHostInterface));
         }
@@ -154,7 +160,7 @@ pub(super) fn verify(
             }
             CallTarget::InterfaceMethod(interface_call) => {
                 if interface_call.interface.declaration.module == module.identity {
-                    let (params, return_type) = super::super::abi::interface_method_types(
+                    let (params, return_type) = abi::interface_method_types(
                         &module.identity,
                         &module.abi.public_items,
                         &module.abi.trait_contracts,
@@ -215,10 +221,10 @@ pub(super) fn verify(
             }
             CallTarget::RuntimeHelper(helper) => {
                 let kind = match helper {
-                    RuntimeHelper::ReflectTypeOf => contracts::RuntimeHelperKind::TypeOf,
-                    RuntimeHelper::ReflectGetField(_) => contracts::RuntimeHelperKind::GetField,
-                    RuntimeHelper::ReflectSetField(_) => contracts::RuntimeHelperKind::SetField,
-                    RuntimeHelper::ReflectSetIndex => contracts::RuntimeHelperKind::SetIndex,
+                    RuntimeHelper::ReflectTypeOf => RuntimeHelperKind::TypeOf,
+                    RuntimeHelper::ReflectGetField(_) => RuntimeHelperKind::GetField,
+                    RuntimeHelper::ReflectSetField(_) => RuntimeHelperKind::SetField,
+                    RuntimeHelper::ReflectSetIndex => RuntimeHelperKind::SetIndex,
                     RuntimeHelper::DynamicCall => unreachable!(),
                 };
                 contracts::verify_runtime_helper_call(
@@ -238,7 +244,7 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "bound destination")?;
             context.expect(value.ty, ValueType::HeapObject, "bound range")?;
-            if !crate::module::instruction::range_bound_valid(range, bound) {
+            if !instruction::range_bound_valid(range, bound) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "invalid range bound contract",
                 }));
@@ -251,11 +257,7 @@ pub(super) fn verify(
             ty,
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "range destination")?;
-            if !super::super::instruction::range_operands_valid(
-                ty,
-                start.map(|v| v.ty),
-                end.map(|v| v.ty),
-            ) {
+            if !range_operands_valid(ty, start.map(|v| v.ty), end.map(|v| v.ty)) {
                 return Err(contract(ContractError::InvalidOperation {
                     reason: "invalid range operands",
                 }));
@@ -302,8 +304,8 @@ pub(super) fn verify(
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             context.expect(value.ty, ValueType::HeapObject, "interface receiver")?;
-            if !super::super::abi::AbiType::Trait(source.clone()).is_concrete()
-                || !super::super::abi::AbiType::Trait(target.clone()).is_concrete()
+            if !AbiType::Trait(source.clone()).is_concrete()
+                || !AbiType::Trait(target.clone()).is_concrete()
             {
                 return Err(context.error(Error::InvalidInterfaceTable));
             }
@@ -354,7 +356,7 @@ pub(super) fn verify(
             error,
             ty,
         } => {
-            let payload = crate::module::instruction::mapped_error_payload(ty)
+            let payload = instruction::mapped_error_payload(ty)
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             context.expect(original.ty, ValueType::HeapObject, "original Result")?;
             context.expect(error.ty, payload, "mapped error")?;
@@ -452,7 +454,7 @@ pub(super) fn verify(
             if fields.len() != layout.fields.len() {
                 return Err(context.error(Error::InvalidStructInitializer));
             }
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             for field in fields {
                 context.check_cancel()?;
                 let target = layout

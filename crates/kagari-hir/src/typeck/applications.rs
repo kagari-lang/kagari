@@ -1,15 +1,28 @@
 //! Validate applied aggregate contracts from the shared checked catalog.
+
+use super::check;
+use super::check::MethodComparison;
+use super::constraints;
+use super::families;
 use super::{ConstraintTarget, GenericBounds, ModuleSignatures, TypeTable};
+use crate::DiagnosticBuffer;
+use crate::builtin::surface::StandardTypeConstraint;
+use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use crate::host::HostDeclarations;
+use crate::types::TypeSubstitution;
 use crate::{aggregates::AggregateCatalog, lower::LoweredModule, types::TypeId};
+use kagari_common::identity::ModuleIdentity;
+use kagari_common::range::RangeKind;
 use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
 
 pub(super) fn validate(
     ty: &TypeId,
     bounds: &GenericBounds,
-    sources: (&AggregateCatalog, &crate::host::HostDeclarations),
+    sources: (&AggregateCatalog, &HostDeclarations),
     table: &TypeTable,
     span: Span,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     let (catalog, hosts) = sources;
@@ -23,7 +36,7 @@ pub(super) fn validate(
             return;
         }
         if let TypeId::Range(element, kind) = ty
-            && *kind != kagari_common::range::RangeKind::Full
+            && *kind != RangeKind::Full
             && element.is_concrete()
             && !element.is_integer()
         {
@@ -45,7 +58,7 @@ pub(super) fn validate(
             use crate::builtin::traits::{StandardTrait, intrinsic_holds};
             if super::type_satisfies_standard_constraint(
                 key,
-                crate::builtin::surface::StandardTypeConstraint::HashKey,
+                StandardTypeConstraint::HashKey,
                 bounds,
             ) && [StandardTrait::Eq, StandardTrait::Hash]
                 .into_iter()
@@ -72,7 +85,7 @@ pub(super) fn validate(
                 if let Some(contract) = catalog.trait_(&interface.declaration)
                     && let Some(inputs) = contract.associated_type_parameters.get(member)
                 {
-                    let mut substitution: crate::types::TypeSubstitution = contract
+                    let mut substitution: TypeSubstitution = contract
                         .generic_params
                         .iter()
                         .cloned()
@@ -175,7 +188,7 @@ pub(super) fn validate(
                             }
                             match constraint {
                                 ConstraintTarget::Standard(constraint) => {
-                                    super::check::validate_standard_constraint_type(
+                                    check::validate_standard_constraint_type(
                                         actual,
                                         *constraint,
                                         bounds,
@@ -196,7 +209,7 @@ pub(super) fn validate(
                                         _ => match catalog.implementation_count(&applied, actual)
                                             + usize::from(hosts.implements(&applied, actual))
                                         {
-                                            0 => crate::builtin::traits::StandardTrait::from_id(&applied.declaration).is_none() && table.implements(&applied, actual),
+                                            0 => StandardTrait::from_id(&applied.declaration).is_none() && table.implements(&applied, actual),
                                             1 => true,
                                             _ => false,
                                         },
@@ -237,7 +250,7 @@ pub(super) fn validate(
                         {
                             let satisfied = match constraint {
                                 ConstraintTarget::Standard(standard) => {
-                                    super::constraints::type_satisfies_standard_constraint(
+                                    constraints::type_satisfies_standard_constraint(
                                         actual, *standard, bounds,
                                     )
                                 }
@@ -297,13 +310,13 @@ pub(super) fn validate(
 
 pub(crate) fn validate_signatures(
     lowered: &LoweredModule,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     signatures: &ModuleSignatures,
     catalog: &AggregateCatalog,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
-    super::families::validate(
+    families::validate(
         lowered,
         declarations,
         signatures,
@@ -367,11 +380,8 @@ pub(crate) fn validate_signatures(
         let Some(contract) = catalog.trait_(&instance.declaration) else {
             continue;
         };
-        let available = super::constraints::implementation_bounds(
-            impl_block,
-            declarations,
-            signatures.type_table(),
-        );
+        let available =
+            constraints::implementation_bounds(impl_block, declarations, signatures.type_table());
         validate(
             &TypeId::Trait(instance.clone()),
             &available,
@@ -450,10 +460,10 @@ pub(crate) fn validate_signatures(
                 );
                 continue;
             }
-            super::check::compare_method_contract(
+            check::compare_method_contract(
                 method,
                 actual,
-                &super::check::MethodComparison {
+                &MethodComparison {
                     trait_name: &contract.declaration.name,
                     method_name: &method.name,
                     trait_generic_count: contract.generic_params.len(),
@@ -518,9 +528,9 @@ pub(crate) fn validate_signatures(
 pub(super) fn validate_imported_interface_type(
     ty: &TypeId,
     catalog: &AggregateCatalog,
-    module: &kagari_common::identity::ModuleIdentity,
+    module: &ModuleIdentity,
     span: Span,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     let mut pending = vec![ty];
@@ -530,8 +540,7 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if crate::builtin::traits::StandardTrait::from_id(&instance.declaration)
-                    .is_some_and(|kind| !kind.dynamic())
+                if StandardTrait::from_id(&instance.declaration).is_some_and(|kind| !kind.dynamic())
                 {
                     diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
                 }
@@ -558,7 +567,7 @@ pub(super) fn validate_imported_interface_type(
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
-                        if crate::builtin::traits::StandardTrait::from_id(&parent.declaration)
+                        if StandardTrait::from_id(&parent.declaration)
                             .is_some_and(|kind| !kind.dynamic())
                             && index != 0
                         {
@@ -594,7 +603,7 @@ pub(super) fn validate_imported_interface_type(
                             );
                         }
                         for method in &contract.methods {
-                            if !super::check::interface_method_compatible(
+                            if !check::interface_method_compatible(
                                 method.generic_params.len(),
                                 contract.generic_params.len(),
                                 method

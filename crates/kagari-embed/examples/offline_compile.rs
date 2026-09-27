@@ -1,4 +1,5 @@
 //! Compile against declarations without registering callbacks or starting services.
+
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     host_interface::{
@@ -10,11 +11,13 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
+use kagari_embed::BytecodeArtifact;
 use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
 use kagari_ir::bytecode::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
 use kagari_runtime::LanguageProfile;
+use std::error::Error;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut player = HostTypeDeclaration::new("demo.Player");
     player.ownership = HostTypeOwnership::HostRoot;
     player.path_access = PathAccess::ReadWrite;
@@ -44,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut child_score = HostFieldDeclaration::new(&child.id, "score", HostValueType::I32);
     child_score.path_access = PathAccess::ReadOnly;
     child.fields.push(child_score.clone());
-    let path_declaration = kagari_common::host_interface::HostPathDeclaration {
+    let path_declaration = HostPathDeclaration {
         root: player.id.clone(),
         segments: vec![
             kagari_common::host_interface::HostPathSegmentDeclaration::Field(
@@ -282,7 +285,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "artifact function directory matches {} executable records",
         function_records
     );
-    let decoded = kagari_embed::BytecodeArtifact::from_bytes(&artifact.to_bytes()?)?;
+    let decoded = BytecodeArtifact::from_bytes(&artifact.to_bytes()?)?;
     decoded.validate_for_loader(&Default::default())?;
     assert_eq!(decoded.header.format_version, KBC_ARTIFACT_FORMAT_VERSION);
     assert_eq!(

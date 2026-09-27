@@ -1,7 +1,10 @@
+use crate::builtin::surface::builtin_type;
 use crate::{
     hir::{Literal, LiteralKind},
     types::{BuiltinType, TypeId},
 };
+use kagari_common::literal;
+use kagari_common::numeric;
 
 /// A checked scalar fact shared by literals, const evaluation and code generation.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,8 +40,8 @@ impl ScalarValue {
         expected: Option<BuiltinType>,
         negative: bool,
     ) -> Result<Self, &'static str> {
-        let (digits, suffix) = kagari_common::literal::numeric_literal_parts(&literal.text);
-        let suffix_type = suffix.and_then(super::super::builtin::surface::builtin_type);
+        let (digits, suffix) = literal::numeric_literal_parts(&literal.text);
+        let suffix_type = suffix.and_then(builtin_type);
         let expected = expected.filter(|ty| {
             if literal.kind == LiteralKind::Float {
                 matches!(ty, BuiltinType::F32 | BuiltinType::F64)
@@ -73,9 +76,7 @@ impl ScalarValue {
                 {
                     return Err("unsigned integers do not support negation");
                 }
-                let value = i128::from(kagari_common::literal::parse_integer_literal(
-                    &literal.text,
-                )?);
+                let value = i128::from(literal::parse_integer_literal(&literal.text)?);
                 Self::integer(if negative { -value } else { value }, ty)
             }
             LiteralKind::Float => {
@@ -102,9 +103,7 @@ impl ScalarValue {
                 "false" => Ok(Self::Bool(false)),
                 _ => Err("invalid bool literal"),
             },
-            LiteralKind::String => {
-                kagari_common::literal::decode_string_literal(&literal.text).map(Self::String)
-            }
+            LiteralKind::String => literal::decode_string_literal(&literal.text).map(Self::String),
         }
     }
 
@@ -148,12 +147,10 @@ impl ScalarValue {
             Self::F64(v) => Number::F64(v),
             _ => return None,
         };
-        Some(
-            match kagari_common::numeric::cast(input, target.number_type()?) {
-                Number::Integer(v) => Self::integer(v, target).ok()?,
-                Number::F32(v) => Self::F32(v),
-                Number::F64(v) => Self::F64(v),
-            },
-        )
+        Some(match numeric::cast(input, target.number_type()?) {
+            Number::Integer(v) => Self::integer(v, target).ok()?,
+            Number::F32(v) => Self::F32(v),
+            Number::F64(v) => Self::F64(v),
+        })
     }
 }

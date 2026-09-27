@@ -4,10 +4,12 @@ use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},
 };
+use kagari_common::collection::CollectionAccess;
 use kagari_hir::{
     builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},
 };
+use std::iter;
 
 fn option(item: TypeId) -> TypeId {
     TypeId::StandardEnum {
@@ -49,10 +51,8 @@ impl FunctionLowerer<'_, '_> {
                 let output = self.iterator_item(&inner)?;
                 let empty =
                     self.standard_enum_op(&option(inner.clone()), StandardEnumOp::Make(1), None)?;
-                let state_type = TypeId::Array(
-                    Box::new(option(inner.clone())),
-                    kagari_common::collection::CollectionAccess::Mutable,
-                );
+                let state_type =
+                    TypeId::Array(Box::new(option(inner.clone())), CollectionAccess::Mutable);
                 let state = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeArray {
                     dst: state,
@@ -71,7 +71,7 @@ impl FunctionLowerer<'_, '_> {
                 captures.push(self.new_adapter_flag(false));
                 types.push(TypeId::Array(
                     Box::new(TypeId::Builtin(BuiltinType::Bool)),
-                    kagari_common::collection::CollectionAccess::Mutable,
+                    CollectionAccess::Mutable,
                 ));
                 if operation == NativeDefaultMethod::FlatMap {
                     captures.push(values[1]);
@@ -120,7 +120,7 @@ impl FunctionLowerer<'_, '_> {
                     captures.push(state);
                     types.push(TypeId::Array(
                         Box::new(TypeId::Builtin(BuiltinType::Bool)),
-                        kagari_common::collection::CollectionAccess::Mutable,
+                        CollectionAccess::Mutable,
                     ));
                 }
                 output
@@ -129,7 +129,7 @@ impl FunctionLowerer<'_, '_> {
                 captures.push(self.new_adapter_flag(false));
                 types.push(TypeId::Array(
                     Box::new(TypeId::Builtin(BuiltinType::Bool)),
-                    kagari_common::collection::CollectionAccess::Mutable,
+                    CollectionAccess::Mutable,
                 ));
                 item.clone()
             }
@@ -148,7 +148,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 let state_type = TypeId::Array(
                     Box::new(TypeId::Builtin(BuiltinType::USize)),
-                    kagari_common::collection::CollectionAccess::Mutable,
+                    CollectionAccess::Mutable,
                 );
                 self.function
                     .semantic
@@ -184,7 +184,7 @@ impl FunctionLowerer<'_, '_> {
                     });
                     let state_type = TypeId::Array(
                         Box::new(TypeId::Builtin(BuiltinType::I32)),
-                        kagari_common::collection::CollectionAccess::Mutable,
+                        CollectionAccess::Mutable,
                     );
                     self.function
                         .semantic
@@ -221,10 +221,9 @@ impl FunctionLowerer<'_, '_> {
         let source = self.alloc_temp(ValueType::HeapObject);
         self.emit(Instruction::MakeTuple {
             dst: source,
-            elements: std::iter::once(step).chain(dependencies).collect(),
+            elements: iter::once(step).chain(dependencies).collect(),
         });
-        let source_type =
-            TypeId::Tuple(std::iter::once(step_type).chain(dependency_types).collect());
+        let source_type = TypeId::Tuple(iter::once(step_type).chain(dependency_types).collect());
         let dst = self.alloc_temp(ValueType::HeapObject);
         self.emit(Instruction::Iter {
             dst,
@@ -294,7 +293,7 @@ impl FunctionLowerer<'_, '_> {
             state.temp.index(),
             AbiType::Array(
                 Box::new(AbiType::Builtin(BuiltinType::Bool)),
-                kagari_common::collection::CollectionAccess::Mutable,
+                CollectionAccess::Mutable,
             ),
         );
         state

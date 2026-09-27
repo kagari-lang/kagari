@@ -1,13 +1,22 @@
 //! Access-flow validation runs after physical operand and layout validation.
+
+use super::RuntimeHelper;
+use super::trait_bounds;
 use super::{
     BytecodeFunction, BytecodeInstruction as I, BytecodeModule, BytecodeProgram,
     BytecodeVerificationError as Error, CallTarget, ConstantOperand, Register,
 };
+use crate::module::PublicAbiItem;
+use crate::module::abi;
+use crate::module::abi::NominalAbiType;
+use crate::module::abi::verify as abi_verify;
 use crate::module::{
     abi::AbiType,
     instruction::{IterOp, StandardEnumOp},
 };
 use kagari_common::collection::CollectionAccess as Access;
+use kagari_hir::typeck::ScalarValue;
+use kagari_hir::types;
 use kagari_hir::{
     builtin::{
         declarations::Arguments,
@@ -15,6 +24,7 @@ use kagari_hir::{
     },
     types::{BuiltinType as B, TypeId},
 };
+use surface::StandardEnum;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {
@@ -95,7 +105,7 @@ pub(super) fn verify(
             .chain(semantic.result.iter())
             .any(|ty| {
                 !ty.within_wire_limits()
-                    || !crate::module::abi::verify::concrete_type_valid(ty, &Default::default())
+                    || !abi_verify::concrete_type_valid(ty, &Default::default())
             })
     {
         return Err(invalid());
@@ -119,7 +129,7 @@ pub(super) fn verify(
             .collect::<Vec<_>>()
             .join("::");
         if let Some(abi) = module.public_items.iter().find_map(|item| match item {
-            crate::module::PublicAbiItem::Function(abi) if abi.name == name => Some(abi),
+            PublicAbiItem::Function(abi) if abi.name == name => Some(abi),
             _ => None,
         }) {
             let apply = |ty: &AbiType| ty.instantiate(&identity.declaration, &identity.arguments);
@@ -194,7 +204,7 @@ pub(super) fn verify(
                     let ty = if let Some(value) = number
                         && let Some(AbiType::Builtin(declared)) =
                             semantic.registers.get(&dst.index())
-                        && kagari_hir::typeck::ScalarValue::integer(value, *declared).is_ok()
+                        && ScalarValue::integer(value, *declared).is_ok()
                         && AbiType::Builtin(*declared).representation()
                             == AbiType::Builtin(ty).representation()
                     {
@@ -264,33 +274,27 @@ pub(super) fn verify(
                         let Some(item) = &value.ty else {
                             return Err(invalid());
                         };
-                        if !kagari_hir::types::supports_array_repetition(
-                            &item.to_checked_type(),
-                            |instance| {
-                                let layout = module.enumerations.iter().find(|layout| {
-                                    layout.declaration == instance.declaration
-                                        && layout
-                                            .arguments
-                                            .iter()
-                                            .map(AbiType::to_checked_type)
-                                            .eq(instance.arguments.iter().cloned())
-                                })?;
-                                Some(
-                                    layout
-                                        .variants
+                        if !types::supports_array_repetition(&item.to_checked_type(), |instance| {
+                            let layout = module.enumerations.iter().find(|layout| {
+                                layout.declaration == instance.declaration
+                                    && layout
+                                        .arguments
                                         .iter()
-                                        .flat_map(|v| &v.payload)
                                         .map(AbiType::to_checked_type)
-                                        .collect(),
-                                )
-                            },
-                        ) {
+                                        .eq(instance.arguments.iter().cloned())
+                            })?;
+                            Some(
+                                layout
+                                    .variants
+                                    .iter()
+                                    .flat_map(|v| &v.payload)
+                                    .map(AbiType::to_checked_type)
+                                    .collect(),
+                            )
+                        }) {
                             return Err(invalid());
                         }
-                        if !flows(
-                            &count,
-                            &AbiType::Builtin(kagari_hir::types::BuiltinType::USize),
-                        ) {
+                        if !flows(&count, &AbiType::Builtin(B::USize)) {
                             return Err(invalid());
                         }
                         produced = Some((
@@ -490,7 +494,7 @@ pub(super) fn verify(
                                     AbiType::Iter(Box::new(item))
                                 }
                                 IterOp::Next => AbiType::StandardEnum {
-                                    kind: surface::StandardEnum::Option,
+                                    kind: StandardEnum::Option,
                                     args: vec![item],
                                 },
                                 _ => AbiType::Builtin(B::Unit),
@@ -513,7 +517,7 @@ pub(super) fn verify(
                     }
                     produced = Some((
                         *dst,
-                        Fact::typed(AbiType::Struct(crate::module::abi::NominalAbiType {
+                        Fact::typed(AbiType::Struct(NominalAbiType {
                             declaration: layout.declaration.clone(),
                             arguments: layout.arguments.clone(),
                             associated_types: Default::default(),
@@ -539,7 +543,7 @@ pub(super) fn verify(
                     }
                     produced = Some((
                         *dst,
-                        Fact::typed(AbiType::Enum(crate::module::abi::NominalAbiType {
+                        Fact::typed(AbiType::Enum(NominalAbiType {
                             declaration: layout.declaration.clone(),
                             arguments: layout.arguments.clone(),
                             associated_types: Default::default(),
@@ -589,7 +593,7 @@ pub(super) fn verify(
                         .public_items
                         .iter()
                         .find_map(|item| match item {
-                            crate::module::PublicAbiItem::InterfaceTable(table)
+                            PublicAbiItem::InterfaceTable(table)
                                 if table.declaration == linked.declaration =>
                             {
                                 table.instantiate(&linked.arguments)
@@ -711,7 +715,7 @@ pub(super) fn verify(
                         CallTarget::StandardIntrinsic(intrinsic) => {
                             if let S::ParseNumber(ty) = intrinsic {
                                 result = Fact::typed(AbiType::StandardEnum {
-                                    kind: surface::StandardEnum::Result,
+                                    kind: StandardEnum::Result,
                                     args: vec![
                                         AbiType::Builtin(*ty),
                                         AbiType::StandardEnum {
@@ -829,7 +833,7 @@ pub(super) fn verify(
                                     return Err(invalid());
                                 };
                                 let bound = AbiType::StandardEnum {
-                                    kind: surface::StandardEnum::Bound,
+                                    kind: StandardEnum::Bound,
                                     args: vec![AbiType::Builtin(B::USize)],
                                 };
                                 if !flows(&facts[1], &bound) || !flows(&facts[2], &bound) {
@@ -845,7 +849,7 @@ pub(super) fn verify(
                                     return Err(invalid());
                                 }
                                 let bound = AbiType::StandardEnum {
-                                    kind: surface::StandardEnum::Bound,
+                                    kind: StandardEnum::Bound,
                                     args: vec![AbiType::Builtin(B::USize)],
                                 };
                                 if !flows(&facts[1], &bound)
@@ -876,7 +880,7 @@ pub(super) fn verify(
                                 && let Some(AbiType::Map { value, .. }) = &facts[0].ty
                             {
                                 result = Fact::typed(AbiType::StandardEnum {
-                                    kind: surface::StandardEnum::Option,
+                                    kind: StandardEnum::Option,
                                     args: vec![(**value).clone()],
                                 });
                             }
@@ -957,7 +961,7 @@ pub(super) fn verify(
                             method_slot,
                         } => {
                             let owner = owner(*slot).ok_or_else(invalid)?;
-                            let (params, output) = crate::module::abi::interface_method_semantics(
+                            let (params, output) = abi::interface_method_semantics(
                                 &owner.identity,
                                 &owner.public_items,
                                 &owner.trait_contracts,
@@ -970,7 +974,7 @@ pub(super) fn verify(
                                     || vec![module],
                                     |program| program.modules.iter().collect(),
                                 );
-                                if !super::trait_bounds::interface_ancestors(
+                                if !trait_bounds::interface_ancestors(
                                     actual,
                                     &AbiType::Trait(actual.clone()),
                                     &modules,
@@ -979,9 +983,7 @@ pub(super) fn verify(
                                 {
                                     return Err(invalid());
                                 }
-                            } else if crate::module::abi::is_collection_interface(
-                                &interface.declaration,
-                            ) {
+                            } else if abi::is_collection_interface(&interface.declaration) {
                                 return Err(invalid());
                             }
                             for (value, expected) in facts.iter().skip(1).zip(params.iter().skip(1))
@@ -1002,8 +1004,8 @@ pub(super) fn verify(
                             result = Fact::typed(AbiType::from_host_type(&target.return_type));
                         }
                         CallTarget::RuntimeHelper(
-                            super::RuntimeHelper::ReflectGetField(name)
-                            | super::RuntimeHelper::ReflectSetField(name),
+                            RuntimeHelper::ReflectGetField(name)
+                            | RuntimeHelper::ReflectSetField(name),
                         ) => {
                             if let Some(AbiType::Struct(nominal)) = &facts[0].ty
                                 && let Some(field) = module
@@ -1030,7 +1032,7 @@ pub(super) fn verify(
                                 }
                             }
                         }
-                        CallTarget::RuntimeHelper(super::RuntimeHelper::ReflectSetIndex) => {
+                        CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex) => {
                             if facts[0].access == Some(Access::ReadOnly) {
                                 return Err(invalid());
                             }

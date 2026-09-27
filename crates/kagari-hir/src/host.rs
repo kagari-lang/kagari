@@ -1,8 +1,28 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
+
+use crate::DiagnosticBuffer;
+use crate::aggregates::AggregateCatalog;
+use crate::builtin::surface::StandardEnum;
+use crate::builtin::surface::StandardTypeConstraint;
+use crate::builtin::traits::StandardTrait;
+use crate::resolver::ResolvedName;
+use crate::typeck;
+use crate::typeck::ConstraintTarget;
+use crate::types::TypeSubstitution;
+use kagari_common::host_interface::HostFieldDeclaration;
+use kagari_common::host_interface::HostPathContract;
+use kagari_common::host_interface::HostPathDeclaration;
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostInterface, HostInterfaceError, HostTraitImplementationDeclaration,
     HostTypeDeclaration, HostValueType,
 };
+use kagari_common::identity::DefinitionId;
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
+use std::collections::HashSet;
+use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::Arc};
 
 use crate::types::{BuiltinType, NominalType, TypeId};
@@ -49,9 +69,9 @@ pub struct HostDeclarations {
     revision: u64,
     interface: HostInterface,
     paths: HashMap<String, HostFunctionId>,
-    methods: HashMap<(kagari_common::identity::DefinitionId, String), HostFunctionId>,
+    methods: HashMap<(DefinitionId, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
-    type_identities: HashMap<kagari_common::identity::DefinitionId, HostTypeId>,
+    type_identities: HashMap<DefinitionId, HostTypeId>,
     modules: Vec<String>,
 }
 
@@ -110,7 +130,7 @@ impl HostDeclarations {
 
     pub fn trait_method_binding(
         &self,
-        trait_method: &kagari_common::identity::DefinitionId,
+        trait_method: &DefinitionId,
         trait_type: &NominalType,
         receiver: &TypeId,
     ) -> Option<HostFunctionId> {
@@ -139,17 +159,16 @@ impl HostDeclarations {
     /// changes invalidate the result through the aggregate catalog.
     pub(crate) fn validate_trait_implementations(
         &self,
-        aggregates: &crate::aggregates::AggregateCatalog,
+        aggregates: &AggregateCatalog,
         module: &ModuleIdentity,
         cancel: &CancellationToken,
-    ) -> Result<crate::DiagnosticBuffer, Cancelled> {
-        let mut diagnostics = crate::DiagnosticBuffer::new();
+    ) -> Result<DiagnosticBuffer, Cancelled> {
+        let mut diagnostics = DiagnosticBuffer::new();
         for host in &self.interface.types {
             cancel.check()?;
             for implementation in &host.trait_implementations {
                 cancel.check()?;
-                let standard =
-                    crate::builtin::traits::StandardTrait::from_id(&implementation.trait_id);
+                let standard = StandardTrait::from_id(&implementation.trait_id);
                 if &implementation.trait_id.module != module && standard.is_none() {
                     continue;
                 }
@@ -207,7 +226,7 @@ impl HostDeclarations {
                     );
                     continue;
                 }
-                let substitution: crate::types::TypeSubstitution = trait_signature
+                let substitution: TypeSubstitution = trait_signature
                     .generic_params
                     .iter()
                     .cloned()
@@ -218,14 +237,14 @@ impl HostDeclarations {
                     let actual = &interface.associated_types[member];
                     for constraint in constraints {
                         let satisfied = match constraint {
-                            crate::typeck::ConstraintTarget::Standard(standard) => {
-                                crate::typeck::type_satisfies_standard_constraint(
+                            ConstraintTarget::Standard(standard) => {
+                                typeck::type_satisfies_standard_constraint(
                                     actual,
                                     *standard,
                                     &Default::default(),
                                 )
                             }
-                            crate::typeck::ConstraintTarget::Trait(required) => {
+                            ConstraintTarget::Trait(required) => {
                                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
                                     .with_associated_types(&interface)
                                     .with_self(&trait_signature.id, &receiver)
@@ -260,10 +279,10 @@ impl HostDeclarations {
                         .flatten()
                     {
                         let satisfied = match constraint {
-                            crate::typeck::ConstraintTarget::Standard(standard) => {
+                            ConstraintTarget::Standard(standard) => {
                                 satisfies_standard_constraint(argument, *standard)
                             }
-                            crate::typeck::ConstraintTarget::Trait(required) => {
+                            ConstraintTarget::Trait(required) => {
                                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
                                     .with_associated_types(&interface)
                                     .with_self(&trait_signature.id, &receiver)
@@ -384,7 +403,7 @@ impl HostDeclarations {
             .functions
             .iter()
             .map(|f| f.id.clone())
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<HashSet<_>>();
         for owner in &interface.types {
             for method in &owner.methods {
                 if present.insert(method.id.clone()) {
@@ -410,13 +429,9 @@ impl HostDeclarations {
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        static NEXT: AtomicU64 = AtomicU64::new(1);
         let revision = NEXT
-            .fetch_update(
-                std::sync::atomic::Ordering::Relaxed,
-                std::sync::atomic::Ordering::Relaxed,
-                |n| n.checked_add(1),
-            )
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .expect("host declaration revision exhausted");
         let paths: HashMap<_, _> = interface
             .functions
@@ -444,7 +459,7 @@ impl HostDeclarations {
                 ))
             })
             .collect();
-        let mut modules = std::collections::BTreeSet::new();
+        let mut modules = BTreeSet::new();
         let type_paths: HashMap<_, _> = interface
             .types
             .iter()
@@ -492,7 +507,7 @@ impl HostDeclarations {
     }
 
     pub fn empty() -> Arc<Self> {
-        static EMPTY: std::sync::OnceLock<Arc<HostDeclarations>> = std::sync::OnceLock::new();
+        static EMPTY: OnceLock<Arc<HostDeclarations>> = OnceLock::new();
         EMPTY
             .get_or_init(|| Self::new(HostInterface::default()).unwrap())
             .clone()
@@ -501,11 +516,7 @@ impl HostDeclarations {
     pub fn resolve(&self, path: &str) -> Option<HostFunctionId> {
         self.paths.get(path).copied()
     }
-    pub fn method(
-        &self,
-        owner: &kagari_common::identity::DefinitionId,
-        name: &str,
-    ) -> Option<HostFunctionId> {
+    pub fn method(&self, owner: &DefinitionId, name: &str) -> Option<HostFunctionId> {
         self.methods.get(&(owner.clone(), name.to_owned())).copied()
     }
     pub fn module(&self, path: &str) -> Option<HostModuleId> {
@@ -517,10 +528,7 @@ impl HostDeclarations {
                 index,
             })
     }
-    pub(crate) fn members_of_module(
-        &self,
-        module: HostModuleId,
-    ) -> Vec<(String, crate::resolver::ResolvedName)> {
+    pub(crate) fn members_of_module(&self, module: HostModuleId) -> Vec<(String, ResolvedName)> {
         if module.revision != self.revision {
             return Vec::new();
         }
@@ -528,7 +536,7 @@ impl HostDeclarations {
             return Vec::new();
         };
         let prefix = format!("{path}::");
-        let mut members = std::collections::BTreeMap::new();
+        let mut members = BTreeMap::new();
         for name in self
             .paths
             .keys()
@@ -537,10 +545,9 @@ impl HostDeclarations {
         {
             if let Some(member) = name.strip_prefix(&prefix)
                 && !member.contains("::")
-                && let Some(resolved) = self.resolve_name(name).or_else(|| {
-                    self.module(name)
-                        .map(crate::resolver::ResolvedName::HostModule)
-                })
+                && let Some(resolved) = self
+                    .resolve_name(name)
+                    .or_else(|| self.module(name).map(ResolvedName::HostModule))
             {
                 members.insert(member.to_owned(), resolved);
             }
@@ -552,23 +559,16 @@ impl HostDeclarations {
             .then(|| self.interface.functions.get(id.index))
             .flatten()
     }
-    pub(crate) fn resolve_name_in(
-        &self,
-        module: HostModuleId,
-        path: &str,
-    ) -> Option<crate::resolver::ResolvedName> {
+    pub(crate) fn resolve_name_in(&self, module: HostModuleId, path: &str) -> Option<ResolvedName> {
         if module.revision != self.revision {
             return None;
         }
         self.resolve_name(&format!("{}::{path}", self.modules.get(module.index)?))
     }
-    pub(crate) fn resolve_name(&self, path: &str) -> Option<crate::resolver::ResolvedName> {
+    pub(crate) fn resolve_name(&self, path: &str) -> Option<ResolvedName> {
         self.resolve(path)
-            .map(crate::resolver::ResolvedName::HostFunction)
-            .or_else(|| {
-                self.resolve_type(path)
-                    .map(crate::resolver::ResolvedName::HostType)
-            })
+            .map(ResolvedName::HostFunction)
+            .or_else(|| self.resolve_type(path).map(ResolvedName::HostType))
     }
     pub fn revision(&self) -> u64 {
         self.revision
@@ -576,21 +576,15 @@ impl HostDeclarations {
 
     pub(crate) fn source_path(
         &self,
-        root: &kagari_common::identity::DefinitionId,
+        root: &DefinitionId,
         steps: &[HostSourcePathStep],
-    ) -> Result<
-        (
-            kagari_common::host_interface::HostPathDeclaration,
-            kagari_common::host_interface::HostPathContract,
-        ),
-        &'static str,
-    > {
+    ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
         use kagari_common::host_interface::HostPathSegmentDeclaration as Segment;
         let mut matches = self.interface.paths.iter().filter(|path| {
             if &path.root != root || path.segments.len() != steps.len() {
                 return false;
             }
-            let mut source_slots = std::collections::HashSet::new();
+            let mut source_slots = HashSet::new();
             path.segments
                 .iter()
                 .zip(steps)
@@ -620,10 +614,7 @@ impl HostDeclarations {
     pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
         self.type_paths.get(path).copied()
     }
-    pub fn nominal_type(
-        &self,
-        declaration: &kagari_common::identity::DefinitionId,
-    ) -> Option<HostTypeId> {
+    pub fn nominal_type(&self, declaration: &DefinitionId) -> Option<HostTypeId> {
         self.type_identities.get(declaration).copied()
     }
     pub fn type_declaration(&self, id: HostTypeId) -> Option<&HostTypeDeclaration> {
@@ -631,10 +622,7 @@ impl HostDeclarations {
             .then(|| self.interface.types.get(id.index))
             .flatten()
     }
-    pub fn field(
-        &self,
-        id: &kagari_common::identity::DefinitionId,
-    ) -> Option<&kagari_common::host_interface::HostFieldDeclaration> {
+    pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration> {
         let mut owner = id.clone();
         owner.path.pop()?;
         self.type_declaration(self.nominal_type(&owner)?)?
@@ -659,11 +647,11 @@ pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
             TypeId::Set(Box::new(signature_type(element)), *access)
         }
         HostValueType::Option(element) => TypeId::StandardEnum {
-            kind: crate::builtin::surface::StandardEnum::Option,
+            kind: StandardEnum::Option,
             args: vec![signature_type(element)],
         },
         HostValueType::Result { ok, error } => TypeId::StandardEnum {
-            kind: crate::builtin::surface::StandardEnum::Result,
+            kind: StandardEnum::Result,
             args: vec![signature_type(ok), signature_type(error)],
         },
         HostValueType::Opaque(id) => TypeId::Host(id.clone()),
@@ -683,11 +671,7 @@ pub(crate) fn signature_type(ty: &HostValueType) -> TypeId {
 /// Reuse the language's standard-bound rule for portable host type arguments.
 pub fn satisfies_standard_constraint(
     ty: &HostValueType,
-    constraint: crate::builtin::surface::StandardTypeConstraint,
+    constraint: StandardTypeConstraint,
 ) -> bool {
-    crate::typeck::type_satisfies_standard_constraint(
-        &signature_type(ty),
-        constraint,
-        &Default::default(),
-    )
+    typeck::type_satisfies_standard_constraint(&signature_type(ty), constraint, &Default::default())
 }

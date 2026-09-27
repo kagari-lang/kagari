@@ -1,19 +1,33 @@
 //! Associated types are declaration-owned projections, never diagnostic names.
+
+use super::constraints;
+use super::ty;
 use super::{
     ConstraintTarget, TypeTable,
     ty::{TypeContext, resolve_named_type, resolve_type_in},
 };
+use crate::aggregates;
+use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use crate::lower::LoweredModule;
+use crate::resolver::ResolvedName;
+use crate::types::AssociatedTypeFamily;
+use crate::types::AssociatedTypeParameters;
 use crate::{
     hir,
     types::{NominalType, TypeId, associated_type_id},
 };
+use kagari_common::Diagnostic;
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use smallvec::SmallVec;
+use std::cell::RefCell;
+use std::collections::HashSet;
 
 pub(super) fn prepare(
-    lowered: &crate::lower::LoweredModule,
-    declarations: &crate::declarations::Declarations,
+    lowered: &LoweredModule,
+    declarations: &Declarations,
     table: &mut TypeTable,
-    diagnostics: &mut smallvec::SmallVec<[kagari_common::Diagnostic; 4]>,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
     use kagari_common::{Diagnostic, DiagnosticKind};
@@ -25,11 +39,10 @@ pub(super) fn prepare(
         .with_span(lowered.source_map.type_span(item.name_ref))
     };
     for item in &lowered.module.traits {
-        let Some(owner) = declarations.definition(crate::resolver::ResolvedName::Trait(item.id))
-        else {
+        let Some(owner) = declarations.definition(ResolvedName::Trait(item.id)) else {
             continue;
         };
-        let mut names = std::collections::HashSet::new();
+        let mut names = HashSet::new();
         for member in &item.associated_types {
             if !names.insert(&member.name) {
                 diagnostics.push(error(member, "duplicate declaration"));
@@ -37,7 +50,7 @@ pub(super) fn prepare(
             if member.ty.is_some() {
                 diagnostics.push(error(member, "associated type defaults are not supported"));
             }
-            let mut parameter_names = std::collections::HashSet::new();
+            let mut parameter_names = HashSet::new();
             for parameter in &member.generic_params {
                 if !parameter_names.insert(&parameter.name) {
                     diagnostics.push(error(member, "duplicate generic parameter"));
@@ -49,7 +62,7 @@ pub(super) fn prepare(
                 .chain(&member.generic_params)
                 .cloned()
                 .collect::<Vec<_>>();
-            super::constraints::resolve_owner_in(
+            constraints::resolve_owner_in(
                 lowered,
                 &member.parameter_bounds,
                 TypeContext {
@@ -80,7 +93,7 @@ pub(super) fn prepare(
                 implementation: None,
             };
             for bound in &member.bounds {
-                super::constraints::resolve_constraint(
+                constraints::resolve_constraint(
                     lowered,
                     bound,
                     context,
@@ -119,13 +132,13 @@ pub(super) fn prepare(
         if !interface.associated_types.is_empty() {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
-                    name: super::ty::display_type(&lowered.module, reference.ty),
+                    name: ty::display_type(&lowered.module, reference.ty),
                     reason: "define associated types in the impl body, not the impl header".into(),
                 })
                 .with_span(lowered.source_map.type_span(reference.ty)),
             );
         }
-        let mut names = std::collections::HashSet::new();
+        let mut names = HashSet::new();
         for member in &item.associated_types {
             if !names.insert(&member.name) {
                 diagnostics.push(
@@ -158,7 +171,7 @@ pub(super) fn prepare(
                     "generic parameter count differs from the trait declaration",
                 ));
             }
-            let mut parameter_names = std::collections::HashSet::new();
+            let mut parameter_names = HashSet::new();
             for parameter in &member.generic_params {
                 if !parameter_names.insert(&parameter.name) {
                     diagnostics.push(error(member, "duplicate generic parameter"));
@@ -171,7 +184,7 @@ pub(super) fn prepare(
                     .chain(&member.generic_params)
                     .cloned()
                     .collect::<Vec<_>>();
-                super::constraints::resolve_owner_in(
+                constraints::resolve_owner_in(
                     lowered,
                     &member.parameter_bounds,
                     TypeContext {
@@ -209,7 +222,7 @@ pub(super) fn prepare(
                     let owner = declarations.impl_identity(item.id).expect("impl identity");
                     table.associated_type_families.insert(
                         associated_type_id(owner, &member.name),
-                        crate::types::AssociatedTypeFamily {
+                        AssociatedTypeFamily {
                             inputs: family_inputs(member, declarations, table),
                             value,
                         },
@@ -234,11 +247,10 @@ pub(super) fn prepare(
 
 fn family_inputs(
     member: &hir::AssociatedType,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &TypeTable,
-) -> crate::types::AssociatedTypeParameters {
-    let mut bounds =
-        super::constraints::parameter_bounds(&member.generic_params, declarations, table);
+) -> AssociatedTypeParameters {
+    let mut bounds = constraints::parameter_bounds(&member.generic_params, declarations, table);
     for bound in &member.parameter_bounds {
         if let Some(target) = table.type_ref(bound.target_ref) {
             bounds.entry(target.ty.clone()).or_default().extend(
@@ -249,7 +261,7 @@ fn family_inputs(
             );
         }
     }
-    crate::types::AssociatedTypeParameters {
+    AssociatedTypeParameters {
         parameters: member
             .generic_params
             .iter()
@@ -261,11 +273,11 @@ fn family_inputs(
 
 pub(super) fn member_arity(
     module: &hir::Module,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     owner: &DefinitionId,
     name: &str,
 ) -> Option<usize> {
-    if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+    if let Some(kind) = StandardTrait::from_id(owner) {
         let id = associated_type_id(owner, name);
         return kind.contract().associated_types.contains_key(&id).then(|| {
             kind.contract()
@@ -274,9 +286,11 @@ pub(super) fn member_arity(
                 .map_or(0, |p| p.parameters.len())
         });
     }
-    if let Some(item) = module.traits.iter().find(|item| {
-        declarations.definition(crate::resolver::ResolvedName::Trait(item.id)) == Some(owner)
-    }) {
+    if let Some(item) = module
+        .traits
+        .iter()
+        .find(|item| declarations.definition(ResolvedName::Trait(item.id)) == Some(owner))
+    {
         return item
             .associated_types
             .iter()
@@ -293,10 +307,10 @@ pub(super) fn member_arity(
 
 pub(super) fn members(
     module: &hir::Module,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     owner: &DefinitionId,
 ) -> Vec<String> {
-    if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+    if let Some(kind) = StandardTrait::from_id(owner) {
         return kind
             .contract()
             .associated_types
@@ -304,9 +318,11 @@ pub(super) fn members(
             .filter_map(|id| id.path.last().map(|p| p.name.clone()))
             .collect();
     }
-    if let Some(item) = module.traits.iter().find(|item| {
-        declarations.definition(crate::resolver::ResolvedName::Trait(item.id)) == Some(owner)
-    }) {
+    if let Some(item) = module
+        .traits
+        .iter()
+        .find(|item| declarations.definition(ResolvedName::Trait(item.id)) == Some(owner))
+    {
         return item
             .associated_types
             .iter()
@@ -656,17 +672,19 @@ pub(super) fn qualified_projection(
 /// signatures and the complete implementation catalog have been assembled.
 fn inherited_traits(
     module: &hir::Module,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     interface: &NominalType,
     receiver: &TypeId,
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
-    let table = std::cell::RefCell::new(table);
-    crate::aggregates::trait_inheritance_closure(interface, receiver, cancel, &|owner| {
-        if let Some(item) = module.traits.iter().find(|item| {
-            declarations.definition(crate::resolver::ResolvedName::Trait(item.id)) == Some(owner)
-        }) {
+    let table = RefCell::new(table);
+    aggregates::trait_inheritance_closure(interface, receiver, cancel, &|owner| {
+        if let Some(item) = module
+            .traits
+            .iter()
+            .find(|item| declarations.definition(ResolvedName::Trait(item.id)) == Some(owner))
+        {
             let params = item
                 .generic_params
                 .iter()
@@ -699,7 +717,7 @@ fn inherited_traits(
                 .collect();
             Some((params, parents))
         } else {
-            if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+            if let Some(kind) = StandardTrait::from_id(owner) {
                 return Some((
                     kind.contract().generic_params.clone(),
                     kind.contract().supertraits.clone(),

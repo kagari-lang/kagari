@@ -1,10 +1,23 @@
 //! A function query resolves and checks just that body and its module constants.
+
 use super::signature_queries::BodyEnvironment;
 use super::*;
+use crate::declarations::DeclarationId;
+use crate::declarations::Declarations;
+use crate::hir::BodyOwner;
+use crate::lower::LoweredModule;
+use crate::resolver;
+use crate::resolver::ResolvedNames;
+use crate::typeck;
+use crate::typeck::BodyInputs;
+use crate::typeck::BodyReuse;
+use crate::typeck::TypeTable;
+use crate::typeck::TypedModule;
 use crate::{
     hir::{BodySelection, FunctionId, FunctionKind},
     resolver::ResolvedName,
 };
+use kagari_common::Diagnostic;
 
 #[cfg(test)]
 mod tests;
@@ -17,15 +30,15 @@ pub struct FunctionAnalysis {
     signatures: SignatureSnapshot,
     file: Arc<FileSignatures>,
     environment: BodyEnvironment,
-    names: crate::resolver::ResolvedNames,
-    declarations: crate::declarations::Declarations,
-    typed: AnalysisResult<crate::typeck::TypedModule>,
+    names: ResolvedNames,
+    declarations: Declarations,
+    typed: AnalysisResult<TypedModule>,
 }
 
 impl FunctionAnalysis {
     fn contains(&self, offset: usize) -> bool {
         self.names.scopes().iter().any(|scope| {
-            scope.owner == crate::hir::BodyOwner::Function(self.function)
+            scope.owner == BodyOwner::Function(self.function)
                 && scope.span.start <= offset
                 && offset <= scope.span.end
         })
@@ -50,24 +63,24 @@ impl FunctionAnalysis {
         &self.signatures
     }
     /// Local IDs are interpreted only against this result's lowering and facts.
-    pub fn lowered(&self) -> &crate::lower::LoweredModule {
+    pub fn lowered(&self) -> &LoweredModule {
         &self.file.prepared.lowered
     }
     pub fn function(&self) -> FunctionId {
         self.function
     }
-    pub fn names(&self) -> &crate::resolver::ResolvedNames {
+    pub fn names(&self) -> &ResolvedNames {
         &self.names
     }
-    pub fn declarations(&self) -> &crate::declarations::Declarations {
+    pub fn declarations(&self) -> &Declarations {
         &self.declarations
     }
-    pub fn type_table(&self) -> &crate::typeck::TypeTable {
+    pub fn type_table(&self) -> &TypeTable {
         &self.typed.facts.type_table
     }
     /// Body diagnostics and module-constant prerequisites. Header diagnostics are
     /// available separately through the retained signature snapshot.
-    pub fn diagnostics(&self) -> &[kagari_common::Diagnostic] {
+    pub fn diagnostics(&self) -> &[Diagnostic] {
         self.typed.diagnostics()
     }
     pub fn checked_bodies(&self) -> usize {
@@ -123,7 +136,7 @@ impl AnalysisDatabase {
         } else {
             let prepared = &file.prepared;
             let selection = BodySelection::Function(function);
-            let names = crate::resolver::resolve_bodies(
+            let names = resolver::resolve_bodies(
                 &prepared.lowered,
                 &prepared.names.facts,
                 selection,
@@ -156,18 +169,18 @@ impl AnalysisDatabase {
                             .aggregates
                             .same_contracts(&environment.aggregates)
                 })
-                .map(|old| crate::typeck::BodyReuse {
+                .map(|old| BodyReuse {
                     previous_diagnostics: old.diagnostics(),
                     previous_lowered: old.lowered(),
                     previous_types: old.type_table(),
                     old_text: old.source().text(),
                     new_text: file.source().text(),
                 });
-            let typed = crate::typeck::check_bodies_controlled(
+            let typed = typeck::check_bodies_controlled(
                 &prepared.lowered,
                 &names,
                 &declarations,
-                crate::typeck::BodyInputs {
+                BodyInputs {
                     const_limits: self.const_limits,
                     selection,
                     signatures: &prepared.signatures,
@@ -203,7 +216,7 @@ impl AnalysisDatabase {
             self.body_revision = declarations.revision();
             self.body_cache.retain(|id, _| {
                 declarations
-                    .declaration(&crate::declarations::DeclarationId::Definition(id.clone()))
+                    .declaration(&DeclarationId::Definition(id.clone()))
                     .is_some()
             });
             if let Some(result) = result {

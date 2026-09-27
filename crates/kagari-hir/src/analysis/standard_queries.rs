@@ -1,5 +1,7 @@
 //! Standard API queries consume checked semantic targets and the bundled source catalog.
+
 use super::*;
+use crate::builtin::traits;
 use crate::{
     builtin::{
         declarations::{self, ApiItem, Arguments},
@@ -271,7 +273,7 @@ impl FileAnalysis {
                     }
                     return constraints.iter().all(|constraint| {
                         let required = constraint.nominal(&bindings);
-                        crate::builtin::traits::intrinsic_applies(
+                        traits::intrinsic_applies(
                             &required,
                             &actual,
                             Some(&self.result.facts().aggregates),

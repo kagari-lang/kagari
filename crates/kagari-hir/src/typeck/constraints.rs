@@ -1,3 +1,7 @@
+use super::ty;
+use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use hir::TypeKind;
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
 
@@ -16,7 +20,7 @@ use super::{
 /// Resolve bounds once in their declaring context, before signatures and bodies.
 pub(super) fn resolve_constraints(
     lowered: &LoweredModule,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
@@ -107,7 +111,7 @@ pub(super) fn resolve_owner(
     lowered: &LoweredModule,
     generics: &[hir::GenericParam],
     bounds: &[hir::TraitBound],
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
@@ -154,8 +158,8 @@ pub(super) fn resolve_owner_in(
             .type_ref(bound.target_ref)
             .is_some_and(|reference| !reference.ty.is_unresolved())
             && match &lowered.module.type_ref(bound.target_ref).kind {
-                hir::TypeKind::Projection { .. } => true,
-                hir::TypeKind::Named(name) => name
+                TypeKind::Projection { .. } => true,
+                TypeKind::Named(name) => name
                     .split_once("::")
                     .is_some_and(|(base, _)| generics.iter().any(|param| param.name == base)),
                 _ => false,
@@ -187,8 +191,8 @@ pub(super) fn resolve_constraint(
     }
     // Every trait constraint retains its applied type arguments in its identity.
     let (name, applied) = match &lowered.module.type_ref(reference.ty).kind {
-        hir::TypeKind::Generic { name, .. } => (name, true),
-        hir::TypeKind::Named(name) => (name, false),
+        TypeKind::Generic { name, .. } => (name, true),
+        TypeKind::Named(name) => (name, false),
         _ => unreachable!("trait references have a named base"),
     };
     let resolved = if applied {
@@ -198,11 +202,9 @@ pub(super) fn resolve_constraint(
             .cloned()
             .expect("resolved trait application")
     } else {
-        super::ty::resolve_named_type(name, context)
+        ty::resolve_named_type(name, context)
     };
-    if applied
-        && let hir::TypeKind::Generic { args, .. } = &lowered.module.type_ref(reference.ty).kind
-    {
+    if applied && let TypeKind::Generic { args, .. } = &lowered.module.type_ref(reference.ty).kind {
         for argument in args {
             if table
                 .type_ref(*argument)
@@ -210,7 +212,7 @@ pub(super) fn resolve_constraint(
             {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
-                        type_name: super::ty::display_type(&lowered.module, *argument),
+                        type_name: ty::display_type(&lowered.module, *argument),
                     })
                     .with_span(lowered.source_map.type_span(*argument)),
                 );
@@ -226,8 +228,7 @@ pub(super) fn resolve_constraint(
         .map(ConstraintTarget::Standard)
         .or(match &resolved.ty {
             TypeId::Trait(instance)
-                if crate::builtin::traits::StandardTrait::from_id(&instance.declaration)
-                    .is_some()
+                if StandardTrait::from_id(&instance.declaration).is_some()
                     || context
                         .declarations
                         .definition_target(&instance.declaration)
@@ -271,12 +272,12 @@ pub(super) fn resolve_constraint(
         diagnostics.push(
             Diagnostic::error(if let Some(reason) = reason {
                 DiagnosticKind::InvalidTraitReference {
-                    trait_name: super::ty::display_type(&lowered.module, reference.ty),
+                    trait_name: ty::display_type(&lowered.module, reference.ty),
                     reason,
                 }
             } else {
                 DiagnosticKind::UnknownTrait {
-                    trait_name: super::ty::display_type(&lowered.module, reference.ty),
+                    trait_name: ty::display_type(&lowered.module, reference.ty),
                 }
             })
             .with_span(lowered.source_map.type_span(reference.ty)),
@@ -289,7 +290,7 @@ pub(super) fn resolve_constraint(
 pub(super) fn function_bounds(
     module: &hir::Module,
     function: &hir::Function,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
     let mut result = parameter_bounds(&function.generic_params, declarations, table);
@@ -322,7 +323,7 @@ pub(super) fn function_bounds(
 
 pub(super) fn implementation_bounds(
     implementation: &hir::Impl,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
     let mut result = parameter_bounds(&implementation.generic_params, declarations, table);
@@ -345,7 +346,7 @@ pub(super) fn implementation_bounds(
 
 pub(super) fn parameter_bounds(
     params: &[hir::GenericParam],
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
     params
@@ -379,7 +380,7 @@ pub fn type_satisfies_standard_constraint(
         }
         _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
             .get(ty)
-            .is_some_and(|bounds| bounds.contains(&super::ConstraintTarget::Standard(constraint))),
+            .is_some_and(|bounds| bounds.contains(&ConstraintTarget::Standard(constraint))),
         StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
         StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
     }

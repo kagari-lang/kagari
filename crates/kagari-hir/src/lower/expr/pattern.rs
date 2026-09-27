@@ -1,3 +1,5 @@
+use crate::hir::PatternField;
+use ast::PatternBound as AstPatternBound;
 use kagari_syntax::ast;
 
 use crate::hir::pattern::PatternBound;
@@ -23,10 +25,10 @@ impl Lowerer {
             )
         } else if let Some(inclusive) = pattern.range_inclusive() {
             let mut bounds = pattern.range_bounds().map(|bound| match bound {
-                ast::PatternBound::Literal(literal) => {
+                AstPatternBound::Literal(literal) => {
                     PatternBound::Literal(self.lower_literal(&literal))
                 }
-                ast::PatternBound::Path(path) => {
+                AstPatternBound::Path(path) => {
                     PatternBound::Path(path.name_text().unwrap_or_default())
                 }
             });
@@ -70,7 +72,7 @@ impl Lowerer {
                                 },
                             )
                         };
-                        crate::hir::PatternField { name, pattern }
+                        PatternField { name, pattern }
                     })
                     .collect(),
             }

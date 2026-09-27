@@ -1,6 +1,10 @@
 use kagari_ir::bytecode::StandardIntrinsic;
 use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
+use kagari_ir::module::instruction::IterOp;
+use kagari_runtime::numeric;
+use kagari_runtime::range::RangeValue;
 use kagari_runtime::{HostPathDescriptorId, value::Value};
+use std::iter;
 
 use crate::error::VmError;
 use crate::executor::Executor;
@@ -17,7 +21,7 @@ impl<'a> Executor<'a> {
                 conversion,
             } => {
                 let value = self.current_frame()?.read_register(src)?;
-                let value = kagari_runtime::numeric::convert(self.runtime.gc(), conversion, value)?;
+                let value = numeric::convert(self.runtime.gc(), conversion, value)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::Numeric {
@@ -33,7 +37,7 @@ impl<'a> Executor<'a> {
                             .and_then(|frame| frame.read_register(r).map_err(Into::into))
                     })
                     .transpose()?;
-                let value = kagari_runtime::numeric::fixed_integer(operation, lhs, rhs)?;
+                let value = numeric::fixed_integer(operation, lhs, rhs)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::MapResultError {
@@ -57,7 +61,7 @@ impl<'a> Executor<'a> {
                 let source = self
                     .current_frame()?
                     .read_register(value.ok_or(VmError::TypeMismatch("iterator source"))?)?;
-                if op == kagari_ir::module::instruction::IterOp::Next
+                if op == IterOp::Next
                     && let Some(step) = self.runtime.gc().iter_step(&source, &ty)?
                 {
                     let closure = self.runtime.resolve_closure(&step)?;
@@ -215,9 +219,8 @@ impl<'a> Executor<'a> {
                 let start = start.map(|r| frame.read_register(r)).transpose()?;
                 let end = end.map(|r| frame.read_register(r)).transpose()?;
                 drop(frame);
-                let value =
-                    kagari_runtime::range::RangeValue::new(&ty, start.as_ref(), end.as_ref())
-                        .map_err(VmError::RuntimeError)?;
+                let value = RangeValue::new(&ty, start.as_ref(), end.as_ref())
+                    .map_err(VmError::RuntimeError)?;
                 self.current_frame_mut()?
                     .write_register(dst, Value::Range(value))?;
             }
@@ -467,7 +470,7 @@ impl<'a> Executor<'a> {
                     .runtime
                     .resolve_interface_method_slot(boxed, &interface, method_slot as usize)
                     .map_err(VmError::RuntimeError)?;
-                let arguments = std::iter::once(resolved.receiver().clone())
+                let arguments = iter::once(resolved.receiver().clone())
                     .chain(arg_values.into_iter().skip(1))
                     .collect::<Vec<_>>();
                 self.stack
@@ -526,7 +529,7 @@ impl<'a> Executor<'a> {
 
     fn dispatch_standard_intrinsic(
         &mut self,
-        intrinsic: kagari_ir::bytecode::StandardIntrinsic,
+        intrinsic: StandardIntrinsic,
         dst: Option<Register>,
         args: Vec<Value>,
     ) -> Result<(), VmError> {

@@ -1,5 +1,14 @@
+use crate::error::RuntimeError;
+use crate::gc::HeapObjectId;
+use crate::numeric;
+use crate::parsing;
+use crate::range;
 use crate::value::EnumTag;
+use crate::value::EnumValueSnapshot;
+use crate::value_semantics;
+use kagari_common::arithmetic;
 use kagari_ir::builtin::surface::StandardIntrinsic;
+use std::cmp::Ordering;
 
 use crate::{
     builtin::BuiltinError,
@@ -73,13 +82,11 @@ pub fn invoke_with_callbacks(
         }
         StandardIntrinsic::StringParse => Err(BuiltinError::new("parse requires static dispatch")),
         StandardIntrinsic::ParseNumber(ty) => {
-            crate::parsing::parse(gc, ty, args, false).map_err(Into::into)
+            parsing::parse(gc, ty, args, false).map_err(Into::into)
         }
-        StandardIntrinsic::ParseRadix(ty) => {
-            crate::parsing::parse(gc, ty, args, true).map_err(Into::into)
-        }
+        StandardIntrinsic::ParseRadix(ty) => parsing::parse(gc, ty, args, true).map_err(Into::into),
         StandardIntrinsic::Integer(operation, ty) => {
-            crate::numeric::integer_method(gc, operation, ty, args).map_err(Into::into)
+            numeric::integer_method(gc, operation, ty, args).map_err(Into::into)
         }
         StandardIntrinsic::CollectionMutationBegin
         | StandardIntrinsic::CollectionMutationEnd
@@ -106,7 +113,7 @@ pub fn invoke_with_callbacks(
             let [a, b] = args else {
                 return Err(BuiltinError::new("comparison requires two operands"));
             };
-            let ordering = crate::value_semantics::builtin_order(gc, a, b)?;
+            let ordering = value_semantics::builtin_order(gc, a, b)?;
             let Some(ordering) = ordering else {
                 if intrinsic == StandardIntrinsic::ValueCmp {
                     return Err(BuiltinError::new("total comparison cannot be unordered"));
@@ -114,9 +121,9 @@ pub fn invoke_with_callbacks(
                 return option_none(gc);
             };
             let tag = match ordering {
-                std::cmp::Ordering::Less => EnumTag::OrderingLess,
-                std::cmp::Ordering::Equal => EnumTag::OrderingEqual,
-                std::cmp::Ordering::Greater => EnumTag::OrderingGreater,
+                Ordering::Less => EnumTag::OrderingLess,
+                Ordering::Equal => EnumTag::OrderingEqual,
+                Ordering::Greater => EnumTag::OrderingGreater,
             };
             let value = Value::Enum(gc.alloc_enum(tag, vec![])?);
             if intrinsic == StandardIntrinsic::ValuePartialCmp {
@@ -129,7 +136,7 @@ pub fn invoke_with_callbacks(
             let [a, b] = args else {
                 return Err(BuiltinError::new("eq expects two operands"));
             };
-            crate::value_semantics::script_equal(gc, a, b)
+            value_semantics::script_equal(gc, a, b)
                 .map(Value::Bool)
                 .map_err(BuiltinError::from)
         }
@@ -147,13 +154,9 @@ pub fn invoke_with_callbacks(
             let [value] = args else {
                 return Err(BuiltinError::new("format expects one operand"));
             };
-            crate::value_semantics::format_value(
-                gc,
-                value,
-                intrinsic == StandardIntrinsic::ValueDebug,
-            )
-            .map(Value::Str)
-            .map_err(BuiltinError::from)
+            value_semantics::format_value(gc, value, intrinsic == StandardIntrinsic::ValueDebug)
+                .map(Value::Str)
+                .map_err(BuiltinError::from)
         }
         StandardIntrinsic::ArrayListNew => {
             if !args.is_empty() {
@@ -201,8 +204,8 @@ pub fn invoke_with_callbacks(
             let [Value::Array(target), start, end] = args else {
                 return Err(BuiltinError::new("invalid remove range operands"));
             };
-            let start = crate::range::index_bound(gc, start)?;
-            let end = crate::range::index_bound(gc, end)?;
+            let start = range::index_bound(gc, start)?;
+            let end = range::index_bound(gc, end)?;
             gc.prepare_array_removal(*target, start, end)
                 .map_err(Into::into)
         }
@@ -218,8 +221,8 @@ pub fn invoke_with_callbacks(
                 _ => return Err(BuiltinError::new("invalid copy destination")),
             })
             .map_err(|_| BuiltinError::new("copy destination exceeds platform capacity"))?;
-            let start = crate::range::index_bound(gc, start)?;
-            let end = crate::range::index_bound(gc, end)?;
+            let start = range::index_bound(gc, start)?;
+            let end = range::index_bound(gc, end)?;
             gc.array_copy_within(*target, start, end, destination)?;
             Ok(Value::Unit)
         }
@@ -443,11 +446,7 @@ fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         ));
     };
     gc.with_array(*handle, |values| {
-        let overflow = || {
-            BuiltinError::from(crate::error::RuntimeError::resource_limit(
-                "joined string size",
-            ))
-        };
+        let overflow = || BuiltinError::from(RuntimeError::resource_limit("joined string size"));
         let mut length = separator
             .len()
             .checked_mul(values.len().saturating_sub(1))
@@ -761,11 +760,7 @@ fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Valu
             "string operation requires a string receiver",
         ));
     };
-    let allocation = || {
-        BuiltinError::from(crate::error::RuntimeError::resource_limit(
-            "string result size",
-        ))
-    };
+    let allocation = || BuiltinError::from(RuntimeError::resource_limit("string result size"));
     match (intrinsic, args) {
         (StandardIntrinsic::StringIsAscii, [_]) => Ok(Value::Bool(text.is_ascii())),
         (StandardIntrinsic::StringEqIgnoreAsciiCase, [_, Value::Str(other)]) => {
@@ -820,11 +815,7 @@ fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Valu
 }
 
 fn replace_string(text: &str, from: &str, to: &str, count: usize) -> Result<Value, BuiltinError> {
-    let allocation = || {
-        BuiltinError::from(crate::error::RuntimeError::resource_limit(
-            "string replacement size",
-        ))
-    };
+    let allocation = || BuiltinError::from(RuntimeError::resource_limit("string replacement size"));
     let mut length = text.len();
     for (_, matched) in text.match_indices(from).take(count) {
         length = length
@@ -919,11 +910,9 @@ fn string_query(
 
 fn copy_string(text: &str) -> Result<Value, BuiltinError> {
     let mut output = String::new();
-    output.try_reserve_exact(text.len()).map_err(|_| {
-        BuiltinError::from(crate::error::RuntimeError::resource_limit(
-            "string allocation",
-        ))
-    })?;
+    output
+        .try_reserve_exact(text.len())
+        .map_err(|_| BuiltinError::from(RuntimeError::resource_limit("string allocation")))?;
     output.push_str(text);
     Ok(Value::Str(output))
 }
@@ -1176,10 +1165,10 @@ fn math_abs(args: &[Value]) -> Result<Value, BuiltinError> {
         return Err(BuiltinError::new("math.abs expects one value"));
     };
     match value {
-        Value::I32(value) => kagari_common::arithmetic::i32_abs(*value)
+        Value::I32(value) => arithmetic::i32_abs(*value)
             .map(Value::I32)
             .map_err(|error| BuiltinError::new(error.message())),
-        Value::I64(value) => kagari_common::arithmetic::i64_abs(*value)
+        Value::I64(value) => arithmetic::i64_abs(*value)
             .map(Value::I64)
             .map_err(|error| BuiltinError::new(error.message())),
         Value::F32(value) if value.is_finite() => Ok(Value::F32(value.abs())),
@@ -1246,7 +1235,7 @@ fn debug_assert_eq(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
             "debug.assert_eq expects two values and string message",
         ));
     };
-    if crate::value_semantics::script_equal(gc, lhs, rhs)
+    if value_semantics::script_equal(gc, lhs, rhs)
         .map_err(|error| BuiltinError::new(error.to_string()))?
     {
         Ok(Value::Unit)
@@ -1262,21 +1251,21 @@ fn debug_panic(args: &[Value]) -> Result<Value, BuiltinError> {
     Err(BuiltinError::new(format!("debug.panic: {message}")))
 }
 
-fn one_array(args: &[Value], name: &'static str) -> Result<crate::gc::HeapObjectId, BuiltinError> {
+fn one_array(args: &[Value], name: &'static str) -> Result<HeapObjectId, BuiltinError> {
     let [Value::Array(handle)] = args else {
         return Err(BuiltinError::new(format!("{name} expects one array")));
     };
     Ok(*handle)
 }
 
-fn one_map(args: &[Value], name: &'static str) -> Result<crate::gc::HeapObjectId, BuiltinError> {
+fn one_map(args: &[Value], name: &'static str) -> Result<HeapObjectId, BuiltinError> {
     let [Value::Map(handle)] = args else {
         return Err(BuiltinError::new(format!("{name} expects one map")));
     };
     Ok(*handle)
 }
 
-fn one_set(args: &[Value], name: &'static str) -> Result<crate::gc::HeapObjectId, BuiltinError> {
+fn one_set(args: &[Value], name: &'static str) -> Result<HeapObjectId, BuiltinError> {
     let [Value::Set(handle)] = args else {
         return Err(BuiltinError::new(format!("{name} expects one set")));
     };
@@ -1347,7 +1336,7 @@ fn option_value(
     gc: &GcHeap,
     args: &[Value],
     name: &'static str,
-) -> Result<crate::value::EnumValueSnapshot, BuiltinError> {
+) -> Result<EnumValueSnapshot, BuiltinError> {
     let [value] = args else {
         return Err(BuiltinError::new(format!("{name} expects one option")));
     };
@@ -1358,7 +1347,7 @@ fn result_value(
     gc: &GcHeap,
     args: &[Value],
     name: &'static str,
-) -> Result<crate::value::EnumValueSnapshot, BuiltinError> {
+) -> Result<EnumValueSnapshot, BuiltinError> {
     let [value] = args else {
         return Err(BuiltinError::new(format!("{name} expects one result")));
     };
@@ -1369,7 +1358,7 @@ fn option_snapshot(
     gc: &GcHeap,
     value: &Value,
     name: &'static str,
-) -> Result<crate::value::EnumValueSnapshot, BuiltinError> {
+) -> Result<EnumValueSnapshot, BuiltinError> {
     let Value::Enum(handle) = value else {
         return Err(BuiltinError::new(format!("{name} expects Option value")));
     };
@@ -1386,7 +1375,7 @@ fn result_snapshot(
     gc: &GcHeap,
     value: &Value,
     name: &'static str,
-) -> Result<crate::value::EnumValueSnapshot, BuiltinError> {
+) -> Result<EnumValueSnapshot, BuiltinError> {
     let Value::Enum(handle) = value else {
         return Err(BuiltinError::new(format!("{name} expects Result value")));
     };
@@ -1455,11 +1444,11 @@ fn compare_ordered(lhs: &Value, rhs: &Value, name: &'static str) -> Result<i8, B
     }
 }
 
-fn ordering_value(ordering: std::cmp::Ordering) -> i8 {
+fn ordering_value(ordering: Ordering) -> i8 {
     match ordering {
-        std::cmp::Ordering::Less => -1,
-        std::cmp::Ordering::Equal => 0,
-        std::cmp::Ordering::Greater => 1,
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
     }
 }
 

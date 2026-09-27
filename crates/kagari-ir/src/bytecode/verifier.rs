@@ -1,5 +1,26 @@
+use super::RootSlotLayout;
+use super::RuntimeHelper;
+use super::access;
+use super::trait_bounds;
+use crate::bytecode::PathRecord;
+use crate::module::BinaryOp as IrBinaryOp;
+use crate::module::InterfaceTableAbi;
+use crate::module::StructFieldLayout;
+use crate::module::UnaryOp as IrUnaryOp;
+use crate::module::abi;
+use crate::module::abi::AbiType;
+use crate::module::abi::verify;
+use crate::module::contracts;
+use crate::module::contracts::ContractError;
+use crate::module::contracts::RuntimeHelperKind;
+use crate::module::host;
+use crate::module::instruction;
+use crate::module::layout;
+use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
+use kagari_hir::builtin::declarations;
 use std::collections::HashSet;
+use std::iter;
 
 use crate::{
     bytecode::{
@@ -167,7 +188,7 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
     verify_module_with_program(module, None)?;
-    if !super::trait_bounds::trait_bounds_match(module, &[module], None) {
+    if !trait_bounds::trait_bounds_match(module, &[module], None) {
         return Err(BytecodeVerificationError::InvalidHostInterface(
             "trait output or host bound has no unique valid implementation".into(),
         ));
@@ -187,22 +208,18 @@ pub(super) fn verify_module_with_program(
     {
         return Err(BytecodeVerificationError::InvalidPathLayout);
     }
-    crate::module::abi::verify::validate(
-        &module.public_items,
-        &module.identity,
-        &Default::default(),
-    )
-    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    crate::module::abi::verify::validate_trait_contracts(
+    verify::validate(&module.public_items, &module.identity, &Default::default())
+        .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    verify::validate_trait_contracts(
         &module.trait_contracts,
         &module.public_items,
         &module.identity,
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    crate::module::layout::validate_layouts(&module.structures, &Default::default())
+    layout::validate_layouts(&module.structures, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
-    if !crate::module::layout::struct_abi_matches(
+    if !layout::struct_abi_matches(
         &module.structures,
         &module.identity,
         &module.public_items,
@@ -212,7 +229,7 @@ pub(super) fn verify_module_with_program(
     {
         return Err(BytecodeVerificationError::InvalidStructLayout);
     }
-    if !crate::module::layout::enum_abi_matches(
+    if !layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,
         &module.public_items,
@@ -222,13 +239,13 @@ pub(super) fn verify_module_with_program(
     {
         return Err(BytecodeVerificationError::InvalidEnumLayout);
     }
-    crate::module::layout::validate_enum_layouts(
+    layout::validate_enum_layouts(
         &module.enumerations,
         &module.structures,
         &Default::default(),
     )
     .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
-    crate::module::host::validate(
+    host::validate(
         &module.host_interface,
         &module.public_items,
         &module.structures,
@@ -236,7 +253,7 @@ pub(super) fn verify_module_with_program(
         &Default::default(),
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
-    if !crate::module::host::trait_bindings_match(
+    if !host::trait_bindings_match(
         &module.host_interface,
         &module.identity,
         &module.public_items,
@@ -285,7 +302,7 @@ pub(super) fn verify_module_with_program(
                 })
                 || identity.arguments.iter().any(|ty| {
                     !ty.within_wire_limits()
-                        || !crate::module::abi::verify::concrete_type_valid(ty, &Default::default())
+                        || !verify::concrete_type_valid(ty, &Default::default())
                 })
                 || !identities.insert(identity))
         {
@@ -418,14 +435,12 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .map(|params| {
                     params
                         .iter()
-                        .map(crate::module::abi::AbiType::representation)
+                        .map(AbiType::representation)
                         .collect::<Vec<_>>()
                 })
                 .as_ref()
                 != Some(&function.metadata.params)
-                || expected_return
-                    .as_ref()
-                    .map(crate::module::abi::AbiType::representation)
+                || expected_return.as_ref().map(AbiType::representation)
                     != Some(function.metadata.return_type)
                 || expected_params.as_ref().is_none_or(|params| {
                     params
@@ -444,10 +459,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .iter()
                 .filter(|method| method.generic_params.is_empty())
                 .filter(|method| {
-                    !kagari_hir::builtin::declarations::native_trait_default(
-                        &trait_type.declaration,
-                        &method.name,
-                    )
+                    !declarations::native_trait_default(&trait_type.declaration, &method.name)
                 })
                 .any(|method| {
                     table
@@ -470,13 +482,12 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
 }
 
 fn host_bridge_method_matches(
-    table: &crate::module::InterfaceTableAbi,
+    table: &InterfaceTableAbi,
     slot: &super::InterfaceMethodSlot,
     function: &BytecodeFunction,
     module: &BytecodeModule,
 ) -> bool {
-    let Some((_, implementation)) =
-        crate::module::host::host_bridge_implementation(table, &module.host_interface)
+    let Some((_, implementation)) = host::host_bridge_implementation(table, &module.host_interface)
     else {
         return false;
     };
@@ -520,12 +531,12 @@ fn host_bridge_method_matches(
 }
 
 fn instantiate_method_type(
-    ty: &crate::module::abi::AbiType,
-    impl_owner: &kagari_common::identity::DefinitionId,
-    impl_arguments: &[crate::module::abi::AbiType],
-    method_owner: &kagari_common::identity::DefinitionId,
-    method_arguments: &[crate::module::abi::AbiType],
-) -> Option<crate::module::abi::AbiType> {
+    ty: &AbiType,
+    impl_owner: &DefinitionId,
+    impl_arguments: &[AbiType],
+    method_owner: &DefinitionId,
+    method_arguments: &[AbiType],
+) -> Option<AbiType> {
     use crate::module::abi::{AbiType, NominalAbiType};
     let child = |ty: &AbiType| {
         instantiate_method_type(
@@ -611,16 +622,13 @@ fn verify_function(
     for instruction in &function.instructions {
         verify_instruction(module, function, instruction, program)?;
     }
-    super::access::verify(module, function, program)?;
+    access::verify(module, function, program)?;
     Ok(())
 }
 
 fn verify_root_layout(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {
     if function.metadata.roots
-        != super::RootSlotLayout::from_types(
-            &function.metadata.locals,
-            &function.metadata.registers,
-        )
+        != RootSlotLayout::from_types(&function.metadata.locals, &function.metadata.registers)
     {
         return Err(BytecodeVerificationError::InvalidRootLayout {
             function: function.id,
@@ -633,7 +641,7 @@ fn verify_metadata_types(
     module: &BytecodeModule,
     function: &BytecodeFunction,
 ) -> Result<(), BytecodeVerificationError> {
-    for ty in std::iter::once(&function.metadata.return_type)
+    for ty in iter::once(&function.metadata.return_type)
         .chain(&function.metadata.params)
         .chain(&function.metadata.locals)
         .chain(&function.metadata.registers)
@@ -777,15 +785,15 @@ fn verify_instruction(
         }
         BytecodeInstruction::Unary { dst, op, operand } => {
             let op = match op {
-                UnaryOp::Neg => crate::module::UnaryOp::Neg,
-                UnaryOp::Not => crate::module::UnaryOp::Not,
+                UnaryOp::Neg => IrUnaryOp::Neg,
+                UnaryOp::Not => IrUnaryOp::Not,
             };
-            let ty = crate::module::contracts::unary_result(op, register_ty(function, *operand)?)
+            let ty = contracts::unary_result(op, register_ty(function, *operand)?)
                 .map_err(|error| contract_error(function, error))?;
             expect_register_ty(function, *dst, ty, "unary dst")?;
         }
         BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-            let ty = crate::module::contracts::binary_result(
+            let ty = contracts::binary_result(
                 ir_binary_op(*op),
                 register_ty(function, *lhs)?,
                 register_ty(function, *rhs)?,
@@ -814,7 +822,7 @@ fn verify_instruction(
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "bound destination")?;
             expect_register_ty(function, *value, ValueType::HeapObject, "bound range")?;
-            if !crate::module::instruction::range_bound_valid(range, bound) {
+            if !instruction::range_bound_valid(range, bound) {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "invalid range bound contract",
@@ -828,7 +836,7 @@ fn verify_instruction(
             ty,
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "range destination")?;
-            if !crate::module::instruction::range_operands_valid(
+            if !instruction::range_operands_valid(
                 ty,
                 start.map(|r| register_ty(function, r)).transpose()?,
                 end.map(|r| register_ty(function, r)).transpose()?,
@@ -903,8 +911,8 @@ fn verify_instruction(
                 ValueType::HeapObject,
                 "interface receiver",
             )?;
-            if !crate::module::abi::AbiType::Trait(source.clone()).is_concrete()
-                || !crate::module::abi::AbiType::Trait(target.clone()).is_concrete()
+            if !AbiType::Trait(source.clone()).is_concrete()
+                || !AbiType::Trait(target.clone()).is_concrete()
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -1007,7 +1015,7 @@ fn verify_instruction(
             error,
             ty,
         } => {
-            let payload = crate::module::instruction::mapped_error_payload(ty).ok_or(
+            let payload = instruction::mapped_error_payload(ty).ok_or(
                 BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "invalid mapped Result contract",
@@ -1234,12 +1242,9 @@ fn verify_instruction(
             }
             expect_register_ty(function, *root_or_view, path.root_ty, "path root")?;
             expect_register_ty(function, *value, path.result_ty, "path modify value")?;
-            let result = crate::module::contracts::binary_result(
-                ir_binary_op(*op),
-                path.result_ty,
-                path.result_ty,
-            )
-            .map_err(|error| contract_error(function, error))?;
+            let result =
+                contracts::binary_result(ir_binary_op(*op), path.result_ty, path.result_ty)
+                    .map_err(|error| contract_error(function, error))?;
             if result != path.result_ty {
                 return Err(BytecodeVerificationError::TypeMismatch {
                     function: function.id,
@@ -1352,7 +1357,7 @@ fn verify_call(
                 None
             }
             .ok_or(BytecodeVerificationError::InvalidProgramGraph)?;
-            let (params, return_type) = crate::module::abi::interface_method_types(
+            let (params, return_type) = abi::interface_method_types(
                 &owner.identity,
                 &owner.public_items,
                 &owner.trait_contracts,
@@ -1386,7 +1391,7 @@ fn verify_call(
                 .map(|arg| register_ty(function, *arg))
                 .collect::<Result<Vec<_>, _>>()?;
             let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
-            crate::module::contracts::verify_host_call(dst, declaration, &args)
+            contracts::verify_host_call(dst, declaration, &args)
                 .map_err(|error| contract_error(function, error))?;
         }
         CallTarget::Register(_) => {
@@ -1415,7 +1420,7 @@ fn verify_call(
         CallTarget::StandardIntrinsic(intrinsic) => {
             verify_standard_intrinsic_call(function, dst, *intrinsic, args)?;
         }
-        CallTarget::RuntimeHelper(super::RuntimeHelper::DynamicCall) => {
+        CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
             return Err(BytecodeVerificationError::InvalidOperation {
                 function: function.id,
                 reason: "dynamic invocation has no executable contract",
@@ -1423,36 +1428,25 @@ fn verify_call(
         }
         CallTarget::RuntimeHelper(helper) => {
             let kind = match helper {
-                super::RuntimeHelper::ReflectTypeOf => {
-                    crate::module::contracts::RuntimeHelperKind::TypeOf
-                }
-                super::RuntimeHelper::ReflectGetField(_) => {
-                    crate::module::contracts::RuntimeHelperKind::GetField
-                }
-                super::RuntimeHelper::ReflectSetField(_) => {
-                    crate::module::contracts::RuntimeHelperKind::SetField
-                }
-                super::RuntimeHelper::ReflectSetIndex => {
-                    crate::module::contracts::RuntimeHelperKind::SetIndex
-                }
-                super::RuntimeHelper::DynamicCall => unreachable!(),
+                RuntimeHelper::ReflectTypeOf => RuntimeHelperKind::TypeOf,
+                RuntimeHelper::ReflectGetField(_) => RuntimeHelperKind::GetField,
+                RuntimeHelper::ReflectSetField(_) => RuntimeHelperKind::SetField,
+                RuntimeHelper::ReflectSetIndex => RuntimeHelperKind::SetIndex,
+                RuntimeHelper::DynamicCall => unreachable!(),
             };
             let args = args
                 .iter()
                 .map(|arg| register_ty(function, *arg))
                 .collect::<Result<Vec<_>, _>>()?;
             let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
-            crate::module::contracts::verify_runtime_helper_call(dst, kind, &args)
+            contracts::verify_runtime_helper_call(dst, kind, &args)
                 .map_err(|error| contract_error(function, error))?;
         }
     }
     Ok(())
 }
 
-fn contract_error(
-    function: &BytecodeFunction,
-    error: crate::module::contracts::ContractError,
-) -> BytecodeVerificationError {
+fn contract_error(function: &BytecodeFunction, error: ContractError) -> BytecodeVerificationError {
     use crate::module::contracts::ContractError;
     match error {
         ContractError::TypeMismatch {
@@ -1490,7 +1484,7 @@ fn verify_standard_intrinsic_call(
         .map(|arg| register_ty(function, *arg))
         .collect::<Result<Vec<_>, _>>()?;
     let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
-    crate::module::contracts::verify_intrinsic(dst, intrinsic, &args)
+    contracts::verify_intrinsic(dst, intrinsic, &args)
         .map_err(|error| contract_error(function, error))
 }
 
@@ -1500,8 +1494,7 @@ fn verify_call_dst(
     return_type: ValueType,
 ) -> Result<(), BytecodeVerificationError> {
     let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
-    crate::module::contracts::verify_call_dst(dst, return_type)
-        .map_err(|error| contract_error(function, error))
+    contracts::verify_call_dst(dst, return_type).map_err(|error| contract_error(function, error))
 }
 fn function_ref_exists(module: &BytecodeModule, target: FunctionRef) -> bool {
     target.index() < module.functions.len() && target.index() < module.function_table.len()
@@ -1511,7 +1504,7 @@ fn field_layout<'a>(
     module: &'a BytecodeModule,
     function: &BytecodeFunction,
     field: FieldRef,
-) -> Result<&'a crate::module::StructFieldLayout, BytecodeVerificationError> {
+) -> Result<&'a StructFieldLayout, BytecodeVerificationError> {
     module
         .structures
         .get(field.structure.index())
@@ -1526,7 +1519,7 @@ fn path_record<'a>(
     module: &'a BytecodeModule,
     function: &BytecodeFunction,
     path: PathId,
-) -> Result<&'a crate::bytecode::PathRecord, BytecodeVerificationError> {
+) -> Result<&'a PathRecord, BytecodeVerificationError> {
     let Some(record) = module.paths.get(path.index()) else {
         return Err(BytecodeVerificationError::InvalidPathId {
             function: function.id,
@@ -1641,7 +1634,7 @@ fn constant_type(constant: &ConstantOperand) -> ValueType {
     }
 }
 
-fn ir_binary_op(op: BinaryOp) -> crate::module::BinaryOp {
+fn ir_binary_op(op: BinaryOp) -> IrBinaryOp {
     use crate::module::BinaryOp as Ir;
     match op {
         BinaryOp::Numeric(op) => Ir::Numeric(op),

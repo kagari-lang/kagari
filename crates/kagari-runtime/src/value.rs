@@ -1,5 +1,16 @@
+use crate::gc::GcHeap;
 use crate::gc::HeapObjectId;
+use crate::host::HostRegistryId;
 use crate::host::{FrameHostBorrowToken, HostPathViewHandle, HostRootHandle};
+use crate::module::EnumVariantRef;
+use crate::range::RangeValue;
+use crate::value_semantics;
+use kagari_common::identity::DefinitionId;
+use kagari_ir::module::ValueType;
+use kagari_ir::module::abi::AbiType;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hash;
+use std::hash::Hasher;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructValueField {
@@ -27,7 +38,7 @@ pub enum EnumTag {
     OptionNone,
     ResultOk,
     ResultErr,
-    Declared(crate::module::EnumVariantRef),
+    Declared(EnumVariantRef),
 }
 
 impl EnumTag {
@@ -150,12 +161,7 @@ enum KeyPart {
     Str(String),
     Tuple(usize),
     StandardEnum(u8),
-    DeclaredEnum(
-        crate::host::HostRegistryId,
-        kagari_common::identity::DefinitionId,
-        Vec<kagari_ir::module::abi::AbiType>,
-        kagari_common::identity::DefinitionId,
-    ),
+    DeclaredEnum(HostRegistryId, DefinitionId, Vec<AbiType>, DefinitionId),
     Identity(u8, HeapObjectId),
 }
 impl PartialEq for MapKey {
@@ -164,12 +170,12 @@ impl PartialEq for MapKey {
     }
 }
 impl Eq for MapKey {}
-impl std::hash::Hash for MapKey {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for MapKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         if let Some((hash, _)) = self.custom {
-            std::hash::Hash::hash(&hash, state);
+            Hash::hash(&hash, state);
         } else {
-            std::hash::Hash::hash(&self.parts, state);
+            Hash::hash(&self.parts, state);
         }
     }
 }
@@ -185,7 +191,7 @@ impl MapKey {
         self.custom
     }
 
-    pub fn from_value(gc: &crate::gc::GcHeap, value: &Value) -> Option<Self> {
+    pub fn from_value(gc: &GcHeap, value: &Value) -> Option<Self> {
         let mut pending = vec![value.clone()];
         let mut parts = Vec::new();
         while let Some(value) = pending.pop() {
@@ -193,9 +199,7 @@ impl MapKey {
                 return None;
             }
             match value {
-                Value::Interface(_) => {
-                    pending.push(crate::value_semantics::collection_data(gc, &value)?)
-                }
+                Value::Interface(_) => pending.push(value_semantics::collection_data(gc, &value)?),
                 Value::Unit => parts.push(KeyPart::Unit),
                 Value::Bool(v) => parts.push(KeyPart::Bool(v)),
                 Value::I32(v) => parts.push(KeyPart::I32(v)),
@@ -252,7 +256,7 @@ impl MapKey {
     }
     pub fn script_hash(&self) -> i64 {
         use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish() as i64
     }
@@ -269,7 +273,7 @@ pub enum Value {
     F64(f64),
     Str(String),
     Tuple(Vec<Value>),
-    Range(crate::range::RangeValue),
+    Range(RangeValue),
     Array(HeapObjectId),
     Map(HeapObjectId),
     Set(HeapObjectId),
@@ -285,7 +289,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn has_representation(&self, ty: kagari_ir::module::ValueType) -> bool {
+    pub fn has_representation(&self, ty: ValueType) -> bool {
         use kagari_ir::module::ValueType as T;
         matches!(
             (self, ty),

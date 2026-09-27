@@ -1,8 +1,10 @@
 //! Scalar associated constants share the ordinary const-safe evaluator.
+
 use super::{
     TypeTable,
     ty::{TypeContext, resolve_type_in},
 };
+use crate::DiagnosticBuffer;
 use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
@@ -46,7 +48,7 @@ pub(super) fn prepare(
     lowered: &LoweredModule,
     declarations: &Declarations,
     table: &mut TypeTable,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     let owners = lowered
@@ -114,7 +116,7 @@ pub(crate) fn validate(
     declarations: &Declarations,
     catalog: &AggregateCatalog,
     table: &TypeTable,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     for item in &lowered.module.impls {

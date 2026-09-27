@@ -1,10 +1,14 @@
 use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
+use kagari_ir::bytecode::BytecodeProgram;
+use kagari_ir::bytecode::HostImportId;
+use kagari_ir::bytecode::ModuleRef;
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
     host::HostFunction, value::Value,
 };
+use std::error::Error;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     // This definition can be exported by a separate tool with no runtime or services.
     let mut declaration = HostFunctionDeclaration::new("demo.limit", vec![], HostValueType::I32);
     declaration.effects.may_read_immutable_configuration = true;
@@ -40,17 +44,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }))?;
     let loaded = runtime.load_program(
         "offline-demo",
-        kagari_ir::bytecode::BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![kagari_ir::bytecode::BytecodeModule {
                 host_interface: expected,
                 ..Default::default()
             }],
         },
     )?;
-    let binding = loaded
-        .host_binding(kagari_ir::bytecode::HostImportId::new(0))
-        .unwrap();
+    let binding = loaded.host_binding(HostImportId::new(0)).unwrap();
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 1_000;
@@ -69,8 +71,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let candidate = runtime.stage_reload_program(
         &loaded,
         "offline-demo",
-        kagari_ir::bytecode::BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![(*loaded.bytecode).clone()],
         },
     )?;

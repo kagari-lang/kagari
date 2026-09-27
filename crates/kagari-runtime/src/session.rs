@@ -1,3 +1,16 @@
+use crate::ErrorTrace;
+use crate::ExecutionFrame;
+use crate::HostFrameId;
+use crate::Runtime;
+use crate::StagedReload;
+use crate::gc::GcHeap;
+use crate::gc::HeapObjectId;
+use crate::host_scope::HostScopeState;
+use crate::value::Value;
+use kagari_common::identity::ModuleIdentity;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::fmt::Debug;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -59,7 +72,7 @@ pub enum TraceValue {
 }
 
 impl TraceValue {
-    fn capture(value: &crate::value::Value, depth: usize, remaining: &mut usize) -> Self {
+    fn capture(value: &Value, depth: usize, remaining: &mut usize) -> Self {
         if *remaining == 0 {
             return Self::Opaque("trace value budget".into());
         }
@@ -114,7 +127,7 @@ pub struct HostCallTrace {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionTrace {
-    pub root_identity: kagari_common::identity::ModuleIdentity,
+    pub root_identity: ModuleIdentity,
     pub code_fingerprint: ArtifactFingerprint,
     pub inputs: DeterministicInputs,
     pub host_calls: Vec<HostCallTrace>,
@@ -129,23 +142,21 @@ pub enum ExecutionEvent {
 
 /// Observers inspect the complete root stack between instructions. They must not
 /// drive script execution while the frame view is borrowed.
-pub trait ExecutionObserver: std::fmt::Debug {
+pub trait ExecutionObserver: Debug {
     fn observe(
         &self,
-        runtime: &crate::Runtime,
+        runtime: &Runtime,
         event: ExecutionEvent,
-        frames: &[crate::ExecutionFrame],
+        frames: &[ExecutionFrame],
     ) -> Result<(), RuntimeError>;
 }
 
 #[derive(Debug)]
 pub(crate) struct SessionState {
-    pub iter_guards: RefCell<std::collections::HashSet<crate::gc::HeapObjectId>>,
-    pub host_scopes: RefCell<
-        std::collections::HashMap<crate::HostFrameId, Rc<crate::host_scope::HostScopeState>>,
-    >,
+    pub iter_guards: RefCell<HashSet<HeapObjectId>>,
+    pub host_scopes: RefCell<HashMap<HostFrameId, Rc<HostScopeState>>>,
     pub observer: RefCell<Option<Rc<dyn ExecutionObserver>>>,
-    pub frames: RefCell<Vec<crate::ExecutionFrame>>,
+    pub frames: RefCell<Vec<ExecutionFrame>>,
     pub frame_scopes: RefCell<Vec<u64>>,
     pub next_frame_scope: Cell<u64>,
     pub scopes: Cell<usize>,
@@ -169,7 +180,7 @@ impl SessionState {
     ) -> Self {
         Self {
             iter_guards: Default::default(),
-            host_scopes: RefCell::new(std::collections::HashMap::new()),
+            host_scopes: RefCell::new(HashMap::new()),
             observer: RefCell::new(None),
             frames: RefCell::new(Vec::new()),
             frame_scopes: RefCell::new(Vec::new()),
@@ -202,11 +213,7 @@ impl SessionState {
         value ^ (value >> 31)
     }
 
-    pub(crate) fn begin_host_call(
-        &self,
-        symbol: &str,
-        args: &[crate::value::Value],
-    ) -> Option<usize> {
+    pub(crate) fn begin_host_call(&self, symbol: &str, args: &[Value]) -> Option<usize> {
         if !self.options.record_host_calls {
             return None;
         }
@@ -232,11 +239,7 @@ impl SessionState {
         Some(index)
     }
 
-    pub(crate) fn finish_host_call(
-        &self,
-        index: usize,
-        result: &Result<crate::value::Value, RuntimeError>,
-    ) {
+    pub(crate) fn finish_host_call(&self, index: usize, result: &Result<Value, RuntimeError>) {
         if let Some(call) = self.host_calls.borrow_mut().get_mut(index) {
             call.outcome = Some(match result {
                 Ok(value) => Ok(TraceValue::capture(value, 0, &mut 128)),
@@ -246,7 +249,7 @@ impl SessionState {
     }
 
     pub(crate) fn terminate(&self, error: RuntimeError) -> RuntimeError {
-        let error = error.with_trace(crate::ErrorTrace::capture_session(self));
+        let error = error.with_trace(ErrorTrace::capture_session(self));
         self.termination.borrow_mut().get_or_insert(error).clone()
     }
 
@@ -276,7 +279,7 @@ impl SessionState {
 /// Last scope drop releases the pinned program and active execution inputs.
 #[must_use]
 pub struct ExecutionSession {
-    pub(crate) gc: Rc<crate::gc::GcHeap>,
+    pub(crate) gc: Rc<GcHeap>,
     pub(crate) state: Rc<SessionState>,
     pub(crate) resources: Rc<ResourceState>,
     pub(crate) modules: ModuleStore,
@@ -358,7 +361,7 @@ impl Drop for ExecutionSession {
 
 /// A separate initialization root that restores a suspended ordinary call on exit.
 pub struct CandidateSession<'candidate> {
-    pub(crate) candidate: &'candidate crate::StagedReload,
+    pub(crate) candidate: &'candidate StagedReload,
     pub(crate) execution: Option<ExecutionSession>,
     pub(crate) previous: Option<Rc<SessionState>>,
     pub(crate) resources: Rc<ResourceState>,

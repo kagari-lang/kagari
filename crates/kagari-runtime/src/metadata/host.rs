@@ -1,7 +1,9 @@
 //! Build reflection metadata from portable declarations, then commit once.
+
 use super::*;
 use crate::host::{HostRegistry, HostTypeInfo, HostTypeRegistration};
 use kagari_common::{host_interface::HostValueType, identity::DefinitionId};
+use std::fmt::Display;
 
 impl TypeRegistry {
     pub(crate) fn register_host_types(
@@ -105,7 +107,7 @@ impl TypeRegistry {
     }
 }
 
-fn metadata_error(error: impl std::fmt::Display) -> RuntimeError {
+fn metadata_error(error: impl Display) -> RuntimeError {
     RuntimeError::metadata_conflict(error.to_string())
 }
 

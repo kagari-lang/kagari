@@ -1,4 +1,12 @@
 use super::*;
+use crate::builtin::declarations;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::TypeRefId;
+use crate::typeck::{completion, inference};
+use crate::types::GenericParameterType;
+use crate::types::NominalType;
+use crate::types::TypeSubstitution;
 
 impl BodyChecker<'_> {
     pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {
@@ -46,8 +54,8 @@ impl BodyChecker<'_> {
     pub(super) fn seed_explicit_arguments(
         &mut self,
         site: ExprId,
-        parameters: &[crate::types::GenericParameterType],
-        substitution: &mut crate::types::TypeSubstitution,
+        parameters: &[GenericParameterType],
+        substitution: &mut TypeSubstitution,
     ) {
         let Some(arguments) = self.explicit_arguments.get(&site) else {
             return;
@@ -87,7 +95,7 @@ impl BodyChecker<'_> {
         }
     }
 
-    pub(super) fn prepare_annotation_holes(&mut self, ty: crate::hir::TypeRefId) {
+    pub(super) fn prepare_annotation_holes(&mut self, ty: TypeRefId) {
         use crate::hir::TypeKind;
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
@@ -130,29 +138,24 @@ impl BodyChecker<'_> {
         }
     }
 
-    pub(super) fn constrain_declared_bound(
-        &mut self,
-        actual: &TypeId,
-        interface: &crate::types::NominalType,
-    ) {
+    pub(super) fn constrain_declared_bound(&mut self, actual: &TypeId, interface: &NominalType) {
         if !self.solving {
             return;
         }
-        if crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
-            .is_some_and(|kind| kind.aggregation())
-            && let Some(item) = crate::builtin::traits::numeric_aggregation_item(actual)
+        if StandardTrait::from_id(&interface.declaration).is_some_and(|kind| kind.aggregation())
+            && let Some(item) = traits::numeric_aggregation_item(actual)
             && let [argument] = interface.arguments.as_slice()
         {
             let _ = self.solver.constrain(&item, argument, self.cancel);
         }
-        let mut candidates = crate::builtin::declarations::implementations(actual)
+        let mut candidates = declarations::implementations(actual)
             .into_iter()
             .filter(|implementation| {
                 implementation.trait_declaration().item.identity() == interface.declaration
             })
             .filter_map(|implementation| {
                 let arguments = implementation.arguments(actual)?;
-                let declared = crate::types::NominalType {
+                let declared = NominalType {
                     declaration: interface.declaration.clone(),
                     arguments: implementation
                         .trait_arguments
@@ -172,8 +175,8 @@ impl BodyChecker<'_> {
             if implementation.trait_type.declaration != interface.declaration {
                 continue;
             }
-            let mut substitution = crate::types::TypeSubstitution::default();
-            if super::super::inference::infer(
+            let mut substitution = TypeSubstitution::default();
+            if inference::infer(
                 &implementation.for_type,
                 actual,
                 &implementation.generic_params,
@@ -295,13 +298,9 @@ impl BodyChecker<'_> {
         if !self.body_inference {
             return ty;
         }
-        let completes = super::super::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            site,
-            self.cancel,
-        )
-        .unwrap_or(false);
+        let completes =
+            completion::expr_can_complete(&self.lowered.module, self.names, site, self.cancel)
+                .unwrap_or(false);
         if completes {
             let variable = self.solver.variable(site, 0);
             let _ = self.solver.constrain(&variable, &ty, self.cancel);

@@ -1,4 +1,22 @@
+use super::EnumId;
+use super::ModuleRef;
+use crate::bytecode::BytecodeVerificationError;
+use crate::module::ConcreteFunctionIdentity;
+use crate::module::EnumLayout;
+use crate::module::StructLayout;
+use crate::module::abi;
+use crate::module::abi::AbiType;
+use crate::module::abi::NominalAbiType;
+use crate::module::function::FunctionInstance;
+use crate::program::VerifiedIrProgram;
+use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_common::host_interface::HostInterface;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::ModuleIdentity;
+use kagari_common::line_index::PositionEncoding;
 use std::collections::HashMap;
+use std::iter;
+use std::slice;
 
 use kagari_common::Span;
 
@@ -29,7 +47,7 @@ use crate::module::{
 pub enum BytecodeLoweringError {
     UnlinkedSourceModules,
     InvalidBranchTarget(BlockId),
-    Verification(crate::bytecode::BytecodeVerificationError),
+    Verification(BytecodeVerificationError),
 }
 
 pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, BytecodeLoweringError> {
@@ -49,10 +67,7 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
                     ..
                 } => {
                     contract.interface.declaration.module != ir.identity
-                        && crate::module::abi::standard_trait_contract(
-                            &contract.interface.declaration,
-                        )
-                        .is_none()
+                        && abi::standard_trait_contract(&contract.interface.declaration).is_none()
                 }
                 Instruction::MakeInterface { implementation, .. } => {
                     implementation.module != ir.identity
@@ -69,7 +84,7 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
 
 fn lower_linked_module(
     ir: &VerifiedIrModule,
-    program: Option<&crate::program::VerifiedIrProgram>,
+    program: Option<&VerifiedIrProgram>,
     dependencies: Vec<super::ModuleRef>,
 ) -> Result<BytecodeModule, BytecodeLoweringError> {
     let mut context = BytecodeLoweringContext {
@@ -78,7 +93,7 @@ fn lower_linked_module(
         enumerations: &ir.enumerations,
         identity: Some(&ir.identity),
         ir: Some(ir),
-        host_interface: kagari_common::host_interface::HostInterface {
+        host_interface: HostInterface {
             paths: vec![],
             types: ir.host_types.clone(),
             functions: Vec::new(),
@@ -127,7 +142,7 @@ fn lower_linked_module(
 
 fn collect_interface_tables(
     ir: &VerifiedIrModule,
-    program: Option<&crate::program::VerifiedIrProgram>,
+    program: Option<&VerifiedIrProgram>,
 ) -> Vec<InterfaceTableRecord> {
     use crate::module::{PublicAbiItem, abi::AbiType};
     use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
@@ -179,7 +194,7 @@ fn collect_interface_tables(
         .collect();
     let owners = program
         .map(|program| program.modules())
-        .unwrap_or(std::slice::from_ref(ir));
+        .unwrap_or(slice::from_ref(ir));
     let allocations = owners
         .iter()
         .flat_map(|owner| &owner.functions)
@@ -190,12 +205,9 @@ fn collect_interface_tables(
                 implementation,
                 arguments,
                 ..
-            } => Some(crate::module::function::FunctionInstance {
+            } => Some(FunctionInstance {
                 declaration: implementation.clone(),
-                arguments: arguments
-                    .iter()
-                    .map(crate::module::abi::AbiType::to_checked_type)
-                    .collect(),
+                arguments: arguments.iter().map(AbiType::to_checked_type).collect(),
             }),
             _ => None,
         });
@@ -207,7 +219,7 @@ fn collect_interface_tables(
         let arguments = instance
             .arguments
             .iter()
-            .map(crate::module::abi::AbiType::from_checked_type)
+            .map(AbiType::from_checked_type)
             .collect::<Vec<_>>();
         if implementation.module != ir.identity
             || arguments.is_empty()
@@ -229,7 +241,7 @@ fn collect_interface_tables(
                     .instance
                     .arguments
                     .iter()
-                    .map(crate::module::abi::AbiType::from_checked_type)
+                    .map(AbiType::from_checked_type)
                     .eq(arguments.iter().cloned())
             })
             .cloned()
@@ -245,18 +257,18 @@ fn collect_interface_tables(
 
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext<'a> {
-    program: Option<&'a crate::program::VerifiedIrProgram>,
-    structures: &'a [crate::module::StructLayout],
-    enumerations: &'a [crate::module::EnumLayout],
-    identity: Option<&'a kagari_common::identity::ModuleIdentity>,
+    program: Option<&'a VerifiedIrProgram>,
+    structures: &'a [StructLayout],
+    enumerations: &'a [EnumLayout],
+    identity: Option<&'a ModuleIdentity>,
     ir: Option<&'a VerifiedIrModule>,
-    interface_tables: HashMap<kagari_common::identity::ModuleIdentity, Vec<InterfaceTableRecord>>,
-    host_interface: kagari_common::host_interface::HostInterface,
+    interface_tables: HashMap<ModuleIdentity, Vec<InterfaceTableRecord>>,
+    host_interface: HostInterface,
     paths: Vec<PathRecord>,
 }
 
 impl BytecodeLoweringContext<'_> {
-    fn owner_ref(&self, owner: &kagari_common::identity::ModuleIdentity) -> super::ModuleRef {
+    fn owner_ref(&self, owner: &ModuleIdentity) -> super::ModuleRef {
         let owner = if owner.package.0 == "kagari-std" {
             self.identity.expect("lowering module identity")
         } else {
@@ -268,17 +280,17 @@ impl BytecodeLoweringContext<'_> {
                 .iter()
                 .position(|module| &module.identity == owner)
                 .expect("verified interface owner module");
-            super::ModuleRef::new(index)
+            ModuleRef::new(index)
         } else {
             assert_eq!(self.identity.expect("lowering module identity"), owner);
-            super::ModuleRef::new(0)
+            ModuleRef::new(0)
         }
     }
 
     fn interface_ref(
         &mut self,
-        implementation: &kagari_common::identity::DefinitionId,
-        arguments: &[crate::module::abi::AbiType],
+        implementation: &DefinitionId,
+        arguments: &[AbiType],
     ) -> (super::ModuleRef, InterfaceTableRef) {
         let (module, owner) = if let Some(program) = self.program {
             program
@@ -286,10 +298,10 @@ impl BytecodeLoweringContext<'_> {
                 .iter()
                 .enumerate()
                 .find(|(_, owner)| owner.identity == implementation.module)
-                .map(|(index, owner)| (super::ModuleRef::new(index), owner))
+                .map(|(index, owner)| (ModuleRef::new(index), owner))
                 .expect("verified interface owner")
         } else {
-            (super::ModuleRef::new(0), self.ir.expect("lowering module"))
+            (ModuleRef::new(0), self.ir.expect("lowering module"))
         };
         let tables = self
             .interface_tables
@@ -302,10 +314,7 @@ impl BytecodeLoweringContext<'_> {
         (module, InterfaceTableRef::new(table))
     }
 
-    fn host_import(
-        &mut self,
-        declaration: &kagari_common::host_interface::HostFunctionDeclaration,
-    ) -> HostImportId {
+    fn host_import(&mut self, declaration: &HostFunctionDeclaration) -> HostImportId {
         if let Some(index) = self
             .host_interface
             .functions
@@ -318,7 +327,7 @@ impl BytecodeLoweringContext<'_> {
         self.host_interface.functions.push(declaration.clone());
         id
     }
-    fn structure_id(&self, id: &crate::module::abi::NominalAbiType) -> StructId {
+    fn structure_id(&self, id: &NominalAbiType) -> StructId {
         StructId::new(
             self.structures
                 .iter()
@@ -426,9 +435,7 @@ fn lower_function(
 
     Ok(BytecodeFunction {
         id: FunctionRef::new(function.id.index()),
-        identity: Some(crate::module::ConcreteFunctionIdentity::from_ir(
-            &function.instance,
-        )),
+        identity: Some(ConcreteFunctionIdentity::from_ir(&function.instance)),
         name: function.name.clone(),
         parameter_count: function.params.len() as u16,
         register_count: function.temps.len() as u16,
@@ -547,12 +554,11 @@ fn collect_debug_metadata(
         .iter()
         .enumerate()
         .map(|(instruction_offset, span)| {
-            let position = function.debug.source.as_ref().and_then(|source| {
-                source.position(
-                    span.start,
-                    kagari_common::line_index::PositionEncoding::Utf8,
-                )
-            });
+            let position = function
+                .debug
+                .source
+                .as_ref()
+                .and_then(|source| source.position(span.start, PositionEncoding::Utf8));
             LineTableEntry {
                 instruction_offset,
                 source_offset: span.start,
@@ -845,13 +851,13 @@ fn lower_instruction(
                     let target = context
                         .program
                         .expect("linked source program")
-                        .function(&crate::module::function::FunctionInstance {
+                        .function(&FunctionInstance {
                             declaration: contract.declaration.clone(),
                             arguments: contract.arguments.clone(),
                         })
                         .expect("verified source binding");
                     CallTarget::ModuleFunction {
-                        module: super::ModuleRef::new(target.module),
+                        module: ModuleRef::new(target.module),
                         function: FunctionRef::new(target.function.index()),
                     }
                 }
@@ -936,7 +942,7 @@ fn lower_instruction(
             captures,
         } => BytecodeInstruction::MakeClosure {
             dst: lower_value(*dst),
-            function: super::FunctionRef::new(function.index()),
+            function: FunctionRef::new(function.index()),
             captures: captures.iter().map(|value| lower_value(*value)).collect(),
         },
         Instruction::MakeCell { dst, value } => BytecodeInstruction::MakeCell {
@@ -1026,7 +1032,7 @@ fn lower_instruction(
             fields,
         } => BytecodeInstruction::MakeEnum {
             dst: lower_value(*dst),
-            enumeration: super::EnumId::new(
+            enumeration: EnumId::new(
                 context
                     .enumerations
                     .iter()
@@ -1047,7 +1053,7 @@ fn lower_instruction(
         } => BytecodeInstruction::TestEnumVariant {
             dst: lower_value(*dst),
             value: lower_value(*value),
-            enumeration: super::EnumId::new(
+            enumeration: EnumId::new(
                 context
                     .enumerations
                     .iter()
@@ -1068,7 +1074,7 @@ fn lower_instruction(
         } => BytecodeInstruction::ReadEnumPayload {
             dst: lower_value(*dst),
             value: lower_value(*value),
-            enumeration: super::EnumId::new(
+            enumeration: EnumId::new(
                 context
                     .enumerations
                     .iter()
@@ -1270,7 +1276,7 @@ fn lower_jump(
 }
 
 fn emission_order(function: &IrFunction) -> impl Iterator<Item = (usize, &BasicBlock)> {
-    std::iter::once((
+    iter::once((
         function.entry.index(),
         &function.blocks[function.entry.index()],
     ))
@@ -1284,13 +1290,13 @@ fn emission_order(function: &IrFunction) -> impl Iterator<Item = (usize, &BasicB
 }
 
 pub fn lower_program_to_bytecode(
-    program: &crate::program::VerifiedIrProgram,
+    program: &VerifiedIrProgram,
 ) -> Result<super::BytecodeProgram, BytecodeLoweringError> {
     let indices = program
         .modules()
         .iter()
         .enumerate()
-        .map(|(index, module)| (&module.identity, super::ModuleRef::new(index)))
+        .map(|(index, module)| (&module.identity, ModuleRef::new(index)))
         .collect::<HashMap<_, _>>();
     let modules = program
         .modules()

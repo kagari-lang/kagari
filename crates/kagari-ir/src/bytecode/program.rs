@@ -1,6 +1,18 @@
+use super::ArtifactFingerprint;
+use super::trait_bounds;
+use super::verifier;
 use super::{BytecodeInstruction, BytecodeModule, BytecodeVerificationError, CallTarget};
+use crate::module::PublicAbiItem;
+use crate::module::abi;
+use crate::module::abi::AbiType;
+use crate::module::abi::verify;
+use crate::module::host;
+use crate::module::layout;
+use kagari_common::identity::DefinitionKind;
+use kagari_hir::builtin::traits::StandardTrait;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::slice;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleRef(u32);
@@ -64,10 +76,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let Some(template) = owner.public_items.iter().find(|item| {
                 matches!(item, crate::module::PublicAbiItem::Type(ty) if ty.kind == crate::module::TypeAbiKind::Struct && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
             }) else { continue; };
-            if !crate::module::layout::struct_abi_matches(
-                std::slice::from_ref(layout),
+            if !layout::struct_abi_matches(
+                slice::from_ref(layout),
                 &owner.identity,
-                std::slice::from_ref(template),
+                slice::from_ref(template),
                 &Default::default(),
             )
             .expect("bytecode verification uses an uncancelled token")
@@ -109,10 +121,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 ));
             }
         }
-        super::verifier::verify_module_with_program(module, Some(program))?;
+        verifier::verify_module_with_program(module, Some(program))?;
         for owner in &program.modules {
             if owner.identity != module.identity
-                && !crate::module::host::trait_bindings_match(
+                && !host::trait_bindings_match(
                     &module.host_interface,
                     &owner.identity,
                     &owner.public_items,
@@ -137,10 +149,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let Some(template) = owner.public_items.iter().find(|item| {
                 matches!(item, crate::module::PublicAbiItem::Type(ty) if ty.kind == crate::module::TypeAbiKind::Enum && layout.declaration.path.last().is_some_and(|part| part.name == ty.name))
             }) else { continue; };
-            if !crate::module::layout::enum_abi_matches(
-                std::slice::from_ref(layout),
+            if !layout::enum_abi_matches(
+                slice::from_ref(layout),
                 &owner.identity,
-                std::slice::from_ref(template),
+                slice::from_ref(template),
                 &Default::default(),
             )
             .expect("bytecode verification uses an uncancelled token")
@@ -163,18 +175,15 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             closure.push(module);
         }
         for item in &module.public_items {
-            let crate::module::PublicAbiItem::InterfaceTable(table) = item else {
+            let PublicAbiItem::InterfaceTable(table) = item else {
                 continue;
             };
-            let crate::module::abi::AbiType::Trait(instance) = &table.trait_type else {
+            let AbiType::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if let Some(contract) =
-                crate::module::abi::standard_trait_contract(&instance.declaration)
-            {
+            if let Some(contract) = abi::standard_trait_contract(&instance.declaration) {
                 let kind =
-                    kagari_hir::builtin::traits::StandardTrait::from_id(&instance.declaration)
-                        .expect("standard contract");
+                    StandardTrait::from_id(&instance.declaration).expect("standard contract");
                 if !kind.host_implementable()
                     && matches!(table.for_type, crate::module::abi::AbiType::Host(_))
                     || !table.native_bridge
@@ -185,11 +194,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                                 | crate::module::abi::AbiType::Enum(_)
                                 | crate::module::abi::AbiType::Host(_)
                         )
-                    || !crate::module::abi::verify::interface_contract_matches(
-                        table,
-                        contract,
-                        &Default::default(),
-                    )
+                    || !verify::interface_contract_matches(table, contract, &Default::default())
                 {
                     return Err(BytecodeVerificationError::InvalidInterfaceTable);
                 }
@@ -199,8 +204,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 continue;
             }
             if instance.declaration.path.len() != 1
-                || instance.declaration.path[0].kind
-                    != kagari_common::identity::DefinitionKind::Trait
+                || instance.declaration.path[0].kind != DefinitionKind::Trait
                 || instance.declaration.path[0].occurrence != 0
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
@@ -219,22 +223,18 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let Some(trait_name) = instance.declaration.path.last().map(|part| &part.name) else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            let Some(crate::module::PublicAbiItem::Trait(interface)) = owner
+            let Some(PublicAbiItem::Trait(interface)) = owner
                 .public_items
                 .iter()
                 .find(|item| matches!(item, crate::module::PublicAbiItem::Trait(interface) if &interface.name == trait_name))
             else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if !crate::module::abi::verify::interface_contract_matches(
-                table,
-                interface,
-                &Default::default(),
-            ) {
+            if !verify::interface_contract_matches(table, interface, &Default::default()) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        if !super::trait_bounds::trait_bounds_match(module, &closure, Some(program)) {
+        if !trait_bounds::trait_bounds_match(module, &closure, Some(program)) {
             return Err(BytecodeVerificationError::InvalidHostInterface(
                 "trait output or host bound has no unique valid implementation".into(),
             ));
@@ -292,7 +292,7 @@ impl BytecodeProgram {
             .filter(|(index, _)| *index != self.root.index())
             .map(|(_, module)| super::DependencyFingerprint {
                 module_id: module.identity.clone(),
-                fingerprint: super::ArtifactFingerprint::of_serialized(module),
+                fingerprint: ArtifactFingerprint::of_serialized(module),
             })
             .collect()
     }

@@ -1,3 +1,5 @@
+use crate::gc::HeapObjectId;
+use crate::module::StructLayoutRef;
 use crate::{RuntimeError, RuntimeErrorKind, gc::GcHeap, value::Value};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,9 +160,9 @@ pub fn set_index(
 
 fn resolve_field(
     gc: &GcHeap,
-    handle: crate::gc::HeapObjectId,
+    handle: HeapObjectId,
     name: &str,
-) -> Result<(crate::module::StructLayoutRef, usize), ReflectionError> {
+) -> Result<(StructLayoutRef, usize), ReflectionError> {
     let layout = gc
         .struct_layout(handle)
         .ok_or_else(|| ReflectionError::new("invalid struct"))?;

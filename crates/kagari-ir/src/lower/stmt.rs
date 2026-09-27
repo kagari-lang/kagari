@@ -1,4 +1,13 @@
+use crate::module::abi::AbiType;
+use crate::module::instruction::IterOp;
+use crate::module::numeric::NumericOperation;
+use hir::Condition;
+use hir::StmtKind;
+use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::hir;
+use kagari_hir::typeck::ResolvedIteration;
+use kagari_hir::types::TypeId;
+use std::slice;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::{FunctionLowerer, LoopScope};
@@ -49,7 +58,7 @@ impl FunctionLowerer<'_, '_> {
     fn lower_stmt_inner(&mut self, stmt_id: hir::StmtId) -> Result<(), IrLoweringError> {
         let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
         match stmt.kind {
-            hir::StmtKind::Binding {
+            StmtKind::Binding {
                 local,
                 name,
                 initializer,
@@ -61,7 +70,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 let dst = self.bind_local(local, name)?;
                 let src = if self.cell_locals.contains(&local) {
-                    let cell = self.alloc_temp(crate::module::ValueType::HeapObject);
+                    let cell = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::MakeCell {
                         dst: cell,
                         value: src,
@@ -74,7 +83,7 @@ impl FunctionLowerer<'_, '_> {
                 self.introduce_debug_local(dst);
                 Ok(())
             }
-            hir::StmtKind::Assign { target, value, op } => {
+            StmtKind::Assign { target, value, op } => {
                 let Some(location) = self.prepare_place(target)? else {
                     return Ok(());
                 };
@@ -87,17 +96,15 @@ impl FunctionLowerer<'_, '_> {
                     self.analyzed.typed.type_table.place_type(target),
                     self.analyzed.typed.type_table.expr_type(value),
                 ) {
-                    (
-                        Some(op),
-                        Some(kagari_hir::types::TypeId::Builtin(input)),
-                        Some(kagari_hir::types::TypeId::Builtin(rhs)),
-                    ) => crate::module::numeric::NumericOperation::binary(op, input, rhs),
+                    (Some(op), Some(TypeId::Builtin(input)), Some(TypeId::Builtin(rhs))) => {
+                        NumericOperation::binary(op, input, rhs)
+                    }
                     _ => None,
                 };
                 self.commit_place(location, op, numeric, src)?;
                 Ok(())
             }
-            hir::StmtKind::Return { expr } => {
+            StmtKind::Return { expr } => {
                 let value = match expr {
                     Some(expr) => Some(self.lower_expr(expr)?),
                     None => Some(self.lower_unit()),
@@ -107,18 +114,18 @@ impl FunctionLowerer<'_, '_> {
                 }
                 Ok(())
             }
-            hir::StmtKind::Expr(expr) => {
+            StmtKind::Expr(expr) => {
                 let _ = self.lower_expr(expr)?;
                 Ok(())
             }
-            hir::StmtKind::While { condition, body } => self.lower_while(condition, body),
-            hir::StmtKind::Loop { body } => self.lower_loop(body),
-            hir::StmtKind::For {
+            StmtKind::While { condition, body } => self.lower_while(condition, body),
+            StmtKind::Loop { body } => self.lower_loop(body),
+            StmtKind::For {
                 pattern,
                 iterable,
                 body,
             } => self.lower_for(pattern, iterable, body),
-            hir::StmtKind::Break => {
+            StmtKind::Break => {
                 let scope = self
                     .loops
                     .last()
@@ -131,7 +138,7 @@ impl FunctionLowerer<'_, '_> {
                 self.set_terminator(Terminator::Jump(scope.break_block));
                 Ok(())
             }
-            hir::StmtKind::BreakValue(expr) => {
+            StmtKind::BreakValue(expr) => {
                 let scope = self
                     .loops
                     .last()
@@ -148,7 +155,7 @@ impl FunctionLowerer<'_, '_> {
                 self.set_terminator(Terminator::Jump(scope.break_block));
                 Ok(())
             }
-            hir::StmtKind::Continue => {
+            StmtKind::Continue => {
                 let scope = self
                     .loops
                     .last()
@@ -178,12 +185,12 @@ impl FunctionLowerer<'_, '_> {
         let exit_block = self.new_block();
         let mut bindings = Vec::new();
         match condition {
-            hir::Condition::Expr(_) => self.set_terminator(Terminator::Branch {
+            Condition::Expr(_) => self.set_terminator(Terminator::Branch {
                 cond,
                 then_block: body_block,
                 else_block: exit_block,
             }),
-            hir::Condition::Binding {
+            Condition::Binding {
                 pattern,
                 initializer,
             } => {
@@ -261,7 +268,7 @@ impl FunctionLowerer<'_, '_> {
         pattern: hir::PatternId,
         iterable: hir::ExprId,
         body: hir::BlockId,
-        fact: kagari_hir::typeck::ResolvedIteration,
+        fact: ResolvedIteration,
     ) -> Result<(), IrLoweringError> {
         use crate::module::instruction::StandardEnumOp;
         use kagari_hir::builtin::traits::StandardTrait;
@@ -284,15 +291,13 @@ impl FunctionLowerer<'_, '_> {
         let concrete_iterator = self
             .planner
             .arguments(
-                std::slice::from_ref(&fact.iterator),
+                slice::from_ref(&fact.iterator),
                 &self.instance.substitution,
                 self.function.debug.source_span,
             )?
             .remove(0);
         let iter_abi = if matches!(concrete_iterator, kagari_hir::types::TypeId::Iter(_)) {
-            Some(crate::module::abi::AbiType::from_checked_type(
-                &concrete_iterator,
-            ))
+            Some(AbiType::from_checked_type(&concrete_iterator))
         } else {
             None
         };
@@ -312,8 +317,8 @@ impl FunctionLowerer<'_, '_> {
             &StandardTrait::Iterator.contract().methods[0].id,
             &[iterator],
         )?;
-        let optional = kagari_hir::types::TypeId::StandardEnum {
-            kind: kagari_hir::builtin::surface::StandardEnum::Option,
+        let optional = TypeId::StandardEnum {
+            kind: StandardEnum::Option,
             args: vec![fact.item.clone()],
         };
         let some = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(value))?;
@@ -345,7 +350,7 @@ impl FunctionLowerer<'_, '_> {
                 dst,
                 value: Some(iterator),
                 ty,
-                op: crate::module::instruction::IterOp::Close,
+                op: IterOp::Close,
             });
             self.emit(Instruction::EndIteration);
         }

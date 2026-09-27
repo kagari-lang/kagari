@@ -1,3 +1,4 @@
+use crate::DiagnosticBuffer;
 use kagari_common::{Diagnostic, DiagnosticKind, Span};
 
 /// Per-file budget shared by const capability validation and scalar evaluation.
@@ -30,7 +31,7 @@ impl ConstBudget {
             exhausted: false,
         }
     }
-    pub fn enter(&mut self, span: Span, diagnostics: &mut crate::DiagnosticBuffer) -> bool {
+    pub fn enter(&mut self, span: Span, diagnostics: &mut DiagnosticBuffer) -> bool {
         if self.exhausted {
             return false;
         }

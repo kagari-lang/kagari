@@ -1,4 +1,13 @@
+use super::abi::AbiType;
+use super::abi::NominalAbiType;
+use kagari_common::SourceFile;
 use kagari_common::Span;
+use kagari_common::host_interface::HostTypeDeclaration;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::ModuleIdentity;
+use kagari_hir::types::TypeId;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::module::{
     ModuleAbi,
@@ -12,11 +21,11 @@ pub struct IrModule {
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
     pub interface_instances: Vec<FunctionInstance>,
-    pub host_types: Vec<kagari_common::host_interface::HostTypeDeclaration>,
-    pub dependencies: Vec<kagari_common::identity::ModuleIdentity>,
+    pub host_types: Vec<HostTypeDeclaration>,
+    pub dependencies: Vec<ModuleIdentity>,
     pub structures: Vec<super::StructLayout>,
     pub enumerations: Vec<super::EnumLayout>,
-    pub identity: kagari_common::identity::ModuleIdentity,
+    pub identity: ModuleIdentity,
     pub source_name: String,
     pub module_slots: ModuleSlotBuffer,
     pub abi: ModuleAbi,
@@ -62,7 +71,7 @@ impl IrFunction {
 }
 
 impl IrModule {
-    pub fn structure(&self, instance: &super::abi::NominalAbiType) -> Option<&super::StructLayout> {
+    pub fn structure(&self, instance: &NominalAbiType) -> Option<&super::StructLayout> {
         self.structures.iter().find(|layout| {
             layout.declaration == instance.declaration && layout.arguments == instance.arguments
         })
@@ -71,8 +80,8 @@ impl IrModule {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionInstance {
-    pub declaration: kagari_common::identity::DefinitionId,
-    pub arguments: Vec<kagari_hir::types::TypeId>,
+    pub declaration: DefinitionId,
+    pub arguments: Vec<TypeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -113,8 +122,8 @@ pub struct BasicBlock {
 
 #[derive(Debug, Clone, Default)]
 pub struct IrFunctionDebugMetadata {
-    pub source: Option<std::sync::Arc<kagari_common::SourceFile>>,
-    pub source_module: Option<kagari_common::identity::ModuleIdentity>,
+    pub source: Option<Arc<SourceFile>>,
+    pub source_module: Option<ModuleIdentity>,
     pub source_span: Span,
     pub locals: IrLocalDebugBuffer,
     pub captured_bindings: CapturedBindingDebugBuffer,
@@ -157,10 +166,10 @@ pub type CapturedBindingDebugBuffer = Vec<IrCapturedBindingDebugInfo>;
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SemanticSlots {
     #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub params: std::collections::BTreeMap<usize, super::abi::AbiType>,
-    pub result: Option<super::abi::AbiType>,
+    pub params: BTreeMap<usize, AbiType>,
+    pub result: Option<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub locals: std::collections::BTreeMap<usize, super::abi::AbiType>,
+    pub locals: BTreeMap<usize, AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub registers: std::collections::BTreeMap<usize, super::abi::AbiType>,
+    pub registers: BTreeMap<usize, AbiType>,
 }

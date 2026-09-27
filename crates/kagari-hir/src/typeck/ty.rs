@@ -1,10 +1,24 @@
+use super::associated;
 use super::{ResolvedTypeRef, TypeTable, TypeTarget};
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use crate::resolver::ResolvedName;
+use crate::types;
+use crate::types::BuiltinType;
+use crate::types::NominalType;
 use crate::{builtin::surface, hir, types::TypeId};
+use hir::BodyOwner;
+use hir::HirOwner;
+use hir::TypeKind;
 use kagari_common::cancellation::CancellationToken;
+use kagari_common::range::RangeKind;
+use surface::StandardEnum;
+use surface::StandardModule;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
-    pub declarations: &'a crate::declarations::Declarations,
+    pub declarations: &'a Declarations,
     pub generics: &'a [hir::GenericParam],
     pub self_type: Option<hir::TraitId>,
     pub implementation: Option<hir::ImplId>,
@@ -28,7 +42,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
             target = context.self_type.map(TypeTarget::Trait);
             context
                 .declarations
-                .definition(crate::resolver::ResolvedName::Trait(context.self_type?))
+                .definition(ResolvedName::Trait(context.self_type?))
                 .cloned()
                 .map(TypeId::SelfType)
         } else if let Some(ty) = TypeId::from_name(name) {
@@ -37,24 +51,24 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
             binding.target().and_then(|resolved| {
                 use crate::resolver::ResolvedName;
                 if let ResolvedName::StandardModule(
-                    kind @ (surface::StandardModule::ParseError
-                    | surface::StandardModule::TryFromIntError
-                    | surface::StandardModule::Infallible),
+                    kind @ (StandardModule::ParseError
+                    | StandardModule::TryFromIntError
+                    | StandardModule::Infallible),
                 ) = resolved
                 {
                     return Some(TypeId::StandardEnum {
-                        kind: if kind == surface::StandardModule::ParseError {
-                            surface::StandardEnum::ParseError
-                        } else if kind == surface::StandardModule::TryFromIntError {
-                            surface::StandardEnum::TryFromIntError
+                        kind: if kind == StandardModule::ParseError {
+                            StandardEnum::ParseError
+                        } else if kind == StandardModule::TryFromIntError {
+                            StandardEnum::TryFromIntError
                         } else {
-                            surface::StandardEnum::Infallible
+                            StandardEnum::Infallible
                         },
                         args: vec![],
                     });
                 }
-                if resolved == ResolvedName::StandardModule(surface::StandardModule::Ordering) {
-                    return Some(crate::builtin::traits::ordering_type(false));
+                if resolved == ResolvedName::StandardModule(StandardModule::Ordering) {
+                    return Some(traits::ordering_type(false));
                 }
                 if let ResolvedName::StandardTrait(kind) = resolved {
                     target = Some(TypeTarget::StandardTrait(kind));
@@ -80,7 +94,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                 Some(match resolved {
                     ResolvedName::Struct(id) => {
                         target = Some(TypeTarget::Struct(id));
-                        TypeId::Struct(crate::types::NominalType {
+                        TypeId::Struct(NominalType {
                             associated_types: Default::default(),
                             declaration: definition,
                             arguments,
@@ -88,7 +102,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     }
                     ResolvedName::Enum(id) => {
                         target = Some(TypeTarget::Enum(id));
-                        TypeId::Enum(crate::types::NominalType {
+                        TypeId::Enum(NominalType {
                             associated_types: Default::default(),
                             declaration: definition,
                             arguments,
@@ -96,7 +110,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     }
                     ResolvedName::Trait(id) => {
                         target = Some(TypeTarget::Trait(id));
-                        TypeId::Trait(crate::types::NominalType {
+                        TypeId::Trait(NominalType {
                             associated_types: Default::default(),
                             declaration: definition,
                             arguments,
@@ -122,21 +136,21 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         ) {
             Some(TypeId::StandardEnum {
                 kind: if name.ends_with("ParseError") {
-                    surface::StandardEnum::ParseError
+                    StandardEnum::ParseError
                 } else if name.ends_with("Infallible") {
-                    surface::StandardEnum::Infallible
+                    StandardEnum::Infallible
                 } else {
-                    surface::StandardEnum::TryFromIntError
+                    StandardEnum::TryFromIntError
                 },
                 args: vec![],
             })
         } else if matches!(name, "RangeFull" | "std::ops::RangeFull") {
             Some(TypeId::Range(
-                Box::new(TypeId::Builtin(crate::types::BuiltinType::Unit)),
-                kagari_common::range::RangeKind::Full,
+                Box::new(TypeId::Builtin(BuiltinType::Unit)),
+                RangeKind::Full,
             ))
         } else if matches!(name, "Ordering" | "std::cmp::Ordering") {
-            Some(crate::builtin::traits::ordering_type(false))
+            Some(traits::ordering_type(false))
         } else if let Some(id) = context.declarations.host_type(name) {
             target = Some(TypeTarget::Host(id));
             Some(TypeId::Host(
@@ -155,7 +169,7 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
 pub(super) fn resolve_type(
     module: &hir::Module,
     ty: hir::TypeRefId,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> TypeId {
@@ -193,7 +207,7 @@ pub(super) fn resolve_type_in(
     if cancel.check().is_err() || !table.resolving_types.insert(ty) {
         return TypeId::Error;
     }
-    let context = if let hir::HirOwner::Body(hir::BodyOwner::Function(function)) = ty.owner() {
+    let context = if let HirOwner::Body(BodyOwner::Function(function)) = ty.owner() {
         TypeContext {
             self_type: context.self_type.or_else(|| {
                 module
@@ -224,18 +238,18 @@ pub(super) fn resolve_type_in(
     };
     let mut target = None;
     let resolved = match &module.type_ref(ty).kind {
-        hir::TypeKind::Named(name) if name == "Self" && context.implementation.is_some() => module
+        TypeKind::Named(name) if name == "Self" && context.implementation.is_some() => module
             .impls
             .iter()
             .find(|item| Some(item.id) == context.implementation)
             .and_then(|item| item.for_type)
             .map(|receiver| resolve_type_in(module, receiver, context, table, cancel))
             .unwrap_or(TypeId::Error),
-        hir::TypeKind::Named(name) => {
+        TypeKind::Named(name) => {
             let reference = resolve_named_type(name, context);
             target = reference.target;
             if reference.ty == TypeId::Error && name.contains("::") {
-                let resolved = super::associated::resolve_projection_name(
+                let resolved = associated::resolve_projection_name(
                     module,
                     name,
                     Vec::new(),
@@ -262,7 +276,7 @@ pub(super) fn resolve_type_in(
                 _ => reference.ty,
             }
         }
-        hir::TypeKind::Generic {
+        TypeKind::Generic {
             name,
             args,
             bindings,
@@ -295,9 +309,8 @@ pub(super) fn resolve_type_in(
                 && bindings.is_empty()
                 && !(prelude && surface::standard_type_constructor(name).is_some())
             {
-                let resolved = super::associated::resolve_projection_name(
-                    module, name, args, context, table, cancel,
-                );
+                let resolved =
+                    associated::resolve_projection_name(module, name, args, context, table, cancel);
                 table.resolving_types.remove(&ty);
                 table.insert_type_ref(
                     ty,
@@ -330,21 +343,17 @@ pub(super) fn resolve_type_in(
                         && (!nominal.arguments.is_empty() || !bindings.is_empty())
                         && !*positional_after_binding
                         && (!*callable_syntax
-                            || crate::builtin::traits::StandardTrait::from_id(
-                                &nominal.declaration,
-                            ) == Some(crate::builtin::traits::StandardTrait::Fn)) =>
+                            || StandardTrait::from_id(&nominal.declaration)
+                                == Some(StandardTrait::Fn)) =>
                 {
                     nominal.arguments = args;
-                    let members = super::associated::members(
-                        module,
-                        context.declarations,
-                        &nominal.declaration,
-                    );
+                    let members =
+                        associated::members(module, context.declarations, &nominal.declaration);
                     let mut valid = true;
                     for (name, value) in resolved_bindings {
-                        let id = crate::types::associated_type_id(&nominal.declaration, &name);
+                        let id = types::associated_type_id(&nominal.declaration, &name);
                         valid &= members.contains(&name)
-                            && super::associated::member_arity(
+                            && associated::member_arity(
                                 module,
                                 context.declarations,
                                 &nominal.declaration,
@@ -364,7 +373,7 @@ pub(super) fn resolve_type_in(
                 _ => TypeId::Error,
             }
         }
-        hir::TypeKind::Projection {
+        TypeKind::Projection {
             receiver,
             trait_ref,
             member,
@@ -376,7 +385,7 @@ pub(super) fn resolve_type_in(
                 .iter()
                 .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
                 .collect();
-            super::associated::qualified_projection(
+            associated::qualified_projection(
                 module,
                 receiver,
                 interface,
@@ -386,7 +395,7 @@ pub(super) fn resolve_type_in(
                 cancel,
             )
         }
-        hir::TypeKind::Tuple(elements) => {
+        TypeKind::Tuple(elements) => {
             let elements = elements
                 .iter()
                 .map(|element| resolve_type_in(module, *element, context, table, cancel))
@@ -397,14 +406,14 @@ pub(super) fn resolve_type_in(
                 TypeId::Tuple(elements)
             }
         }
-        hir::TypeKind::Array(element) => {
-            let mut interface = crate::builtin::traits::StandardTrait::List.nominal();
+        TypeKind::Array(element) => {
+            let mut interface = StandardTrait::List.nominal();
             interface
                 .arguments
                 .push(resolve_type_in(module, *element, context, table, cancel));
             TypeId::Trait(interface)
         }
-        hir::TypeKind::Function { params, result } => TypeId::Function {
+        TypeKind::Function { params, result } => TypeId::Function {
             params: params
                 .iter()
                 .map(|param| resolve_type_in(module, *param, context, table, cancel))
@@ -424,8 +433,8 @@ pub(super) fn resolve_type_in(
 }
 pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
     match &module.type_ref(ty).kind {
-        hir::TypeKind::Named(name) => name.clone(),
-        hir::TypeKind::Generic {
+        TypeKind::Named(name) => name.clone(),
+        TypeKind::Generic {
             name,
             args,
             bindings,
@@ -443,7 +452,7 @@ pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
                 .join(", ");
             format!("{name}<{inner}>")
         }
-        hir::TypeKind::Projection {
+        TypeKind::Projection {
             receiver,
             trait_ref,
             member,
@@ -467,7 +476,7 @@ pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
                 display_type(module, *trait_ref)
             )
         }
-        hir::TypeKind::Tuple(elements) => {
+        TypeKind::Tuple(elements) => {
             let inner = elements
                 .iter()
                 .map(|element| display_type(module, *element))
@@ -479,8 +488,8 @@ pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
                 format!("({inner})")
             }
         }
-        hir::TypeKind::Array(element) => format!("[{}]", display_type(module, *element)),
-        hir::TypeKind::Function { params, result } => format!(
+        TypeKind::Array(element) => format!("[{}]", display_type(module, *element)),
+        TypeKind::Function { params, result } => format!(
             "fn({}) -> {}",
             params
                 .iter()

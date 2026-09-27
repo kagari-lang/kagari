@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::mem;
 
 use super::{
     Context, IrVerificationError, IrVerificationErrorKind as Error, inputs, output, successors,
@@ -18,7 +19,7 @@ pub(super) fn verify(
     let mut predecessors = vec![Vec::new(); function.blocks.len()];
     while let Some(id) = pending.pop() {
         context.check_cancel()?;
-        if std::mem::replace(&mut reachable[id.index()], true) {
+        if mem::replace(&mut reachable[id.index()], true) {
             continue;
         }
         for target in successors(
@@ -59,7 +60,7 @@ pub(super) fn verify(
                     .as_ref()
                     .expect("checked terminator"),
             ) {
-                if !std::mem::replace(&mut queued[target.index()], true) {
+                if !mem::replace(&mut queued[target.index()], true) {
                     queue.push_back(target.index());
                 }
             }

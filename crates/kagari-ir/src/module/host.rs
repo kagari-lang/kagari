@@ -1,16 +1,30 @@
 //! Nominal host dependencies include signatures and layouts, even without a call.
+
+use super::abi;
+use super::abi::ConstraintAbi;
+use super::layout::LayoutValidationError;
 use super::{EnumLayout, PublicAbiItem, StructLayout, abi::AbiType};
+use kagari_common::host_interface::HostInterface;
+use kagari_common::host_interface::HostTraitImplementationDeclaration;
+use kagari_common::host_interface::HostTypeDeclaration;
+use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::ModuleIdentity;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::DefinitionId,
 };
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::host;
+use kagari_hir::host::HostDeclarations;
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::slice;
 
 /// Check host method tables against the defining module's executable trait
 /// contracts, including declarations absent from its public ABI.
 pub(crate) fn trait_bindings_match(
-    interface: &kagari_common::host_interface::HostInterface,
-    module: &kagari_common::identity::ModuleIdentity,
+    interface: &HostInterface,
+    module: &ModuleIdentity,
     items: &[PublicAbiItem],
     contracts: &[super::TraitContract],
     cancel: &CancellationToken,
@@ -21,12 +35,12 @@ pub(crate) fn trait_bindings_match(
         for implementation in &host.trait_implementations {
             cancel.check()?;
             let id = &implementation.trait_id;
-            if let Some(kind) = kagari_hir::builtin::traits::StandardTrait::from_id(id) {
+            if let Some(kind) = StandardTrait::from_id(id) {
                 if !kind.host_implementable()
                     || !host_trait_matches(
                         implementation,
                         host,
-                        super::abi::standard_trait_contract(id).expect("standard contract"),
+                        abi::standard_trait_contract(id).expect("standard contract"),
                         cancel,
                     )?
                 {
@@ -62,8 +76,8 @@ pub(crate) fn trait_bindings_match(
 }
 
 fn host_trait_matches(
-    implementation: &kagari_common::host_interface::HostTraitImplementationDeclaration,
-    host: &kagari_common::host_interface::HostTypeDeclaration,
+    implementation: &HostTraitImplementationDeclaration,
+    host: &HostTypeDeclaration,
     trait_abi: &super::TraitAbi,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
@@ -72,7 +86,7 @@ fn host_trait_matches(
         .iter()
         .map(AbiType::from_host_type)
         .collect::<Vec<_>>();
-    let outputs: std::collections::BTreeMap<_, _> = implementation
+    let outputs: BTreeMap<_, _> = implementation
         .associated_types
         .iter()
         .map(|output| {
@@ -104,8 +118,8 @@ fn host_trait_matches(
             .find(|output| output.declaration == member.declaration)
             .expect("validated output schema");
         for constraint in &member.bounds {
-            if let super::abi::ConstraintAbi::Standard(standard) = constraint
-                && !kagari_hir::host::satisfies_standard_constraint(&output.ty, *standard)
+            if let ConstraintAbi::Standard(standard) = constraint
+                && !host::satisfies_standard_constraint(&output.ty, *standard)
             {
                 return Ok(false);
             }
@@ -124,8 +138,8 @@ fn host_trait_matches(
         };
         for constraint in &bound.constraints {
             cancel.check()?;
-            if let super::abi::ConstraintAbi::Standard(standard) = constraint
-                && !kagari_hir::host::satisfies_standard_constraint(argument, *standard)
+            if let ConstraintAbi::Standard(standard) = constraint
+                && !host::satisfies_standard_constraint(argument, *standard)
             {
                 return Ok(false);
             }
@@ -139,7 +153,7 @@ fn host_trait_matches(
         let Some(binding) = implementation.methods.iter().find(|binding| {
             binding.trait_method.path.last().is_some_and(|part| {
                 part.name == method.name
-                    && part.kind == kagari_common::identity::DefinitionKind::Method
+                    && part.kind == DefinitionKind::Method
                     && part.occurrence == 0
             })
         }) else {
@@ -200,7 +214,7 @@ fn matches_host_type(
     actual: &AbiType,
     owner: &DefinitionId,
     arguments: &[AbiType],
-    outputs: &std::collections::BTreeMap<DefinitionId, AbiType>,
+    outputs: &BTreeMap<DefinitionId, AbiType>,
     receiver: &AbiType,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
@@ -291,7 +305,7 @@ pub(crate) fn references(
     for item in items {
         cancel.check()?;
         let functions: &[super::FunctionAbi] = match item {
-            PublicAbiItem::Function(function) => std::slice::from_ref(function),
+            PublicAbiItem::Function(function) => slice::from_ref(function),
             PublicAbiItem::Const(value) => {
                 pending.push(&value.ty);
                 &[]
@@ -347,12 +361,12 @@ pub(crate) fn references(
 }
 
 pub(crate) fn validate(
-    interface: &kagari_common::host_interface::HostInterface,
+    interface: &HostInterface,
     items: &[PublicAbiItem],
     structures: &[StructLayout],
     enums: &[EnumLayout],
     cancel: &CancellationToken,
-) -> Result<(), super::layout::LayoutValidationError> {
+) -> Result<(), LayoutValidationError> {
     use super::layout::LayoutValidationError as Error;
     cancel.check().map_err(|_| Error::Cancelled)?;
     interface.validate().map_err(|_| Error::Invalid)?;
@@ -376,10 +390,10 @@ pub(crate) fn validate(
 
 pub(crate) fn host_bridge_implementation<'a>(
     table: &super::InterfaceTableAbi,
-    interface: &'a kagari_common::host_interface::HostInterface,
+    interface: &'a HostInterface,
 ) -> Option<(
-    &'a kagari_common::host_interface::HostTypeDeclaration,
-    &'a kagari_common::host_interface::HostTraitImplementationDeclaration,
+    &'a HostTypeDeclaration,
+    &'a HostTraitImplementationDeclaration,
 )> {
     let AbiType::Host(id) = &table.for_type else {
         return None;
@@ -389,7 +403,7 @@ pub(crate) fn host_bridge_implementation<'a>(
     };
     let host = interface.types.iter().find(|host| &host.id == id)?;
     let implementation = host.trait_implementations.iter().find(|implementation| {
-        kagari_hir::host::HostDeclarations::trait_type(implementation) == applied.to_checked_type()
+        HostDeclarations::trait_type(implementation) == applied.to_checked_type()
     })?;
     Some((host, implementation))
 }

@@ -1,17 +1,26 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
+
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::FunctionKind;
+use crate::hir::ModuleId;
+use crate::resolver::ResolvedName;
 use crate::{
     builtin::surface,
     hir::{ExportItem, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
 };
+use kagari_common::SourceFile;
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span,
     cancellation::{CancellationToken, Cancelled},
     identity::{FileId, ModuleIdentity, Revision},
 };
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
+use surface::StandardModule;
 
 mod bindings;
 mod functions;
@@ -41,7 +50,7 @@ pub struct SourceImport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportTarget {
-    StandardTrait(crate::builtin::traits::StandardTrait),
+    StandardTrait(StandardTrait),
     StandardModule(surface::StandardModule),
     StandardFunction(surface::StandardIntrinsic),
     StandardVariant(surface::StandardVariant),
@@ -57,7 +66,7 @@ pub struct ResolvedImport {
     pub span: Span,
     pub target: Option<ImportTarget>,
     pub glob_root: bool,
-    pub implicit_module: Option<crate::hir::ModuleId>,
+    pub implicit_module: Option<ModuleId>,
     pub visibility: Visibility,
     pub internal_namespace: bool,
 }
@@ -68,8 +77,8 @@ pub struct ModuleImports {
     pub diagnostics: Vec<Diagnostic>,
     /// Final export targets, keyed by their local import or namespace member.
     /// Entries retain the direct source edge for initialization and navigation.
-    bindings: HashMap<crate::resolver::ResolvedName, ImportTarget>,
-    pub(crate) module_aliases: HashMap<crate::hir::ModuleId, usize>,
+    bindings: HashMap<ResolvedName, ImportTarget>,
+    pub(crate) module_aliases: HashMap<ModuleId, usize>,
     namespace_entries: HashMap<ModuleIdentity, usize>,
 }
 
@@ -125,10 +134,10 @@ impl ModuleGraph {
             cancel.check()?;
             let identity = module.source.module_identity().clone();
             match modules.entry(identity.clone()) {
-                std::collections::btree_map::Entry::Occupied(_) => {
+                Entry::Occupied(_) => {
                     duplicate_identities.insert(identity);
                 }
-                std::collections::btree_map::Entry::Vacant(entry) => {
+                Entry::Vacant(entry) => {
                     entry.insert(module);
                 }
             }
@@ -298,7 +307,7 @@ fn resolve_imports(
         .module
         .functions
         .iter()
-        .filter(|item| item.kind == crate::hir::FunctionKind::User)
+        .filter(|item| item.kind == FunctionKind::User)
         .map(|item| item.name.as_str())
         .chain(
             module
@@ -452,18 +461,15 @@ fn resolve_imports(
                         )
                     })
                     .chain(
-                        crate::builtin::traits::StandardTrait::ALL
+                        StandardTrait::ALL
                             .into_iter()
-                            .filter(|kind| {
-                                crate::builtin::traits::in_module(*module, kind.name())
-                                    == Some(*kind)
-                            })
+                            .filter(|kind| traits::in_module(*module, kind.name()) == Some(*kind))
                             .map(|kind| (kind.name().into(), ImportTarget::StandardTrait(kind))),
                     )
-                    .chain((*module == surface::StandardModule::Cmp).then(|| {
+                    .chain((*module == StandardModule::Cmp).then(|| {
                         (
                             "Ordering".into(),
-                            ImportTarget::StandardModule(surface::StandardModule::Ordering),
+                            ImportTarget::StandardModule(StandardModule::Ordering),
                         )
                     }))
                     .chain(surface::standard_variants_in_module(*module).iter().map(
@@ -480,15 +486,9 @@ fn resolve_imports(
                     (
                         name,
                         match resolved {
-                            crate::resolver::ResolvedName::HostFunction(id) => {
-                                ImportTarget::HostFunction(id)
-                            }
-                            crate::resolver::ResolvedName::HostType(id) => {
-                                ImportTarget::HostType(id)
-                            }
-                            crate::resolver::ResolvedName::HostModule(id) => {
-                                ImportTarget::HostModule(id)
-                            }
+                            ResolvedName::HostFunction(id) => ImportTarget::HostFunction(id),
+                            ResolvedName::HostType(id) => ImportTarget::HostType(id),
+                            ResolvedName::HostModule(id) => ImportTarget::HostModule(id),
                             _ => unreachable!("host module member"),
                         },
                     )
@@ -725,7 +725,7 @@ fn resolve_path(
     }) {
         candidates.push(ImportTarget::StandardVariant(variant));
     }
-    if let Some(kind) = crate::builtin::traits::StandardTrait::from_name(path) {
+    if let Some(kind) = StandardTrait::from_name(path) {
         candidates.push(ImportTarget::StandardTrait(kind));
     }
     if let Some(function) = hosts.resolve(path) {
@@ -877,7 +877,7 @@ struct SourceCatalog<'a> {
 }
 
 struct SourceCatalogEntry<'a> {
-    source: &'a kagari_common::SourceFile,
+    source: &'a SourceFile,
     members: Arc<BTreeMap<String, Vec<CatalogMember>>>,
     reexports: BTreeMap<usize, ImportTarget>,
 }
@@ -908,7 +908,7 @@ impl<'a> SourceCatalog<'a> {
                 .module
                 .functions
                 .iter()
-                .filter(|item| item.kind == crate::hir::FunctionKind::User)
+                .filter(|item| item.kind == FunctionKind::User)
             {
                 cancel.check()?;
                 add(&item.name, ExportItem::Function(item.id), item.visibility);

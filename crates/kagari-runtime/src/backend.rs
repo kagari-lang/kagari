@@ -1,3 +1,4 @@
+use crate::RuntimeError;
 use std::fmt;
 
 use kagari_ir::bytecode::{BytecodeFunction, DebugPointId, FunctionRef};
@@ -241,7 +242,7 @@ impl BackendCompileError {
 #[error("{}", self.message())]
 pub enum BackendInvocationError {
     UnsupportedArtifact(String),
-    RuntimeFailure(crate::RuntimeError),
+    RuntimeFailure(RuntimeError),
     InternalError(String),
 }
 

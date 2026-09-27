@@ -1,3 +1,22 @@
+use crate::ExecutionPhase;
+use crate::ResourceState;
+use crate::RuntimeError;
+use crate::cache::ReloadDependencySnapshot;
+use crate::host::HostFunctionId;
+use crate::host::HostPathDescriptorId;
+use crate::host::HostRegistryId;
+use kagari_common::identity::ModuleIdentity;
+use kagari_ir::bytecode;
+use kagari_ir::bytecode::ArtifactFingerprint;
+use kagari_ir::bytecode::EnumId;
+use kagari_ir::bytecode::HostImportId;
+use kagari_ir::bytecode::PathId;
+use kagari_ir::bytecode::StructId;
+use kagari_ir::module::EnumLayout;
+use kagari_ir::module::EnumVariantLayout;
+use kagari_ir::module::StructLayout;
+use std::cell::BorrowError;
+use std::rc::Rc;
 use std::{
     cell::{RefCell, RefMut},
     collections::{HashMap, HashSet},
@@ -92,21 +111,21 @@ pub struct LoadedModule {
 pub struct VerifiedProgram {
     root: ModuleRef,
     modules: Arc<[Arc<BytecodeModule>]>,
-    dependencies: crate::cache::ReloadDependencySnapshot,
+    dependencies: ReloadDependencySnapshot,
 }
 
 impl VerifiedProgram {
-    pub fn new(program: BytecodeProgram) -> Result<Self, crate::RuntimeError> {
-        kagari_ir::bytecode::validate_program_resource_limits(&program)
-            .map_err(|error| crate::RuntimeError::resource_limit(error.to_string()))?;
-        kagari_ir::bytecode::verify_program(&program).map_err(|error| {
-            crate::RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
+    pub fn new(program: BytecodeProgram) -> Result<Self, RuntimeError> {
+        bytecode::validate_program_resource_limits(&program)
+            .map_err(|error| RuntimeError::resource_limit(error.to_string()))?;
+        bytecode::verify_program(&program).map_err(|error| {
+            RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
         })?;
         Ok(Self::from_verified(program))
     }
 
     fn from_verified(program: BytecodeProgram) -> Self {
-        let dependencies = crate::cache::ReloadDependencySnapshot::from_program(&program);
+        let dependencies = ReloadDependencySnapshot::from_program(&program);
         Self {
             root: program.root,
             modules: program.modules.into_iter().map(Arc::new).collect(),
@@ -122,7 +141,7 @@ impl VerifiedProgram {
         &self.modules
     }
 
-    pub(crate) fn dependencies(&self) -> &crate::cache::ReloadDependencySnapshot {
+    pub(crate) fn dependencies(&self) -> &ReloadDependencySnapshot {
         &self.dependencies
     }
 }
@@ -130,7 +149,7 @@ impl VerifiedProgram {
 #[derive(Debug)]
 struct LinkedProgram {
     root: ModuleRef,
-    fingerprint: kagari_ir::bytecode::ArtifactFingerprint,
+    fingerprint: ArtifactFingerprint,
     modules: Vec<LinkedModule>,
 }
 /// Immutable executable data, exposed only through a shared loaded handle.
@@ -140,14 +159,14 @@ pub struct LinkedModule {
     pub name: String,
     pub epoch: ModuleEpoch,
     pub bytecode: Arc<BytecodeModule>,
-    registry_owner: crate::host::HostRegistryId,
+    registry_owner: HostRegistryId,
     pub(crate) host_bindings: LinkedHostBindings,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedHostBindings {
-    pub functions: Vec<crate::host::HostFunctionId>,
-    pub paths: Vec<crate::host::HostPathDescriptorId>,
+    pub functions: Vec<HostFunctionId>,
+    pub paths: Vec<HostPathDescriptorId>,
 }
 
 impl Deref for LoadedModule {
@@ -158,7 +177,7 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
-    pub fn program_fingerprint(&self) -> kagari_ir::bytecode::ArtifactFingerprint {
+    pub fn program_fingerprint(&self) -> ArtifactFingerprint {
         self.program.fingerprint
     }
 
@@ -190,7 +209,7 @@ impl LoadedModule {
     fn program_key(&self) -> ModuleKey {
         self.program_root().key()
     }
-    pub fn struct_layout(&self, id: kagari_ir::bytecode::StructId) -> Option<StructLayoutRef> {
+    pub fn struct_layout(&self, id: StructId) -> Option<StructLayoutRef> {
         self.bytecode.structures.get(id.index())?;
         Some(StructLayoutRef {
             module: self.clone(),
@@ -198,11 +217,7 @@ impl LoadedModule {
         })
     }
 
-    pub fn enum_variant(
-        &self,
-        id: kagari_ir::bytecode::EnumId,
-        variant: u32,
-    ) -> Option<EnumVariantRef> {
+    pub fn enum_variant(&self, id: EnumId, variant: u32) -> Option<EnumVariantRef> {
         self.bytecode
             .enumerations
             .get(id.index())?
@@ -214,21 +229,15 @@ impl LoadedModule {
             variant,
         })
     }
-    pub fn host_binding(
-        &self,
-        import: kagari_ir::bytecode::HostImportId,
-    ) -> Option<crate::host::HostFunctionId> {
+    pub fn host_binding(&self, import: HostImportId) -> Option<HostFunctionId> {
         self.host_bindings.functions.get(import.index()).copied()
     }
 
-    pub fn path_binding(
-        &self,
-        path: kagari_ir::bytecode::PathId,
-    ) -> Option<crate::host::HostPathDescriptorId> {
+    pub fn path_binding(&self, path: PathId) -> Option<HostPathDescriptorId> {
         self.host_bindings.paths.get(path.index()).copied()
     }
 
-    pub(crate) fn belongs_to(&self, owner: crate::host::HostRegistryId) -> bool {
+    pub(crate) fn belongs_to(&self, owner: HostRegistryId) -> bool {
         self.registry_owner == owner
     }
     pub fn key(&self) -> ModuleKey {
@@ -243,18 +252,18 @@ impl LoadedModule {
 #[derive(Debug, Clone)]
 pub struct EnumVariantRef {
     module: LoadedModule,
-    id: kagari_ir::bytecode::EnumId,
+    id: EnumId,
     variant: u32,
 }
 
 impl EnumVariantRef {
-    pub(crate) fn registry_owner(&self) -> crate::host::HostRegistryId {
+    pub(crate) fn registry_owner(&self) -> HostRegistryId {
         self.module.registry_owner
     }
-    pub fn layout(&self) -> &kagari_ir::module::EnumLayout {
+    pub fn layout(&self) -> &EnumLayout {
         &self.module.bytecode.enumerations[self.id.index()]
     }
-    pub fn variant(&self) -> &kagari_ir::module::EnumVariantLayout {
+    pub fn variant(&self) -> &EnumVariantLayout {
         &self.layout().variants[self.variant as usize]
     }
     pub fn module(&self) -> &LoadedModule {
@@ -275,11 +284,11 @@ impl PartialEq for EnumVariantRef {
 #[derive(Debug, Clone)]
 pub struct StructLayoutRef {
     module: LoadedModule,
-    id: kagari_ir::bytecode::StructId,
+    id: StructId,
 }
 
 impl StructLayoutRef {
-    pub fn layout(&self) -> &kagari_ir::module::StructLayout {
+    pub fn layout(&self) -> &StructLayout {
         &self.module.bytecode.structures[self.id.index()]
     }
     pub fn module(&self) -> &LoadedModule {
@@ -315,8 +324,8 @@ impl ModuleInstance {
 
 #[derive(Debug, Clone)]
 pub struct ModuleStore {
-    resources: std::rc::Rc<crate::ResourceState>,
-    inner: std::rc::Rc<RefCell<ModuleStoreInner>>,
+    resources: Rc<ResourceState>,
+    inner: Rc<RefCell<ModuleStoreInner>>,
 }
 
 /// Keeps every member of one linked dependency closure reachable while a
@@ -338,14 +347,14 @@ impl Drop for RetainedRuntimeProgram {
 
 impl Default for ModuleStore {
     fn default() -> Self {
-        Self::new(std::rc::Rc::new(crate::ResourceState::default()))
+        Self::new(Rc::new(ResourceState::default()))
     }
 }
 
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
     next_id: usize,
-    ids_by_member: HashMap<(String, kagari_common::identity::ModuleIdentity), ModuleId>,
+    ids_by_member: HashMap<(String, ModuleIdentity), ModuleId>,
     loaded: HashMap<ModuleKey, LoadedModule>,
     latest_by_name: HashMap<String, ModuleKey>,
     staged: HashSet<ModuleKey>,
@@ -414,7 +423,7 @@ impl ModuleStore {
             members,
         })
     }
-    pub(crate) fn new(resources: std::rc::Rc<crate::ResourceState>) -> Self {
+    pub(crate) fn new(resources: Rc<ResourceState>) -> Self {
         Self {
             resources,
             inner: Default::default(),
@@ -434,9 +443,9 @@ impl ModuleStore {
         name: impl Into<String>,
         epoch: ModuleEpoch,
         bytecode: BytecodeProgram,
-        registry_owner: crate::host::HostRegistryId,
+        registry_owner: HostRegistryId,
         host_bindings: Vec<LinkedHostBindings>,
-    ) -> Result<StagedProgram, crate::RuntimeError> {
+    ) -> Result<StagedProgram, RuntimeError> {
         self.stage_verified_program(
             name,
             epoch,
@@ -451,9 +460,9 @@ impl ModuleStore {
         name: impl Into<String>,
         epoch: ModuleEpoch,
         program: VerifiedProgram,
-        registry_owner: crate::host::HostRegistryId,
+        registry_owner: HostRegistryId,
         host_bindings: Vec<LinkedHostBindings>,
-    ) -> Result<StagedProgram, crate::RuntimeError> {
+    ) -> Result<StagedProgram, RuntimeError> {
         assert_eq!(
             program.modules.len(),
             host_bindings.len(),
@@ -520,10 +529,7 @@ impl ModuleStore {
         self.inner.borrow().loaded.get(&key).cloned()
     }
 
-    pub(crate) fn try_loaded(
-        &self,
-        key: ModuleKey,
-    ) -> Result<Option<LoadedModule>, std::cell::BorrowError> {
+    pub(crate) fn try_loaded(&self, key: ModuleKey) -> Result<Option<LoadedModule>, BorrowError> {
         Ok(self.inner.try_borrow()?.loaded.get(&key).cloned())
     }
 
@@ -535,7 +541,7 @@ impl ModuleStore {
 
     pub(crate) fn allows_instance_access(&self, key: ModuleKey) -> bool {
         self.resources.active_session().is_none_or(|session| {
-            session.options.phase != crate::ExecutionPhase::CandidateInitialization
+            session.options.phase != ExecutionPhase::CandidateInitialization
                 || session.root.members().any(|member| member.key() == key)
         })
     }
@@ -628,7 +634,7 @@ impl ModuleStore {
     }
 }
 
-fn live_programs(inner: &ModuleStoreInner) -> std::collections::HashSet<ModuleKey> {
+fn live_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
     inner
         .latest_by_name
         .values()

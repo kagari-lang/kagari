@@ -1,6 +1,12 @@
 //! Nominal type imports are built from declarations, before signature checking.
+
 use super::*;
+use crate::typeck;
+use crate::types::NominalType;
 use crate::{DeclaredAnalysis, declarations::Declaration, resolver::ResolvedName, types::TypeId};
+use kagari_common::identity::DefinitionId;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceTypeId {
@@ -11,26 +17,26 @@ pub struct SourceTypeId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedType {
-    pub associated_arities: std::collections::BTreeMap<String, usize>,
+    pub associated_arities: BTreeMap<String, usize>,
     pub id: SourceTypeId,
     pub declaration: Declaration,
     pub ty: TypeId,
     pub trait_methods: Vec<ImportedTraitMethod>,
     pub associated_types: Vec<String>,
-    pub supertraits: Vec<crate::types::NominalType>,
+    pub supertraits: Vec<NominalType>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedTraitMethod {
     pub name: String,
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportedTypes {
     types: HashMap<String, ImportedType>,
     resolutions: HashMap<ResolvedName, String>,
-    nominal_types: HashMap<kagari_common::identity::DefinitionId, ImportedType>,
+    nominal_types: HashMap<DefinitionId, ImportedType>,
 }
 
 impl ImportedTypes {
@@ -45,10 +51,7 @@ impl ImportedTypes {
         self.types.values().find(|ty| ty.id == id)
     }
 
-    pub fn by_declaration(
-        &self,
-        id: &kagari_common::identity::DefinitionId,
-    ) -> Option<&ImportedType> {
+    pub fn by_declaration(&self, id: &DefinitionId) -> Option<&ImportedType> {
         self.types
             .values()
             .chain(self.nominal_types.values())
@@ -61,8 +64,7 @@ impl ImportedTypes {
 
 pub(crate) struct TypeCatalog<'a> {
     modules: HashMap<FileId, &'a DeclaredAnalysis>,
-    surfaces:
-        std::cell::RefCell<Option<HashMap<kagari_common::identity::DefinitionId, ImportedType>>>,
+    surfaces: RefCell<Option<HashMap<DefinitionId, ImportedType>>>,
 }
 
 impl<'a> TypeCatalog<'a> {
@@ -188,7 +190,7 @@ impl<'a> TypeCatalog<'a> {
 
     fn surface(module: &DeclaredAnalysis, source: SourceTypeId) -> Option<ImportedType> {
         let item = source.item;
-        let (resolved, make_type): (_, fn(crate::types::NominalType) -> TypeId) = match item {
+        let (resolved, make_type): (_, fn(NominalType) -> TypeId) = match item {
             ExportItem::Struct(id) => (ResolvedName::Struct(id), TypeId::Struct),
             ExportItem::Enum(id) => (ResolvedName::Enum(id), TypeId::Enum),
             ExportItem::Trait(id) => (ResolvedName::Trait(id), TypeId::Trait),
@@ -230,7 +232,7 @@ impl<'a> TypeCatalog<'a> {
                 item,
             },
             declaration: declaration.clone(),
-            ty: make_type(crate::types::NominalType {
+            ty: make_type(NominalType {
                 associated_types: Default::default(),
                 declaration: identity.clone(),
                 arguments: module
@@ -301,7 +303,7 @@ impl<'a> TypeCatalog<'a> {
                         continue;
                     };
                     if let Some(surface) = next.get_mut(id) {
-                        surface.supertraits = crate::typeck::trait_supertrait_surface(
+                        surface.supertraits = typeck::trait_supertrait_surface(
                             &module.lowered.module,
                             item,
                             &declarations,

@@ -1,10 +1,13 @@
 use super::*;
+use crate::builtin::traits;
 use crate::builtin::traits::StandardTrait;
+use crate::typeck::ResolvedIteration;
 use crate::types::{NominalType, associated_type_id};
+use kagari_common::range::RangeKind;
 impl BodyChecker<'_> {
     pub(super) fn add_iterator_view(&self, receiver: &TypeId, views: &mut Vec<NominalType>) {
         if let TypeId::Range(item, kind) = receiver
-            && *kind != kagari_common::range::RangeKind::Full
+            && *kind != RangeKind::Full
         {
             let mut view = StandardTrait::RangeBounds.nominal();
             view.arguments.push((**item).clone());
@@ -19,7 +22,7 @@ impl BodyChecker<'_> {
                     | TypeId::Map { .. }
                     | TypeId::Set(_, _)
                     | TypeId::Builtin(BuiltinType::String)
-            ) && let Some(outputs) = crate::builtin::traits::iteration_outputs(
+            ) && let Some(outputs) = traits::iteration_outputs(
                 kind,
                 receiver,
                 Some(self.aggregates),
@@ -97,7 +100,7 @@ impl BodyChecker<'_> {
             .insert(associated_type_id(&next.declaration, "Item"), item.clone());
         self.type_table.insert_iteration(
             expr,
-            crate::typeck::ResolvedIteration {
+            ResolvedIteration {
                 into_interface: interface,
                 iterator,
                 next_interface: next,

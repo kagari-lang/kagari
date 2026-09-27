@@ -1,4 +1,13 @@
+use crate::module::ValueBuffer;
+use crate::module::abi::NominalAbiType;
+use hir::BinaryOp as HirBinaryOp;
+use hir::PlaceKind;
+use hir::PrefixOp;
+use kagari_common::identity::DefinitionId;
+use kagari_hir::types::BuiltinType;
+use kagari_hir::types::TypeId;
 use kagari_hir::{hir, resolver::ResolvedName};
+use std::slice;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
@@ -17,12 +26,8 @@ impl From<ScalarValue> for Constant {
             ScalarValue::Bool(value) => Self::Bool(value),
             ScalarValue::I32(value) => Self::I32(value),
             ScalarValue::Integer { value, ty } => match ty {
-                kagari_hir::types::BuiltinType::I8 | kagari_hir::types::BuiltinType::I16 => {
-                    Self::I32(value as i32)
-                }
-                kagari_hir::types::BuiltinType::U64 | kagari_hir::types::BuiltinType::USize => {
-                    Self::U64(value as u64)
-                }
+                BuiltinType::I8 | BuiltinType::I16 => Self::I32(value as i32),
+                BuiltinType::U64 | BuiltinType::USize => Self::U64(value as u64),
                 _ => Self::I64(value as i64),
             },
             ScalarValue::F32(value) => Self::F32(value),
@@ -36,7 +41,7 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_host_path_arguments(
         &mut self,
         arguments: &[(u32, hir::ExprId)],
-    ) -> Result<ControlFlow<IrValue, crate::module::ValueBuffer>, IrLoweringError> {
+    ) -> Result<ControlFlow<IrValue, ValueBuffer>, IrLoweringError> {
         let mut ordered = vec![None; arguments.len()];
         for (slot, argument) in arguments {
             let value = self.lower_expr(*argument)?;
@@ -59,7 +64,7 @@ impl FunctionLowerer<'_, '_> {
                     "missing host path argument",
                 ))
             })
-            .collect::<Result<crate::module::ValueBuffer, _>>()?;
+            .collect::<Result<ValueBuffer, _>>()?;
         Ok(ControlFlow::Continue(values))
     }
 
@@ -163,8 +168,8 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn aggregate_field_ref(
         &self,
-        field: &kagari_common::identity::DefinitionId,
-        receiver: &kagari_hir::types::TypeId,
+        field: &DefinitionId,
+        receiver: &TypeId,
     ) -> Result<AggregateFieldRef, IrLoweringError> {
         let field = self
             .analyzed
@@ -181,12 +186,9 @@ impl FunctionLowerer<'_, '_> {
         })
     }
 
-    pub(crate) fn nominal_instance(
-        &self,
-        ty: &kagari_hir::types::TypeId,
-    ) -> Result<crate::module::abi::NominalAbiType, IrLoweringError> {
+    pub(crate) fn nominal_instance(&self, ty: &TypeId) -> Result<NominalAbiType, IrLoweringError> {
         let types = self.planner.arguments(
-            std::slice::from_ref(ty),
+            slice::from_ref(ty),
             &self.instance.substitution,
             self.function.debug.source_span,
         )?;
@@ -194,19 +196,16 @@ impl FunctionLowerer<'_, '_> {
         if !ty.is_concrete() {
             return Err(IrLoweringError::MissingBinding("concrete nominal instance"));
         }
-        let (kagari_hir::types::TypeId::Struct(ty)
-        | kagari_hir::types::TypeId::Enum(ty)
-        | kagari_hir::types::TypeId::Trait(ty)) = ty
-        else {
+        let (TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)) = ty else {
             return Err(IrLoweringError::MissingBinding("nominal instance"));
         };
-        Ok(crate::module::abi::NominalAbiType::from_checked_type(ty))
+        Ok(NominalAbiType::from_checked_type(ty))
     }
 
     pub(crate) fn expr_nominal_instance(
         &self,
         id: hir::ExprId,
-    ) -> Result<crate::module::abi::NominalAbiType, IrLoweringError> {
+    ) -> Result<NominalAbiType, IrLoweringError> {
         let ty = self
             .analyzed
             .typed
@@ -217,10 +216,8 @@ impl FunctionLowerer<'_, '_> {
     }
     pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {
         match &self.analyzed.lowered.module.place(place_id).kind {
-            hir::PlaceKind::Name(_) | hir::PlaceKind::Expr(_) => place_id,
-            hir::PlaceKind::Field { base, .. } | hir::PlaceKind::Index { base, .. } => {
-                self.place_root(*base)
-            }
+            PlaceKind::Name(_) | PlaceKind::Expr(_) => place_id,
+            PlaceKind::Field { base, .. } | PlaceKind::Index { base, .. } => self.place_root(*base),
         }
     }
 
@@ -311,33 +308,33 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_unary_op(op: hir::PrefixOp) -> UnaryOp {
         match op {
-            hir::PrefixOp::Neg => UnaryOp::Neg,
-            hir::PrefixOp::Not => UnaryOp::Not,
+            PrefixOp::Neg => UnaryOp::Neg,
+            PrefixOp::Not => UnaryOp::Not,
         }
     }
 
     pub(crate) fn lower_binary_op(op: hir::BinaryOp) -> BinaryOp {
         match op {
-            hir::BinaryOp::Add => BinaryOp::Add,
-            hir::BinaryOp::Sub => BinaryOp::Sub,
-            hir::BinaryOp::Mul => BinaryOp::Mul,
-            hir::BinaryOp::Div => BinaryOp::Div,
-            hir::BinaryOp::Rem => BinaryOp::Rem,
-            hir::BinaryOp::BitAnd
-            | hir::BinaryOp::BitOr
-            | hir::BinaryOp::BitXor
-            | hir::BinaryOp::Shl
-            | hir::BinaryOp::Shr => unreachable!("bit operations retain numeric contracts"),
-            hir::BinaryOp::Eq => BinaryOp::Eq,
-            hir::BinaryOp::NotEq => BinaryOp::NotEq,
-            hir::BinaryOp::IdentityEq => BinaryOp::IdentityEq,
-            hir::BinaryOp::IdentityNotEq => BinaryOp::IdentityNotEq,
-            hir::BinaryOp::Lt => BinaryOp::Lt,
-            hir::BinaryOp::Gt => BinaryOp::Gt,
-            hir::BinaryOp::Le => BinaryOp::Le,
-            hir::BinaryOp::Ge => BinaryOp::Ge,
-            hir::BinaryOp::AndAnd => BinaryOp::AndAnd,
-            hir::BinaryOp::OrOr => BinaryOp::OrOr,
+            HirBinaryOp::Add => BinaryOp::Add,
+            HirBinaryOp::Sub => BinaryOp::Sub,
+            HirBinaryOp::Mul => BinaryOp::Mul,
+            HirBinaryOp::Div => BinaryOp::Div,
+            HirBinaryOp::Rem => BinaryOp::Rem,
+            HirBinaryOp::BitAnd
+            | HirBinaryOp::BitOr
+            | HirBinaryOp::BitXor
+            | HirBinaryOp::Shl
+            | HirBinaryOp::Shr => unreachable!("bit operations retain numeric contracts"),
+            HirBinaryOp::Eq => BinaryOp::Eq,
+            HirBinaryOp::NotEq => BinaryOp::NotEq,
+            HirBinaryOp::IdentityEq => BinaryOp::IdentityEq,
+            HirBinaryOp::IdentityNotEq => BinaryOp::IdentityNotEq,
+            HirBinaryOp::Lt => BinaryOp::Lt,
+            HirBinaryOp::Gt => BinaryOp::Gt,
+            HirBinaryOp::Le => BinaryOp::Le,
+            HirBinaryOp::Ge => BinaryOp::Ge,
+            HirBinaryOp::AndAnd => BinaryOp::AndAnd,
+            HirBinaryOp::OrOr => BinaryOp::OrOr,
         }
     }
 }

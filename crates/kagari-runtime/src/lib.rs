@@ -1,3 +1,24 @@
+use host::HostCallContext;
+use kagari_common::host_interface::HostPassingStyle;
+use kagari_common::host_interface::HostPathDeclaration;
+use kagari_common::identity::DefinitionId;
+use kagari_ir::bytecode;
+use kagari_ir::bytecode::ArtifactFingerprint;
+use kagari_ir::bytecode::BinaryOp;
+use kagari_ir::bytecode::FunctionRef;
+use kagari_ir::module::ValueType;
+use kagari_ir::module::abi;
+use kagari_ir::module::abi::AbiType;
+use kagari_ir::module::abi::NominalAbiType;
+use kagari_ir::module::instruction::IterOp;
+use reflection::ReflectionError;
+use session::SessionState;
+use std::cell::RefCell;
+use std::cell::RefMut;
+use std::rc::Rc;
+use std::slice;
+use value::EnumTag;
+use value::EphemeralValue;
 pub mod error_trace;
 pub use error_trace::{ErrorFrame, ErrorTrace, ResultFailure};
 #[cfg(test)]
@@ -95,7 +116,7 @@ struct PreparedReload {
 /// Installed candidate whose entry has not been activated.
 #[derive(Debug)]
 pub struct StagedReload {
-    initialization_error: std::cell::RefCell<Option<RuntimeError>>,
+    initialization_error: RefCell<Option<RuntimeError>>,
     baseline: LoadedModule,
     program: module::StagedProgram,
     dependencies: ReloadDependencySnapshot,
@@ -126,14 +147,14 @@ pub struct RuntimeConfig {
 
 #[derive(Debug)]
 pub struct Runtime {
-    gc: std::rc::Rc<GcHeap>,
+    gc: Rc<GcHeap>,
     types: TypeRegistry,
     host: HostRegistry,
     host_borrows: HostBorrowTable,
     security: SecurityContext,
-    host_exposure: std::rc::Rc<HostExposurePolicy>,
+    host_exposure: Rc<HostExposurePolicy>,
     debug_visibility: DebugVisibilityPolicy,
-    resources: std::rc::Rc<ResourceState>,
+    resources: Rc<ResourceState>,
     epochs: ModuleEpochAllocator,
     modules: ModuleStore,
     execution_artifacts: ExecutionArtifactRegistry,
@@ -144,48 +165,48 @@ pub struct Runtime {
 pub struct RootedInterfaceMethod {
     _root: RootedValue,
     receiver: value::Value,
-    concrete_type: kagari_ir::module::abi::AbiType,
-    interface_type: kagari_ir::module::abi::NominalAbiType,
+    concrete_type: AbiType,
+    interface_type: NominalAbiType,
     implementation: LoadedModule,
-    function: kagari_ir::bytecode::FunctionRef,
-    parameter_types: Vec<kagari_ir::module::abi::AbiType>,
-    return_type: kagari_ir::module::abi::AbiType,
+    function: FunctionRef,
+    parameter_types: Vec<AbiType>,
+    return_type: AbiType,
 }
 
 impl RootedInterfaceMethod {
     pub fn receiver(&self) -> &value::Value {
         &self.receiver
     }
-    pub fn concrete_type(&self) -> &kagari_ir::module::abi::AbiType {
+    pub fn concrete_type(&self) -> &AbiType {
         &self.concrete_type
     }
-    pub fn interface_type(&self) -> &kagari_ir::module::abi::NominalAbiType {
+    pub fn interface_type(&self) -> &NominalAbiType {
         &self.interface_type
     }
     pub fn implementation(&self) -> &LoadedModule {
         &self.implementation
     }
-    pub fn function(&self) -> kagari_ir::bytecode::FunctionRef {
+    pub fn function(&self) -> FunctionRef {
         self.function
     }
-    pub fn parameter_types(&self) -> &[kagari_ir::module::abi::AbiType] {
+    pub fn parameter_types(&self) -> &[AbiType] {
         &self.parameter_types
     }
-    pub fn return_type(&self) -> &kagari_ir::module::abi::AbiType {
+    pub fn return_type(&self) -> &AbiType {
         &self.return_type
     }
 }
 
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
-        let resources = std::rc::Rc::new(ResourceState::new(config.resources));
+        let resources = Rc::new(ResourceState::new(config.resources));
         Self {
-            gc: std::rc::Rc::new(GcHeap::new(config.gc, resources.clone())),
+            gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
             host_borrows: HostBorrowTable::with_resources(&resources),
             security: config.security,
-            host_exposure: std::rc::Rc::new(config.host_exposure),
+            host_exposure: Rc::new(config.host_exposure),
             debug_visibility: config.debug_visibility,
             modules: ModuleStore::new(resources.clone()),
             resources,
@@ -212,7 +233,7 @@ impl Runtime {
     /// Install once for the root call. Nested drivers inherit the same observer.
     pub fn attach_execution_observer(
         &self,
-        observer: std::rc::Rc<dyn ExecutionObserver>,
+        observer: Rc<dyn ExecutionObserver>,
     ) -> Result<bool, RuntimeError> {
         self.resources.ensure_execution_allowed()?;
         let session = self.resources.active_session().ok_or_else(|| {
@@ -220,7 +241,7 @@ impl Runtime {
         })?;
         let mut active = session.observer.borrow_mut();
         if let Some(existing) = active.as_ref() {
-            if !std::rc::Rc::ptr_eq(existing, &observer) {
+            if !Rc::ptr_eq(existing, &observer) {
                 return Err(RuntimeError::module_validation(
                     "nested execution cannot replace the root observer",
                 ));
@@ -386,7 +407,7 @@ impl Runtime {
             }
             session
         } else {
-            let session = std::rc::Rc::new(session::SessionState::new(
+            let session = Rc::new(SessionState::new(
                 module.clone(),
                 options,
                 self.resources.counters(),
@@ -423,8 +444,8 @@ impl Runtime {
 
     pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
         for (key, value) in &entries {
-            self.validate_heap_payloads(std::slice::from_ref(key))?;
-            self.validate_heap_payloads(std::slice::from_ref(value))?;
+            self.validate_heap_payloads(slice::from_ref(key))?;
+            self.validate_heap_payloads(slice::from_ref(value))?;
         }
         self.gc.alloc_map(entries)
     }
@@ -456,7 +477,7 @@ impl Runtime {
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.validate_heap_payloads(&fields)?;
-        if let value::EnumTag::Declared(layout) = &tag
+        if let EnumTag::Declared(layout) = &tag
             && !layout.module().belongs_to(self.host.owner())
         {
             return Err(RuntimeError::module_validation(
@@ -535,10 +556,7 @@ impl Runtime {
                             })
                     })
             })
-            .or_else(|| {
-                kagari_ir::module::abi::standard_trait_contract(&interface_type.declaration)
-                    .cloned()
-            })
+            .or_else(|| abi::standard_trait_contract(&interface_type.declaration).cloned())
             .ok_or_else(invalid)?;
         if table.methods.iter().any(|method| {
             !trait_contract
@@ -555,10 +573,7 @@ impl Runtime {
                 .iter()
                 .find(|method| method.name == declared.name);
             let Some(method) = method else {
-                if kagari_ir::module::abi::native_trait_default(
-                    &interface_type.declaration,
-                    &declared.name,
-                ) {
+                if abi::native_trait_default(&interface_type.declaration, &declared.name) {
                     methods.push(None);
                     continue;
                 }
@@ -600,7 +615,7 @@ impl Runtime {
             }));
         }
         if !matches!(data, Value::HostRoot(_)) {
-            self.validate_heap_payloads(std::slice::from_ref(&data))?;
+            self.validate_heap_payloads(slice::from_ref(&data))?;
         }
         if !self.matches_interface_method_abi(&data, &concrete_type, implementation) {
             return Err(RuntimeError::new(
@@ -623,13 +638,13 @@ impl Runtime {
                 },
                 retention,
             )
-            .map(value::Value::Interface)
+            .map(Value::Interface)
     }
 
     pub fn make_closure(
         &self,
         implementation: &LoadedModule,
-        function: kagari_ir::bytecode::FunctionRef,
+        function: FunctionRef,
         captures: Vec<value::Value>,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(implementation)?;
@@ -662,15 +677,15 @@ impl Runtime {
                 },
                 retention,
             )
-            .map(value::Value::Closure)
+            .map(Value::Closure)
     }
 
     pub fn iter_operation(
         &self,
         owner: &LoadedModule,
         value: &value::Value,
-        ty: &kagari_ir::module::abi::AbiType,
-        op: kagari_ir::module::instruction::IterOp,
+        ty: &AbiType,
+        op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
         if matches!(
@@ -683,9 +698,9 @@ impl Runtime {
                 .modules
                 .retain_runtime_program(owner)
                 .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
-            if let kagari_ir::module::instruction::IterOp::String(kind) = op {
+            if let IterOp::String(kind) = op {
                 self.gc.new_string_iter(value, ty, kind, owner, retention)
-            } else if op == kagari_ir::module::instruction::IterOp::FromClosure {
+            } else if op == IterOp::FromClosure {
                 self.gc.new_script_iter(value, ty, owner, retention)
             } else {
                 self.gc.new_iter(value, ty, owner, retention)
@@ -697,20 +712,20 @@ impl Runtime {
 
     pub fn make_capture_cell(
         &self,
-        ty: kagari_ir::module::ValueType,
+        ty: ValueType,
         value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.gc.alloc_cell(ty, value).map(value::Value::Cell)
+        self.gc.alloc_cell(ty, value).map(Value::Cell)
     }
 
     pub fn read_capture_cell(
         &self,
         cell: &value::Value,
-        ty: kagari_ir::module::ValueType,
+        ty: ValueType,
     ) -> Result<value::Value, RuntimeError> {
-        let value::Value::Cell(id) = cell else {
+        let Value::Cell(id) = cell else {
             return Err(RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
+                RuntimeErrorKind::ScriptTrap,
                 "expected capture cell",
             ));
         };
@@ -720,12 +735,12 @@ impl Runtime {
     pub fn write_capture_cell(
         &self,
         cell: &value::Value,
-        ty: kagari_ir::module::ValueType,
+        ty: ValueType,
         value: value::Value,
     ) -> Result<(), RuntimeError> {
-        let value::Value::Cell(id) = cell else {
+        let Value::Cell(id) = cell else {
             return Err(RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
+                RuntimeErrorKind::ScriptTrap,
                 "expected capture cell",
             ));
         };
@@ -736,26 +751,23 @@ impl Runtime {
         &self,
         value: &value::Value,
     ) -> Result<gc::ClosureValueSnapshot, RuntimeError> {
-        let value::Value::Closure(id) = value else {
+        let Value::Closure(id) = value else {
             return Err(RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
+                RuntimeErrorKind::ScriptTrap,
                 "expected closure",
             ));
         };
         self.gc.closure_snapshot(*id).ok_or_else(|| {
-            RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
-                "invalid closure handle",
-            )
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid closure handle")
         })
     }
 
     pub fn resolve_interface_method(
         &self,
         value: &value::Value,
-        method: &kagari_common::identity::DefinitionId,
+        method: &DefinitionId,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if let value::Value::Interface(id) = value
+        if let Value::Interface(id) = value
             && let Some(snapshot) = self.gc.interface_snapshot(*id)
             && !snapshot
                 .methods
@@ -768,7 +780,7 @@ impl Runtime {
                 .iter()
                 .map(|version| version.bytecode.as_ref())
                 .collect::<Vec<_>>();
-            if let Some(parents) = kagari_ir::bytecode::interface_ancestors(
+            if let Some(parents) = bytecode::interface_ancestors(
                 &snapshot.interface_type,
                 &snapshot.concrete_type,
                 &modules,
@@ -798,13 +810,13 @@ impl Runtime {
     pub fn upcast_interface(
         &self,
         value: &value::Value,
-        source: &kagari_ir::module::abi::NominalAbiType,
-        target: &kagari_ir::module::abi::NominalAbiType,
+        source: &NominalAbiType,
+        target: &NominalAbiType,
     ) -> Result<value::Value, RuntimeError> {
         use kagari_ir::module::{PublicAbiItem, abi::AbiType};
         let invalid =
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
-        let value::Value::Interface(id) = value else {
+        let Value::Interface(id) = value else {
             return Err(invalid());
         };
         let _root = self.root_value(value.clone()).ok_or_else(invalid)?;
@@ -820,9 +832,8 @@ impl Runtime {
             .iter()
             .map(|version| version.bytecode.as_ref())
             .collect::<Vec<_>>();
-        let parents =
-            kagari_ir::bytecode::interface_ancestors(source, &snapshot.concrete_type, &modules)
-                .ok_or_else(invalid)?;
+        let parents = bytecode::interface_ancestors(source, &snapshot.concrete_type, &modules)
+            .ok_or_else(invalid)?;
         if !parents.iter().any(|parent| parent == target) {
             return Err(invalid());
         }
@@ -856,10 +867,10 @@ impl Runtime {
     pub fn resolve_interface_method_slot(
         &self,
         value: &value::Value,
-        interface: &kagari_ir::module::abi::NominalAbiType,
+        interface: &NominalAbiType,
         slot: usize,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        if let value::Value::Interface(id) = value
+        if let Value::Interface(id) = value
             && let Some(snapshot) = self.gc.interface_snapshot(*id)
             && snapshot.interface_type != *interface
         {
@@ -874,12 +885,12 @@ impl Runtime {
     fn resolve_interface_method_inner(
         &self,
         value: &value::Value,
-        expected_interface: Option<&kagari_ir::module::abi::NominalAbiType>,
+        expected_interface: Option<&NominalAbiType>,
         select: impl for<'a> FnOnce(
             &'a gc::InterfaceValueSnapshot,
         ) -> Option<&'a gc::InterfaceMethodBinding>,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
-        let value::Value::Interface(id) = value else {
+        let Value::Interface(id) = value else {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "expected interface value",
@@ -957,20 +968,20 @@ impl Runtime {
     fn matches_interface_method_abi(
         &self,
         value: &value::Value,
-        ty: &kagari_ir::module::abi::AbiType,
+        ty: &AbiType,
         implementation: &LoadedModule,
     ) -> bool {
         if !self.gc.validate_value(value) {
             return false;
         }
         match (value, ty) {
-            (value::Value::Tuple(values), kagari_ir::module::abi::AbiType::Tuple(types)) => {
+            (Value::Tuple(values), AbiType::Tuple(types)) => {
                 values.len() == types.len()
                     && values.iter().zip(types).all(|(value, ty)| {
                         self.matches_interface_method_abi(value, ty, implementation)
                     })
             }
-            (value::Value::HostRoot(root), kagari_ir::module::abi::AbiType::Host(id)) => {
+            (Value::HostRoot(root), AbiType::Host(id)) => {
                 self.host.matches_root(*root)
                     && self
                         .host
@@ -1044,7 +1055,7 @@ impl Runtime {
 
     pub fn register_host_path(
         &mut self,
-        declaration: &kagari_common::host_interface::HostPathDeclaration,
+        declaration: &HostPathDeclaration,
     ) -> Result<host::HostPathDescriptorId, RuntimeError> {
         self.host.register_path(declaration, &self.types)
     }
@@ -1063,7 +1074,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: host::DynamicPathArguments,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::MakeView)?;
+        self.validate_host_path_exposure(descriptor_id, HostPathOperation::MakeView)?;
         if !dynamic_args
             .as_slice()
             .iter()
@@ -1082,7 +1093,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::MakeView)?;
+        self.validate_host_path_exposure(descriptor_id, HostPathOperation::MakeView)?;
         self.validate_host_path_capabilities(descriptor_id)?;
         if !self.gc.validate_value(root_or_view)
             || !dynamic_args.iter().all(|arg| self.gc.validate_value(arg))
@@ -1101,7 +1112,7 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Read)?;
+        self.validate_host_path_exposure(descriptor_id, HostPathOperation::Read)?;
         self.validate_host_path_capabilities(descriptor_id)?;
         let result = self
             .host
@@ -1117,7 +1128,7 @@ impl Runtime {
         dynamic_args: Vec<value::Value>,
         value: value::Value,
     ) -> Result<(), RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Set)?;
+        self.validate_host_path_exposure(descriptor_id, HostPathOperation::Set)?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         let result = self
@@ -1132,10 +1143,10 @@ impl Runtime {
         root_or_view: &value::Value,
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
-        op: kagari_ir::bytecode::BinaryOp,
+        op: BinaryOp,
         value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, host::HostPathOperation::Modify(op))?;
+        self.validate_host_path_exposure(descriptor_id, HostPathOperation::Modify(op))?;
         self.validate_path_mutation_boundary()?;
         self.validate_host_path_capabilities(descriptor_id)?;
         let result =
@@ -1328,9 +1339,10 @@ impl Runtime {
             && (metadata.effects.may_call_host_services
                 || metadata.effects.may_mutate_host_state
                 || metadata.effects.may_suspend
-                || metadata.params.iter().any(|parameter| {
-                    parameter.passing != kagari_common::host_interface::HostPassingStyle::Owned
-                }))
+                || metadata
+                    .params
+                    .iter()
+                    .any(|parameter| parameter.passing != HostPassingStyle::Owned))
         {
             return Err(RuntimeError::capability_denied(
                 "external host effects during candidate initialization",
@@ -1536,7 +1548,7 @@ impl Runtime {
         self.security = security;
     }
 
-    pub fn host_exposure(&self) -> std::rc::Rc<HostExposurePolicy> {
+    pub fn host_exposure(&self) -> Rc<HostExposurePolicy> {
         self.resources.active_session().map_or_else(
             || self.host_exposure.clone(),
             |session| session.options.host_exposure.clone(),
@@ -1544,7 +1556,7 @@ impl Runtime {
     }
 
     pub fn set_host_exposure_policy(&mut self, policy: HostExposurePolicy) {
-        self.host_exposure = std::rc::Rc::new(policy);
+        self.host_exposure = Rc::new(policy);
     }
 
     pub fn debug_visibility(&self) -> &DebugVisibilityPolicy {
@@ -1567,7 +1579,7 @@ impl Runtime {
         &self,
         kind: ExecutionArtifactKind,
         module: ModuleKey,
-        function: Option<kagari_ir::bytecode::FunctionRef>,
+        function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
     ) -> Option<ExecutionArtifactId> {
         self.modules.loaded(module)?;
@@ -1618,7 +1630,7 @@ impl Runtime {
     pub fn module_instance_mut(
         &self,
         module: &LoadedModule,
-    ) -> Result<std::cell::RefMut<'_, ModuleInstance>, RuntimeError> {
+    ) -> Result<RefMut<'_, ModuleInstance>, RuntimeError> {
         self.validate_loaded_module(module)?;
         if !self.modules.allows_instance_access(module.key()) {
             return Err(RuntimeError::capability_denied(
@@ -1714,7 +1726,7 @@ impl Runtime {
             .as_ref()
             .and_then(|session| session.begin_host_call(function.symbol(), args));
         let result = (|| {
-            let context = host::HostCallContext::new(self, args)?;
+            let context = HostCallContext::new(self, args)?;
             let result = function.invoke(&context, args);
             self.resources.ensure_execution_allowed()?;
             let value = result?;
@@ -1758,7 +1770,7 @@ impl Runtime {
         self.validate_reflection_write_boundary()?;
         self.resources.consume_reflection_operation()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
-            .map_err(reflection::ReflectionError::into_write_error)
+            .map_err(ReflectionError::into_write_error)
     }
 
     pub fn reflect_set_index(
@@ -1770,7 +1782,7 @@ impl Runtime {
         self.validate_reflection_write_boundary()?;
         self.resources.consume_reflection_operation()?;
         reflection::set_index(&self.gc, value, index, next_value)
-            .map_err(reflection::ReflectionError::into_write_error)
+            .map_err(ReflectionError::into_write_error)
     }
 
     pub fn invoke_standard_builtin(
@@ -1838,7 +1850,7 @@ impl Runtime {
         bytecode: BytecodeProgram,
     ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
-        kagari_ir::bytecode::validate_program_resource_limits(&bytecode)
+        bytecode::validate_program_resource_limits(&bytecode)
             .map_err(ReloadValidationError::Artifact)?;
         let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
         let candidate = self.prepare_reload(active, name, bytecode, dependencies)?;
@@ -2018,9 +2030,7 @@ impl Runtime {
             .invalidate_for_reload(&ReloadInvalidation {
                 module_name: module.name.clone(),
                 module_identity: module.bytecode.identity.clone(),
-                module_fingerprint: kagari_ir::bytecode::ArtifactFingerprint::of_serialized(
-                    module.bytecode.as_ref(),
-                ),
+                module_fingerprint: ArtifactFingerprint::of_serialized(module.bytecode.as_ref()),
                 module_id: module.id,
                 published: module.key(),
                 dependencies,
@@ -2040,11 +2050,9 @@ impl Runtime {
 
 fn value_contains_host_owned_data(value: &value::Value) -> bool {
     match value {
-        value::Value::Tuple(elements) => elements.iter().any(value_contains_host_owned_data),
-        value::Value::HostRoot(_) | value::Value::HostPathView(_) => true,
-        value::Value::Ephemeral(
-            value::EphemeralValue::HostRef(_) | value::EphemeralValue::HostMut(_),
-        ) => true,
+        Value::Tuple(elements) => elements.iter().any(value_contains_host_owned_data),
+        Value::HostRoot(_) | Value::HostPathView(_) => true,
+        Value::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)) => true,
         _ => false,
     }
 }

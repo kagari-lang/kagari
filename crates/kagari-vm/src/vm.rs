@@ -1,8 +1,20 @@
+use kagari_common::identity::DefinitionId;
+use kagari_ir::bytecode::ArtifactCompatibility;
+use kagari_ir::bytecode::BytecodeFunction;
+use kagari_ir::bytecode::BytecodeProgram;
+use kagari_ir::bytecode::KbcArtifact;
 use kagari_ir::bytecode::{BytecodeModule, FunctionRef};
+use kagari_runtime::ExecutableFunctionArtifact;
+use kagari_runtime::ExecutionSession;
+use kagari_runtime::ExecutionTrace;
+use kagari_runtime::ReloadValidationError;
+use kagari_runtime::ResultFailure;
 use kagari_runtime::{
     BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
     ExecutionArtifactId, LoadedModule, ReloadDependencySnapshot, Runtime, value::Value,
 };
+use std::cell::RefCell;
+use std::iter;
 
 use crate::debug::{DebugSession, SharedDebugSession};
 use crate::error::VmError;
@@ -14,7 +26,7 @@ use std::{
 
 #[derive(Debug)]
 pub enum ReloadError {
-    Validation(kagari_runtime::ReloadValidationError),
+    Validation(ReloadValidationError),
 }
 
 #[derive(Debug)]
@@ -29,9 +41,9 @@ pub struct ExecutionReport {
     pub epoch: u64,
     pub entry: String,
     pub return_value: Value,
-    pub failure: Option<kagari_runtime::ResultFailure>,
+    pub failure: Option<ResultFailure>,
     pub jit: Option<JitExecutionReport>,
-    pub trace: Option<kagari_runtime::ExecutionTrace>,
+    pub trace: Option<ExecutionTrace>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +73,7 @@ impl Vm {
         &mut self,
         active: &LoadedModule,
         name: impl Into<String>,
-        program: kagari_ir::bytecode::BytecodeProgram,
+        program: BytecodeProgram,
     ) -> Result<LoadedModule, ReloadError> {
         let candidate = self
             .runtime
@@ -76,8 +88,8 @@ impl Vm {
         &mut self,
         active: &LoadedModule,
         name: impl Into<String>,
-        artifact: kagari_ir::bytecode::KbcArtifact,
-        compatibility: &kagari_ir::bytecode::ArtifactCompatibility,
+        artifact: KbcArtifact,
+        compatibility: &ArtifactCompatibility,
     ) -> Result<LoadedModule, ReloadError> {
         let candidate = self
             .runtime
@@ -100,9 +112,7 @@ impl Vm {
         self.runtime
             .validate_debug_attach_boundary()
             .map_err(VmError::RuntimeError)?;
-        self.debug_session = Some(Rc::new(SharedDebugSession(std::cell::RefCell::new(
-            session,
-        ))));
+        self.debug_session = Some(Rc::new(SharedDebugSession(RefCell::new(session))));
         Ok(())
     }
 
@@ -118,10 +128,7 @@ impl Vm {
             .map(|session| session.0.borrow_mut())
     }
 
-    fn begin_execution(
-        &self,
-        module: &LoadedModule,
-    ) -> Result<kagari_runtime::ExecutionSession, VmError> {
+    fn begin_execution(&self, module: &LoadedModule) -> Result<ExecutionSession, VmError> {
         let session = self
             .runtime
             .begin_execution(module, self.runtime.execution_options())?;
@@ -167,7 +174,7 @@ impl Vm {
     pub fn invoke_interface_method(
         &mut self,
         interface: &Value,
-        method: &kagari_common::identity::DefinitionId,
+        method: &DefinitionId,
         arguments: &[Value],
     ) -> Result<Value, VmError> {
         let resolved = self
@@ -175,7 +182,7 @@ impl Vm {
             .resolve_interface_method(interface, method)
             .map_err(VmError::RuntimeError)?;
         let loaded = resolved.implementation().clone();
-        let args = std::iter::once(resolved.receiver().clone())
+        let args = iter::once(resolved.receiver().clone())
             .chain(arguments.iter().cloned())
             .collect::<Vec<_>>();
         let _argument_roots = self
@@ -315,8 +322,8 @@ impl Vm {
 
     fn debug_fallback_report(
         &self,
-        artifact: &kagari_runtime::ExecutableFunctionArtifact,
-        function: &kagari_ir::bytecode::BytecodeFunction,
+        artifact: &ExecutableFunctionArtifact,
+        function: &BytecodeFunction,
         backend_id: &BackendId,
     ) -> Option<JitExecutionReport> {
         self.debug_session.as_ref()?;

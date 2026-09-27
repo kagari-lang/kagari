@@ -1,4 +1,16 @@
 //! Verified source modules and concrete instance-to-module/function link bindings.
+
+use crate::lower;
+use crate::module::PublicAbiItem;
+use crate::module::ValueType;
+use crate::module::abi;
+use crate::module::abi::AbiType;
+use crate::module::contracts;
+use kagari_common::DiagnosticKind;
+use kagari_common::identity::DefinitionKind;
+use kagari_hir::aggregates;
+use kagari_hir::types::GenericParameterType;
+use kagari_hir::types::TypeId;
 use std::collections::{HashMap, HashSet};
 
 use kagari_common::{
@@ -85,28 +97,24 @@ pub fn lower_program_to_ir(
                 .get(identity)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let lowered = crate::lower::lower_to_ir_with_requests(
-                module,
-                &remaining,
-                demanded,
-                program.modules(),
-            )
-            .map_err(|mut error| {
-                if let IrLoweringError::Diagnostic(diagnostic) = &mut error
-                    && let kagari_common::DiagnosticKind::CompileLimitExceeded { resource, limit } =
-                        &mut diagnostic.kind
-                {
-                    match *resource {
-                        "generated instructions" => *limit = options.max_instructions,
-                        "generic instances" => *limit = options.max_generic_instances,
-                        _ => {}
+            let lowered =
+                lower::lower_to_ir_with_requests(module, &remaining, demanded, program.modules())
+                    .map_err(|mut error| {
+                    if let IrLoweringError::Diagnostic(diagnostic) = &mut error
+                        && let DiagnosticKind::CompileLimitExceeded { resource, limit } =
+                            &mut diagnostic.kind
+                    {
+                        match *resource {
+                            "generated instructions" => *limit = options.max_instructions,
+                            "generic instances" => *limit = options.max_generic_instances,
+                            _ => {}
+                        }
                     }
-                }
-                ProgramError {
-                    module: Box::new(identity.clone()),
-                    kind: ProgramErrorKind::Lowering(error),
-                }
-            })?;
+                    ProgramError {
+                        module: Box::new(identity.clone()),
+                        kind: ProgramErrorKind::Lowering(error),
+                    }
+                })?;
             // These budgets apply to the whole source closure, not once per module.
             remaining.max_generic_instances -= lowered
                 .functions
@@ -181,10 +189,7 @@ pub fn lower_program_to_ir(
                         &module.identity,
                         FunctionInstance {
                             declaration: implementation.clone(),
-                            arguments: arguments
-                                .iter()
-                                .map(crate::module::abi::AbiType::to_checked_type)
-                                .collect(),
+                            arguments: arguments.iter().map(AbiType::to_checked_type).collect(),
                         },
                     )),
                     _ => None,
@@ -375,7 +380,7 @@ pub fn verify_program(
                 .filter(|owner| **owner == index || dependencies.contains(owner))
                 .is_some_and(|owner| {
                     modules[*owner].abi.public_items.iter().any(|item| {
-                        let crate::module::PublicAbiItem::InterfaceTable(table) = item else {
+                        let PublicAbiItem::InterfaceTable(table) = item else {
                             return false;
                         };
                         table.declaration == request.declaration
@@ -384,7 +389,7 @@ pub fn verify_program(
                                     &request
                                         .arguments
                                         .iter()
-                                        .map(crate::module::abi::AbiType::from_checked_type)
+                                        .map(AbiType::from_checked_type)
                                         .collect::<Vec<_>>(),
                                 )
                                 .is_some()
@@ -416,17 +421,17 @@ pub fn verify_program(
                 .check()
                 .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?;
             if let Instruction::UpcastInterface { source, target, .. } = instruction {
-                let ancestry = kagari_hir::aggregates::trait_inheritance_closure(
+                let ancestry = aggregates::trait_inheritance_closure(
                     &source.to_checked_type(),
-                    &kagari_hir::types::TypeId::Trait(source.to_checked_type()),
+                    &TypeId::Trait(source.to_checked_type()),
                     cancel,
                     &|id| {
-                        if let Some(record) = crate::module::abi::standard_trait_contract(id) {
+                        if let Some(record) = abi::standard_trait_contract(id) {
                             return Some((
                                 record
                                     .generic_params
                                     .iter()
-                                    .map(|p| kagari_hir::types::GenericParameterType {
+                                    .map(|p| GenericParameterType {
                                         owner: p.owner.clone(),
                                         position: p.position,
                                         name: String::new(),
@@ -451,11 +456,10 @@ pub fn verify_program(
                             .map(|record| &record.abi)
                             .or_else(|| {
                                 abi.public_items.iter().find_map(|item| match item {
-                                    crate::module::PublicAbiItem::Trait(record)
+                                    PublicAbiItem::Trait(record)
                                         if id.path.len() == 1
                                             && id.path[0].name == record.name
-                                            && id.path[0].kind
-                                                == kagari_common::identity::DefinitionKind::Trait
+                                            && id.path[0].kind == DefinitionKind::Trait
                                             && id.path[0].occurrence == 0 =>
                                     {
                                         Some(record)
@@ -467,7 +471,7 @@ pub fn verify_program(
                             record
                                 .generic_params
                                 .iter()
-                                .map(|param| kagari_hir::types::GenericParameterType {
+                                .map(|param| GenericParameterType {
                                     owner: param.owner.clone(),
                                     position: param.position,
                                     name: String::new(),
@@ -498,13 +502,13 @@ pub fn verify_program(
                 let valid = indices
                     .get(&contract.interface.declaration.module)
                     .or_else(|| {
-                        crate::module::abi::standard_trait_contract(&contract.interface.declaration)
+                        abi::standard_trait_contract(&contract.interface.declaration)
                             .map(|_| &index)
                     })
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         let owner = &modules[*target];
-                        crate::module::abi::interface_method_types(
+                        abi::interface_method_types(
                             &owner.identity,
                             &owner.abi.public_items,
                             &owner.abi.trait_contracts,
@@ -515,11 +519,8 @@ pub fn verify_program(
                     .is_some_and(|(params, return_type)| {
                         args.len() == params.len()
                             && args.iter().zip(params).all(|(arg, param)| arg.ty == param)
-                            && crate::module::contracts::verify_call_dst(
-                                dst.map(|value| value.ty),
-                                return_type,
-                            )
-                            .is_ok()
+                            && contracts::verify_call_dst(dst.map(|value| value.ty), return_type)
+                                .is_ok()
                     });
                 if !valid {
                     return Err(error(
@@ -541,7 +542,7 @@ pub fn verify_program(
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         modules[*target].abi.public_items.iter().find_map(|item| {
-                            if let crate::module::PublicAbiItem::InterfaceTable(table) = item
+                            if let PublicAbiItem::InterfaceTable(table) = item
                                 && table.declaration == *implementation
                             {
                                 table.instantiate(arguments)
@@ -551,7 +552,7 @@ pub fn verify_program(
                         })
                     })
                     .is_some_and(|table| {
-                        dst.ty == crate::module::ValueType::HeapObject
+                        dst.ty == ValueType::HeapObject
                             && value.ty == table.for_type.representation()
                             && table.generic_params.is_empty()
                             && table.for_type.is_concrete()

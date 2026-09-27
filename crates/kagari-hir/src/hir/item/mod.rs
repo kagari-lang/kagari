@@ -1,3 +1,5 @@
+use crate::hir::FieldId;
+use crate::hir::VariantId;
 mod adt;
 mod behavior;
 mod function;
@@ -47,12 +49,12 @@ impl Module {
         item
     }
 
-    pub fn variant(&self, id: crate::hir::VariantId) -> &Variant {
+    pub fn variant(&self, id: VariantId) -> &Variant {
         assert_eq!(id.arena(), self.body.arena(), "foreign HIR variant");
         &self.enums[id.owner().index()].variants[id.slot()]
     }
 
-    pub fn field(&self, id: crate::hir::FieldId) -> &Field {
+    pub fn field(&self, id: FieldId) -> &Field {
         assert_eq!(id.arena(), self.body.arena(), "foreign HIR field");
         &self.structs[id.owner().index()].fields[id.slot()]
     }

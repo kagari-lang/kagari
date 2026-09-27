@@ -1,4 +1,45 @@
+use super::ConstraintTarget;
+use super::ResolvedInterfaceImplementation;
+use super::ScalarValue;
+use super::applications;
+use super::check;
+use super::completion;
+use super::constraints;
+use super::inference;
+use super::solver::Solver;
+use super::ty;
+use crate::aggregates::AggregateCatalog;
+use crate::aggregates::FieldSignature;
+use crate::builtin::declarations;
+use crate::builtin::declarations::ApiType;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use crate::hir::Condition;
+use crate::hir::ConstId;
+use crate::hir::FieldInit;
+use crate::hir::LocalId;
+use crate::hir::PatternId;
+use crate::hir::TypeKind;
+use crate::hir::TypeRefId;
+use crate::host;
+use crate::host::HostSourcePathStep;
+use crate::imports::ImportedFunctions;
+use crate::types;
+use crate::types::GenericParameterType;
+use crate::types::NominalType;
+use crate::types::TypeSubstitution;
+use kagari_common::Span;
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
 use kagari_common::collection::CollectionAccess;
+use kagari_common::host_interface;
+use kagari_common::host_interface::HostFieldDeclaration;
+use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_common::identity::DefinitionId;
+use std::iter;
+use std::mem;
+use surface::StandardEnum;
 mod conversions;
 mod iteration;
 mod numeric;
@@ -57,15 +98,15 @@ struct LoopValue {
 }
 
 pub(crate) struct BodyChecker<'a> {
-    aggregates: &'a crate::aggregates::AggregateCatalog,
-    imported_functions: &'a crate::imports::ImportedFunctions,
-    declarations: &'a crate::declarations::Declarations,
-    cancel: &'a kagari_common::cancellation::CancellationToken,
+    aggregates: &'a AggregateCatalog,
+    imported_functions: &'a ImportedFunctions,
+    declarations: &'a Declarations,
+    cancel: &'a CancellationToken,
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
     function_index: &'a FunctionTypeIndex,
     top_level_index: &'a TopLevelTypeIndex,
-    const_values: Option<&'a std::collections::HashMap<crate::hir::ConstId, super::ScalarValue>>,
+    const_values: Option<&'a HashMap<ConstId, super::ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     type_table: &'a mut TypeTable,
     function_name: &'a str,
@@ -74,7 +115,7 @@ pub(crate) struct BodyChecker<'a> {
     loop_results: Vec<LoopResult>,
     inference_depth: usize,
     closure_returns: Vec<Vec<TypeId>>,
-    solver: super::solver::Solver,
+    solver: Solver,
     solving: bool,
     body_inference: bool,
     explicit_arguments: HashMap<ExprId, Vec<TypeId>>,
@@ -172,7 +213,7 @@ impl<'a> BodyChecker<'a> {
                         self.cancel,
                     );
                     if resolved.contains_projection() {
-                        super::applications::validate(
+                        applications::validate(
                             &resolved,
                             &env.generic_bounds,
                             (self.aggregates, &self.names.hosts),
@@ -191,7 +232,7 @@ impl<'a> BodyChecker<'a> {
                             .with_span(self.lowered.source_map.type_span(ty)),
                         );
                     }
-                    super::check::validate_standard_type_constraints(
+                    check::validate_standard_type_constraints(
                         &resolved,
                         &env.generic_bounds,
                         self.lowered.source_map.type_span(ty),
@@ -203,7 +244,7 @@ impl<'a> BodyChecker<'a> {
                 let initializer_ty =
                     self.infer_expr_with_coercion(*initializer, env, annotation.as_ref());
                 let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
-                super::applications::validate_imported_interface_type(
+                applications::validate_imported_interface_type(
                     &local_ty,
                     self.aggregates,
                     self.lowered.source.module_identity(),
@@ -211,7 +252,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics,
                     self.cancel,
                 );
-                super::applications::validate(
+                applications::validate(
                     &local_ty,
                     &env.generic_bounds,
                     (self.aggregates, &self.declarations.hosts),
@@ -220,7 +261,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics,
                     self.cancel,
                 );
-                let Ok(completes) = super::completion::expr_can_complete(
+                let Ok(completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *initializer,
@@ -250,7 +291,7 @@ impl<'a> BodyChecker<'a> {
                     .then(|| self.type_table.place_type(*target))
                     .flatten();
                 let value_ty = self.infer_expr_with_coercion(*value, env, expected_ty.as_ref());
-                let Ok(completes) = super::completion::expr_can_complete(
+                let Ok(completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *value,
@@ -298,7 +339,7 @@ impl<'a> BodyChecker<'a> {
                     returns.push(found.clone());
                 }
                 if let Some(expr) = expr {
-                    let Ok(completes) = super::completion::expr_can_complete(
+                    let Ok(completes) = completion::expr_can_complete(
                         &self.lowered.module,
                         self.names,
                         *expr,
@@ -324,12 +365,12 @@ impl<'a> BodyChecker<'a> {
             StmtKind::While { condition, body } => {
                 let mut body_env = env.clone();
                 match condition {
-                    crate::hir::Condition::Expr(expr) => {
+                    Condition::Expr(expr) => {
                         if self.check_condition_type(*expr, "while", env).is_err() {
                             return;
                         }
                     }
-                    crate::hir::Condition::Binding {
+                    Condition::Binding {
                         pattern,
                         initializer,
                     } => {
@@ -436,7 +477,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn record_loop_break_type(&mut self, ty: TypeId, has_value: bool, span: kagari_common::Span) {
+    fn record_loop_break_type(&mut self, ty: TypeId, has_value: bool, span: Span) {
         match self.loop_results.last().cloned() {
             Some(LoopResult::Statement) => {
                 if has_value {
@@ -592,7 +633,7 @@ impl<'a> BodyChecker<'a> {
                     .list_item()
                     .map(|_| TypeId::Builtin(BuiltinType::USize));
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
-                let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
+                let mut requested = StandardTrait::Index.nominal();
                 requested.arguments.push(index_ty.clone());
                 if !matches!(base_ty, TypeId::Array(_, _) | TypeId::Tuple(_))
                     && let Some((interface, result)) =
@@ -808,7 +849,7 @@ impl<'a> BodyChecker<'a> {
             {
                 self.infer_numeric_literal(expr_id, literal, expected, false)
             }
-            ExprKind::Literal(literal) => match super::ScalarValue::parse(literal) {
+            ExprKind::Literal(literal) => match ScalarValue::parse(literal) {
                 Ok(value) => {
                     let ty = value.ty();
                     self.type_table.insert_scalar(expr_id, value);
@@ -833,11 +874,11 @@ impl<'a> BodyChecker<'a> {
             ExprKind::FormatPart { expr, debug } => {
                 let ty = self.infer_expr_type(*expr, env);
                 let protocol = if *debug {
-                    crate::builtin::traits::StandardTrait::Debug
+                    StandardTrait::Debug
                 } else {
-                    crate::builtin::traits::StandardTrait::Display
+                    StandardTrait::Display
                 };
-                let completes = crate::typeck::completion::expr_can_complete(
+                let completes = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *expr,
@@ -879,7 +920,7 @@ impl<'a> BodyChecker<'a> {
                     self.type_table,
                     self.cancel,
                 );
-                let completes = super::completion::expr_can_complete(
+                let completes = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *expr,
@@ -1033,18 +1074,18 @@ impl<'a> BodyChecker<'a> {
                     closure_env.locals.insert(param.local, ty.clone());
                     param_types.push(ty);
                 }
-                let old_return = std::mem::replace(
+                let old_return = mem::replace(
                     &mut self.expected_return,
                     expected_result.cloned().unwrap_or(TypeId::Unknown),
                 );
-                let old_loop_depth = std::mem::replace(&mut self.loop_depth, 0);
-                let old_loop_results = std::mem::take(&mut self.loop_results);
-                let old_name = std::mem::replace(&mut self.function_name, "closure");
+                let old_loop_depth = mem::replace(&mut self.loop_depth, 0);
+                let old_loop_results = mem::take(&mut self.loop_results);
+                let old_name = mem::replace(&mut self.function_name, "closure");
                 self.closure_returns.push(Vec::new());
                 let body_result =
                     self.infer_expr_with_coercion(*body, &mut closure_env, expected_result);
                 let returns = self.closure_returns.pop().expect("closure return context");
-                let completes = super::completion::expr_can_complete(
+                let completes = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *body,
@@ -1084,7 +1125,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
-                let Ok(completes) = super::completion::expr_can_complete(
+                let Ok(completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *receiver,
@@ -1114,19 +1155,19 @@ impl<'a> BodyChecker<'a> {
             } => {
                 let mut then_env = env.clone();
                 let condition_completes = match condition {
-                    crate::hir::Condition::Expr(expr) => {
+                    Condition::Expr(expr) => {
                         let Ok(completes) = self.check_condition_type(*expr, "if", env) else {
                             return TypeId::Unknown;
                         };
                         completes
                     }
-                    crate::hir::Condition::Binding {
+                    Condition::Binding {
                         pattern,
                         initializer,
                     } => {
                         let ty = self.infer_expr_type(*initializer, env);
                         self.check_pattern(*pattern, &ty, &mut then_env);
-                        let Ok(completes) = super::completion::expr_can_complete(
+                        let Ok(completes) = completion::expr_can_complete(
                             &self.lowered.module,
                             self.names,
                             *initializer,
@@ -1141,7 +1182,7 @@ impl<'a> BodyChecker<'a> {
                     self.infer_block_types_expected(*then_branch, &mut then_env, expected);
                 match else_branch {
                     Some(else_expr) => {
-                        let Ok(then_completes) = super::completion::block_can_complete(
+                        let Ok(then_completes) = completion::block_can_complete(
                             &self.lowered.module,
                             self.names,
                             *then_branch,
@@ -1159,7 +1200,7 @@ impl<'a> BodyChecker<'a> {
                         }
                         let else_ty =
                             self.infer_expr_with_coercion(*else_expr, env, else_context.as_ref());
-                        let Ok(else_completes) = super::completion::expr_can_complete(
+                        let Ok(else_completes) = completion::expr_can_complete(
                             &self.lowered.module,
                             self.names,
                             *else_expr,
@@ -1225,7 +1266,7 @@ impl<'a> BodyChecker<'a> {
             }
             ExprKind::Match { scrutinee, arms } => {
                 let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
-                let Ok(scrutinee_completes) = super::completion::expr_can_complete(
+                let Ok(scrutinee_completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
                     *scrutinee,
@@ -1253,7 +1294,7 @@ impl<'a> BodyChecker<'a> {
                         .names
                         .pattern_is_irrefutable(&self.lowered.module, arm.pattern)
                         || arm.guard.is_some();
-                    let Ok(completes) = super::completion::expr_can_complete(
+                    let Ok(completes) = completion::expr_can_complete(
                         &self.lowered.module,
                         self.names,
                         arm.expr,
@@ -1351,7 +1392,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 let element = self.infer_expr_with_coercion(*value, env, member);
                 if !self.solving
-                    && !crate::types::supports_array_repetition(&element, |instance| {
+                    && !types::supports_array_repetition(&element, |instance| {
                         if self.cancel.check().is_err() {
                             return None;
                         }
@@ -1419,7 +1460,7 @@ impl<'a> BodyChecker<'a> {
                     if !reachable {
                         continue;
                     }
-                    let Ok(completes) = super::completion::expr_can_complete(
+                    let Ok(completes) = completion::expr_can_complete(
                         &self.lowered.module,
                         self.names,
                         *expr,
@@ -1472,7 +1513,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
 
-        super::applications::validate(
+        applications::validate(
             &ty,
             &env.generic_bounds,
             (self.aggregates, &self.declarations.hosts),
@@ -1542,7 +1583,7 @@ impl<'a> BodyChecker<'a> {
             self.type_table.insert_interface_coercion(
                 expr_id,
                 super::ResolvedInterfaceCoercion {
-                    implementation: super::ResolvedInterfaceImplementation::Upcast,
+                    implementation: ResolvedInterfaceImplementation::Upcast,
                     concrete_type: source,
                     interface_type: interface.clone(),
                 },
@@ -1550,7 +1591,7 @@ impl<'a> BodyChecker<'a> {
             return target.clone();
         }
         let mut native_interface = interface.clone();
-        if let Some(storage) = crate::builtin::traits::collection_storage(interface) {
+        if let Some(storage) = traits::collection_storage(interface) {
             let _ = self.solver.constrain(&storage, &source, self.cancel);
             if let TypeId::Trait(resolved) = self.solver.resolve(&TypeId::Trait(interface.clone()))
             {
@@ -1566,11 +1607,11 @@ impl<'a> BodyChecker<'a> {
                 expected.recover_from(actual);
             }
         }
-        if crate::builtin::traits::native_interface_applies(&native_interface, &source) {
+        if traits::native_interface_applies(&native_interface, &source) {
             self.type_table.insert_interface_coercion(
                 expr_id,
                 super::ResolvedInterfaceCoercion {
-                    implementation: super::ResolvedInterfaceImplementation::Native,
+                    implementation: ResolvedInterfaceImplementation::Native,
                     concrete_type: source,
                     interface_type: native_interface.clone(),
                 },
@@ -1583,7 +1624,7 @@ impl<'a> BodyChecker<'a> {
             self.type_table.insert_interface_coercion(
                 expr_id,
                 super::ResolvedInterfaceCoercion {
-                    implementation: super::ResolvedInterfaceImplementation::Host,
+                    implementation: ResolvedInterfaceImplementation::Host,
                     concrete_type: source,
                     interface_type: interface.clone(),
                 },
@@ -1602,7 +1643,7 @@ impl<'a> BodyChecker<'a> {
                 self.type_table.insert_interface_coercion(
                     expr_id,
                     super::ResolvedInterfaceCoercion {
-                        implementation: super::ResolvedInterfaceImplementation::Script {
+                        implementation: ResolvedInterfaceImplementation::Script {
                             declaration: implementation,
                             arguments,
                         },
@@ -1645,12 +1686,7 @@ impl<'a> BodyChecker<'a> {
         self.infer_expr_with_coercion(arm.expr, &mut arm_env, expected)
     }
 
-    fn check_pattern(
-        &mut self,
-        pattern: crate::hir::PatternId,
-        expected: &TypeId,
-        env: &mut BodyTypeEnv,
-    ) {
+    fn check_pattern(&mut self, pattern: PatternId, expected: &TypeId, env: &mut BodyTypeEnv) {
         let span = self.lowered.source_map.pattern_span(pattern);
         if self.check_standard_pattern(pattern, expected, env) {
             return;
@@ -1729,7 +1765,7 @@ impl<'a> BodyChecker<'a> {
                 env.locals.insert(*local, expected.clone());
                 self.type_table.insert_local(*local, expected.clone());
             }
-            PatternKind::Literal(literal) => match super::ScalarValue::parse_expected(
+            PatternKind::Literal(literal) => match ScalarValue::parse_expected(
                 literal,
                 match expected {
                     TypeId::Builtin(ty) => Some(*ty),
@@ -1909,10 +1945,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn pattern_binding_ids(
-        &self,
-        pattern: crate::hir::PatternId,
-    ) -> (HashMap<String, crate::hir::LocalId>, bool) {
+    fn pattern_binding_ids(&self, pattern: PatternId) -> (HashMap<String, LocalId>, bool) {
         let mut names = HashMap::new();
         let mut duplicate = false;
         let mut work = vec![pattern];
@@ -1939,10 +1972,10 @@ impl<'a> BodyChecker<'a> {
     fn resolve_pattern_bound(
         &mut self,
         bound: &PatternBound,
-        span: kagari_common::Span,
+        span: Span,
     ) -> Option<super::ScalarValue> {
         let value = match bound {
-            PatternBound::Literal(literal) => super::ScalarValue::parse(literal).ok(),
+            PatternBound::Literal(literal) => ScalarValue::parse(literal).ok(),
             PatternBound::Path(path) => self
                 .declarations
                 .names
@@ -1998,7 +2031,7 @@ impl<'a> BodyChecker<'a> {
     fn check_standard_parameter(
         &mut self,
         spec: &surface::StandardFunctionSpec,
-        parameter: &crate::builtin::declarations::ApiType,
+        parameter: &ApiType,
         actual: &TypeId,
         env: &BodyTypeEnv,
         site: ExprId,
@@ -2080,7 +2113,7 @@ impl<'a> BodyChecker<'a> {
         }
         if let Some(context) = context {
             if let TypeId::Trait(interface) = context
-                && let Some(storage) = crate::builtin::traits::collection_storage(interface)
+                && let Some(storage) = traits::collection_storage(interface)
             {
                 let _ = self.solver.constrain(
                     &api.result.instantiate(&bindings),
@@ -2113,7 +2146,7 @@ impl<'a> BodyChecker<'a> {
             let parameter = api.params.get(index + offset);
             let expected = parameter.map(|p| p.ty.instantiate(&bindings));
             let actual = self.infer_expr_with_coercion(*argument, env, expected.as_ref());
-            if !super::completion::expr_can_complete(
+            if !completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
                 *argument,
@@ -2140,7 +2173,7 @@ impl<'a> BodyChecker<'a> {
                     target.instantiate(&bindings),
                     bounds
                         .iter()
-                        .map(|b| super::ConstraintTarget::Trait(b.nominal(&bindings)))
+                        .map(|b| ConstraintTarget::Trait(b.nominal(&bindings)))
                         .collect(),
                 )
             })
@@ -2201,7 +2234,7 @@ impl<'a> BodyChecker<'a> {
 
     fn infer_host_signature(
         &mut self,
-        declaration: &kagari_common::host_interface::HostFunctionDeclaration,
+        declaration: &HostFunctionDeclaration,
         name: &str,
         callee: ExprId,
         args: &[ExprId],
@@ -2212,7 +2245,7 @@ impl<'a> BodyChecker<'a> {
             declaration
                 .params
                 .iter()
-                .map(|parameter| crate::host::signature_type(&parameter.ty)),
+                .map(|parameter| host::signature_type(&parameter.ty)),
             env,
         );
         if args.len() != declaration.params.len() {
@@ -2231,12 +2264,12 @@ impl<'a> BodyChecker<'a> {
             self.check_arg_type(
                 name,
                 &parameter.name,
-                crate::host::signature_type(&parameter.ty),
+                host::signature_type(&parameter.ty),
                 index,
                 &args,
             );
         }
-        crate::host::signature_type(&declaration.return_type)
+        host::signature_type(&declaration.return_type)
     }
 
     fn infer_runtime_helper_call_type(
@@ -2253,7 +2286,7 @@ impl<'a> BodyChecker<'a> {
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
             BuiltinFunction::TypeOf => 1,
-            BuiltinFunction::Print => kagari_common::host_interface::standard_log().params.len(),
+            BuiltinFunction::Print => host_interface::standard_log().params.len(),
             BuiltinFunction::GetField => 2,
             BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
         };
@@ -2332,7 +2365,7 @@ impl<'a> BodyChecker<'a> {
                 Some(base_ty.unwrap_or(TypeId::Unknown))
             }
             BuiltinFunction::Print => Some(self.infer_host_signature(
-                &kagari_common::host_interface::standard_log(),
+                &host_interface::standard_log(),
                 "print",
                 callee,
                 args,
@@ -2344,14 +2377,10 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         receiver: ExprId,
         env: &mut BodyTypeEnv,
-    ) -> Result<Option<TypeId>, kagari_common::cancellation::Cancelled> {
+    ) -> Result<Option<TypeId>, Cancelled> {
         let ty = self.infer_expr_type(receiver, env);
-        let completes = super::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            receiver,
-            self.cancel,
-        )?;
+        let completes =
+            completion::expr_can_complete(&self.lowered.module, self.names, receiver, self.cancel)?;
         Ok(completes.then_some(ty))
     }
 
@@ -2362,12 +2391,9 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let found = self.infer_expr_with_coercion(value, env, expected);
-        let Ok(completes) = super::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            value,
-            self.cancel,
-        ) else {
+        let Ok(completes) =
+            completion::expr_can_complete(&self.lowered.module, self.names, value, self.cancel)
+        else {
             return;
         };
         if completes
@@ -2469,9 +2495,9 @@ impl<'a> BodyChecker<'a> {
             })
             .filter_map(|method| {
                 let function = method.function.clone();
-                let mut substitution = crate::types::TypeSubstitution::default();
+                let mut substitution = TypeSubstitution::default();
                 let generics = function.generic_params.as_slice();
-                if super::inference::infer(
+                if inference::infer(
                     &method.owner,
                     &receiver_ty,
                     generics,
@@ -2529,7 +2555,7 @@ impl<'a> BodyChecker<'a> {
         );
         self.seed_explicit_arguments(callee, &explicit_parameters, &mut substitution);
         if let Some(expected) = expected
-            && super::inference::infer(
+            && inference::infer(
                 &function.return_type,
                 expected,
                 &function.generic_params,
@@ -2596,7 +2622,7 @@ impl<'a> BodyChecker<'a> {
             implementation: None,
         };
         let qualified = explicit_type.and_then(|id| match &self.lowered.module.type_ref(id).kind {
-            crate::hir::TypeKind::Projection {
+            TypeKind::Projection {
                 receiver,
                 trait_ref,
                 member,
@@ -2638,7 +2664,7 @@ impl<'a> BodyChecker<'a> {
             } else if owner == "Self" {
                 env.self_type.clone().unwrap_or(TypeId::Error)
             } else {
-                super::ty::resolve_named_type(owner, context).ty
+                ty::resolve_named_type(owner, context).ty
             };
             (receiver, member.to_owned(), None)
         };
@@ -2648,7 +2674,7 @@ impl<'a> BodyChecker<'a> {
         let mut candidates = Vec::new();
         for interface in self.trait_bounds_for(&receiver, env) {
             if requested.as_ref().is_some_and(|requested| !matches!(requested, TypeId::Trait(required) if interface.satisfies(required))) { continue; }
-            let id = crate::types::associated_const_id(&interface.declaration, &member);
+            let id = types::associated_const_id(&interface.declaration, &member);
             if let Some(signature) = self
                 .aggregates
                 .trait_(&interface.declaration)
@@ -2681,14 +2707,13 @@ impl<'a> BodyChecker<'a> {
         None
     }
 
-    fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<crate::types::NominalType> {
+    fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<NominalType> {
         if let TypeId::Trait(interface) = ty {
             let mut bounds = self
                 .aggregates
                 .trait_closure(interface, ty, self.cancel)
                 .unwrap_or_default();
-            if crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                .is_some_and(crate::builtin::traits::StandardTrait::collection)
+            if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
             {
                 use crate::builtin::traits::StandardTrait as S;
                 bounds.extend([S::PartialEq, S::Eq, S::Hash, S::Debug].map(|kind| kind.nominal()));
@@ -2701,8 +2726,8 @@ impl<'a> BodyChecker<'a> {
         ) {
             let mut implemented = Vec::new();
             for implementation in self.aggregates.implementations() {
-                let mut substitution = crate::types::TypeSubstitution::default();
-                if super::inference::infer(
+                let mut substitution = TypeSubstitution::default();
+                if inference::infer(
                     &implementation.for_type,
                     ty,
                     &implementation.generic_params,
@@ -2728,15 +2753,13 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            for implementation in crate::builtin::declarations::implementations(ty) {
+            for implementation in declarations::implementations(ty) {
                 let declaration = implementation.trait_declaration().item.identity();
-                if !crate::builtin::traits::StandardTrait::from_id(&declaration)
-                    .is_some_and(crate::builtin::traits::StandardTrait::collection)
-                {
+                if !StandardTrait::from_id(&declaration).is_some_and(StandardTrait::collection) {
                     continue;
                 }
                 if let Some(arguments) = implementation.arguments(ty) {
-                    let applied = crate::types::NominalType {
+                    let applied = NominalType {
                         declaration,
                         arguments: implementation
                             .trait_arguments
@@ -2750,14 +2773,10 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            for kind in crate::builtin::traits::StandardTrait::ALL {
+            for kind in StandardTrait::ALL {
                 let interface = kind.intrinsic_view(ty);
-                if crate::builtin::traits::intrinsic_holds(
-                    kind,
-                    ty,
-                    Some(self.aggregates),
-                    &env.generic_bounds,
-                ) && !implemented.contains(&interface)
+                if traits::intrinsic_holds(kind, ty, Some(self.aggregates), &env.generic_bounds)
+                    && !implemented.contains(&interface)
                 {
                     implemented.push(interface);
                 }
@@ -2789,7 +2808,7 @@ impl<'a> BodyChecker<'a> {
                 .into_iter()
                 .flatten()
             {
-                if let super::ConstraintTarget::Trait(available) = bound
+                if let ConstraintTarget::Trait(available) = bound
                     && available.declaration == applied.declaration
                     && available.arguments == applied.arguments
                 {
@@ -2798,7 +2817,7 @@ impl<'a> BodyChecker<'a> {
                         .extend(available.associated_types.clone());
                 }
             }
-            let mut substitution: crate::types::TypeSubstitution = contract
+            let mut substitution: TypeSubstitution = contract
                 .generic_params
                 .iter()
                 .cloned()
@@ -2821,17 +2840,15 @@ impl<'a> BodyChecker<'a> {
                     .into_iter()
                     .flatten()
                     .map(|bound| match bound {
-                        super::ConstraintTarget::Standard(value) => {
-                            super::ConstraintTarget::Standard(*value)
-                        }
-                        super::ConstraintTarget::Trait(value) => {
+                        ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
+                        ConstraintTarget::Trait(value) => {
                             let TypeId::Trait(value) = TypeId::Trait(value.clone())
                                 .instantiate(&substitution)
                                 .with_associated_types(&applied)
                             else {
                                 unreachable!("associated trait bound");
                             };
-                            super::ConstraintTarget::Trait(value)
+                            ConstraintTarget::Trait(value)
                         }
                     }),
             );
@@ -2839,7 +2856,7 @@ impl<'a> BodyChecker<'a> {
         let direct = bounds
             .into_iter()
             .filter_map(|bound| match bound {
-                super::ConstraintTarget::Trait(ty) => Some(ty),
+                ConstraintTarget::Trait(ty) => Some(ty),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -2877,7 +2894,7 @@ impl<'a> BodyChecker<'a> {
         // apply Index to the actual argument, just like bracket expressions.
         if matches!(receiver_ty, TypeId::Array(_, _)) && name == "index" && args.len() == 1 {
             let index_ty = self.infer_expr_type(args[0], env);
-            let protocol = crate::builtin::traits::StandardTrait::Index;
+            let protocol = StandardTrait::Index;
             let mut requested = protocol.nominal();
             requested.arguments.push(index_ty);
             if let Some((interface, _)) = self.select_operator(&receiver_ty, requested, env) {
@@ -2908,10 +2925,8 @@ impl<'a> BodyChecker<'a> {
         // Unrelated same-named traits retain ordinary ambiguity diagnostics.
         if candidates.len() > 1
             && args.len() == 1
-            && let Some(protocol) =
-                crate::builtin::traits::StandardTrait::from_id(&candidates[0].1.declaration)
-            && (protocol.binary_operator()
-                || protocol == crate::builtin::traits::StandardTrait::Index)
+            && let Some(protocol) = StandardTrait::from_id(&candidates[0].1.declaration)
+            && (protocol.binary_operator() || protocol == StandardTrait::Index)
             && candidates
                 .iter()
                 .all(|(_, interface)| interface.declaration == protocol.contract().id)
@@ -2949,7 +2964,7 @@ impl<'a> BodyChecker<'a> {
             .aggregates
             .trait_(&interface.declaration)
             .expect("catalog trait");
-        let mut substitution: crate::types::TypeSubstitution = trait_contract
+        let mut substitution: TypeSubstitution = trait_contract
             .generic_params
             .iter()
             .cloned()
@@ -2967,7 +2982,7 @@ impl<'a> BodyChecker<'a> {
             .instantiate(&substitution)
             .with_associated_types(interface);
         if let Some(expected) = expected
-            && super::inference::infer(
+            && inference::infer(
                 &return_pattern,
                 expected,
                 method_generics,
@@ -3013,7 +3028,7 @@ impl<'a> BodyChecker<'a> {
         );
         let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
         for (argument, _) in &arg_tys {
-            let Ok(completes) = super::completion::expr_can_complete(
+            let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
                 *argument,
@@ -3043,10 +3058,10 @@ impl<'a> BodyChecker<'a> {
                     constraints
                         .iter()
                         .map(|constraint| match constraint {
-                            super::ConstraintTarget::Standard(standard) => {
-                                super::ConstraintTarget::Standard(*standard)
+                            ConstraintTarget::Standard(standard) => {
+                                ConstraintTarget::Standard(*standard)
                             }
-                            super::ConstraintTarget::Trait(bound) => {
+                            ConstraintTarget::Trait(bound) => {
                                 let TypeId::Trait(bound) = self.aggregates.normalize_type(
                                     &TypeId::Trait(bound.clone())
                                         .with_self(self_owner, &self_ty)
@@ -3055,7 +3070,7 @@ impl<'a> BodyChecker<'a> {
                                 ) else {
                                     unreachable!("trait method bound");
                                 };
-                                super::ConstraintTarget::Trait(bound)
+                                ConstraintTarget::Trait(bound)
                             }
                         })
                         .collect(),
@@ -3092,7 +3107,7 @@ impl<'a> BodyChecker<'a> {
         )
     }
 
-    fn enum_member_owner(&self, expr: ExprId) -> Option<kagari_common::identity::DefinitionId> {
+    fn enum_member_owner(&self, expr: ExprId) -> Option<DefinitionId> {
         let member = self.names.qualified_member(expr)?;
         if let ResolvedName::Enum(id) = member.owner {
             return self
@@ -3111,7 +3126,7 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
-    fn resolve_constructor_type(&mut self, ty: crate::hir::TypeRefId, env: &BodyTypeEnv) -> TypeId {
+    fn resolve_constructor_type(&mut self, ty: TypeRefId, env: &BodyTypeEnv) -> TypeId {
         self.prepare_annotation_holes(ty);
         let resolved = resolve_type_in(
             &self.lowered.module,
@@ -3133,7 +3148,7 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.type_span(ty)),
             );
         }
-        super::check::validate_standard_type_constraints(
+        check::validate_standard_type_constraints(
             &resolved,
             &env.generic_bounds,
             self.lowered.source_map.type_span(ty),
@@ -3196,7 +3211,7 @@ impl<'a> BodyChecker<'a> {
         self.type_table.insert_enum_constructor(expression, target);
         // Every argument is checked once, even when the variant is absent or its
         // signature is erroneous. Known target facts survive argument failures.
-        let mut substitution = crate::types::TypeSubstitution::default();
+        let mut substitution = TypeSubstitution::default();
         if let Some(TypeId::Enum(nominal)) = expected
             && nominal.declaration == enumeration
             && nominal.arguments.len() == generic_params.len()
@@ -3221,7 +3236,7 @@ impl<'a> BodyChecker<'a> {
         if self.cancel.check().is_err() {
             return Some(TypeId::Unknown);
         }
-        let Ok(completes) = super::completion::expr_can_complete(
+        let Ok(completes) = completion::expr_can_complete(
             &self.lowered.module,
             self.names,
             expression,
@@ -3236,7 +3251,7 @@ impl<'a> BodyChecker<'a> {
             callee,
             !completes,
         );
-        let result = TypeId::Enum(crate::types::NominalType {
+        let result = TypeId::Enum(NominalType {
             associated_types: Default::default(),
             declaration: enumeration,
             arguments,
@@ -3356,7 +3371,7 @@ impl<'a> BodyChecker<'a> {
                 return *result;
             }
             self.infer_call_args(args, env);
-            let Ok(completes) = super::completion::expr_can_complete(
+            let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
                 callee,
@@ -3385,7 +3400,7 @@ impl<'a> BodyChecker<'a> {
         };
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
-        let mut substitution = crate::types::TypeSubstitution::default();
+        let mut substitution = TypeSubstitution::default();
         self.seed_callable_context(
             callee,
             &function.generic_params,
@@ -3394,7 +3409,7 @@ impl<'a> BodyChecker<'a> {
         );
         self.seed_explicit_arguments(callee, &function.generic_params, &mut substitution);
         if let Some(expected) = expected
-            && super::inference::infer(
+            && inference::infer(
                 &function.return_type,
                 expected,
                 &function.generic_params,
@@ -3418,7 +3433,7 @@ impl<'a> BodyChecker<'a> {
         }
         let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
         for (argument, _) in &arg_tys {
-            let Ok(completes) = super::completion::expr_can_complete(
+            let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
                 *argument,
@@ -3458,9 +3473,9 @@ impl<'a> BodyChecker<'a> {
 
     fn check_generic_call_bounds(
         &mut self,
-        _parameters: &[crate::types::GenericParameterType],
+        _parameters: &[GenericParameterType],
         bounds: &super::GenericBounds,
-        substitution: &crate::types::TypeSubstitution,
+        substitution: &TypeSubstitution,
         env: &BodyTypeEnv,
         callee: ExprId,
     ) {
@@ -3471,10 +3486,10 @@ impl<'a> BodyChecker<'a> {
             let actual = &actual_owned;
             for constraint in constraints.iter().cloned() {
                 match constraint {
-                    super::ConstraintTarget::Standard(constraint) => {
+                    ConstraintTarget::Standard(constraint) => {
                         self.check_standard_constraint(actual, constraint, env, callee)
                     }
-                    super::ConstraintTarget::Trait(trait_type) => {
+                    ConstraintTarget::Trait(trait_type) => {
                         let trait_type = trait_type.instantiate(substitution);
                         self.constrain_declared_bound(actual, &trait_type);
                         let satisfied = self.aggregates.intrinsic_implementation(
@@ -3493,10 +3508,7 @@ impl<'a> BodyChecker<'a> {
                                     self.declarations.hosts.implements(&trait_type, actual),
                                 ) {
                                 0 => {
-                                    crate::builtin::traits::StandardTrait::from_id(
-                                        &trait_type.declaration,
-                                    )
-                                    .is_none()
+                                    StandardTrait::from_id(&trait_type.declaration).is_none()
                                         && self.type_table.implements(&trait_type, actual)
                                 }
                                 1 => true,
@@ -3533,7 +3545,7 @@ impl<'a> BodyChecker<'a> {
     fn check_function_arguments(
         &mut self,
         function: &super::TypedFunction,
-        substitution: &crate::types::TypeSubstitution,
+        substitution: &TypeSubstitution,
         callee: ExprId,
         arg_tys: &[(ExprId, TypeId)],
     ) {
@@ -3585,7 +3597,7 @@ impl<'a> BodyChecker<'a> {
         &self,
         owner: &TypeId,
         name: &str,
-    ) -> Option<kagari_common::host_interface::HostFieldDeclaration> {
+    ) -> Option<HostFieldDeclaration> {
         let TypeId::Host(id) = owner else {
             return None;
         };
@@ -3638,11 +3650,9 @@ impl<'a> BodyChecker<'a> {
         let source = steps
             .iter()
             .map(|step| match step {
-                HostPathNode::Member { name, .. } => {
-                    crate::host::HostSourcePathStep::Member(name.clone())
-                }
+                HostPathNode::Member { name, .. } => HostSourcePathStep::Member(name.clone()),
                 HostPathNode::Index { argument, .. } => {
-                    crate::host::HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
+                    HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
                 }
             })
             .collect::<Vec<_>>();
@@ -3664,11 +3674,11 @@ impl<'a> BodyChecker<'a> {
                     {
                         dynamic_arguments.push((index.slot, *argument));
                     }
-                    let ty = crate::host::signature_type(&result.result);
+                    let ty = host::signature_type(&result.result);
                     self.type_table.insert_expr(step.id(), ty.clone());
                     env.exprs.insert(step.id(), ty);
                 }
-                let result = crate::host::signature_type(&contract.result);
+                let result = host::signature_type(&contract.result);
                 self.type_table.insert_host_path(
                     expr_id,
                     super::ResolvedHostPath {
@@ -3692,7 +3702,7 @@ impl<'a> BodyChecker<'a> {
                                 break;
                             };
                             self.type_table.insert_expr_field(*node, field.id.clone());
-                            current = crate::host::signature_type(&field.ty);
+                            current = host::signature_type(&field.ty);
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
@@ -3766,11 +3776,9 @@ impl<'a> BodyChecker<'a> {
         let source = steps
             .iter()
             .map(|step| match step {
-                HostPathNode::Member { name, .. } => {
-                    crate::host::HostSourcePathStep::Member(name.clone())
-                }
+                HostPathNode::Member { name, .. } => HostSourcePathStep::Member(name.clone()),
                 HostPathNode::Index { argument, .. } => {
-                    crate::host::HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
+                    HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
                 }
             })
             .collect::<Vec<_>>();
@@ -3793,9 +3801,9 @@ impl<'a> BodyChecker<'a> {
                         dynamic_arguments.push((index.slot, *argument));
                     }
                     self.type_table
-                        .insert_place(step.id(), crate::host::signature_type(&result.result));
+                        .insert_place(step.id(), host::signature_type(&result.result));
                 }
-                let result = crate::host::signature_type(&contract.result);
+                let result = host::signature_type(&contract.result);
                 if declaration.access != PathAccess::ReadWrite {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidHostPath {
@@ -3828,7 +3836,7 @@ impl<'a> BodyChecker<'a> {
                                 break;
                             };
                             self.type_table.insert_place_field(*node, field.id.clone());
-                            current = crate::host::signature_type(&field.ty);
+                            current = host::signature_type(&field.ty);
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
@@ -3856,11 +3864,7 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    fn resolve_field(
-        &self,
-        receiver: &TypeId,
-        field_name: &str,
-    ) -> Option<crate::aggregates::FieldSignature> {
+    fn resolve_field(&self, receiver: &TypeId, field_name: &str) -> Option<FieldSignature> {
         let TypeId::Struct(id) = receiver else {
             return None;
         };
@@ -3890,7 +3894,7 @@ impl<'a> BodyChecker<'a> {
         Some(field)
     }
 
-    fn resolve_struct_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
+    fn resolve_struct_id(&self, path: &str) -> Option<DefinitionId> {
         if let Some(binding) = self.declarations.names.lookup(path) {
             match binding.target()? {
                 target @ ResolvedName::Struct(_) => {
@@ -3906,7 +3910,7 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
-    fn resolve_enum_id(&self, path: &str) -> Option<kagari_common::identity::DefinitionId> {
+    fn resolve_enum_id(&self, path: &str) -> Option<DefinitionId> {
         if let Some(binding) = self.declarations.names.lookup(path) {
             match binding.target()? {
                 target @ ResolvedName::Enum(_) => {
@@ -3922,11 +3926,7 @@ impl<'a> BodyChecker<'a> {
         Some(id.declaration.clone())
     }
 
-    fn callable_contract(
-        &self,
-        ty: &TypeId,
-        env: &BodyTypeEnv,
-    ) -> Option<(crate::types::NominalType, TypeId)> {
+    fn callable_contract(&self, ty: &TypeId, env: &BodyTypeEnv) -> Option<(NominalType, TypeId)> {
         use crate::builtin::traits::{StandardTrait, callable_signature};
         let mut candidates = self
             .trait_bounds_for(ty, env)
@@ -3937,7 +3937,7 @@ impl<'a> BodyChecker<'a> {
                 }
                 let (mut interface, output) = self.select_operator(ty, interface, env)?;
                 interface.associated_types.insert(
-                    crate::types::associated_type_id(&interface.declaration, "Output"),
+                    types::associated_type_id(&interface.declaration, "Output"),
                     output,
                 );
                 let signature = callable_signature(&interface)?;
@@ -3954,31 +3954,26 @@ impl<'a> BodyChecker<'a> {
     fn select_operator(
         &self,
         ty: &TypeId,
-        requested: crate::types::NominalType,
+        requested: NominalType,
         env: &BodyTypeEnv,
-    ) -> Option<(crate::types::NominalType, TypeId)> {
-        let interface = if crate::builtin::traits::intrinsic_applies(
+    ) -> Option<(NominalType, TypeId)> {
+        let interface = if traits::intrinsic_applies(
             &requested,
             ty,
             Some(self.aggregates),
             &env.generic_bounds,
         ) {
             let mut interface = requested;
-            if let Some(kind) =
-                crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+            if let Some(kind) = StandardTrait::from_id(&interface.declaration)
                 && kind.iteration()
-                && let Some(outputs) = crate::builtin::traits::iteration_outputs(
-                    kind,
-                    ty,
-                    Some(self.aggregates),
-                    &env.generic_bounds,
-                )
+                && let Some(outputs) =
+                    traits::iteration_outputs(kind, ty, Some(self.aggregates), &env.generic_bounds)
             {
                 interface.associated_types.extend(outputs);
             }
-            if let Some(output) = crate::builtin::traits::intrinsic_output(&interface, ty) {
+            if let Some(output) = traits::intrinsic_output(&interface, ty) {
                 interface.associated_types.insert(
-                    crate::types::associated_type_id(&interface.declaration, "Output"),
+                    types::associated_type_id(&interface.declaration, "Output"),
                     output,
                 );
             }
@@ -3990,7 +3985,7 @@ impl<'a> BodyChecker<'a> {
         };
         let contract = self.aggregates.trait_(&interface.declaration)?;
         let method = contract.methods.first()?;
-        let mut substitution: crate::types::TypeSubstitution = contract
+        let mut substitution: TypeSubstitution = contract
             .generic_params
             .iter()
             .cloned()
@@ -4013,7 +4008,7 @@ impl<'a> BodyChecker<'a> {
         site: ExprId,
         receiver: ExprId,
         ty: &TypeId,
-        requested: crate::types::NominalType,
+        requested: NominalType,
         env: &BodyTypeEnv,
     ) -> Option<TypeId> {
         let (interface, result) = self.select_operator(ty, requested, env)?;
@@ -4129,8 +4124,8 @@ impl<'a> BodyChecker<'a> {
                     && !lhs_ty.same_collection_family(&rhs_ty))
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
-                            && !crate::builtin::traits::intrinsic_holds(
-                                crate::builtin::traits::StandardTrait::PartialEq,
+                            && !traits::intrinsic_holds(
+                                StandardTrait::PartialEq,
                                 ty,
                                 Some(self.aggregates),
                                 &env.generic_bounds,
@@ -4147,13 +4142,9 @@ impl<'a> BodyChecker<'a> {
                 let supports_ordering = |ty: &TypeId| {
                     matches!(ty, TypeId::Unknown | TypeId::Error)
                         || self
-                            .select_operator(
-                                ty,
-                                crate::builtin::traits::StandardTrait::PartialOrd.nominal(),
-                                env,
-                            )
+                            .select_operator(ty, StandardTrait::PartialOrd.nominal(), env)
                             .is_some()
-                        || super::constraints::type_satisfies_standard_constraint(
+                        || constraints::type_satisfies_standard_constraint(
                             ty,
                             StandardTypeConstraint::OrderedNumber,
                             &env.generic_bounds,
@@ -4189,7 +4180,7 @@ impl<'a> BodyChecker<'a> {
             || matches!(rhs, TypeId::Unknown | TypeId::Error)
         {
             return ![lhs, rhs].into_iter().any(|ty| {
-                super::constraints::known_type_violates_constraint(
+                constraints::known_type_violates_constraint(
                     ty,
                     StandardTypeConstraint::OrderedNumber,
                     &env.generic_bounds,
@@ -4199,7 +4190,7 @@ impl<'a> BodyChecker<'a> {
         surface::supports_arithmetic(lhs, rhs)
             || (lhs == rhs
                 && matches!(lhs, TypeId::Generic(_))
-                && super::constraints::type_satisfies_standard_constraint(
+                && constraints::type_satisfies_standard_constraint(
                     lhs,
                     StandardTypeConstraint::OrderedNumber,
                     &env.generic_bounds,
@@ -4256,14 +4247,10 @@ impl<'a> BodyChecker<'a> {
         expr_id: ExprId,
         context: &'static str,
         env: &mut BodyTypeEnv,
-    ) -> Result<bool, kagari_common::cancellation::Cancelled> {
+    ) -> Result<bool, Cancelled> {
         let ty = self.infer_expr_type(expr_id, env);
-        let completes = super::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            expr_id,
-            self.cancel,
-        )?;
+        let completes =
+            completion::expr_can_complete(&self.lowered.module, self.names, expr_id, self.cancel)?;
         if completes && ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
@@ -4279,7 +4266,7 @@ impl<'a> BodyChecker<'a> {
     fn infer_struct_init_type(
         &mut self,
         path: &str,
-        fields: &[crate::hir::FieldInit],
+        fields: &[FieldInit],
         expr_id: ExprId,
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
@@ -4302,7 +4289,7 @@ impl<'a> BodyChecker<'a> {
             return TypeId::Error;
         };
 
-        let mut substitution = crate::types::TypeSubstitution::default();
+        let mut substitution = TypeSubstitution::default();
         if let Some(TypeId::Struct(nominal)) = expected
             && nominal.declaration == struct_def.id
             && nominal.arguments.len() == struct_def.generic_params.len()
@@ -4333,7 +4320,7 @@ impl<'a> BodyChecker<'a> {
                     .argument_context(&substitution, &struct_def.generic_params)
             });
             let actual = self.infer_expr_with_coercion(field.value, env, expected.as_ref());
-            let Ok(field_completes) = super::completion::expr_can_complete(
+            let Ok(field_completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
                 field.value,
@@ -4344,7 +4331,7 @@ impl<'a> BodyChecker<'a> {
             completes &= field_completes;
             if field_completes
                 && let Some(parameter) = parameter
-                && super::inference::infer(
+                && inference::infer(
                     &parameter.ty,
                     &actual,
                     &struct_def.generic_params,
@@ -4442,7 +4429,7 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        TypeId::Struct(crate::types::NominalType {
+        TypeId::Struct(NominalType {
             associated_types: Default::default(),
             declaration: struct_def.id,
             arguments,
@@ -4478,13 +4465,8 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
-        if !super::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            index_expr,
-            self.cancel,
-        )
-        .ok()?
+        if !completion::expr_can_complete(&self.lowered.module, self.names, index_expr, self.cancel)
+            .ok()?
         {
             return match receiver {
                 TypeId::Array(element, _) => Some((**element).clone()),
@@ -4519,13 +4501,13 @@ impl<'a> BodyChecker<'a> {
             value
         } else if let ExprKind::Literal(value) = &self.lowered.module.expr(index_expr).kind {
             // Tuple positions select a type even before unsuffixed numbers default.
-            literal = super::ScalarValue::parse(value).ok()?;
+            literal = ScalarValue::parse(value).ok()?;
             &literal
         } else {
             return None;
         };
         match scalar {
-            super::ScalarValue::I32(value) => usize::try_from(*value).ok(),
+            ScalarValue::I32(value) => usize::try_from(*value).ok(),
             _ => None,
         }
     }
@@ -4562,12 +4544,9 @@ impl<'a> BodyChecker<'a> {
         let Some((arg_expr, found)) = args.get(index) else {
             return;
         };
-        let Ok(completes) = super::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            *arg_expr,
-            self.cancel,
-        ) else {
+        let Ok(completes) =
+            completion::expr_can_complete(&self.lowered.module, self.names, *arg_expr, self.cancel)
+        else {
             return;
         };
         if !completes {
@@ -4632,13 +4611,13 @@ impl<'a> BodyChecker<'a> {
                     Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
                         type_name: ty.display_name(),
                         constraint: surface::standard_constraint_name(constraint).into(),
-                        reason: super::constraints::standard_constraint_reason(constraint).into(),
+                        reason: constraints::standard_constraint_reason(constraint).into(),
                     })
                     .with_span(self.lowered.source_map.expr_span(span_expr)),
                 );
             }
         } else {
-            super::check::validate_standard_constraint_type(
+            check::validate_standard_constraint_type(
                 ty,
                 constraint,
                 &env.generic_bounds,
@@ -4650,14 +4629,14 @@ impl<'a> BodyChecker<'a> {
 
     fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
         match self.type_table.scalar_value(expr_id)? {
-            super::ScalarValue::String(value) => Some(value.clone()),
+            ScalarValue::String(value) => Some(value.clone()),
             _ => None,
         }
     }
     fn finish_inferred_arguments(
         &mut self,
-        substitution: &mut crate::types::TypeSubstitution,
-        parameters: &[crate::types::GenericParameterType],
+        substitution: &mut TypeSubstitution,
+        parameters: &[GenericParameterType],
         name: &str,
         site: ExprId,
         suppress_missing: bool,
@@ -4704,8 +4683,8 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         args: &[ExprId],
         parameters: impl Iterator<Item = TypeId>,
-        generics: &[crate::types::GenericParameterType],
-        substitution: &mut crate::types::TypeSubstitution,
+        generics: &[GenericParameterType],
+        substitution: &mut TypeSubstitution,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
         self.infer_bounded_args(
@@ -4721,9 +4700,9 @@ impl<'a> BodyChecker<'a> {
     fn seed_callable_context(
         &mut self,
         site: ExprId,
-        generics: &[crate::types::GenericParameterType],
+        generics: &[GenericParameterType],
         bounds: &super::GenericBounds,
-        substitution: &mut crate::types::TypeSubstitution,
+        substitution: &mut TypeSubstitution,
     ) {
         if !bounds.values().flatten().any(|bound| matches!(bound, super::ConstraintTarget::Trait(interface) if crate::builtin::traits::StandardTrait::from_id(&interface.declaration) == Some(crate::builtin::traits::StandardTrait::Fn))) { return; }
         // Later arguments can provide the input type of an earlier callback.
@@ -4739,8 +4718,8 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         args: &[ExprId],
         parameters: impl Iterator<Item = TypeId>,
-        generics: &[crate::types::GenericParameterType],
-        substitution: &mut crate::types::TypeSubstitution,
+        generics: &[GenericParameterType],
+        substitution: &mut TypeSubstitution,
         bounds: &super::GenericBounds,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
@@ -4756,9 +4735,7 @@ impl<'a> BodyChecker<'a> {
                 .and_then(|parameter| bounds.get(parameter))
                 .and_then(|constraints| {
                     constraints.iter().find_map(|constraint| match constraint {
-                        super::ConstraintTarget::Trait(interface) => {
-                            crate::builtin::traits::callable_signature(interface)
-                        }
+                        ConstraintTarget::Trait(interface) => traits::callable_signature(interface),
                         _ => None,
                     })
                 });
@@ -4771,7 +4748,7 @@ impl<'a> BodyChecker<'a> {
             } else {
                 self.infer_expr_with_coercion(*argument, env, expected.as_ref())
             };
-            let Ok(completes) = super::completion::expr_can_complete(
+            let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
                 *argument,
@@ -4786,8 +4763,7 @@ impl<'a> BodyChecker<'a> {
             if completes
                 && !generics.is_empty()
                 && let Some(parameter) = parameter
-                && super::inference::infer(&parameter, &ty, generics, substitution, self.cancel)
-                    .is_err()
+                && inference::infer(&parameter, &ty, generics, substitution, self.cancel).is_err()
             {
                 break;
             }
@@ -4801,7 +4777,7 @@ impl<'a> BodyChecker<'a> {
                 if let Some(signature) = signature {
                     let context = callable.argument_context(substitution, generics);
                     let _ = self.solver.constrain(&context, &signature, self.cancel);
-                    let _ = super::inference::infer(
+                    let _ = inference::infer(
                         &callable,
                         &signature,
                         generics,
@@ -4825,7 +4801,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn infer_call_args(&mut self, args: &[ExprId], env: &mut BodyTypeEnv) -> Vec<(ExprId, TypeId)> {
-        self.infer_typed_args(args, std::iter::empty(), env)
+        self.infer_typed_args(args, iter::empty(), env)
     }
 
     fn check_builtin_arity(&mut self, name: &str, expected: usize, found: usize, callee: ExprId) {
@@ -4861,11 +4837,11 @@ fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
             Some(StandardMethodReceiver::Builtin(*ty))
         }
         TypeId::StandardEnum {
-            kind: surface::StandardEnum::Option,
+            kind: StandardEnum::Option,
             ..
         } => Some(StandardMethodReceiver::Option),
         TypeId::StandardEnum {
-            kind: surface::StandardEnum::Result,
+            kind: StandardEnum::Result,
             ..
         } => Some(StandardMethodReceiver::Result),
         _ => None,

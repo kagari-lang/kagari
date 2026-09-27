@@ -1,6 +1,10 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
+
 use super::abi::AbiType;
 use kagari_common::integer::IntegerOp;
+use kagari_hir::builtin::numeric;
+use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::hir::BinaryOp;
 use kagari_hir::types::BuiltinType;
 use serde::{Deserialize, Serialize};
 
@@ -12,11 +16,7 @@ pub struct NumericOperation {
 }
 
 impl NumericOperation {
-    pub fn binary(
-        op: kagari_hir::hir::BinaryOp,
-        input: BuiltinType,
-        rhs: BuiltinType,
-    ) -> Option<Self> {
+    pub fn binary(op: BinaryOp, input: BuiltinType, rhs: BuiltinType) -> Option<Self> {
         input.integer_layout()?;
         use kagari_hir::hir::BinaryOp;
         let op = match op {
@@ -69,11 +69,11 @@ pub struct NumericConversion {
 impl NumericConversion {
     pub fn contract(self) -> Option<(AbiType, AbiType)> {
         if self.checked {
-            let error = kagari_hir::builtin::numeric::try_error(self.source, self.target)?;
+            let error = numeric::try_error(self.source, self.target)?;
             return Some((
                 AbiType::Builtin(self.source),
                 AbiType::StandardEnum {
-                    kind: kagari_hir::builtin::surface::StandardEnum::Result,
+                    kind: StandardEnum::Result,
                     args: vec![
                         AbiType::Builtin(self.target),
                         AbiType::from_checked_type(&error),

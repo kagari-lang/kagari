@@ -1,8 +1,12 @@
+use kagari_common::host_interface::HostInterface;
+use kagari_common::host_interface::HostInterfaceError;
+use kagari_common::identity::ModuleIdentity;
 use kagari_common::{
     Diagnostic, Severity, SourceFile,
     identity::{DefinitionId, FileId, FileSpan},
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
+use kagari_hir::host::HostDeclarations;
 use kagari_hir::{
     LanguageFeatureProfile,
     analysis::{
@@ -11,6 +15,7 @@ use kagari_hir::{
     },
     program::{CheckedProgram, ProgramCheckError},
 };
+use kagari_ir::IrLoweringOptions;
 use kagari_ir::{
     IrLoweringError,
     bytecode::{
@@ -20,14 +25,22 @@ use kagari_ir::{
     },
     program::{ProgramErrorKind, lower_program_to_ir},
 };
+use kagari_runtime::DeterministicInputs;
+use kagari_runtime::ErrorTrace;
+use kagari_runtime::ExecutionOptions;
+use kagari_runtime::ExecutionPhase;
 use kagari_runtime::{
     CapabilitySet, CodegenBackend, HostFunctionId, HostTypeRegistration, LanguageProfile,
     LoadedModule, ReloadValidationError as RuntimeReloadValidationError, ResourcePolicy, Runtime,
     RuntimeConfig, RuntimeError, RuntimeErrorKind, SecurityContext, TypeId, host::HostFunction,
     value::Value,
 };
+use kagari_vm::ReloadError;
 use kagari_vm::{ExecutionReport, Vm, VmError};
+use smallvec::SmallVec;
 use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
 
 pub use kagari_hir::typeck::ConstLimits;
 pub use kagari_runtime::HostExposurePolicy;
@@ -67,11 +80,8 @@ impl KagariEngine {
             .set_max_semantic_diagnostics(limit);
     }
 
-    pub fn set_host_interface(
-        &self,
-        interface: kagari_common::host_interface::HostInterface,
-    ) -> Result<(), kagari_common::host_interface::HostInterfaceError> {
-        let declarations = kagari_hir::host::HostDeclarations::new(interface)?;
+    pub fn set_host_interface(&self, interface: HostInterface) -> Result<(), HostInterfaceError> {
+        let declarations = HostDeclarations::new(interface)?;
         self.analysis
             .borrow_mut()
             .set_host_declarations(declarations);
@@ -130,11 +140,7 @@ impl KagariEngine {
             .map_err(|message| EmbeddingError::Source { message })
     }
 
-    pub fn bind_module(
-        &self,
-        name: &str,
-        module: kagari_common::identity::ModuleIdentity,
-    ) -> CompileResult<FileId> {
+    pub fn bind_module(&self, name: &str, module: ModuleIdentity) -> CompileResult<FileId> {
         self.sources
             .borrow_mut()
             .bind_module(name, module)
@@ -198,7 +204,7 @@ impl KagariEngine {
         source: SourceSnapshot,
         function: &DefinitionId,
         cancel: &CancellationToken,
-    ) -> CompileResult<Option<std::sync::Arc<FunctionAnalysis>>> {
+    ) -> CompileResult<Option<Arc<FunctionAnalysis>>> {
         self.analysis
             .borrow_mut()
             .body(source, function, cancel)
@@ -383,9 +389,7 @@ impl KagariRuntime {
         self.vm
             .reload_artifact(previous, module_name, artifact, &options.compatibility)
             .map_err(|error| match error {
-                kagari_vm::ReloadError::Validation(error) => {
-                    EmbeddingError::reload_validation(error)
-                }
+                ReloadError::Validation(error) => EmbeddingError::reload_validation(error),
             })
     }
 
@@ -454,7 +458,7 @@ pub struct CheckedModule {
 }
 
 impl CheckedModule {
-    pub fn module_identity(&self) -> &kagari_common::identity::ModuleIdentity {
+    pub fn module_identity(&self) -> &ModuleIdentity {
         self.program.root().lowered.source.module_identity()
     }
     pub fn program(&self) -> &CheckedProgram {
@@ -484,7 +488,7 @@ fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFe
 #[derive(Debug, Clone, Default)]
 pub struct ArtifactOptions {
     pub build: ArtifactBuildOptions,
-    pub lowering: kagari_ir::IrLoweringOptions,
+    pub lowering: IrLoweringOptions,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -525,16 +529,16 @@ pub struct ExecutionContext {
     pub host_policy: HostExposurePolicy,
     pub jit_policy: JitPolicy,
     pub tracing_enabled: bool,
-    pub inputs: kagari_runtime::DeterministicInputs,
+    pub inputs: DeterministicInputs,
     pub panic_policy: PanicPolicy,
 }
 
 impl ExecutionContext {
-    fn runtime_options(&self) -> kagari_runtime::ExecutionOptions {
-        kagari_runtime::ExecutionOptions {
-            phase: kagari_runtime::ExecutionPhase::Ordinary,
+    fn runtime_options(&self) -> ExecutionOptions {
+        ExecutionOptions {
+            phase: ExecutionPhase::Ordinary,
             security: self.security_context(),
-            host_exposure: std::rc::Rc::new(self.host_policy.clone()),
+            host_exposure: Rc::new(self.host_policy.clone()),
             resources: self.resources,
             cancellation: self.cancellation.clone(),
             inputs: self.inputs,
@@ -775,7 +779,7 @@ pub enum EmbeddingError {
     Runtime {
         kind: RuntimeFailureKind,
         message: String,
-        trace: Option<std::sync::Arc<kagari_runtime::ErrorTrace>>,
+        trace: Option<Arc<ErrorTrace>>,
     },
     ReloadValidation {
         code: String,
@@ -784,7 +788,7 @@ pub enum EmbeddingError {
 }
 
 impl EmbeddingError {
-    pub fn error_trace(&self) -> Option<&kagari_runtime::ErrorTrace> {
+    pub fn error_trace(&self) -> Option<&ErrorTrace> {
         match self {
             Self::Runtime { trace, .. } => trace.as_deref(),
             Self::Load { error } => error.trace().map(AsRef::as_ref),
@@ -808,10 +812,7 @@ impl EmbeddingError {
         }
     }
 
-    fn diagnostics(
-        diagnostics: Box<smallvec::SmallVec<[Diagnostic; 4]>>,
-        source: &SourceFile,
-    ) -> Self {
+    fn diagnostics(diagnostics: Box<SmallVec<[Diagnostic; 4]>>, source: &SourceFile) -> Self {
         Self::Diagnostics {
             diagnostics: diagnostics
                 .into_vec()

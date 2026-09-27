@@ -1,4 +1,18 @@
+use super::implementations;
 use super::*;
+use ast::AssociatedType;
+use ast::BlockExpr;
+use ast::EnumDef;
+use ast::FnDef;
+use ast::GenericParamList;
+use ast::MethodDef;
+use ast::Name;
+use ast::ParamList;
+use ast::TraitDef;
+use ast::TypeRef;
+use kagari_syntax::Parse;
+use kagari_syntax::kind::SyntaxKind;
+use kagari_syntax::syntax_node::SyntaxNode;
 
 /// Bind native trait declarations to the engine's sealed implementation contracts.
 pub fn native_implementation(
@@ -11,7 +25,7 @@ pub fn native_implementation(
 ) {
     let interface = def.trait_ref().unwrap();
     if interface.path_text().as_deref() != Some("Iterator") {
-        return super::implementations::declaration(def, module, uri, text, items, implementations);
+        return implementations::declaration(def, module, uri, text, items, implementations);
     }
     let target = def.target_type().unwrap();
     let generics = def.generic_params().unwrap().params().collect::<Vec<_>>();
@@ -84,7 +98,7 @@ pub fn name_range(name: &ast::Name) -> (usize, usize) {
     name.syntax()
         .children_with_tokens()
         .filter_map(|node| node.into_token())
-        .find(|token| token.kind() == kagari_syntax::kind::SyntaxKind::Ident)
+        .find(|token| token.kind() == SyntaxKind::Ident)
         .map(|token| {
             let range = token.text_range();
             (usize::from(range.start()), usize::from(range.end()))
@@ -224,7 +238,7 @@ fn validate_native_enum(def: &ast::EnumDef, binding: &str) {
 }
 
 pub fn declarations(
-    parsed: &kagari_syntax::Parse,
+    parsed: &Parse,
     module: &str,
     uri: &str,
     text: &str,
@@ -232,7 +246,7 @@ pub fn declarations(
 ) {
     let (items, traits, enums, constructors) = outputs;
     for node in parsed.syntax().syntax().children() {
-        if let Some(def) = ast::TraitDef::cast(node.clone()) {
+        if let Some(def) = TraitDef::cast(node.clone()) {
             let name = def.name_text().unwrap();
             let path = [("Trait", name.clone())];
             let declaration = item(&def, def.name().unwrap(), module, uri, text, &path);
@@ -330,7 +344,7 @@ pub fn declarations(
                 .unwrap();
             }
             writeln!(traits,"ApiTrait{{item:{declaration},generics:&{generics:?},supertraits:&[{supers}],associated_types:&[{associated}],methods:&[{methods}]}},").unwrap();
-        } else if let Some(def) = ast::EnumDef::cast(node.clone()) {
+        } else if let Some(def) = EnumDef::cast(node.clone()) {
             let name = def.name_text().unwrap();
             let binding = attribute(&def, "builtin_enum").expect("native enum binding");
             assert_eq!(binding, name, "native enum declaration name");
@@ -376,7 +390,7 @@ pub fn declarations(
             if arity > 0 {
                 writeln!(constructors,"StandardTypeConstructorSpec{{kind:StandardTypeConstructor::{binding},name:{name:?},arity:{arity},heap_backed:true,const_safe:false}},").unwrap();
             }
-        } else if let Some(def) = ast::AssociatedType::cast(node) {
+        } else if let Some(def) = AssociatedType::cast(node) {
             let name = def.name_text().unwrap();
             let binding = attribute(&def, "builtin_type").expect("native type binding");
             assert_eq!(binding, name, "native type declaration name");
@@ -418,42 +432,42 @@ pub fn declarations(
 
 /// Shared AST facade for native free functions and associated declarations.
 #[derive(Clone)]
-pub struct NativeFunction(kagari_syntax::syntax_node::SyntaxNode);
+pub struct NativeFunction(SyntaxNode);
 impl AstNode for NativeFunction {
-    fn can_cast(kind: kagari_syntax::kind::SyntaxKind) -> bool {
-        ast::FnDef::can_cast(kind) || ast::MethodDef::can_cast(kind)
+    fn can_cast(kind: SyntaxKind) -> bool {
+        FnDef::can_cast(kind) || MethodDef::can_cast(kind)
     }
-    fn cast(node: kagari_syntax::syntax_node::SyntaxNode) -> Option<Self> {
+    fn cast(node: SyntaxNode) -> Option<Self> {
         Self::can_cast(node.kind()).then_some(Self(node))
     }
-    fn syntax(&self) -> &kagari_syntax::syntax_node::SyntaxNode {
+    fn syntax(&self) -> &SyntaxNode {
         &self.0
     }
 }
 impl NativeFunction {
     pub fn name(&self) -> Option<ast::Name> {
-        self.0.children().find_map(ast::Name::cast)
+        self.0.children().find_map(Name::cast)
     }
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|n| n.text())
     }
     pub fn generic_params(&self) -> Option<ast::GenericParamList> {
-        self.0.children().find_map(ast::GenericParamList::cast)
+        self.0.children().find_map(GenericParamList::cast)
     }
     pub fn param_list(&self) -> Option<ast::ParamList> {
-        self.0.children().find_map(ast::ParamList::cast)
+        self.0.children().find_map(ParamList::cast)
     }
     pub fn return_type(&self) -> Option<ast::TypeRef> {
-        self.0.children().find_map(ast::TypeRef::cast)
+        self.0.children().find_map(TypeRef::cast)
     }
     pub fn body(&self) -> Option<ast::BlockExpr> {
-        self.0.children().find_map(ast::BlockExpr::cast)
+        self.0.children().find_map(BlockExpr::cast)
     }
     pub fn visibility(&self) -> ast::Visibility {
-        if let Some(f) = ast::FnDef::cast(self.0.clone()) {
+        if let Some(f) = FnDef::cast(self.0.clone()) {
             f.visibility()
         } else {
-            ast::MethodDef::cast(self.0.clone()).unwrap().visibility()
+            MethodDef::cast(self.0.clone()).unwrap().visibility()
         }
     }
 }

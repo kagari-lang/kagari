@@ -1,4 +1,26 @@
 //! Declaration and binding identities owned by one semantic analysis.
+
+use crate::builtin::declarations;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::ConstOwner;
+use crate::hir::FieldId;
+use crate::hir::GenericParam;
+use crate::hir::GenericParamId;
+use crate::hir::ImplId;
+use crate::hir::Item;
+use crate::hir::VariantId;
+use crate::host::HostDeclarations;
+use crate::host::HostTypeId;
+use crate::imports::ImportedTypes;
+use crate::imports::ModuleImports;
+use crate::resolver::DeclarationNames;
+use crate::resolver::NameTable;
+use crate::source_map::SourceMap;
+use crate::types;
+use crate::types::GenericParameterType;
+use kagari_common::cancellation::CancellationToken;
+use std::sync::Arc;
 use std::{
     collections::{HashMap, HashSet},
     sync::atomic::{AtomicU64, Ordering},
@@ -47,23 +69,23 @@ pub struct Declaration {
 
 #[derive(Debug, Clone)]
 pub struct Declarations {
-    pub(crate) imported_types: crate::imports::ImportedTypes,
-    pub(crate) names: std::sync::Arc<crate::resolver::NameTable>,
-    pub(crate) hosts: std::sync::Arc<crate::host::HostDeclarations>,
-    imports: std::sync::Arc<crate::imports::ModuleImports>,
+    pub(crate) imported_types: ImportedTypes,
+    pub(crate) names: Arc<NameTable>,
+    pub(crate) hosts: Arc<HostDeclarations>,
+    imports: Arc<ModuleImports>,
     analysis: AnalysisId,
     targets: HashMap<DeclarationKey, Declaration>,
     identities: HashMap<DeclarationId, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
-    impl_identities: HashMap<crate::hir::ImplId, DefinitionId>,
+    impl_identities: HashMap<ImplId, DefinitionId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum DeclarationKey {
     Name(ResolvedName),
-    Field(crate::hir::FieldId),
-    Variant(crate::hir::VariantId),
-    GenericParameter(crate::hir::GenericParamId),
+    Field(FieldId),
+    Variant(VariantId),
+    GenericParameter(GenericParamId),
 }
 
 impl From<ResolvedName> for DeclarationKey {
@@ -73,10 +95,7 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
-    pub(crate) fn standard_trait(
-        &self,
-        name: &str,
-    ) -> Option<crate::builtin::traits::StandardTrait> {
+    pub(crate) fn standard_trait(&self, name: &str) -> Option<StandardTrait> {
         if let Some(binding) = self.names.lookup(name) {
             return match binding.target()? {
                 ResolvedName::StandardTrait(kind) => Some(kind),
@@ -87,9 +106,7 @@ impl Declarations {
             && let Some(binding) = self.names.lookup(alias)
         {
             return match binding.target()? {
-                ResolvedName::StandardModule(module) => {
-                    crate::builtin::traits::in_module(module, member)
-                }
+                ResolvedName::StandardModule(module) => traits::in_module(module, member),
                 ResolvedName::SourceImport(index) => {
                     match self.imports.resolve_member(index, member, &self.hosts)? {
                         ResolvedName::StandardTrait(kind) => Some(kind),
@@ -99,14 +116,14 @@ impl Declarations {
                 _ => None,
             };
         }
-        crate::builtin::traits::StandardTrait::from_name(name)
+        StandardTrait::from_name(name)
     }
 
-    pub fn impl_identity(&self, id: crate::hir::ImplId) -> Option<&DefinitionId> {
+    pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionId> {
         self.impl_identities.get(&id)
     }
 
-    pub(crate) fn host_type(&self, name: &str) -> Option<crate::host::HostTypeId> {
+    pub(crate) fn host_type(&self, name: &str) -> Option<HostTypeId> {
         let resolved = if let Some(binding) = self.names.lookup(name) {
             binding.target()
         } else if let Some((alias, member)) = name.split_once("::")
@@ -127,7 +144,7 @@ impl Declarations {
             _ => None,
         }
     }
-    pub fn variant(&self, id: crate::hir::VariantId) -> Option<&Declaration> {
+    pub fn variant(&self, id: VariantId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Variant(id))
     }
 
@@ -160,7 +177,7 @@ impl Declarations {
             })
     }
 
-    pub fn imported_types(&self) -> &crate::imports::ImportedTypes {
+    pub fn imported_types(&self) -> &ImportedTypes {
         &self.imported_types
     }
     pub(crate) fn definition(&self, name: ResolvedName) -> Option<&DefinitionId> {
@@ -178,15 +195,12 @@ impl Declarations {
             _ => None,
         }
     }
-    pub(crate) fn generic_type(
-        &self,
-        id: crate::hir::GenericParamId,
-    ) -> Option<crate::types::GenericParameterType> {
+    pub(crate) fn generic_type(&self, id: GenericParamId) -> Option<GenericParameterType> {
         let declaration = self.generic_parameter(id)?;
         let DeclarationId::GenericParameter { owner, position } = &declaration.id else {
             return None;
         };
-        Some(crate::types::GenericParameterType {
+        Some(GenericParameterType {
             owner: owner.clone(),
             position: *position,
             name: declaration.name.clone(),
@@ -198,8 +212,8 @@ impl Declarations {
 
     /// Parameters declared by this owner, in declaration order. Inherited method
     /// binders keep their original owner and are not included here.
-    pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<crate::types::GenericParameterType> {
-        if let Some(kind) = crate::builtin::traits::StandardTrait::from_id(owner) {
+    pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<GenericParameterType> {
+        if let Some(kind) = StandardTrait::from_id(owner) {
             return kind.contract().generic_params.clone();
         }
         let mut params = self
@@ -212,7 +226,7 @@ impl Declarations {
                 else {
                     return None;
                 };
-                (declared_owner == owner).then(|| crate::types::GenericParameterType {
+                (declared_owner == owner).then(|| GenericParameterType {
                     owner: owner.clone(),
                     position: *position,
                     name: declaration.name.clone(),
@@ -226,13 +240,13 @@ impl Declarations {
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
         self.targets
             .get(&DeclarationKey::Name(name))
-            .or_else(|| crate::builtin::declarations::resolved(name))
+            .or_else(|| declarations::resolved(name))
     }
 
-    pub fn field(&self, field: crate::hir::FieldId) -> Option<&Declaration> {
+    pub fn field(&self, field: FieldId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Field(field))
     }
-    pub fn generic_parameter(&self, id: crate::hir::GenericParamId) -> Option<&Declaration> {
+    pub fn generic_parameter(&self, id: GenericParamId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::GenericParameter(id))
     }
 
@@ -250,8 +264,8 @@ impl Declarations {
     pub(crate) fn collect_named(
         source: &SourceFile,
         lowered: &LoweredModule,
-        names: &crate::resolver::DeclarationNames,
-        cancel: &kagari_common::cancellation::CancellationToken,
+        names: &DeclarationNames,
+        cancel: &CancellationToken,
     ) -> Self {
         let analysis = AnalysisId(
             NEXT_ANALYSIS
@@ -289,9 +303,8 @@ impl Declarations {
                 &[],
                 kind,
                 &item.name,
-                map.item_declaration_span(crate::hir::Item::Function(item.id)),
-                map.item_name_span(crate::hir::Item::Function(item.id))
-                    .is_some(),
+                map.item_declaration_span(Item::Function(item.id)),
+                map.item_name_span(Item::Function(item.id)).is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
         }
@@ -307,9 +320,8 @@ impl Declarations {
                 &[],
                 DefinitionKind::Const,
                 &item.name,
-                map.item_declaration_span(crate::hir::Item::Const(item.id)),
-                map.item_name_span(crate::hir::Item::Const(item.id))
-                    .is_some(),
+                map.item_declaration_span(Item::Const(item.id)),
+                map.item_name_span(Item::Const(item.id)).is_some(),
             );
         }
         for item in &module.modules {
@@ -321,9 +333,8 @@ impl Declarations {
                 &[],
                 DefinitionKind::Module,
                 &item.name,
-                map.item_declaration_span(crate::hir::Item::Module(item.id)),
-                map.item_name_span(crate::hir::Item::Module(item.id))
-                    .is_some(),
+                map.item_declaration_span(Item::Module(item.id)),
+                map.item_name_span(Item::Module(item.id)).is_some(),
             );
         }
         for item in &module.structs {
@@ -335,9 +346,8 @@ impl Declarations {
                 &[],
                 DefinitionKind::Struct,
                 &item.name,
-                map.item_declaration_span(crate::hir::Item::Struct(item.id)),
-                map.item_name_span(crate::hir::Item::Struct(item.id))
-                    .is_some(),
+                map.item_declaration_span(Item::Struct(item.id)),
+                map.item_name_span(Item::Struct(item.id)).is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for field in &item.fields {
@@ -363,9 +373,8 @@ impl Declarations {
                 &[],
                 DefinitionKind::Enum,
                 &item.name,
-                map.item_declaration_span(crate::hir::Item::Enum(item.id)),
-                map.item_name_span(crate::hir::Item::Enum(item.id))
-                    .is_some(),
+                map.item_declaration_span(Item::Enum(item.id)),
+                map.item_name_span(Item::Enum(item.id)).is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for variant in &item.variants {
@@ -391,9 +400,8 @@ impl Declarations {
                 &[],
                 DefinitionKind::Trait,
                 &item.name,
-                map.item_declaration_span(crate::hir::Item::Trait(item.id)),
-                map.item_name_span(crate::hir::Item::Trait(item.id))
-                    .is_some(),
+                map.item_declaration_span(Item::Trait(item.id)),
+                map.item_name_span(Item::Trait(item.id)).is_some(),
             );
             builder.generic_params(&owner, &item.generic_params, map);
             for method in &item.methods {
@@ -405,8 +413,8 @@ impl Declarations {
                     &owner.path,
                     DefinitionKind::Method,
                     &method.name,
-                    map.item_declaration_span(crate::hir::Item::Function(method.function)),
-                    map.item_name_span(crate::hir::Item::Function(method.function))
+                    map.item_declaration_span(Item::Function(method.function)),
+                    map.item_name_span(Item::Function(method.function))
                         .is_some(),
                 );
                 let function = module
@@ -436,8 +444,8 @@ impl Declarations {
                     &owner.path,
                     DefinitionKind::Method,
                     &method.name,
-                    map.item_declaration_span(crate::hir::Item::Function(method.function)),
-                    map.item_name_span(crate::hir::Item::Function(method.function))
+                    map.item_declaration_span(Item::Function(method.function)),
+                    map.item_name_span(Item::Function(method.function))
                         .is_some(),
                 );
                 let function = module
@@ -450,10 +458,10 @@ impl Declarations {
         }
         for item in &module.consts {
             let owner = match item.owner {
-                Some(crate::hir::ConstOwner::Trait(id)) => {
+                Some(ConstOwner::Trait(id)) => {
                     builder.result.definition(ResolvedName::Trait(id)).cloned()
                 }
-                Some(crate::hir::ConstOwner::Impl(id)) => builder.result.impl_identity(id).cloned(),
+                Some(ConstOwner::Impl(id)) => builder.result.impl_identity(id).cloned(),
                 None => continue,
             };
             if let Some(owner) = owner {
@@ -462,7 +470,7 @@ impl Declarations {
                     &owner.path,
                     DefinitionKind::Const,
                     &item.name,
-                    map.item_declaration_span(crate::hir::Item::Const(item.id)),
+                    map.item_declaration_span(Item::Const(item.id)),
                     !item.name.is_empty(),
                 );
             }
@@ -488,7 +496,7 @@ impl Declarations {
         {
             for member in members {
                 builder.generic_params(
-                    &crate::types::associated_type_id(&owner, &member.name),
+                    &types::associated_type_id(&owner, &member.name),
                     &member.generic_params,
                     map,
                 );
@@ -501,7 +509,7 @@ impl Declarations {
         mut self,
         lowered: &LoweredModule,
         names: &ResolvedNames,
-        cancel: &kagari_common::cancellation::CancellationToken,
+        cancel: &CancellationToken,
     ) -> Self {
         // Cached named declarations do not extend the lifetime of local handles.
         self.analysis = AnalysisId(
@@ -557,18 +565,13 @@ impl Declarations {
 
 struct Builder<'a> {
     source: &'a SourceFile,
-    cancel: &'a kagari_common::cancellation::CancellationToken,
+    cancel: &'a CancellationToken,
     result: Declarations,
     occurrences: HashMap<(Vec<DefinitionPathSegment>, DefinitionKind, String), u32>,
 }
 
 impl Builder<'_> {
-    fn generic_params(
-        &mut self,
-        owner: &DefinitionId,
-        params: &[crate::hir::GenericParam],
-        map: &crate::source_map::SourceMap,
-    ) {
+    fn generic_params(&mut self, owner: &DefinitionId, params: &[GenericParam], map: &SourceMap) {
         let mut position = 0;
         for param in params {
             if self.cancel.check().is_err() {

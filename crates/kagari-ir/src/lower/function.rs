@@ -1,5 +1,17 @@
+use super::instances::Instance;
+use super::instances::InstancePlanner;
+use crate::module::ValueType;
+use crate::module::instruction::Instruction;
+use hir::ExprKind;
 use kagari_hir::AnalyzedModule;
+use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::traits::StandardTrait;
 use kagari_hir::hir;
+use kagari_hir::typeck::TypedFunction;
+use kagari_hir::types::BuiltinType;
+use kagari_hir::types::TypeId;
+use kagari_hir::types::TypeSubstitution;
+use std::iter;
 
 use crate::lower::IrLoweringError;
 use crate::lower::state::FunctionLowerer;
@@ -10,8 +22,8 @@ use kagari_hir::resolver::ResolvedName;
 pub(crate) fn lower_callable<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,
-    instance: super::instances::Instance,
-    planner: &mut super::instances::InstancePlanner<'a>,
+    instance: Instance,
+    planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
     use crate::module::{ValueType, instruction::Instruction};
     use kagari_hir::{
@@ -24,7 +36,7 @@ pub(crate) fn lower_callable<'a>(
             "callable adapter signature",
         ));
     };
-    let typed = kagari_hir::typeck::TypedFunction {
+    let typed = TypedFunction {
         generic_params: vec![],
         bounds: Default::default(),
         id: parent.id,
@@ -36,10 +48,7 @@ pub(crate) fn lower_callable<'a>(
     lowerer.function.name = typed.name;
     lowerer.function.debug.source_span = body.span;
     let mut values = Vec::new();
-    for (index, ty) in std::iter::once(&body.receiver)
-        .chain(params.iter())
-        .enumerate()
-    {
+    for (index, ty) in iter::once(&body.receiver).chain(params.iter()).enumerate() {
         let physical = lowerer.value_type(ty)?;
         let name = if index == 0 {
             "receiver".into()
@@ -100,18 +109,18 @@ pub(crate) fn lower_callable<'a>(
 pub(crate) fn lower_iterator<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,
-    instance: super::instances::Instance,
-    planner: &mut super::instances::InstancePlanner<'a>,
+    instance: Instance,
+    planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
     let body = instance.iterator.clone().expect("iterator step");
-    let typed = kagari_hir::typeck::TypedFunction {
+    let typed = TypedFunction {
         generic_params: vec![],
         bounds: Default::default(),
         id: parent.id,
         name: String::new(),
         params: Default::default(),
-        return_type: kagari_hir::types::TypeId::StandardEnum {
-            kind: kagari_hir::builtin::surface::StandardEnum::Option,
+        return_type: TypeId::StandardEnum {
+            kind: StandardEnum::Option,
             args: vec![body.output.clone()],
         },
     };
@@ -147,7 +156,7 @@ pub(crate) fn lower_iterator<'a>(
             .locals
             .insert(local.index(), semantic);
         let value = lowerer.alloc_temp(physical);
-        lowerer.emit(crate::module::instruction::Instruction::LoadLocal { dst: value, local });
+        lowerer.emit(Instruction::LoadLocal { dst: value, local });
         args.push(value);
     }
     lowerer.with_debug_span(body.span, |lowerer| {
@@ -160,22 +169,22 @@ pub(crate) fn lower_iterator<'a>(
 pub(crate) fn lower_protocol<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,
-    instance: super::instances::Instance,
-    planner: &mut super::instances::InstancePlanner<'a>,
+    instance: Instance,
+    planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
     use crate::module::instruction::Instruction;
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
-    let equality = protocol == kagari_hir::builtin::traits::StandardTrait::PartialEq;
-    let typed = kagari_hir::typeck::TypedFunction {
+    let equality = protocol == StandardTrait::PartialEq;
+    let typed = TypedFunction {
         generic_params: Vec::new(),
         bounds: Default::default(),
         id: parent.id,
         name: String::new(),
         params: Default::default(),
-        return_type: kagari_hir::types::TypeId::Builtin(if equality {
-            kagari_hir::types::BuiltinType::Bool
+        return_type: TypeId::Builtin(if equality {
+            BuiltinType::Bool
         } else {
-            kagari_hir::types::BuiltinType::I64
+            BuiltinType::I64
         }),
     };
     let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
@@ -225,8 +234,8 @@ pub(crate) fn lower_protocol<'a>(
 pub(crate) fn lower_function<'a>(
     module: &'a AnalyzedModule,
     function: &hir::Function,
-    instance: super::instances::Instance,
-    planner: &mut super::instances::InstancePlanner<'a>,
+    instance: Instance,
+    planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
     let typed = module
         .typed
@@ -253,13 +262,13 @@ pub(crate) fn lower_closure<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,
     closure: hir::ExprId,
-    instance: super::instances::Instance,
-    planner: &mut super::instances::InstancePlanner<'a>,
+    instance: Instance,
+    planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
-    let hir::ExprKind::Closure { params, body } = &module.lowered.module.expr(closure).kind else {
+    let ExprKind::Closure { params, body } = &module.lowered.module.expr(closure).kind else {
         return Err(IrLoweringError::MissingBinding("closure body"));
     };
-    let kagari_hir::types::TypeId::Function { result, .. } = module
+    let TypeId::Function { result, .. } = module
         .typed
         .type_table
         .expr_type(closure)
@@ -267,7 +276,7 @@ pub(crate) fn lower_closure<'a>(
     else {
         return Err(IrLoweringError::MissingBinding("closure type"));
     };
-    let typed = kagari_hir::typeck::TypedFunction {
+    let typed = TypedFunction {
         generic_params: Vec::new(),
         bounds: Default::default(),
         id: parent.id,
@@ -298,7 +307,7 @@ pub(crate) fn lower_closure<'a>(
         let name = format!("capture_{}", lowerer.function.params.len());
         let physical = if matches!(capture, ResolvedName::Local(id) if lowerer.cell_locals.contains(id))
         {
-            crate::module::ValueType::HeapObject
+            ValueType::HeapObject
         } else {
             lowerer.value_type(&ty)?
         };
@@ -409,8 +418,8 @@ pub(crate) fn lower_closure<'a>(
 pub(crate) fn lower_native_method<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,
-    instance: super::instances::Instance,
-    planner: &mut super::instances::InstancePlanner<'a>,
+    instance: Instance,
+    planner: &mut InstancePlanner<'a>,
 ) -> Result<IrFunction, IrLoweringError> {
     use crate::module::instruction::Instruction;
     let (receiver, interface, method) = instance.native_method.clone().expect("native method");
@@ -422,13 +431,13 @@ pub(crate) fn lower_native_method<'a>(
         .catalog
         .trait_method(&method)
         .ok_or(IrLoweringError::MissingBinding("native method"))?;
-    let substitution: kagari_hir::types::TypeSubstitution = contract
+    let substitution: TypeSubstitution = contract
         .generic_params
         .iter()
         .cloned()
         .zip(interface.arguments.iter().cloned())
         .collect();
-    let instantiate = |ty: &kagari_hir::types::TypeId| {
+    let instantiate = |ty: &TypeId| {
         ty.with_self(&contract.id, &receiver)
             .instantiate(&substitution)
             .with_associated_types(&interface)
@@ -438,7 +447,7 @@ pub(crate) fn lower_native_method<'a>(
         .iter()
         .map(|p| (p.name.clone(), instantiate(&p.ty)))
         .collect();
-    let typed = kagari_hir::typeck::TypedFunction {
+    let typed = TypedFunction {
         generic_params: vec![],
         bounds: Default::default(),
         id: parent.id,

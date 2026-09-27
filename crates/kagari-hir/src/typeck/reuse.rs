@@ -1,12 +1,16 @@
 //! Cache semantic facts by source content, remapping every arena ID on reuse.
+
 use super::TypeTable;
 use crate::{
     hir::{Function, FunctionKind},
     lower::LoweredModule,
 };
+use kagari_common::Diagnostic;
+use kagari_syntax::lexer;
+use kagari_syntax::token::Token;
 
 pub struct BodyReuse<'a> {
-    pub previous_diagnostics: &'a [kagari_common::Diagnostic],
+    pub previous_diagnostics: &'a [Diagnostic],
     pub previous_lowered: &'a LoweredModule,
     pub previous_types: &'a TypeTable,
     pub old_text: &'a str,
@@ -85,9 +89,9 @@ impl BodyReuse<'_> {
 // Compare token boundaries and literal contents, never concatenated spellings:
 // dropping trivia must not turn `a b` into `ab` or alter a string literal.
 fn same_environment_tokens(old: &str, new: &str) -> bool {
-    let old_tokens = kagari_syntax::lexer::lex(old);
-    let new_tokens = kagari_syntax::lexer::lex(new);
-    let significant = |token: &&kagari_syntax::token::Token| !token.kind.is_trivia();
+    let old_tokens = lexer::lex(old);
+    let new_tokens = lexer::lex(new);
+    let significant = |token: &&Token| !token.kind.is_trivia();
     old_tokens
         .iter()
         .filter(significant)

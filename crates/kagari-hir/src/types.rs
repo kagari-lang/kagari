@@ -1,10 +1,25 @@
+use crate::builtin::surface;
+use crate::builtin::surface::StandardEnum;
+use crate::typeck::GenericBounds;
+use crate::typeck::associated;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::DefinitionPathSegment;
+use kagari_common::numeric::NumberType;
+use kagari_common::range::RangeKind;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TypeSubstitution {
-    parameters: std::collections::HashMap<GenericParameterType, TypeId>,
-    receivers: std::collections::HashMap<DefinitionId, TypeId>,
+    parameters: HashMap<GenericParameterType, TypeId>,
+    receivers: HashMap<DefinitionId, TypeId>,
 }
 
 impl TypeSubstitution {
@@ -15,13 +30,13 @@ impl TypeSubstitution {
         self.receivers.get(owner)
     }
 }
-impl std::ops::Deref for TypeSubstitution {
-    type Target = std::collections::HashMap<GenericParameterType, TypeId>;
+impl Deref for TypeSubstitution {
+    type Target = HashMap<GenericParameterType, TypeId>;
     fn deref(&self) -> &Self::Target {
         &self.parameters
     }
 }
-impl std::ops::DerefMut for TypeSubstitution {
+impl DerefMut for TypeSubstitution {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.parameters
     }
@@ -49,7 +64,7 @@ pub struct GenericParameterType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssociatedTypeParameters {
     pub parameters: Vec<GenericParameterType>,
-    pub bounds: crate::typeck::GenericBounds,
+    pub bounds: GenericBounds,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,8 +96,8 @@ impl PartialEq for GenericParameterType {
     }
 }
 impl Eq for GenericParameterType {}
-impl std::hash::Hash for GenericParameterType {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl Hash for GenericParameterType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.owner.hash(state);
         self.position.hash(state);
     }
@@ -113,28 +128,26 @@ pub enum BuiltinType {
 pub struct NominalType {
     pub declaration: DefinitionId,
     pub arguments: Vec<TypeId>,
-    pub associated_types: std::collections::BTreeMap<DefinitionId, TypeId>,
+    pub associated_types: BTreeMap<DefinitionId, TypeId>,
 }
 
 pub fn associated_type_id(owner: &DefinitionId, name: &str) -> DefinitionId {
     let mut id = owner.clone();
-    id.path
-        .push(kagari_common::identity::DefinitionPathSegment {
-            kind: kagari_common::identity::DefinitionKind::AssociatedType,
-            name: name.to_owned(),
-            occurrence: 0,
-        });
+    id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::AssociatedType,
+        name: name.to_owned(),
+        occurrence: 0,
+    });
     id
 }
 
 pub fn associated_const_id(owner: &DefinitionId, name: &str) -> DefinitionId {
     let mut id = owner.clone();
-    id.path
-        .push(kagari_common::identity::DefinitionPathSegment {
-            kind: kagari_common::identity::DefinitionKind::Const,
-            name: name.to_owned(),
-            occurrence: 0,
-        });
+    id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Const,
+        name: name.to_owned(),
+        occurrence: 0,
+    });
     id
 }
 
@@ -189,7 +202,7 @@ pub enum TypeId {
         result: Box<TypeId>,
     },
     Iter(Box<TypeId>),
-    Range(Box<TypeId>, kagari_common::range::RangeKind),
+    Range(Box<TypeId>, RangeKind),
     Array(Box<TypeId>, CollectionAccess),
     Map {
         key: Box<TypeId>,
@@ -210,7 +223,7 @@ pub enum TypeId {
     },
     SelfType(DefinitionId),
     StandardEnum {
-        kind: crate::builtin::surface::StandardEnum,
+        kind: StandardEnum,
         args: Vec<TypeId>,
     },
 }
@@ -323,7 +336,7 @@ impl TypeId {
         false
     }
     pub fn with_associated_types(&self, interface: &NominalType) -> Self {
-        crate::typeck::associated::normalize(self, &|projected, _, member, arguments| {
+        associated::normalize(self, &|projected, _, member, arguments| {
             (arguments.is_empty() && projected.declaration == interface.declaration)
                 .then(|| interface.associated_types.get(member).cloned())
                 .flatten()
@@ -964,7 +977,7 @@ impl TypeId {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        crate::builtin::surface::builtin_type(name).map(Self::Builtin)
+        surface::builtin_type(name).map(Self::Builtin)
     }
 
     pub fn display_name(&self) -> String {
@@ -1001,8 +1014,7 @@ impl TypeId {
                         output.push_str(&id.path.last().expect("host type identity").name)
                     }
                     Self::Builtin(ty) => output.push_str(
-                        crate::builtin::surface::builtin_type_spec(*ty)
-                            .map_or("<builtin>", |spec| spec.name),
+                        surface::builtin_type_spec(*ty).map_or("<builtin>", |spec| spec.name),
                     ),
                     Self::Tuple(items) => sequence(&mut pending, items, "(", ")"),
                     Self::Function { params, result } => {
@@ -1111,7 +1123,7 @@ impl TypeId {
                         }
                     }
                     Self::Range(item, kind) => {
-                        if *kind != kagari_common::range::RangeKind::Full {
+                        if *kind != RangeKind::Full {
                             pending.push(Part::Text(">"));
                             pending.push(Part::Type(item));
                             pending.push(Part::Text("<"));
@@ -1132,7 +1144,7 @@ impl TypeId {
         match self {
             Self::Inference(_) | Self::Unknown | Self::Error => false,
             Self::Builtin(ty) => {
-                crate::builtin::surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
+                surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
             }
             Self::Tuple(_)
             | Self::Function { .. }
@@ -1170,7 +1182,7 @@ impl BuiltinType {
 }
 
 impl BuiltinType {
-    pub fn number_type(self) -> Option<kagari_common::numeric::NumberType> {
+    pub fn number_type(self) -> Option<NumberType> {
         use kagari_common::numeric::NumberType;
         match self {
             Self::F32 => Some(NumberType::F32),
@@ -1193,7 +1205,7 @@ pub fn supports_array_repetition(
     mut enum_payload: impl FnMut(&NominalType) -> Option<Vec<TypeId>>,
 ) -> bool {
     let mut pending = vec![ty.clone()];
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     let mut work = 0;
     while let Some(ty) = pending.pop() {
         work += 1;

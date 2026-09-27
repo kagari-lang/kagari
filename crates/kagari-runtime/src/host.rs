@@ -1,7 +1,27 @@
+use crate::ErrorTrace;
+use crate::HostResourceScope;
+use crate::ResourceState;
+use crate::Runtime;
+use crate::RuntimeErrorKind;
+use crate::gc::GcHeap;
+use crate::metadata::TypeRegistry;
+use crate::metadata::Visibility;
+use crate::numeric;
+use crate::value::EphemeralValue;
+use kagari_common::host_interface;
+use kagari_common::host_interface::HostIndexSegmentDeclaration;
+use kagari_common::host_interface::HostPathDeclaration;
+use kagari_common::host_interface::HostPathSegmentDeclaration;
+use kagari_common::host_interface::HostVirtualSegmentDeclaration;
 pub use kagari_common::host_interface::{
     HostFunctionDeclaration, HostFunctionEffects, HostInterface, HostParameter, HostPassingStyle,
     HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership, HostValueType,
 };
+use std::iter;
+use std::rc::Weak;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use kagari_common::identity::DefinitionId;
@@ -229,10 +249,10 @@ pub enum HostPathSegmentRegistration {
         declaration: DefinitionId,
     },
     Index {
-        declaration: kagari_common::host_interface::HostIndexSegmentDeclaration,
+        declaration: HostIndexSegmentDeclaration,
     },
     Virtual {
-        declaration: kagari_common::host_interface::HostVirtualSegmentDeclaration,
+        declaration: HostVirtualSegmentDeclaration,
     },
 }
 
@@ -248,7 +268,7 @@ pub struct HostPathDescriptorRegistration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathDescriptor {
-    pub declaration: kagari_common::host_interface::HostPathDeclaration,
+    pub declaration: HostPathDeclaration,
     pub id: HostPathDescriptorId,
     pub root_type: TypeId,
     pub result_type: TypeId,
@@ -266,7 +286,7 @@ impl HostPathDescriptor {
         registration: HostPathDescriptorRegistration,
         segments: Vec<HostPathSegment>,
         abi_fingerprint: AbiFingerprint,
-        declaration: kagari_common::host_interface::HostPathDeclaration,
+        declaration: HostPathDeclaration,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
         let dynamic_parameters = collect_dynamic_parameters(&segments)?;
@@ -588,7 +608,7 @@ fn path_access_allows(available: PathAccess, required: PathAccess) -> bool {
 }
 
 fn apply_path_modify(op: BinaryOp, old_value: Value, rhs: Value) -> Result<Value, RuntimeError> {
-    crate::numeric::binary(op, old_value, rhs)
+    numeric::binary(op, old_value, rhs)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -735,14 +755,10 @@ struct HostBorrowState {
 struct HostBorrowOwner(u64);
 impl Default for HostBorrowOwner {
     fn default() -> Self {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(
-            NEXT.fetch_update(
-                std::sync::atomic::Ordering::Relaxed,
-                std::sync::atomic::Ordering::Relaxed,
-                |id| id.checked_add(1),
-            )
-            .expect("host borrow ownership exhausted"),
+            NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("host borrow ownership exhausted"),
         )
     }
 }
@@ -751,11 +767,11 @@ impl Default for HostBorrowOwner {
 pub struct HostBorrowTable {
     owner: HostBorrowOwner,
     state: Rc<RefCell<HostBorrowState>>,
-    resources: Option<std::rc::Weak<crate::ResourceState>>,
+    resources: Option<Weak<ResourceState>>,
 }
 
 impl HostBorrowTable {
-    pub(crate) fn with_resources(resources: &Rc<crate::ResourceState>) -> Self {
+    pub(crate) fn with_resources(resources: &Rc<ResourceState>) -> Self {
         Self {
             resources: Some(Rc::downgrade(resources)),
             ..Default::default()
@@ -773,23 +789,17 @@ impl HostBorrowTable {
     }
 
     fn invariant(&self, message: &'static str) -> RuntimeError {
-        self.resources
-            .as_ref()
-            .and_then(std::rc::Weak::upgrade)
-            .map_or_else(
-                || RuntimeError::new(crate::RuntimeErrorKind::EngineFault, message),
-                |resources| resources.quarantine(message),
-            )
+        self.resources.as_ref().and_then(Weak::upgrade).map_or_else(
+            || RuntimeError::new(RuntimeErrorKind::EngineFault, message),
+            |resources| resources.quarantine(message),
+        )
     }
 
     fn capacity_error(&self) -> RuntimeError {
-        self.resources
-            .as_ref()
-            .and_then(std::rc::Weak::upgrade)
-            .map_or_else(
-                || RuntimeError::resource_limit("host borrow capacity"),
-                |resources| resources.limit("host borrow capacity"),
-            )
+        self.resources.as_ref().and_then(Weak::upgrade).map_or_else(
+            || RuntimeError::resource_limit("host borrow capacity"),
+            |resources| resources.limit("host borrow capacity"),
+        )
     }
 
     pub fn enter_frame(&self) -> Result<HostCallGuard, RuntimeError> {
@@ -1072,14 +1082,10 @@ pub(crate) struct HostRegistryId(u64);
 
 impl Default for HostRegistryId {
     fn default() -> Self {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(
-            NEXT.fetch_update(
-                std::sync::atomic::Ordering::Relaxed,
-                std::sync::atomic::Ordering::Relaxed,
-                |id| id.checked_add(1),
-            )
-            .expect("host registry identity exhausted"),
+            NEXT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("host registry identity exhausted"),
         )
     }
 }
@@ -1115,7 +1121,7 @@ pub struct HostTypeInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostError {
     message: String,
-    trace: Option<std::sync::Arc<crate::ErrorTrace>>,
+    trace: Option<Arc<ErrorTrace>>,
 }
 
 impl HostError {
@@ -1126,10 +1132,10 @@ impl HostError {
         }
     }
 
-    pub fn trace(&self) -> Option<&std::sync::Arc<crate::ErrorTrace>> {
+    pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
         self.trace.as_ref()
     }
-    pub fn with_trace(mut self, trace: std::sync::Arc<crate::ErrorTrace>) -> Self {
+    pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
         if self
             .trace
             .as_ref()
@@ -1147,16 +1153,16 @@ impl HostError {
 
 /// Available only while a checked runtime host call is active.
 pub struct HostCallContext<'a> {
-    scope: crate::HostResourceScope<'a>,
+    scope: HostResourceScope<'a>,
 }
 
 impl<'a> HostCallContext<'a> {
-    pub(crate) fn new(runtime: &'a crate::Runtime, args: &[Value]) -> Result<Self, RuntimeError> {
+    pub(crate) fn new(runtime: &'a Runtime, args: &[Value]) -> Result<Self, RuntimeError> {
         Ok(Self {
             scope: runtime.host_scope(args)?,
         })
     }
-    pub fn runtime(&self) -> &'a crate::Runtime {
+    pub fn runtime(&self) -> &'a Runtime {
         self.scope.runtime()
     }
     pub fn borrows(&self) -> &HostCallGuard {
@@ -1267,8 +1273,7 @@ impl HostFunction {
                 }
                 (
                     Value::Ephemeral(
-                        crate::value::EphemeralValue::HostRef(token)
-                        | crate::value::EphemeralValue::HostMut(token),
+                        EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token),
                     ),
                     passing,
                 ) => {
@@ -1312,7 +1317,7 @@ impl HostFunction {
 }
 
 fn host_value_matches(
-    runtime: &crate::Runtime,
+    runtime: &Runtime,
     value: &Value,
     ty: &HostValueType,
 ) -> Result<bool, RuntimeError> {
@@ -1337,10 +1342,7 @@ fn host_value_matches(
                 }
             }
             (
-                Value::Ephemeral(
-                    crate::value::EphemeralValue::HostRef(token)
-                    | crate::value::EphemeralValue::HostMut(token),
-                ),
+                Value::Ephemeral(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)),
                 HostValueType::Opaque(declaration),
             ) => {
                 if !runtime.host().matches_type(token.type_id(), declaration) {
@@ -1408,7 +1410,7 @@ pub struct HostRegistry {
     next_path_descriptor_id: usize,
     functions: Vec<HostFunction>,
     function_names: HashMap<String, HostFunctionId>,
-    function_declarations: HashMap<kagari_common::identity::DefinitionId, HostFunctionId>,
+    function_declarations: HashMap<DefinitionId, HostFunctionId>,
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
     type_declarations: HashMap<DefinitionId, TypeId>,
@@ -1616,7 +1618,7 @@ impl HostRegistry {
         declaration: &DefinitionId,
         symbol: &str,
     ) -> Result<(), RuntimeError> {
-        kagari_common::host_interface::validate_host_type_identity(declaration)
+        host_interface::validate_host_type_identity(declaration)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         if symbol.is_empty()
             || symbol.split('.').any(str::is_empty)
@@ -1683,7 +1685,7 @@ impl HostRegistry {
     fn portable_path_type(
         &self,
         declaration: &HostValueType,
-        types: &crate::metadata::TypeRegistry,
+        types: &TypeRegistry,
     ) -> Result<TypeId, RuntimeError> {
         let resolved = match declaration {
             HostValueType::Opaque(id) => self.host_type_by_declaration(id).map(|ty| ty.type_id),
@@ -1697,7 +1699,7 @@ impl HostRegistry {
     pub(crate) fn register_path_descriptor(
         &mut self,
         registration: HostPathDescriptorRegistration,
-        types: &crate::metadata::TypeRegistry,
+        types: &TypeRegistry,
     ) -> Result<HostPathDescriptorId, RuntimeError> {
         let Some(root_type) = self.types.get(&registration.root_type) else {
             return Err(RuntimeError::typed_path_validation(
@@ -1741,7 +1743,7 @@ impl HostRegistry {
                     let field = metadata.fields.get(slot).ok_or_else(|| {
                         RuntimeError::typed_path_validation("missing host field metadata")
                     })?;
-                    if field.visibility != crate::metadata::Visibility::Public {
+                    if field.visibility != Visibility::Public {
                         return Err(RuntimeError::typed_path_validation(
                             "private host fields cannot be exposed as paths",
                         ));
@@ -1782,26 +1784,20 @@ impl HostRegistry {
             segments.push(resolved);
         }
         let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
-        let declaration = kagari_common::host_interface::HostPathDeclaration {
+        let declaration = HostPathDeclaration {
             root: root_type.declaration.id.clone(),
             segments: registration
                 .segments
                 .iter()
                 .map(|segment| match segment {
                     HostPathSegmentRegistration::Field { declaration } => {
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Field(
-                            declaration.clone(),
-                        )
+                        HostPathSegmentDeclaration::Field(declaration.clone())
                     }
                     HostPathSegmentRegistration::Index { declaration } => {
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Index(
-                            declaration.clone(),
-                        )
+                        HostPathSegmentDeclaration::Index(declaration.clone())
                     }
                     HostPathSegmentRegistration::Virtual { declaration } => {
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Virtual(
-                            declaration.clone(),
-                        )
+                        HostPathSegmentDeclaration::Virtual(declaration.clone())
                     }
                 })
                 .collect(),
@@ -1833,8 +1829,8 @@ impl HostRegistry {
 
     pub(crate) fn register_path(
         &mut self,
-        declaration: &kagari_common::host_interface::HostPathDeclaration,
-        types: &crate::metadata::TypeRegistry,
+        declaration: &HostPathDeclaration,
+        types: &TypeRegistry,
     ) -> Result<HostPathDescriptorId, RuntimeError> {
         let contract = declaration
             .contract(&self.interface())
@@ -1852,21 +1848,21 @@ impl HostRegistry {
                     .segments
                     .iter()
                     .map(|segment| match segment {
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Field(id) => {
+                        HostPathSegmentDeclaration::Field(id) => {
                             HostPathSegmentRegistration::Field {
                                 declaration: id.clone(),
                             }
                         }
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Index(index) => {
+                        HostPathSegmentDeclaration::Index(index) => {
                             HostPathSegmentRegistration::Index {
                                 declaration: index.clone(),
                             }
                         }
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Virtual(
-                            virtual_step,
-                        ) => HostPathSegmentRegistration::Virtual {
-                            declaration: virtual_step.clone(),
-                        },
+                        HostPathSegmentDeclaration::Virtual(virtual_step) => {
+                            HostPathSegmentRegistration::Virtual {
+                                declaration: virtual_step.clone(),
+                            }
+                        }
                     })
                     .collect(),
                 access: declaration.access,
@@ -1958,7 +1954,7 @@ impl HostRegistry {
 
     pub(crate) fn read_path(
         &self,
-        runtime: &crate::Runtime,
+        runtime: &Runtime,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
@@ -1997,7 +1993,7 @@ impl HostRegistry {
 
     pub(crate) fn set_path(
         &self,
-        runtime: &crate::Runtime,
+        runtime: &Runtime,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
@@ -2061,7 +2057,7 @@ impl HostRegistry {
 
     pub(crate) fn modify_path(
         &self,
-        runtime: &crate::Runtime,
+        runtime: &Runtime,
         root_or_view: &Value,
         descriptor_id: HostPathDescriptorId,
         dynamic_args: Vec<Value>,
@@ -2129,12 +2125,12 @@ impl HostRegistry {
     }
 
     fn path_roots<'a>(
-        runtime: &'a crate::Runtime,
+        runtime: &'a Runtime,
         root: &Value,
         args: &[Value],
         value: Option<&Value>,
     ) -> Result<HostCallContext<'a>, RuntimeError> {
-        let values = std::iter::once(root)
+        let values = iter::once(root)
             .chain(args)
             .chain(value)
             .cloned()
@@ -2255,7 +2251,7 @@ impl HostRegistry {
 
     fn commit_path_write(
         &self,
-        gc: &crate::gc::GcHeap,
+        gc: &GcHeap,
         adapter: &HostPathAdapter,
         call: &HostCallContext<'_>,
         context: &HostPathContext,
@@ -2356,7 +2352,7 @@ impl<'host, T: ?Sized> MutHostRef<'host, T> {
 }
 
 fn path_scope_error(error: RuntimeError) -> RuntimeError {
-    if error.kind() == crate::RuntimeErrorKind::HostCallFailure {
+    if error.kind() == RuntimeErrorKind::HostCallFailure {
         RuntimeError::typed_path_validation(error.message())
     } else {
         error

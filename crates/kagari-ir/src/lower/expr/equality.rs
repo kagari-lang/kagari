@@ -1,10 +1,16 @@
 use super::*;
+use crate::module::abi::NominalAbiType;
+use crate::module::instruction::SourceFunctionContract;
+use crate::module::instruction::StandardEnumOp;
+use bincode::DefaultOptions;
+use kagari_hir::builtin::surface::StandardEnum;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
+use std::collections::HashSet;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> bool {
         let mut pending = vec![ty.clone()];
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         while let Some(ty) = pending.pop() {
             if !seen.insert(ty.clone()) {
                 continue;
@@ -150,14 +156,12 @@ impl FunctionLowerer<'_, '_> {
                         self.function.debug.source_span,
                     )?)
                 } else {
-                    CallTarget::SourceFunction(Box::new(
-                        crate::module::instruction::SourceFunctionContract {
-                            declaration,
-                            arguments,
-                            params: args.iter().map(|arg| arg.ty).collect(),
-                            return_type: result_ty,
-                        },
-                    ))
+                    CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                        declaration,
+                        arguments,
+                        params: args.iter().map(|arg| arg.ty).collect(),
+                        return_type: result_ty,
+                    }))
                 };
             let dst = self.alloc_temp(result_ty);
             self.emit(Instruction::Call {
@@ -219,27 +223,25 @@ impl FunctionLowerer<'_, '_> {
                 args: members,
             } => {
                 let variants = match kind {
-                    kagari_hir::builtin::surface::StandardEnum::Bound => {
+                    StandardEnum::Bound => {
                         vec![
                             (0, vec![members[0].clone()]),
                             (1, vec![members[0].clone()]),
                             (2, vec![]),
                         ]
                     }
-                    kagari_hir::builtin::surface::StandardEnum::ParseError => {
-                        (0..5).map(|i| (i, vec![])).collect()
-                    }
-                    kagari_hir::builtin::surface::StandardEnum::TryFromIntError => {
+                    StandardEnum::ParseError => (0..5).map(|i| (i, vec![])).collect(),
+                    StandardEnum::TryFromIntError => {
                         vec![(0, vec![])]
                     }
-                    kagari_hir::builtin::surface::StandardEnum::Infallible => vec![],
-                    kagari_hir::builtin::surface::StandardEnum::Ordering => {
+                    StandardEnum::Infallible => vec![],
+                    StandardEnum::Ordering => {
                         vec![(0, vec![]), (1, vec![]), (2, vec![])]
                     }
-                    kagari_hir::builtin::surface::StandardEnum::Option => {
+                    StandardEnum::Option => {
                         vec![(0, vec![members[0].clone()]), (1, vec![])]
                     }
-                    kagari_hir::builtin::surface::StandardEnum::Result => {
+                    StandardEnum::Result => {
                         vec![(0, vec![members[0].clone()]), (1, vec![members[1].clone()])]
                     }
                 };
@@ -373,13 +375,10 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(IrLoweringError::MissingBinding("enum hash identity"))?
                     .variants[*variant]
                     .id;
-                let bytes = bincode::DefaultOptions::new()
+                let bytes = DefaultOptions::new()
                     .with_fixint_encoding()
                     .with_little_endian()
-                    .serialize(&(
-                        crate::module::abi::NominalAbiType::from_checked_type(nominal),
-                        declaration,
-                    ))
+                    .serialize(&(NominalAbiType::from_checked_type(nominal), declaration))
                     .expect("validated enum identity");
                 let mut encoded = String::new();
                 for byte in bytes {
@@ -418,16 +417,12 @@ impl FunctionLowerer<'_, '_> {
             self.emit(Instruction::TestEnumVariant {
                 dst,
                 value,
-                enumeration: crate::module::abi::NominalAbiType::from_checked_type(nominal),
+                enumeration: NominalAbiType::from_checked_type(nominal),
                 variant,
             });
             Ok(dst)
         } else {
-            self.standard_enum_op(
-                ty,
-                crate::module::instruction::StandardEnumOp::Test(variant as u32),
-                Some(value),
-            )
+            self.standard_enum_op(ty, StandardEnumOp::Test(variant as u32), Some(value))
         }
     }
 
@@ -444,17 +439,13 @@ impl FunctionLowerer<'_, '_> {
             self.emit(Instruction::ReadEnumPayload {
                 dst,
                 value,
-                enumeration: crate::module::abi::NominalAbiType::from_checked_type(nominal),
+                enumeration: NominalAbiType::from_checked_type(nominal),
                 variant,
                 index,
             });
             Ok(dst)
         } else {
-            self.standard_enum_op(
-                ty,
-                crate::module::instruction::StandardEnumOp::Read(variant as u32),
-                Some(value),
-            )
+            self.standard_enum_op(ty, StandardEnumOp::Read(variant as u32), Some(value))
         }
     }
 }

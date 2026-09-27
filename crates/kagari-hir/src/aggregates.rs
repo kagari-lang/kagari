@@ -1,4 +1,13 @@
 //! Checked nominal contracts shared by local and imported member access.
+
+use crate::builtin::traits as builtin_traits;
+use crate::builtin::traits::StandardTrait;
+use crate::host::HostDeclarations;
+use crate::typeck::GenericBounds;
+use crate::types;
+use crate::types::GenericParameterType;
+use crate::types::NominalType;
+use std::collections::HashMap;
 mod implementations;
 mod traits;
 use crate::{
@@ -47,8 +56,8 @@ pub struct InherentMethodSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructSignature {
     pub id: DefinitionId,
-    pub generic_params: Vec<crate::types::GenericParameterType>,
-    pub bounds: crate::typeck::GenericBounds,
+    pub generic_params: Vec<GenericParameterType>,
+    pub bounds: GenericBounds,
     pub declaration: Declaration,
     pub fields: Vec<FieldSignature>,
 }
@@ -66,17 +75,17 @@ pub struct VariantSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumSignature {
     pub id: DefinitionId,
-    pub generic_params: Vec<crate::types::GenericParameterType>,
-    pub bounds: crate::typeck::GenericBounds,
+    pub generic_params: Vec<GenericParameterType>,
+    pub bounds: GenericBounds,
     pub declaration: Declaration,
     pub variants: Vec<VariantSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AggregateCatalog {
-    concrete_enum_payloads: std::collections::HashMap<crate::types::NominalType, Vec<TypeId>>,
+    concrete_enum_payloads: HashMap<NominalType, Vec<TypeId>>,
     implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
-    host_implementations: Vec<(crate::types::NominalType, TypeId)>,
+    host_implementations: Vec<(NominalType, TypeId)>,
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
@@ -89,27 +98,23 @@ pub struct AggregateCatalog {
 
 impl AggregateCatalog {
     /// Portable verification knows concrete enum layouts instead of source declarations.
-    pub fn add_concrete_enum_payload(
-        &mut self,
-        ty: crate::types::NominalType,
-        payload: Vec<TypeId>,
-    ) -> bool {
+    pub fn add_concrete_enum_payload(&mut self, ty: NominalType, payload: Vec<TypeId>) -> bool {
         if let Some(previous) = self.concrete_enum_payloads.get(&ty) {
             return *previous == payload;
         }
         self.concrete_enum_payloads.insert(ty, payload);
         true
     }
-    pub fn concrete_enum_payload(&self, ty: &crate::types::NominalType) -> Option<&[TypeId]> {
+    pub fn concrete_enum_payload(&self, ty: &NominalType) -> Option<&[TypeId]> {
         self.concrete_enum_payloads.get(ty).map(Vec::as_slice)
     }
     pub fn intrinsic_implementation(
         &self,
-        interface: &crate::types::NominalType,
+        interface: &NominalType,
         ty: &TypeId,
-        bounds: &crate::typeck::GenericBounds,
+        bounds: &GenericBounds,
     ) -> bool {
-        crate::builtin::traits::intrinsic_applies(interface, ty, Some(self), bounds)
+        builtin_traits::intrinsic_applies(interface, ty, Some(self), bounds)
     }
 
     pub fn implementation_constant(
@@ -275,10 +280,7 @@ impl AggregateCatalog {
                 .filter_map(|member| {
                     let initializer = member.initializer?;
                     Some((
-                        crate::types::associated_const_id(
-                            &contract.trait_type.declaration,
-                            &member.name,
-                        ),
+                        types::associated_const_id(&contract.trait_type.declaration, &member.name),
                         declarations
                             .definition(ResolvedName::Const(initializer))?
                             .clone(),
@@ -293,7 +295,7 @@ impl AggregateCatalog {
                 cancel.check()?;
                 if implementation.trait_id.module == *lowered.source.module_identity() {
                     self.host_implementations.push((
-                        crate::host::HostDeclarations::trait_type(implementation),
+                        HostDeclarations::trait_type(implementation),
                         TypeId::Host(host.id.clone()),
                     ));
                 }
@@ -495,7 +497,7 @@ impl Default for AggregateCatalog {
             enumerations: Default::default(),
             variants: Default::default(),
         };
-        for kind in crate::builtin::traits::StandardTrait::ALL {
+        for kind in StandardTrait::ALL {
             let contract = kind.contract();
             catalog
                 .traits

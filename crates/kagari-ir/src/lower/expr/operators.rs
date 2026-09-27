@@ -1,6 +1,23 @@
 use super::*;
+use crate::module::abi::NominalAbiType;
+use crate::module::instruction::InterfaceCallContract;
+use crate::module::instruction::SourceFunctionContract;
+use crate::module::instruction::UnaryOp;
+use crate::module::numeric::NumericConversion;
+use crate::module::numeric::NumericOperation;
+use hir::BinaryOp as HirBinaryOp;
+use kagari_common::identity::DefinitionId;
+use kagari_hir::builtin::declarations;
 use kagari_hir::builtin::declarations::NativeDefaultMethod;
+use kagari_hir::builtin::surface::StandardEnum;
+use kagari_hir::builtin::surface::StandardIntrinsic;
+use kagari_hir::builtin::traits;
+use kagari_hir::typeck::CallTarget as HirCallTarget;
+use kagari_hir::types::BuiltinType;
+use kagari_hir::types::NominalType;
+use kagari_hir::types::TypeSubstitution;
 use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
+use std::slice;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn check_integer_range(&mut self, value: IrValue, target: &TypeId) {
@@ -51,7 +68,7 @@ impl FunctionLowerer<'_, '_> {
             .type_table
             .call_resolution(site)
             .ok_or(IrLoweringError::MissingBinding("operator contract"))?;
-        let kagari_hir::typeck::CallTarget::TraitMethod { method, interface } = call.target else {
+        let HirCallTarget::TraitMethod { method, interface } = call.target else {
             return Err(IrLoweringError::MissingBinding("operator method"));
         };
         let receiver = call
@@ -68,9 +85,9 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_applied_operator(
         &mut self,
-        interface: kagari_hir::types::NominalType,
+        interface: NominalType,
         receiver: TypeId,
-        method: &kagari_common::identity::DefinitionId,
+        method: &DefinitionId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
         self.lower_applied_method(interface, receiver, method, &[], args)
@@ -78,9 +95,9 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_applied_method(
         &mut self,
-        interface: kagari_hir::types::NominalType,
+        interface: NominalType,
         receiver: TypeId,
-        method: &kagari_common::identity::DefinitionId,
+        method: &DefinitionId,
         method_arguments: &[TypeId],
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
@@ -155,7 +172,7 @@ impl FunctionLowerer<'_, '_> {
             interface
         };
         if let TypeId::Trait(child) = &ty
-            && kagari_hir::builtin::declarations::native_default_method(method).is_none()
+            && declarations::native_default_method(method).is_none()
             && self
                 .planner
                 .catalog
@@ -172,7 +189,7 @@ impl FunctionLowerer<'_, '_> {
                 .catalog
                 .trait_method(method)
                 .ok_or(IrLoweringError::MissingBinding("dynamic protocol method"))?;
-            let substitution: kagari_hir::types::TypeSubstitution = contract
+            let substitution: TypeSubstitution = contract
                 .generic_params
                 .iter()
                 .cloned()
@@ -187,21 +204,17 @@ impl FunctionLowerer<'_, '_> {
             let dst = self.alloc_temp(self.value_type(&result)?);
             self.emit(Instruction::Call {
                 dst: Some(dst),
-                callee: CallTarget::InterfaceMethod(Box::new(
-                    crate::module::instruction::InterfaceCallContract {
-                        interface: crate::module::abi::NominalAbiType::from_checked_type(
-                            &interface,
-                        ),
-                        method_slot: signature.slot as u32,
-                    },
-                )),
+                callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    interface: NominalAbiType::from_checked_type(&interface),
+                    method_slot: signature.slot as u32,
+                })),
                 args: args.iter().copied().collect(),
             });
             return Ok(dst);
         }
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
-            && kagari_hir::builtin::declarations::native_default_method(method).is_none()
-            && kagari_hir::builtin::traits::native_interface_applies(&interface, &ty)
+            && declarations::native_default_method(method).is_none()
+            && traits::native_interface_applies(&interface, &ty)
         {
             return self.lower_native_collection_method(
                 &ty,
@@ -229,7 +242,7 @@ impl FunctionLowerer<'_, '_> {
                     None => None,
                     _ => return Err(IrLoweringError::MissingBinding("numeric rhs type")),
                 };
-                let operation = crate::module::numeric::NumericOperation {
+                let operation = NumericOperation {
                     op,
                     input: *input,
                     rhs,
@@ -248,7 +261,7 @@ impl FunctionLowerer<'_, '_> {
             }
         }
 
-        if let Some(operation) = kagari_hir::builtin::declarations::native_default_method(method)
+        if let Some(operation) = declarations::native_default_method(method)
             && self
                 .planner
                 .catalog
@@ -330,7 +343,7 @@ impl FunctionLowerer<'_, '_> {
                     contract,
                     target.clone(),
                     &protocol.contract().methods[0].id,
-                    std::slice::from_ref(&ty),
+                    slice::from_ref(&ty),
                     args,
                 );
             }
@@ -359,7 +372,7 @@ impl FunctionLowerer<'_, '_> {
             ) {
                 return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
             }
-            if operation != kagari_hir::builtin::declarations::NativeDefaultMethod::Collect {
+            if operation != NativeDefaultMethod::Collect {
                 return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
             }
             let target = method_arguments
@@ -372,27 +385,26 @@ impl FunctionLowerer<'_, '_> {
                 contract,
                 target.clone(),
                 &StandardTrait::FromIterator.contract().methods[0].id,
-                std::slice::from_ref(&ty),
+                slice::from_ref(&ty),
                 args,
             );
         }
         if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromIterator)
-            && kagari_hir::builtin::traits::intrinsic_applies(
+            && traits::intrinsic_applies(
                 &interface,
                 &ty,
                 Some(self.planner.catalog),
                 &Default::default(),
             )
         {
-            if kagari_hir::builtin::traits::lifted_collection_requirement(&interface, &ty).is_some()
-            {
+            if traits::lifted_collection_requirement(&interface, &ty).is_some() {
                 return self.lower_fallible_collect(&ty, &method_arguments[0], args[0]);
             }
             return self.lower_collect(&ty, &method_arguments[0], args[0]);
         }
         if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
             && protocol.aggregation()
-            && kagari_hir::builtin::traits::intrinsic_applies(
+            && traits::intrinsic_applies(
                 &interface,
                 &ty,
                 Some(self.planner.catalog),
@@ -402,9 +414,7 @@ impl FunctionLowerer<'_, '_> {
             return self.lower_numeric_aggregate(protocol, &ty, &method_arguments[0], args[0]);
         }
 
-        if let Some((required, target)) =
-            kagari_hir::builtin::traits::conversion_requirement(&interface, &ty)
-        {
+        if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
             let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");
             return self.lower_applied_operator(
                 required,
@@ -415,14 +425,12 @@ impl FunctionLowerer<'_, '_> {
         }
         if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromStr)
             && let TypeId::Builtin(target) = &ty
-            && kagari_hir::builtin::traits::parsing_error(&ty).is_some()
+            && traits::parsing_error(&ty).is_some()
         {
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::Call {
                 dst: Some(dst),
-                callee: CallTarget::StandardIntrinsic(
-                    kagari_hir::builtin::surface::StandardIntrinsic::ParseNumber(*target),
-                ),
+                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ParseNumber(*target)),
                 args: args.iter().copied().collect(),
             });
             return Ok(dst);
@@ -440,13 +448,13 @@ impl FunctionLowerer<'_, '_> {
             StandardTrait::from_id(&interface.declaration),
             &ty,
             interface.arguments.as_slice(),
-        ) && kagari_hir::builtin::traits::intrinsic_applies(
+        ) && traits::intrinsic_applies(
             &interface,
             &ty,
             Some(self.planner.catalog),
             &Default::default(),
         ) {
-            let conversion = crate::module::numeric::NumericConversion {
+            let conversion = NumericConversion {
                 source: *source,
                 target: *target,
                 checked: protocol == StandardTrait::TryFrom,
@@ -470,7 +478,7 @@ impl FunctionLowerer<'_, '_> {
         {
             let upper = method.path.last().is_some_and(|p| p.name == "end_bound");
             let bound = AbiType::StandardEnum {
-                kind: kagari_hir::builtin::surface::StandardEnum::Bound,
+                kind: StandardEnum::Bound,
                 args: interface
                     .arguments
                     .iter()
@@ -523,7 +531,7 @@ impl FunctionLowerer<'_, '_> {
             .catalog
             .trait_method(method)
             .ok_or(IrLoweringError::MissingBinding("operator signature"))?;
-        let mut substitution: kagari_hir::types::TypeSubstitution = contract
+        let mut substitution: TypeSubstitution = contract
             .generic_params
             .iter()
             .cloned()
@@ -559,14 +567,12 @@ impl FunctionLowerer<'_, '_> {
                     self.function.debug.source_span,
                 )?)
             } else {
-                CallTarget::SourceFunction(Box::new(
-                    crate::module::instruction::SourceFunctionContract {
-                        declaration,
-                        arguments,
-                        params: args.iter().map(|a| a.ty).collect(),
-                        return_type: result_ty,
-                    },
-                ))
+                CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                    declaration,
+                    arguments,
+                    params: args.iter().map(|a| a.ty).collect(),
+                    return_type: result_ty,
+                }))
             }
         } else {
             if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Iterable) {
@@ -585,17 +591,10 @@ impl FunctionLowerer<'_, '_> {
                 };
                 let dst = self.alloc_temp(result_ty);
                 if protocol == StandardTrait::Rem
-                    && let TypeId::Builtin(
-                        input @ (kagari_hir::types::BuiltinType::I8
-                        | kagari_hir::types::BuiltinType::I16),
-                    ) = ty
+                    && let TypeId::Builtin(input @ (BuiltinType::I8 | BuiltinType::I16)) = ty
                 {
-                    let operation = crate::module::numeric::NumericOperation::binary(
-                        hir::BinaryOp::Rem,
-                        input,
-                        input,
-                    )
-                    .expect("integer remainder");
+                    let operation = NumericOperation::binary(HirBinaryOp::Rem, input, input)
+                        .expect("integer remainder");
                     self.emit(Instruction::Numeric {
                         dst,
                         operation,
@@ -620,9 +619,9 @@ impl FunctionLowerer<'_, '_> {
                 self.emit(Instruction::Unary {
                     dst,
                     op: if protocol == StandardTrait::Neg {
-                        crate::module::instruction::UnaryOp::Neg
+                        UnaryOp::Neg
                     } else {
-                        crate::module::instruction::UnaryOp::Not
+                        UnaryOp::Not
                     },
                     operand: args[0],
                 });
@@ -667,9 +666,9 @@ impl FunctionLowerer<'_, '_> {
         ) {
             let dst = self.alloc_temp(ValueType::Bool);
             let op = match op {
-                hir::BinaryOp::Lt => BinaryOp::Lt,
-                hir::BinaryOp::Le => BinaryOp::Le,
-                hir::BinaryOp::Gt => BinaryOp::Gt,
+                HirBinaryOp::Lt => BinaryOp::Lt,
+                HirBinaryOp::Le => BinaryOp::Le,
+                HirBinaryOp::Gt => BinaryOp::Gt,
                 _ => BinaryOp::Ge,
             };
             self.emit(Instruction::Binary {
@@ -682,8 +681,8 @@ impl FunctionLowerer<'_, '_> {
         }
         use crate::module::instruction::StandardEnumOp;
         let value = self.lower_selected_operator(site, args)?;
-        let optional = kagari_hir::builtin::traits::ordering_type(true);
-        let ordering = kagari_hir::builtin::traits::ordering_type(false);
+        let optional = traits::ordering_type(true);
+        let ordering = traits::ordering_type(false);
         let some = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(value))?;
         let body = self.new_block();
         let absent = self.new_block();
@@ -705,7 +704,7 @@ impl FunctionLowerer<'_, '_> {
         if matches!(op, hir::BinaryOp::Le | hir::BinaryOp::Ge) {
             self.emit(Instruction::Unary {
                 dst,
-                op: crate::module::instruction::UnaryOp::Not,
+                op: UnaryOp::Not,
                 operand: test,
             });
         } else {

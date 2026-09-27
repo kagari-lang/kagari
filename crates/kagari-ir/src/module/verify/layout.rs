@@ -1,11 +1,18 @@
 use super::{Context, IrVerificationError, IrVerificationErrorKind as Error};
+use crate::module::CallTarget;
+use crate::module::Instruction;
+use crate::module::abi::verify as abi_verify;
+use crate::module::host;
+use crate::module::layout;
 use crate::module::{
     IrModule,
     layout::{LayoutValidationError, validate_layouts},
 };
+use kagari_common::host_interface::HostInterface;
+use std::collections::BTreeMap;
 
 pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVerificationError> {
-    let mut functions = std::collections::BTreeMap::new();
+    let mut functions = BTreeMap::new();
     for instruction in module
         .functions
         .iter()
@@ -16,8 +23,8 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             .cancel
             .check()
             .map_err(|_| context.error(Error::Cancelled))?;
-        if let crate::module::Instruction::Call {
-            callee: crate::module::CallTarget::HostFunction(function),
+        if let Instruction::Call {
+            callee: CallTarget::HostFunction(function),
             ..
         } = instruction
             && functions
@@ -27,8 +34,8 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             return Err(context.error(Error::InvalidHostInterface));
         }
     }
-    crate::module::host::validate(
-        &kagari_common::host_interface::HostInterface {
+    host::validate(
+        &HostInterface {
             paths: vec![],
             types: module.host_types.clone(),
             functions: functions.into_values().collect(),
@@ -44,18 +51,15 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             _ => Error::InvalidHostInterface,
         })
     })?;
-    crate::module::abi::verify::validate(
-        &module.abi.public_items,
-        &module.identity,
-        context.cancel,
-    )
-    .map_err(|error| {
-        context.error(match error {
-            LayoutValidationError::Cancelled => Error::Cancelled,
-            _ => Error::InvalidPublicAbi,
-        })
-    })?;
-    crate::module::abi::verify::validate_trait_contracts(
+    abi_verify::validate(&module.abi.public_items, &module.identity, context.cancel).map_err(
+        |error| {
+            context.error(match error {
+                LayoutValidationError::Cancelled => Error::Cancelled,
+                _ => Error::InvalidPublicAbi,
+            })
+        },
+    )?;
+    abi_verify::validate_trait_contracts(
         &module.abi.trait_contracts,
         &module.abi.public_items,
         &module.identity,
@@ -67,8 +71,8 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             _ => Error::InvalidPublicAbi,
         })
     })?;
-    if !crate::module::host::trait_bindings_match(
-        &kagari_common::host_interface::HostInterface {
+    if !host::trait_bindings_match(
+        &HostInterface {
             types: module.host_types.clone(),
             ..Default::default()
         },
@@ -81,7 +85,7 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
     {
         return Err(context.error(Error::InvalidHostInterface));
     }
-    if !crate::module::layout::struct_abi_matches(
+    if !layout::struct_abi_matches(
         &module.structures,
         &module.identity,
         &module.abi.public_items,
@@ -91,7 +95,7 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
     {
         return Err(context.error(Error::InvalidStructLayout));
     }
-    if !crate::module::layout::enum_abi_matches(
+    if !layout::enum_abi_matches(
         &module.enumerations,
         &module.identity,
         &module.abi.public_items,
@@ -108,16 +112,15 @@ pub(super) fn verify(module: &IrModule, context: Context<'_>) -> Result<(), IrVe
             LayoutValidationError::Cancelled => Error::Cancelled,
         })
     })?;
-    crate::module::layout::validate_enum_layouts(
-        &module.enumerations,
-        &module.structures,
-        context.cancel,
+    layout::validate_enum_layouts(&module.enumerations, &module.structures, context.cancel).map_err(
+        |error| {
+            context.error(match error {
+                LayoutValidationError::Invalid => Error::InvalidEnumLayout,
+                LayoutValidationError::Limit { resource, limit } => {
+                    Error::Limit { resource, limit }
+                }
+                LayoutValidationError::Cancelled => Error::Cancelled,
+            })
+        },
     )
-    .map_err(|error| {
-        context.error(match error {
-            LayoutValidationError::Invalid => Error::InvalidEnumLayout,
-            LayoutValidationError::Limit { resource, limit } => Error::Limit { resource, limit },
-            LayoutValidationError::Cancelled => Error::Cancelled,
-        })
-    })
 }

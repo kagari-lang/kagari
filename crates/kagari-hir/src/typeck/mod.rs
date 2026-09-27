@@ -1,3 +1,13 @@
+use crate::AnalysisResult;
+use crate::aggregates::AggregateCatalog;
+use crate::declarations::Declarations;
+use crate::hir::BodySelection;
+use crate::hir::GenericParam;
+use crate::imports::ImportedFunctions;
+use crate::types::GenericParameterType;
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::DefinitionId;
+use smallvec::SmallVec;
 mod applications;
 pub(crate) mod associated_consts;
 mod families;
@@ -29,8 +39,8 @@ use std::collections::HashMap;
 
 use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 
-pub(crate) type TypedFunctionBuffer = smallvec::SmallVec<[TypedFunction; 8]>;
-pub(crate) type TypedParameterBuffer = smallvec::SmallVec<[TypedParameter; 4]>;
+pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
+pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;
 pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
 
 pub(crate) use check::possibly_overlapping_impls;
@@ -46,16 +56,13 @@ pub use table::{
 
 #[derive(Debug, Clone)]
 pub struct ModuleSignatures {
-    pub(crate) type_bounds: HashMap<kagari_common::identity::DefinitionId, GenericBounds>,
+    pub(crate) type_bounds: HashMap<DefinitionId, GenericBounds>,
     pub(crate) functions: TypedFunctionBuffer,
     pub(crate) type_table: TypeTable,
 }
 
 impl ModuleSignatures {
-    pub fn type_bounds(
-        &self,
-        id: &kagari_common::identity::DefinitionId,
-    ) -> Option<&GenericBounds> {
+    pub fn type_bounds(&self, id: &DefinitionId) -> Option<&GenericBounds> {
         self.type_bounds.get(id)
     }
     #[cfg(test)]
@@ -102,7 +109,7 @@ pub struct TypedModule {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedFunction {
-    pub generic_params: Vec<crate::types::GenericParameterType>,
+    pub generic_params: Vec<GenericParameterType>,
     /// Checked constraints keyed by the declaring parameter, including inherited
     /// impl parameters shadowed by a method parameter with the same name.
     pub bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
@@ -132,10 +139,10 @@ pub(crate) struct TopLevelTypeIndex {
 
 #[derive(Clone, Copy)]
 pub(crate) struct TypeIndexes<'a> {
-    pub(crate) aggregates: &'a crate::aggregates::AggregateCatalog,
-    pub(crate) imported_functions: &'a crate::imports::ImportedFunctions,
-    pub(crate) declarations: &'a crate::declarations::Declarations,
-    pub(crate) cancel: &'a kagari_common::cancellation::CancellationToken,
+    pub(crate) aggregates: &'a AggregateCatalog,
+    pub(crate) imported_functions: &'a ImportedFunctions,
+    pub(crate) declarations: &'a Declarations,
+    pub(crate) cancel: &'a CancellationToken,
     pub(crate) function_index: &'a FunctionTypeIndex,
     pub(crate) top_level_index: &'a TopLevelTypeIndex,
     pub(crate) const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
@@ -143,10 +150,10 @@ pub(crate) struct TypeIndexes<'a> {
 
 pub(crate) struct BodyInputs<'a> {
     pub const_limits: ConstLimits,
-    pub selection: crate::hir::BodySelection,
-    pub signatures: &'a crate::AnalysisResult<ModuleSignatures>,
-    pub imported_functions: &'a crate::imports::ImportedFunctions,
-    pub aggregates: &'a crate::aggregates::AggregateCatalog,
+    pub selection: BodySelection,
+    pub signatures: &'a AnalysisResult<ModuleSignatures>,
+    pub imported_functions: &'a ImportedFunctions,
+    pub aggregates: &'a AggregateCatalog,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -156,6 +163,6 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) locals: HashMap<LocalId, TypeId>,
     pub(crate) local_writeability: HashMap<LocalId, Writeability>,
     pub(crate) exprs: HashMap<ExprId, TypeId>,
-    pub(crate) generics: Vec<crate::hir::GenericParam>,
+    pub(crate) generics: Vec<GenericParam>,
     pub(crate) generic_bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
 }

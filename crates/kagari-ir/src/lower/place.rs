@@ -1,11 +1,22 @@
 use super::{IrLoweringError, state::FunctionLowerer};
+use crate::module::BinaryOp;
+use crate::module::CallTarget;
+use crate::module::PathRef;
+use crate::module::ValueBuffer;
+use crate::module::abi::NominalAbiType;
+use crate::module::instruction::InterfaceCallContract;
+use crate::module::numeric::NumericOperation;
 use crate::module::{AggregateFieldRef, Instruction, IrValue, LocalId, ValueType};
+use hir::PlaceKind;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::types;
+use kagari_hir::types::BuiltinType;
 use kagari_hir::{hir, types::TypeId};
 use std::ops::ControlFlow;
 
 pub(super) struct PreparedPlace {
-    host_path: Option<crate::module::PathRef>,
-    dynamic_args: crate::module::ValueBuffer,
+    host_path: Option<PathRef>,
+    dynamic_args: ValueBuffer,
     root: Root,
     projections: Vec<Projection>,
 }
@@ -27,8 +38,8 @@ enum ProjectionKind {
     Index(IrValue),
     InterfaceIndex {
         index: IrValue,
-        read: crate::module::abi::NominalAbiType,
-        write: Option<crate::module::abi::NominalAbiType>,
+        read: NominalAbiType,
+        write: Option<NominalAbiType>,
     },
 }
 
@@ -65,7 +76,7 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Break(_) => return Ok(None),
                 ControlFlow::Continue(values) => values,
             };
-            let path = crate::module::PathRef {
+            let path = PathRef {
                 declaration: Some(checked.declaration),
                 contract_fingerprint: checked
                     .contract
@@ -93,7 +104,7 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<Option<PreparedPlace>, IrLoweringError> {
         let place = self.analyzed.lowered.module.place(id).clone();
         match place.kind {
-            hir::PlaceKind::Name(_) => {
+            PlaceKind::Name(_) => {
                 let local = self.lookup_binding(self.place_root_resolution(id)?)?;
                 let ty = self.place_type(id)?;
                 let is_cell = matches!(self.place_root_resolution(id)?, kagari_hir::resolver::ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
@@ -129,7 +140,7 @@ impl FunctionLowerer<'_, '_> {
                     projections: Vec::new(),
                 }))
             }
-            hir::PlaceKind::Expr(expr) => {
+            PlaceKind::Expr(expr) => {
                 let value = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
                     return Ok(None);
@@ -141,7 +152,7 @@ impl FunctionLowerer<'_, '_> {
                     projections: Vec::new(),
                 }))
             }
-            hir::PlaceKind::Field { base, .. } => {
+            PlaceKind::Field { base, .. } => {
                 let field = self
                     .analyzed
                     .typed
@@ -164,7 +175,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(Some(place))
             }
-            hir::PlaceKind::Index { base, index } => {
+            PlaceKind::Index { base, index } => {
                 let Some(mut place) = self.prepare_place_inner(base, true)? else {
                     return Ok(None);
                 };
@@ -185,18 +196,15 @@ impl FunctionLowerer<'_, '_> {
                 if let Some(item) = receiver.list_item() {
                     use kagari_hir::builtin::traits::StandardTrait;
                     let mut read = StandardTrait::Index.nominal();
-                    read.arguments
-                        .push(TypeId::Builtin(kagari_hir::types::BuiltinType::USize));
+                    read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(
-                        kagari_hir::types::associated_type_id(&read.declaration, "Output"),
+                        types::associated_type_id(&read.declaration, "Output"),
                         item.clone(),
                     );
                     let write = if receiver.writable_list() {
                         let mut write = StandardTrait::MutableList.nominal();
                         write.arguments.push(item.clone());
-                        Some(crate::module::abi::NominalAbiType::from_checked_type(
-                            &write,
-                        ))
+                        Some(NominalAbiType::from_checked_type(&write))
                     } else {
                         None
                     };
@@ -207,7 +215,7 @@ impl FunctionLowerer<'_, '_> {
                     place.projections.push(Projection {
                         kind: ProjectionKind::InterfaceIndex {
                             index,
-                            read: crate::module::abi::NominalAbiType::from_checked_type(&read),
+                            read: NominalAbiType::from_checked_type(&read),
                             write,
                         },
                         ty: self.place_type(id)?,
@@ -244,11 +252,7 @@ impl FunctionLowerer<'_, '_> {
                     if self.current_block_terminated() {
                         return Ok(None);
                     }
-                    let method = kagari_hir::builtin::traits::StandardTrait::Index
-                        .contract()
-                        .methods[0]
-                        .id
-                        .clone();
+                    let method = StandardTrait::Index.contract().methods[0].id.clone();
                     let value = self.lower_applied_operator(
                         interface,
                         receiver_ty,
@@ -283,7 +287,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         place: PreparedPlace,
         op: Option<hir::BinaryOp>,
-        numeric: Option<crate::module::numeric::NumericOperation>,
+        numeric: Option<NumericOperation>,
         rhs: IrValue,
     ) -> Result<(), IrLoweringError> {
         if let Some(path) = place.host_path {
@@ -297,7 +301,7 @@ impl FunctionLowerer<'_, '_> {
                     path,
                     dynamic_args: place.dynamic_args,
                     op: numeric
-                        .map(crate::module::BinaryOp::Numeric)
+                        .map(BinaryOp::Numeric)
                         .unwrap_or_else(|| Self::lower_binary_op(op)),
                     value: rhs,
                 });
@@ -357,7 +361,7 @@ impl FunctionLowerer<'_, '_> {
             self.emit(Instruction::Binary {
                 dst,
                 op: numeric
-                    .map(crate::module::BinaryOp::Numeric)
+                    .map(BinaryOp::Numeric)
                     .unwrap_or_else(|| Self::lower_binary_op(op)),
                 lhs: current,
                 rhs,
@@ -378,7 +382,7 @@ impl FunctionLowerer<'_, '_> {
                 ProjectionKind::InterfaceIndex { index, write, .. } => {
                     let interface =
                         write.ok_or(IrLoweringError::MissingBinding("writable list interface"))?;
-                    let slot = kagari_hir::builtin::traits::StandardTrait::MutableList
+                    let slot = StandardTrait::MutableList
                         .contract()
                         .methods
                         .iter()
@@ -387,12 +391,10 @@ impl FunctionLowerer<'_, '_> {
                         .slot;
                     self.emit(Instruction::Call {
                         dst: None,
-                        callee: crate::module::CallTarget::InterfaceMethod(Box::new(
-                            crate::module::instruction::InterfaceCallContract {
-                                interface,
-                                method_slot: slot as u32,
-                            },
-                        )),
+                        callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                            interface,
+                            method_slot: slot as u32,
+                        })),
                         args: [base, index, result].into_iter().collect(),
                     });
                 }
@@ -432,12 +434,10 @@ impl FunctionLowerer<'_, '_> {
         match &projection.kind {
             ProjectionKind::InterfaceIndex { index, read, .. } => self.emit(Instruction::Call {
                 dst: Some(dst),
-                callee: crate::module::CallTarget::InterfaceMethod(Box::new(
-                    crate::module::instruction::InterfaceCallContract {
-                        interface: read.clone(),
-                        method_slot: 0,
-                    },
-                )),
+                callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    interface: read.clone(),
+                    method_slot: 0,
+                })),
                 args: [base, *index].into_iter().collect(),
             }),
 

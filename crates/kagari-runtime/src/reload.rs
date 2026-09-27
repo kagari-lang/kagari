@@ -1,3 +1,5 @@
+use kagari_ir::bytecode;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use kagari_ir::bytecode::{
@@ -56,7 +58,7 @@ impl ReloadValidationError {
 }
 
 pub fn validate_load_candidate(bytecode: &BytecodeProgram) -> Result<(), ReloadValidationError> {
-    kagari_ir::bytecode::validate_program_resource_limits(bytecode)
+    bytecode::validate_program_resource_limits(bytecode)
         .map_err(ReloadValidationError::Artifact)?;
     verify_program(bytecode).map_err(ReloadValidationError::Bytecode)
 }
@@ -118,7 +120,7 @@ pub fn validate_reload_candidate(
     let current = active
         .members()
         .map(|module| (module.bytecode.identity.clone(), module))
-        .collect::<std::collections::BTreeMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
     if current.len() != candidate.modules.len() {
         return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
     }

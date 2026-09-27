@@ -5,6 +5,7 @@ use kagari_hir::{
     builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},
 };
+use std::slice;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_iterator_terminal(
@@ -464,7 +465,7 @@ impl FunctionLowerer<'_, '_> {
                 contract.clone(),
                 arguments[0].clone(),
                 &method,
-                std::slice::from_ref(&array_type),
+                slice::from_ref(&array_type),
                 &[result],
             )?;
             let right = self.lower_applied_method(

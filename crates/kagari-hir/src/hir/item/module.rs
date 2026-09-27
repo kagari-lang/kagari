@@ -1,4 +1,5 @@
 use crate::hir::ModuleId;
+use kagari_common::Span;
 
 use super::Visibility;
 
@@ -15,7 +16,7 @@ pub struct Import {
     pub visibility: Visibility,
     pub alias: String,
     pub path: String,
-    pub span: kagari_common::Span,
+    pub span: Span,
     pub glob: bool,
 }
 

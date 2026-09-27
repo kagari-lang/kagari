@@ -1,8 +1,11 @@
 //! Reject impossible executable collection lengths before decoding their elements.
+
+use de::Error;
 use serde::{
     Deserialize, Deserializer,
     de::{self, SeqAccess, Visitor},
 };
+use std::collections::BTreeMap;
 use std::{fmt, marker::PhantomData};
 
 pub(crate) const MAX_MODULES: usize = 1_024;
@@ -11,9 +14,7 @@ pub(crate) const MAX_INSTRUCTIONS: usize = 1_000_000;
 pub(crate) const MAX_TABLE_RECORDS: usize = 1_000_000;
 pub(crate) const MAX_NESTED_RECORDS: usize = 4_096;
 
-pub(crate) fn map<'de, D, K, V>(
-    deserializer: D,
-) -> Result<std::collections::BTreeMap<K, V>, D::Error>
+pub(crate) fn map<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
 where
     D: Deserializer<'de>,
     K: Deserialize<'de> + Ord,
@@ -21,7 +22,7 @@ where
 {
     struct BoundedMap<K, V>(PhantomData<(K, V)>);
     impl<'de, K: Deserialize<'de> + Ord, V: Deserialize<'de>> Visitor<'de> for BoundedMap<K, V> {
-        type Value = std::collections::BTreeMap<K, V>;
+        type Value = BTreeMap<K, V>;
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter.write_str("a bounded unique associated type map")
         }
@@ -30,12 +31,12 @@ where
                 .size_hint()
                 .is_some_and(|count| count > MAX_NESTED_RECORDS)
             {
-                return Err(de::Error::custom("associated type count limit exceeded"));
+                return Err(Error::custom("associated type count limit exceeded"));
             }
-            let mut result = std::collections::BTreeMap::new();
+            let mut result = BTreeMap::new();
             while let Some((key, value)) = map.next_entry()? {
                 if result.len() >= MAX_NESTED_RECORDS || result.insert(key, value).is_some() {
-                    return Err(de::Error::custom("invalid associated type map"));
+                    return Err(Error::custom("invalid associated type map"));
                 }
             }
             Ok(result)
@@ -65,7 +66,7 @@ where
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
             if sequence.size_hint().is_some_and(|count| count > self.limit) {
-                return Err(de::Error::custom(format!(
+                return Err(Error::custom(format!(
                     "{} count limit exceeded",
                     self.label
                 )));
@@ -73,7 +74,7 @@ where
             let mut elements = Vec::new();
             while let Some(element) = sequence.next_element()? {
                 if elements.len() >= self.limit {
-                    return Err(de::Error::custom(format!(
+                    return Err(Error::custom(format!(
                         "{} count limit exceeded",
                         self.label
                     )));

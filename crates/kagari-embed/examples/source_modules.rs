@@ -1,10 +1,17 @@
 //! Query source dependencies, then encode, load and execute their shared program.
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
+use kagari_embed::ExecutionContext;
 use kagari_embed::KagariEngine;
+use kagari_ir::bytecode;
+use kagari_ir::bytecode::KbcArtifact;
+use kagari_ir::module::PublicAbiItem;
+use kagari_ir::module::abi::AbiType;
+use kagari_ir::program;
 
 fn main() {
     let engine = KagariEngine::default();
@@ -69,7 +76,7 @@ fn main() {
     let checked = snapshot
         .check_program(root.file, &CancellationToken::default())
         .unwrap();
-    let ir = kagari_ir::program::lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let ir = program::lower_program_to_ir(&checked, &Default::default()).unwrap();
     for module in ir.modules() {
         for function in &module.functions {
             let binding = ir.function(&function.instance).unwrap();
@@ -82,13 +89,12 @@ fn main() {
             );
         }
     }
-    let program = kagari_ir::bytecode::lower_program_to_bytecode(&ir).unwrap();
-    let artifact =
-        kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default()).unwrap();
+    let program = bytecode::lower_program_to_bytecode(&ir).unwrap();
+    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
     let encoded = artifact.to_bytes().unwrap();
-    let decoded = kagari_ir::bytecode::KbcArtifact::from_bytes(&encoded).unwrap();
+    let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
     let root_bytecode = &decoded.program.modules[decoded.program.root.index()];
-    let kagari_ir::module::PublicAbiItem::Function(make) = root_bytecode
+    let PublicAbiItem::Function(make) = root_bytecode
         .public_items
         .iter()
         .find(|item| item.name() == "make")
@@ -96,7 +102,7 @@ fn main() {
     else {
         panic!("public make signature")
     };
-    let kagari_ir::module::abi::AbiType::Struct(result) = &make.return_type else {
+    let AbiType::Struct(result) = &make.return_type else {
         panic!("nominal return type")
     };
     assert_eq!(result.declaration.module, identity("shared"));
@@ -104,7 +110,7 @@ fn main() {
         "public return type belongs to {}",
         result.declaration.module
     );
-    let context = kagari_embed::ExecutionContext::default();
+    let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(decoded, Default::default()).unwrap();
     let report = runtime.execute(&loaded, "main", &[], &context).unwrap();

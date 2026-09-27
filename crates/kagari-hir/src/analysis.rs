@@ -1,4 +1,33 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
+
+use crate::AnalysisPolicy;
+use crate::builtin::declarations;
+use crate::declarations::Declaration;
+use crate::declarations::DeclarationId;
+use crate::declarations::Declarations;
+use crate::hir::PlaceKind;
+use crate::host::HostDeclarations;
+use crate::imports::ImportTarget;
+use crate::imports::ImportedFunction;
+use crate::imports::ModuleGraph;
+use crate::imports::SourceImport;
+use crate::lower::LoweredModule;
+use crate::resolver::ResolvedName;
+use crate::typeck::BodyReuse;
+use crate::typeck::CallTarget;
+use crate::typeck::ConstLimits;
+use crate::typeck::ModuleSignatures;
+use crate::typeck::TypeTable;
+use crate::typeck::TypeTarget;
+use kagari_common::host_interface::HostFieldDeclaration;
+use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_common::host_interface::HostTypeDeclaration;
+use kagari_common::identity::DefinitionId;
+use kagari_syntax::Parse;
+use kagari_syntax::ast::SourceFile as AstSourceFile;
+use kagari_syntax::parser::ParseLimits;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::{collections::HashMap, sync::Arc};
 
 use kagari_common::{
@@ -28,21 +57,18 @@ pub struct FileAnalysis {
     signatures_reused: bool,
     source: Arc<SourceFile>,
     profile: LanguageFeatureProfile,
-    parsed: kagari_syntax::Parse,
+    parsed: Parse,
     result: AnalysisResult<AnalyzedModule>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BindingInfo {
     pub ty: TypeId,
-    pub declaration: crate::declarations::Declaration,
+    pub declaration: Declaration,
 }
 
 impl FileAnalysis {
-    pub fn host_field_at(
-        &self,
-        offset: usize,
-    ) -> Option<&kagari_common::host_interface::HostFieldDeclaration> {
+    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
         let facts = self.result.facts();
         let expressions = facts
             .lowered
@@ -65,7 +91,7 @@ impl FileAnalysis {
             .body
             .places()
             .filter_map(|(id, place)| {
-                let crate::hir::PlaceKind::Field { .. } = &place.kind else {
+                let PlaceKind::Field { .. } = &place.kind else {
                     return None;
                 };
                 let field = facts.typed.type_table.place_field(id)?;
@@ -82,11 +108,11 @@ impl FileAnalysis {
         self.signatures_reused
     }
 
-    pub fn signatures(&self) -> &Arc<AnalysisResult<crate::typeck::ModuleSignatures>> {
+    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
         &self.result.facts().signatures
     }
 
-    pub fn source_function_at(&self, offset: usize) -> Option<&crate::imports::ImportedFunction> {
+    pub fn source_function_at(&self, offset: usize) -> Option<&ImportedFunction> {
         let facts = self.result.facts();
         facts
             .lowered
@@ -121,7 +147,7 @@ impl FileAnalysis {
                         let ExprKind::Call { callee, .. } = &expr.kind else {
                             return None;
                         };
-                        let crate::typeck::CallTarget::SourceFunction(function) =
+                        let CallTarget::SourceFunction(function) =
                             facts.typed.type_table.call_resolution(id)?.target
                         else {
                             return None;
@@ -145,17 +171,14 @@ impl FileAnalysis {
                             .then(|| {
                                 facts
                                     .imported_functions
-                                    .get(crate::resolver::ResolvedName::SourceImport(index))
+                                    .get(ResolvedName::SourceImport(index))
                             })
                             .flatten()
                     })
             })
     }
 
-    pub fn host_function_at(
-        &self,
-        offset: usize,
-    ) -> Option<&kagari_common::host_interface::HostFunctionDeclaration> {
+    pub fn host_function_at(&self, offset: usize) -> Option<&HostFunctionDeclaration> {
         let facts = self.result.facts();
         facts
             .lowered
@@ -165,7 +188,7 @@ impl FileAnalysis {
             .filter_map(|(id, expr)| {
                 if let ExprKind::Call { callee, .. } = expr.kind
                     && let Some(call) = facts.typed.type_table.call_resolution(id)
-                    && let crate::typeck::CallTarget::HostFunction(host) = call.target
+                    && let CallTarget::HostFunction(host) = call.target
                 {
                     let span = facts.lowered.source_map.expr_span(callee);
                     let span = match &facts.lowered.module.expr(callee).kind {
@@ -187,9 +210,7 @@ impl FileAnalysis {
                 if !(span.start <= offset && offset < span.end) {
                     return None;
                 }
-                let crate::resolver::ResolvedName::HostFunction(host) =
-                    facts.names.expr_resolution(id)?
-                else {
+                let ResolvedName::HostFunction(host) = facts.names.expr_resolution(id)? else {
                     return None;
                 };
                 Some((span.end - span.start, host))
@@ -207,10 +228,10 @@ impl FileAnalysis {
                         if !(import.span.start <= offset && offset < import.span.end) {
                             return None;
                         }
-                        let crate::resolver::ResolvedName::HostFunction(host) = facts
+                        let ResolvedName::HostFunction(host) = facts
                             .names
                             .imports
-                            .resolved_name(crate::resolver::ResolvedName::SourceImport(index))?
+                            .resolved_name(ResolvedName::SourceImport(index))?
                         else {
                             return None;
                         };
@@ -219,10 +240,7 @@ impl FileAnalysis {
             })
     }
     /// Portable host documentation has no synthetic source-file location.
-    pub fn host_type_at(
-        &self,
-        offset: usize,
-    ) -> Option<&kagari_common::host_interface::HostTypeDeclaration> {
+    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
         use crate::{resolver::ResolvedName, typeck::TypeTarget};
         let facts = self.result.facts();
         if let Some(target) =
@@ -260,7 +278,7 @@ impl FileAnalysis {
                 facts.names.hosts.type_declaration(id)
             })
     }
-    pub fn syntax(&self) -> kagari_syntax::ast::SourceFile {
+    pub fn syntax(&self) -> AstSourceFile {
         self.parsed.syntax()
     }
     pub fn source(&self) -> &SourceFile {
@@ -280,7 +298,7 @@ impl FileAnalysis {
         member_receiver_type_in(&facts.lowered, &facts.typed.type_table, offset)
     }
 
-    pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
         let facts = self.result.facts();
         if let Some(declaration) = facts.declarations.site_at(offset) {
             return Some(declaration);
@@ -386,7 +404,7 @@ impl FileAnalysis {
                     .place(facts.lowered.source_map.place_id(index))
                     .kind
                 {
-                    crate::hir::PlaceKind::Field { .. } => facts
+                    PlaceKind::Field { .. } => facts
                         .lowered
                         .source_map
                         .place_member_span(facts.lowered.source_map.place_id(index))?,
@@ -452,23 +470,21 @@ impl FileAnalysis {
                     _ => callee_span,
                 };
                 match call.target {
-                    crate::typeck::CallTarget::StandardIntrinsic(intrinsic) => Some((
+                    CallTarget::StandardIntrinsic(intrinsic) => Some((
                         callee_span,
-                        crate::builtin::declarations::resolved(
-                            crate::resolver::ResolvedName::StandardFunction(intrinsic),
-                        )?,
+                        declarations::resolved(ResolvedName::StandardFunction(intrinsic))?,
                     )),
-                    crate::typeck::CallTarget::Function(function) => Some((
+                    CallTarget::Function(function) => Some((
                         callee_span,
                         facts
                             .declarations
-                            .target(crate::resolver::ResolvedName::Function(function))?,
+                            .target(ResolvedName::Function(function))?,
                     )),
-                    crate::typeck::CallTarget::SourceFunction(function) => Some((
+                    CallTarget::SourceFunction(function) => Some((
                         callee_span,
                         &facts.imported_functions.target(function)?.site,
                     )),
-                    crate::typeck::CallTarget::TraitMethod { method, .. } => Some((
+                    CallTarget::TraitMethod { method, .. } => Some((
                         callee_span,
                         &facts.aggregates.trait_method(&method)?.declaration,
                     )),
@@ -504,10 +520,8 @@ impl FileAnalysis {
             .filter_map(|binding| {
                 let declaration = facts.declarations.target(binding.resolved)?.clone();
                 let ty = match binding.resolved {
-                    crate::resolver::ResolvedName::Local(id) => {
-                        facts.typed.type_table.local_type(id)
-                    }
-                    crate::resolver::ResolvedName::Param(id) => facts
+                    ResolvedName::Local(id) => facts.typed.type_table.local_type(id),
+                    ResolvedName::Param(id) => facts
                         .typed
                         .functions
                         .iter()
@@ -527,38 +541,32 @@ impl FileAnalysis {
 /// unresolved. This prevents an outer expression or type application target
 /// from leaking into a missing nested type reference.
 fn type_reference_at<'a>(
-    lowered: &crate::lower::LoweredModule,
-    table: &crate::typeck::TypeTable,
-    declarations: &'a crate::declarations::Declarations,
+    lowered: &LoweredModule,
+    table: &TypeTable,
+    declarations: &'a Declarations,
     offset: usize,
-) -> Option<Option<&'a crate::declarations::Declaration>> {
+) -> Option<Option<&'a Declaration>> {
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
-            crate::typeck::TypeTarget::StandardTrait(kind) => Some(&kind.contract().declaration),
-            crate::typeck::TypeTarget::Host(_) => None,
-            crate::typeck::TypeTarget::Source(id) => declarations
+            TypeTarget::StandardTrait(kind) => Some(&kind.contract().declaration),
+            TypeTarget::Host(_) => None,
+            TypeTarget::Source(id) => declarations
                 .imported_types()
                 .target(id)
                 .map(|ty| &ty.declaration),
-            crate::typeck::TypeTarget::Struct(id) => {
-                declarations.target(crate::resolver::ResolvedName::Struct(id))
-            }
-            crate::typeck::TypeTarget::Enum(id) => {
-                declarations.target(crate::resolver::ResolvedName::Enum(id))
-            }
-            crate::typeck::TypeTarget::Trait(id) => {
-                declarations.target(crate::resolver::ResolvedName::Trait(id))
-            }
-            crate::typeck::TypeTarget::Generic(id) => declarations.generic_parameter(id),
+            TypeTarget::Struct(id) => declarations.target(ResolvedName::Struct(id)),
+            TypeTarget::Enum(id) => declarations.target(ResolvedName::Enum(id)),
+            TypeTarget::Trait(id) => declarations.target(ResolvedName::Trait(id)),
+            TypeTarget::Generic(id) => declarations.generic_parameter(id),
         })
     })
 }
 
 fn type_reference_target_at(
-    lowered: &crate::lower::LoweredModule,
-    table: &crate::typeck::TypeTable,
+    lowered: &LoweredModule,
+    table: &TypeTable,
     offset: usize,
-) -> Option<Option<crate::typeck::TypeTarget>> {
+) -> Option<Option<TypeTarget>> {
     let (index, _) = lowered
         .source_map
         .type_spans()
@@ -575,11 +583,7 @@ fn type_reference_target_at(
     Some(target)
 }
 
-fn type_at_in(
-    lowered: &crate::lower::LoweredModule,
-    table: &crate::typeck::TypeTable,
-    offset: usize,
-) -> Option<TypeId> {
+fn type_at_in(lowered: &LoweredModule, table: &TypeTable, offset: usize) -> Option<TypeId> {
     let expressions = lowered.module.body.expressions().filter_map(|(id, _)| {
         let span = lowered.source_map.expr_span(id);
         (span.start <= offset && offset < span.end)
@@ -621,8 +625,8 @@ fn type_at_in(
 }
 
 fn member_receiver_type_in(
-    lowered: &crate::lower::LoweredModule,
-    table: &crate::typeck::TypeTable,
+    lowered: &LoweredModule,
+    table: &TypeTable,
     offset: usize,
 ) -> Option<TypeId> {
     let expressions = lowered.module.body.expressions().filter_map(|(id, expr)| {
@@ -639,7 +643,7 @@ fn member_receiver_type_in(
         }
     });
     let places = lowered.module.body.places().filter_map(|(id, place)| {
-        let crate::hir::PlaceKind::Field { base, .. } = &place.kind else {
+        let PlaceKind::Field { base, .. } = &place.kind else {
             return None;
         };
         let span = lowered.source_map.place_span(id);
@@ -659,17 +663,17 @@ fn member_receiver_type_in(
 
 #[derive(Debug)]
 pub struct AnalysisDatabase {
-    const_limits: crate::typeck::ConstLimits,
-    parse_limits: kagari_syntax::parser::ParseLimits,
+    const_limits: ConstLimits,
+    parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
-    body_cache: HashMap<kagari_common::identity::DefinitionId, Arc<FunctionAnalysis>>,
+    body_cache: HashMap<DefinitionId, Arc<FunctionAnalysis>>,
     body_revision: Revision,
     declaration_cache: Option<DeclarationSnapshot>,
     signature_cache: Option<SignatureSnapshot>,
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
-    hosts: Arc<crate::host::HostDeclarations>,
-    inline_ids: std::cell::RefCell<HashMap<(FileId, String), FileId>>,
+    hosts: Arc<HostDeclarations>,
+    inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
 }
 
 impl Default for AnalysisDatabase {
@@ -684,8 +688,8 @@ impl Default for AnalysisDatabase {
             signature_cache: None,
             files: HashMap::new(),
             latest_revision: Revision::default(),
-            hosts: crate::host::HostDeclarations::empty(),
-            inline_ids: std::cell::RefCell::new(HashMap::new()),
+            hosts: HostDeclarations::empty(),
+            inline_ids: RefCell::new(HashMap::new()),
         }
     }
 }
@@ -699,7 +703,7 @@ impl AnalysisDatabase {
         }
     }
 
-    pub fn set_const_limits(&mut self, limits: crate::typeck::ConstLimits) {
+    pub fn set_const_limits(&mut self, limits: ConstLimits) {
         if self.const_limits != limits {
             self.const_limits = limits;
             self.body_cache.clear();
@@ -709,7 +713,7 @@ impl AnalysisDatabase {
 
     /// Limits are query inputs. Existing immutable snapshots retain their facts;
     /// subsequent queries must not reuse a differently limited parse or body.
-    pub fn set_parse_limits(&mut self, limits: kagari_syntax::parser::ParseLimits) {
+    pub fn set_parse_limits(&mut self, limits: ParseLimits) {
         if self.parse_limits == limits {
             return;
         }
@@ -720,7 +724,7 @@ impl AnalysisDatabase {
         self.files.clear();
     }
 
-    pub fn set_host_declarations(&mut self, hosts: Arc<crate::host::HostDeclarations>) {
+    pub fn set_host_declarations(&mut self, hosts: Arc<HostDeclarations>) {
         self.hosts = hosts;
     }
     pub fn snapshot(
@@ -745,7 +749,7 @@ impl AnalysisDatabase {
                     ),
                 )
             })
-            .collect::<std::collections::BTreeMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
         let mut environments = signature_snapshot.body_environments(cancel)?;
         let mut files = HashMap::new();
         for (id, (file, parsed, prepared)) in signatures {
@@ -785,7 +789,7 @@ impl AnalysisDatabase {
                                     == prepared.declarations.imported_types
                                 && old.source.module_identity() == file.module_identity()
                         })
-                        .map(|old| crate::typeck::BodyReuse {
+                        .map(|old| BodyReuse {
                             previous_diagnostics: old.result.diagnostics(),
                             previous_lowered: &old.result.facts().lowered,
                             previous_types: &old.result.facts().typed.type_table,
@@ -795,7 +799,7 @@ impl AnalysisDatabase {
                     let result = analyze_parsed(
                         prepared,
                         &parsed,
-                        crate::AnalysisPolicy {
+                        AnalysisPolicy {
                             profile,
                             const_limits: self.const_limits,
                             max_semantic_diagnostics: self.max_semantic_diagnostics,
@@ -837,7 +841,7 @@ pub struct AnalysisSnapshot {
     signatures: SignatureSnapshot,
     revision: Revision,
     host_revision: u64,
-    graph: Arc<crate::imports::ModuleGraph>,
+    graph: Arc<ModuleGraph>,
     files: Arc<HashMap<FileId, Arc<FileAnalysis>>>,
 }
 
@@ -870,11 +874,7 @@ impl AnalysisSnapshot {
         &self.signatures
     }
 
-    pub fn source_import_at(
-        &self,
-        file: FileId,
-        offset: usize,
-    ) -> Option<crate::imports::SourceImport> {
+    pub fn source_import_at(&self, file: FileId, offset: usize) -> Option<SourceImport> {
         use crate::imports::ImportTarget;
         let facts = self.analysis_at(file, offset)?.result.facts();
         let expression = facts
@@ -912,16 +912,12 @@ impl AnalysisSnapshot {
         })
     }
 
-    pub fn definition_at(
-        &self,
-        file: FileId,
-        offset: usize,
-    ) -> Option<&crate::declarations::Declaration> {
+    pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration> {
         if let Some(declaration) = self.analysis_at(file, offset)?.definition_at(offset) {
             return Some(declaration);
         }
         use crate::{hir::ExportItem, resolver::ResolvedName};
-        let crate::imports::ImportTarget::Source(target) = self
+        let ImportTarget::Source(target) = self
             .graph
             .resolve_export(self.source_import_at(file, offset)?, &Default::default())
             .ok()??
@@ -940,7 +936,7 @@ impl AnalysisSnapshot {
         };
         file.result.facts().declarations.target(resolved)
     }
-    pub fn module_graph(&self) -> &crate::imports::ModuleGraph {
+    pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
     }
     pub fn host_revision(&self) -> u64 {
@@ -953,14 +949,11 @@ impl AnalysisSnapshot {
         self.files.get(&id)
     }
 
-    pub fn declaration(
-        &self,
-        id: &crate::declarations::DeclarationId,
-    ) -> Option<&crate::declarations::Declaration> {
+    pub fn declaration(&self, id: &DeclarationId) -> Option<&Declaration> {
         self.files
             .values()
             .find_map(|file| file.result.facts().declarations.get(id))
-            .or_else(|| crate::builtin::declarations::declaration(id))
+            .or_else(|| declarations::declaration(id))
     }
 
     /// Read an analyzed file or the exact bundled standard declaration source.
@@ -969,7 +962,7 @@ impl AnalysisSnapshot {
             .get(&file)
             .map(|analysis| analysis.source())
             .or_else(|| {
-                crate::builtin::declarations::sources()
+                declarations::sources()
                     .iter()
                     .find(|source| source.id() == file)
             })

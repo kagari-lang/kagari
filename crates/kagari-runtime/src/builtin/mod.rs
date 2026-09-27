@@ -1,3 +1,4 @@
+use kagari_ir::builtin::surface;
 pub mod standard;
 
 use kagari_ir::builtin::surface::StandardIntrinsic;
@@ -63,10 +64,8 @@ pub fn invoke_standard_with_callbacks(
 
 fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
     match intrinsic {
-        StandardIntrinsic::Integer(_, _) => {
-            kagari_ir::builtin::surface::standard_function_by_intrinsic(intrinsic)
-                .map_or("integer method", |spec| spec.api.qualified_name)
-        }
+        StandardIntrinsic::Integer(_, _) => surface::standard_function_by_intrinsic(intrinsic)
+            .map_or("integer method", |spec| spec.api.qualified_name),
         StandardIntrinsic::ArrayListNew
         | StandardIntrinsic::LinkedHashMapNew
         | StandardIntrinsic::LinkedHashSetNew => "collection constructor",

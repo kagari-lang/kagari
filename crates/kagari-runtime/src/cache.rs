@@ -1,3 +1,5 @@
+use kagari_common::identity::ModuleIdentity;
+use kagari_ir::bytecode::BytecodeProgram;
 use std::{cell::RefCell, collections::HashMap};
 
 use kagari_ir::bytecode::{
@@ -38,7 +40,7 @@ pub struct ReloadDependencySnapshot {
 }
 
 impl ReloadDependencySnapshot {
-    pub fn from_program(program: &kagari_ir::bytecode::BytecodeProgram) -> Self {
+    pub fn from_program(program: &BytecodeProgram) -> Self {
         let mut snapshot = Self::from_bytecode(&program.modules[program.root.index()]);
         snapshot.module_fingerprint = ArtifactFingerprint::of_serialized(program);
         snapshot.host_interface_fingerprint = ArtifactFingerprint::of_program_hosts(program);
@@ -76,7 +78,7 @@ pub struct ExecutionArtifactRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReloadInvalidation {
     pub module_name: String,
-    pub module_identity: kagari_common::identity::ModuleIdentity,
+    pub module_identity: ModuleIdentity,
     pub module_fingerprint: ArtifactFingerprint,
     pub module_id: ModuleId,
     pub published: ModuleKey,

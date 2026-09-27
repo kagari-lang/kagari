@@ -1,8 +1,17 @@
+use crate::ExecutionSession;
+use crate::RuntimeErrorKind;
+use crate::gc::ClosureValueSnapshot;
 use crate::gc::{CollectionIteration, GcHeap, RootSet};
 use crate::value::Value;
+use kagari_ir::bytecode::ModuleRef;
 use kagari_ir::bytecode::{
     BytecodeFunction, BytecodeInstruction, FunctionRef, LocalSlot, Register,
 };
+use std::cell::Ref;
+use std::cell::RefMut;
+use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::rc::Rc;
 
 use crate::{LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, RuntimeError};
@@ -10,17 +19,14 @@ use crate::{LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, Runtime
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.
 pub struct ExecutionStack {
-    session: crate::ExecutionSession,
+    session: ExecutionSession,
     heap: Rc<GcHeap>,
     base: usize,
     id: u64,
 }
 
 impl ExecutionStack {
-    pub(crate) fn new(
-        session: crate::ExecutionSession,
-        heap: Rc<GcHeap>,
-    ) -> Result<Self, RuntimeError> {
+    pub(crate) fn new(session: ExecutionSession, heap: Rc<GcHeap>) -> Result<Self, RuntimeError> {
         let base = session
             .state
             .frames
@@ -71,7 +77,7 @@ impl ExecutionStack {
         Ok(())
     }
 
-    pub fn frames(&self) -> Result<std::cell::Ref<'_, Vec<ExecutionFrame>>, RuntimeError> {
+    pub fn frames(&self) -> Result<Ref<'_, Vec<ExecutionFrame>>, RuntimeError> {
         self.session.state.frames.try_borrow().map_err(|_| {
             self.session
                 .resources
@@ -79,18 +85,18 @@ impl ExecutionStack {
         })
     }
 
-    pub fn current(&self) -> Result<std::cell::Ref<'_, ExecutionFrame>, RuntimeError> {
+    pub fn current(&self) -> Result<Ref<'_, ExecutionFrame>, RuntimeError> {
         self.validate_top()?;
         let frames = self.frames()?;
         if frames.len() <= self.base {
             return Err(self.session.resources.quarantine("missing execution frame"));
         }
-        Ok(std::cell::Ref::map(frames, |frames| {
+        Ok(Ref::map(frames, |frames| {
             frames.last().expect("checked frame")
         }))
     }
 
-    pub fn current_mut(&self) -> Result<std::cell::RefMut<'_, ExecutionFrame>, RuntimeError> {
+    pub fn current_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, RuntimeError> {
         self.validate_top()?;
         let frames = self.session.state.frames.try_borrow_mut().map_err(|_| {
             self.session
@@ -100,14 +106,14 @@ impl ExecutionStack {
         if frames.len() <= self.base {
             return Err(self.session.resources.quarantine("missing execution frame"));
         }
-        Ok(std::cell::RefMut::map(frames, |frames| {
+        Ok(RefMut::map(frames, |frames| {
             frames.last_mut().expect("checked frame")
         }))
     }
 
     pub fn push(
         &self,
-        module: kagari_ir::bytecode::ModuleRef,
+        module: ModuleRef,
         function: FunctionRef,
         args: &[Value],
         return_dst: Option<Register>,
@@ -146,7 +152,7 @@ impl ExecutionStack {
     pub fn push_closure(
         &self,
         runtime: &Runtime,
-        closure: crate::gc::ClosureValueSnapshot,
+        closure: ClosureValueSnapshot,
         args: &[Value],
         return_dst: Option<Register>,
     ) -> Result<(), RuntimeError> {
@@ -170,7 +176,7 @@ impl ExecutionStack {
                 .all(|(value, ty)| value.has_representation(*ty))
         {
             return Err(RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
+                RuntimeErrorKind::ScriptTrap,
                 "closure call contract mismatch",
             ));
         }
@@ -293,8 +299,8 @@ pub struct ExecutionFrame {
     key_lookups: Vec<(Value, CollectionIteration)>,
 }
 
-impl std::fmt::Debug for ExecutionFrame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Debug for ExecutionFrame {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionFrame")
             .field("module", &self.loaded.key())
             .field("function", &self.function)
@@ -351,10 +357,7 @@ impl ExecutionFrame {
 
     pub fn begin_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
         self.mutations.try_reserve(1).map_err(|_| {
-            RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
-                "mutation guard allocation",
-            )
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "mutation guard allocation")
         })?;
         self.mutations
             .push((value.clone(), self.heap.begin_collection_mutation(value)?));
@@ -367,7 +370,7 @@ impl ExecutionFrame {
             .is_some_and(|(target, _)| target == value)
         {
             return Err(RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
+                RuntimeErrorKind::ScriptTrap,
                 "mutation guard mismatch",
             ));
         }
@@ -386,7 +389,7 @@ impl ExecutionFrame {
             .is_some_and(|(collection, _)| collection == value)
         {
             return Err(RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
+                RuntimeErrorKind::ScriptTrap,
                 "key lookup guard mismatch",
             ));
         }
@@ -402,10 +405,7 @@ impl ExecutionFrame {
 
     pub fn end_iteration(&mut self) -> Result<(), RuntimeError> {
         let _guard = self.iterations.pop().ok_or_else(|| {
-            RuntimeError::new(
-                crate::RuntimeErrorKind::ScriptTrap,
-                "iteration guard underflow",
-            )
+            RuntimeError::new(RuntimeErrorKind::ScriptTrap, "iteration guard underflow")
         })?;
         Ok(())
     }
@@ -422,7 +422,7 @@ impl ExecutionFrame {
     pub fn function(&self) -> &BytecodeFunction {
         &self.loaded.bytecode.functions[self.function.index()]
     }
-    pub fn module(&self) -> kagari_ir::bytecode::ModuleRef {
+    pub fn module(&self) -> ModuleRef {
         self.loaded.slot()
     }
     pub fn loaded(&self) -> &LoadedModule {

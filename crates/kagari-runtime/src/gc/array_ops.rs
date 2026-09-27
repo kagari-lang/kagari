@@ -1,4 +1,5 @@
 use super::*;
+use std::ops::Bound;
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(
@@ -11,8 +12,8 @@ impl GcHeap {
     pub(crate) fn prepare_array_removal(
         &self,
         target: HeapObjectId,
-        start: std::ops::Bound<usize>,
-        end: std::ops::Bound<usize>,
+        start: Bound<usize>,
+        end: Bound<usize>,
     ) -> Result<Value, RuntimeError> {
         use std::ops::Bound;
         self.ensure_execution_allowed()?;

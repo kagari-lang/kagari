@@ -1,26 +1,37 @@
 //! Validate inheritance after every module's declaration contracts are available.
+
+use super::ConstraintTarget;
+use super::TypeTable;
+use super::applications;
+use super::ty;
+use super::ty::TypeContext;
+use crate::DiagnosticBuffer;
+use crate::hir::Module;
+use crate::hir::TraitDef;
+use crate::host::HostDeclarations;
 use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
     lower::LoweredModule,
     types::{NominalType, TypeId},
 };
+use kagari_common::Span;
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 
 pub(crate) fn trait_supertrait_surface(
-    module: &crate::hir::Module,
-    item: &crate::hir::TraitDef,
+    module: &Module,
+    item: &TraitDef,
     declarations: &Declarations,
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
-    let mut table = super::TypeTable::default();
+    let mut table = TypeTable::default();
     item.supertraits
         .iter()
         .filter_map(|reference| {
-            match super::ty::resolve_type_in(
+            match ty::resolve_type_in(
                 module,
                 reference.ty,
-                super::ty::TypeContext {
+                TypeContext {
                     declarations,
                     generics: &item.generic_params,
                     self_type: Some(item.id),
@@ -41,7 +52,7 @@ pub(crate) fn validate(
     declarations: &Declarations,
     catalog: &AggregateCatalog,
     table: &super::TypeTable,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     let identity = lowered.source.module_identity();
@@ -53,7 +64,7 @@ pub(crate) fn validate(
             ) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidTraitReference {
-                        trait_name: super::ty::display_type(&lowered.module, reference.ty),
+                        trait_name: ty::display_type(&lowered.module, reference.ty),
                         reason: "a supertrait must name a declared user trait",
                     })
                     .with_span(lowered.source_map.type_span(reference.ty)),
@@ -80,10 +91,10 @@ pub(crate) fn validate(
         assumptions
             .entry(receiver.clone())
             .or_default()
-            .push(super::ConstraintTarget::Trait(applied.clone()));
+            .push(ConstraintTarget::Trait(applied.clone()));
         if let Ok(assumptions) = catalog.expanded_bounds(&assumptions, cancel) {
             for parent in &contract.supertraits {
-                super::applications::validate(
+                applications::validate(
                     &TypeId::Trait(parent.clone()),
                     &assumptions,
                     (catalog, &declarations.hosts),
@@ -201,7 +212,7 @@ pub(crate) fn validate(
             if &implementation.trait_id.module != identity {
                 continue;
             }
-            let applied = crate::host::HostDeclarations::trait_type(implementation);
+            let applied = HostDeclarations::trait_type(implementation);
             let receiver = TypeId::Host(host.id.clone());
             let Ok(parents) = catalog.trait_closure(&applied, &receiver, cancel) else {
                 continue;
@@ -219,7 +230,7 @@ pub(crate) fn validate(
                                 TypeId::Trait(parent).display_name()
                             ),
                         })
-                        .with_span(kagari_common::Span::default()),
+                        .with_span(Span::default()),
                     );
                 }
             }

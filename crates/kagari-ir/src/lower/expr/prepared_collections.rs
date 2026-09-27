@@ -1,15 +1,13 @@
 use super::*;
 use crate::module::instruction::StandardEnumOp as Op;
+use kagari_common::collection::CollectionAccess;
 use kagari_hir::{
     builtin::{surface::StandardEnum, traits::StandardTrait},
     types::{BuiltinType, TypeId},
 };
 
 fn array(item: TypeId) -> TypeId {
-    TypeId::Array(
-        Box::new(item),
-        kagari_common::collection::CollectionAccess::Mutable,
-    )
+    TypeId::Array(Box::new(item), CollectionAccess::Mutable)
 }
 
 impl FunctionLowerer<'_, '_> {

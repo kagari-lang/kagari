@@ -1,4 +1,12 @@
+use crate::hir::FieldId;
+use crate::hir::GenericParamId;
+use crate::hir::HirArenaId;
+use crate::hir::HirOwner;
+use crate::hir::Item;
+use crate::hir::VariantId;
 use kagari_common::Span;
+use std::collections::HashMap;
+use std::mem;
 
 use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, ModuleId, ParamId, PatternId,
@@ -7,12 +15,12 @@ use crate::hir::{
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {
-    arena: crate::hir::HirArenaId,
-    owner: crate::hir::HirOwner,
+    arena: HirArenaId,
+    owner: HirOwner,
     generic_param_spans: Vec<Span>,
-    item_name_spans: std::collections::HashMap<crate::hir::Item, Span>,
-    field_spans: std::collections::HashMap<crate::hir::FieldId, Span>,
-    variant_spans: std::collections::HashMap<crate::hir::VariantId, Span>,
+    item_name_spans: HashMap<Item, Span>,
+    field_spans: HashMap<FieldId, Span>,
+    variant_spans: HashMap<VariantId, Span>,
     function_spans: Vec<Span>,
     const_spans: Vec<Span>,
     module_spans: Vec<Span>,
@@ -20,39 +28,39 @@ pub struct SourceMap {
     trait_method_spans: Vec<Span>,
     impl_spans: Vec<Span>,
     param_spans: Vec<Span>,
-    param_owners: Vec<crate::hir::HirOwner>,
+    param_owners: Vec<HirOwner>,
     local_spans: Vec<Span>,
-    local_owners: Vec<crate::hir::HirOwner>,
+    local_owners: Vec<HirOwner>,
     struct_spans: Vec<Span>,
     enum_spans: Vec<Span>,
     block_spans: Vec<Span>,
-    block_owners: Vec<crate::hir::HirOwner>,
+    block_owners: Vec<HirOwner>,
     expr_spans: Vec<Span>,
-    expr_reference_spans: std::collections::HashMap<ExprId, Span>,
-    expr_owner_spans: std::collections::HashMap<ExprId, Span>,
-    struct_field_spans: std::collections::HashMap<ExprId, Vec<Option<Span>>>,
-    expr_owners: Vec<crate::hir::HirOwner>,
+    expr_reference_spans: HashMap<ExprId, Span>,
+    expr_owner_spans: HashMap<ExprId, Span>,
+    struct_field_spans: HashMap<ExprId, Vec<Option<Span>>>,
+    expr_owners: Vec<HirOwner>,
     place_spans: Vec<Span>,
-    place_member_spans: std::collections::HashMap<PlaceId, Span>,
-    place_owners: Vec<crate::hir::HirOwner>,
+    place_member_spans: HashMap<PlaceId, Span>,
+    place_owners: Vec<HirOwner>,
     stmt_spans: Vec<Span>,
-    stmt_owners: Vec<crate::hir::HirOwner>,
+    stmt_owners: Vec<HirOwner>,
     pattern_spans: Vec<Span>,
-    pattern_owners: Vec<crate::hir::HirOwner>,
+    pattern_owners: Vec<HirOwner>,
     type_spans: Vec<Span>,
-    type_name_spans: std::collections::HashMap<TypeRefId, Span>,
-    type_owners: Vec<crate::hir::HirOwner>,
+    type_name_spans: HashMap<TypeRefId, Span>,
+    type_owners: Vec<HirOwner>,
 }
 
 impl SourceMap {
-    pub(crate) fn insert_variant(&mut self, id: crate::hir::VariantId, span: Span) {
+    pub(crate) fn insert_variant(&mut self, id: VariantId, span: Span) {
         self.variant_spans.insert(id, span);
     }
-    pub fn variant_span(&self, id: crate::hir::VariantId) -> Span {
+    pub fn variant_span(&self, id: VariantId) -> Span {
         self.variant_spans[&id]
     }
-    pub(crate) fn set_owner(&mut self, owner: crate::hir::HirOwner) -> crate::hir::HirOwner {
-        std::mem::replace(&mut self.owner, owner)
+    pub(crate) fn set_owner(&mut self, owner: HirOwner) -> HirOwner {
+        mem::replace(&mut self.owner, owner)
     }
 
     pub(crate) fn type_id(&self, index: usize) -> TypeRefId {
@@ -95,16 +103,16 @@ impl SourceMap {
         LocalId::new(self.arena, self.local_owners[index], index)
     }
 
-    pub fn arena(&self) -> crate::hir::HirArenaId {
+    pub fn arena(&self) -> HirArenaId {
         self.arena
     }
 
-    pub(crate) fn push_generic_param(&mut self, span: Span) -> crate::hir::GenericParamId {
-        let id = crate::hir::GenericParamId::new(self.generic_param_spans.len());
+    pub(crate) fn push_generic_param(&mut self, span: Span) -> GenericParamId {
+        let id = GenericParamId::new(self.generic_param_spans.len());
         self.generic_param_spans.push(span);
         id
     }
-    pub fn generic_param_span(&self, id: crate::hir::GenericParamId) -> Span {
+    pub fn generic_param_span(&self, id: GenericParamId) -> Span {
         self.generic_param_spans[id.index()]
     }
     pub(crate) fn type_spans(&self) -> &[Span] {
@@ -118,15 +126,15 @@ impl SourceMap {
     pub fn type_name_span(&self, id: TypeRefId) -> Option<Span> {
         self.type_name_spans.get(&id).copied()
     }
-    pub(crate) fn insert_field(&mut self, id: crate::hir::FieldId, span: Span) {
+    pub(crate) fn insert_field(&mut self, id: FieldId, span: Span) {
         self.field_spans.insert(id, span);
     }
 
-    pub fn field_span(&self, id: crate::hir::FieldId) -> Span {
+    pub fn field_span(&self, id: FieldId) -> Span {
         self.field_spans[&id]
     }
 
-    pub fn item_span(&self, item: crate::hir::Item) -> Span {
+    pub fn item_span(&self, item: Item) -> Span {
         use crate::hir::Item;
         match item {
             Item::Function(id) => self.function_span(id),
@@ -227,15 +235,15 @@ impl SourceMap {
         id
     }
 
-    pub(crate) fn insert_item_name(&mut self, item: crate::hir::Item, span: Span) {
+    pub(crate) fn insert_item_name(&mut self, item: Item, span: Span) {
         self.item_name_spans.insert(item, span);
     }
 
-    pub fn item_name_span(&self, item: crate::hir::Item) -> Option<Span> {
+    pub fn item_name_span(&self, item: Item) -> Option<Span> {
         self.item_name_spans.get(&item).copied()
     }
 
-    pub fn item_declaration_span(&self, item: crate::hir::Item) -> Span {
+    pub fn item_declaration_span(&self, item: Item) -> Span {
         self.item_name_span(item)
             .unwrap_or_else(|| self.item_span(item))
     }

@@ -1,4 +1,6 @@
 //! A checked, snapshot-owned source dependency closure for compilation and linking.
+
+use crate::typeck::TypedFunction;
 use std::collections::HashMap;
 
 use kagari_common::{
@@ -50,7 +52,7 @@ impl CheckedProgram {
     pub fn source_function(
         &self,
         id: SourceFunctionId,
-    ) -> Option<(&CheckedAnalysis, &crate::typeck::TypedFunction)> {
+    ) -> Option<(&CheckedAnalysis, &TypedFunction)> {
         let module = &self.modules[*self.by_file.get(&id.file)?];
         if module.lowered.source.revision() != id.revision {
             return None;

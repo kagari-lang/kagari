@@ -1,20 +1,24 @@
 //! Imported call contracts are projections of independently checked signatures.
+
 use super::*;
+use crate::aggregates::AggregateCatalog;
+use crate::hir::FunctionId;
 use crate::{
     PreparedAnalysis, declarations::Declaration, resolver::ResolvedName, typeck::TypedFunction,
 };
+use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SourceFunctionId {
     pub file: FileId,
     pub revision: Revision,
-    pub function: crate::hir::FunctionId,
+    pub function: FunctionId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedFunction {
     pub id: SourceFunctionId,
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     pub site: Declaration,
     pub signature: TypedFunction,
 }
@@ -34,10 +38,7 @@ impl ImportedFunctions {
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
         self.functions.get(&name)
     }
-    pub(crate) fn include_inherent_methods(
-        &mut self,
-        aggregates: &crate::aggregates::AggregateCatalog,
-    ) {
+    pub(crate) fn include_inherent_methods(&mut self, aggregates: &AggregateCatalog) {
         for method in aggregates.inherent_methods() {
             self.methods.insert(
                 method.id,

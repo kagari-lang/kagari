@@ -1,14 +1,17 @@
 use super::*;
+use crate::hir::Literal;
+use crate::typeck::ScalarValue;
+use kagari_common::literal;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_numeric_literal(
         &mut self,
         site: ExprId,
-        literal: &crate::hir::Literal,
+        literal: &Literal,
         expected: Option<&TypeId>,
         negative: bool,
     ) -> TypeId {
-        let (_, suffix) = kagari_common::literal::numeric_literal_parts(&literal.text);
+        let (_, suffix) = literal::numeric_literal_parts(&literal.text);
         let suffix = suffix.and_then(surface::builtin_type);
         let fallback = if literal.kind == LiteralKind::Float {
             BuiltinType::F64
@@ -33,7 +36,7 @@ impl BodyChecker<'_> {
             TypeId::Builtin(ty) => Some(ty),
             _ => None,
         };
-        match super::super::ScalarValue::parse_expected(literal, target, negative) {
+        match ScalarValue::parse_expected(literal, target, negative) {
             Ok(value) => {
                 let ty = value.ty();
                 self.type_table.insert_scalar(site, value);

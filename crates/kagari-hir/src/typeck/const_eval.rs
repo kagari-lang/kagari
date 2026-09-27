@@ -1,4 +1,10 @@
 //! Scalar const facts belong to semantic analysis, never to a backend.
+
+use super::const_budget::ConstBudget;
+use crate::types::BuiltinType;
+use crate::types::TypeId;
+use kagari_common::integer;
+use kagari_common::integer::IntegerOp;
 use std::collections::HashMap;
 
 use kagari_common::arithmetic::{self, IntegerBinaryOp};
@@ -19,7 +25,7 @@ pub(super) fn evaluate_constants(
     type_table: &TypeTable,
     cancel: &CancellationToken,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-    budget: &mut super::const_budget::ConstBudget,
+    budget: &mut ConstBudget,
 ) -> HashMap<ConstId, ScalarValue> {
     let mut evaluator = Evaluator {
         lowered,
@@ -51,7 +57,7 @@ struct Evaluator<'a> {
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     // None also breaks cycles, which the const capability validator diagnoses.
     cache: HashMap<ConstId, Option<ScalarValue>>,
-    budget: &'a mut super::const_budget::ConstBudget,
+    budget: &'a mut ConstBudget,
 }
 
 impl Evaluator<'_> {
@@ -93,7 +99,7 @@ impl Evaluator<'_> {
                 _ => return None,
             },
             ExprKind::Cast { expr, .. } => {
-                let crate::types::TypeId::Builtin(target) = self.type_table.expr_type(id)? else {
+                let TypeId::Builtin(target) = self.type_table.expr_type(id)? else {
                     return None;
                 };
                 return self.expression(owner, *expr)?.cast_numeric(target);
@@ -108,11 +114,9 @@ impl Evaluator<'_> {
                     ScalarValue::integer(-value, ty)
                 }
                 (PrefixOp::Not, ScalarValue::Bool(value)) => Ok(ScalarValue::Bool(!value)),
-                (PrefixOp::Not, value) => scalar_bits(
-                    kagari_common::integer::IntegerOp::BitNot,
-                    value,
-                    ScalarValue::I32(0),
-                )?,
+                (PrefixOp::Not, value) => {
+                    scalar_bits(IntegerOp::BitNot, value, ScalarValue::I32(0))?
+                }
                 _ => return None,
             },
             ExprKind::Binary { lhs, op, rhs } => {
@@ -195,7 +199,7 @@ fn binary(
             ) if ty == right => {
                 if matches!(op, IntegerBinaryOp::Rem)
                     && ty.integer_layout().is_some_and(|(bits, signed)| {
-                        signed && lhs == kagari_common::integer::bounds(bits, signed).0 && rhs == -1
+                        signed && lhs == integer::bounds(bits, signed).0 && rhs == -1
                     })
                 {
                     return Some(Err("integer overflow"));
@@ -257,12 +261,12 @@ fn binary(
 }
 
 fn scalar_bits(
-    op: kagari_common::integer::IntegerOp,
+    op: IntegerOp,
     lhs: ScalarValue,
     rhs: ScalarValue,
 ) -> Option<Result<ScalarValue, &'static str>> {
     let unpack = |v| match v {
-        ScalarValue::I32(v) => Some((i128::from(v), crate::types::BuiltinType::I32)),
+        ScalarValue::I32(v) => Some((i128::from(v), BuiltinType::I32)),
         ScalarValue::Integer { value, ty } => Some((value, ty)),
         _ => None,
     };
@@ -270,7 +274,7 @@ fn scalar_bits(
     let (rhs, _) = unpack(rhs)?;
     let (bits, signed) = ty.integer_layout()?;
     Some(
-        kagari_common::integer::integer_operation(op, lhs, rhs, bits, signed)
+        integer::integer_operation(op, lhs, rhs, bits, signed)
             .and_then(|v| ScalarValue::integer(v, ty)),
     )
 }

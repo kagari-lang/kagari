@@ -1,7 +1,16 @@
+use crate::gc::GcHeap;
+use crate::value::EnumTag;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
 use kagari_common::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
+use kagari_common::integer;
+use kagari_common::integer::IntegerMethod;
+use kagari_common::numeric;
 use kagari_ir::bytecode::{BinaryOp, UnaryOp};
+use kagari_ir::module::ValueType;
+use kagari_ir::module::abi::AbiType;
 use kagari_ir::module::abi::BuiltinType;
+use kagari_ir::module::numeric::NumericConversion;
+use kagari_ir::module::numeric::NumericOperation;
 
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, error.message())
@@ -93,7 +102,7 @@ pub fn binary(op: BinaryOp, lhs: Value, rhs: Value) -> Result<Value, RuntimeErro
 
 /// Execute the verified source-width contract, independently of Value storage width.
 pub fn fixed_integer(
-    operation: kagari_ir::module::numeric::NumericOperation,
+    operation: NumericOperation,
     lhs: Value,
     rhs: Option<Value>,
 ) -> Result<Value, RuntimeError> {
@@ -106,7 +115,7 @@ pub fn fixed_integer(
         _ => return Err(invalid()),
     };
     let (bits, signed) = operation.input.integer_layout().ok_or_else(invalid)?;
-    let result = kagari_common::integer::integer_operation(operation.op, lhs, rhs, bits, signed)
+    let result = integer::integer_operation(operation.op, lhs, rhs, bits, signed)
         .map_err(|reason| RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason))?;
 
     Ok(match operation.input {
@@ -117,9 +126,9 @@ pub fn fixed_integer(
 }
 
 pub fn integer_method(
-    gc: &crate::gc::GcHeap,
-    operation: kagari_common::integer::IntegerMethod,
-    ty: kagari_ir::module::abi::BuiltinType,
+    gc: &GcHeap,
+    operation: IntegerMethod,
+    ty: BuiltinType,
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
     let [lhs, rhs] = args else {
@@ -149,7 +158,7 @@ pub fn integer_method(
         },
         _ => ty,
     };
-    let (value, overflow) = kagari_common::integer::arithmetic_method(
+    let (value, overflow) = integer::arithmetic_method(
         operation,
         read_integer(ty, lhs)?,
         read_integer(rhs_ty, rhs)?,
@@ -178,25 +187,21 @@ pub fn integer_method(
 }
 
 pub fn convert(
-    gc: &crate::gc::GcHeap,
-    conversion: kagari_ir::module::numeric::NumericConversion,
+    gc: &GcHeap,
+    conversion: NumericConversion,
     value: Value,
 ) -> Result<Value, RuntimeError> {
     use kagari_common::numeric::Number;
     let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
     conversion.contract().ok_or_else(fail)?;
-    if !value.has_representation(
-        kagari_ir::module::abi::AbiType::Builtin(conversion.source).representation(),
-    ) {
+    if !value.has_representation(AbiType::Builtin(conversion.source).representation()) {
         return Err(fail());
     }
     if conversion.source.integer_layout().is_some() {
         read_integer(conversion.source, &value)?;
     }
     if conversion.checked && conversion.source == conversion.target {
-        return Ok(Value::Enum(
-            gc.alloc_enum(crate::value::EnumTag::ResultOk, vec![value])?,
-        ));
+        return Ok(Value::Enum(gc.alloc_enum(EnumTag::ResultOk, vec![value])?));
     }
     let value = match value {
         Value::Bool(v) => Number::Integer(i128::from(v)),
@@ -211,50 +216,37 @@ pub fn convert(
         && let (Number::Integer(input), Some((bits, signed))) =
             (value, conversion.target.integer_layout())
     {
-        let (min, max) = kagari_common::integer::bounds(bits, signed);
+        let (min, max) = integer::bounds(bits, signed);
         if input < min || input > max {
-            let error = Value::Enum(gc.alloc_enum(crate::value::EnumTag::TryFromIntError, vec![])?);
+            let error = Value::Enum(gc.alloc_enum(EnumTag::TryFromIntError, vec![])?);
             let _root = gc.root_value(error.clone()).ok_or_else(fail)?;
-            return Ok(Value::Enum(
-                gc.alloc_enum(crate::value::EnumTag::ResultErr, vec![error])?,
-            ));
+            return Ok(Value::Enum(gc.alloc_enum(EnumTag::ResultErr, vec![error])?));
         }
     }
-    let value = match kagari_common::numeric::cast(
-        value,
-        conversion.target.number_type().ok_or_else(fail)?,
-    ) {
+    let value = match numeric::cast(value, conversion.target.number_type().ok_or_else(fail)?) {
         Number::F32(v) => Value::F32(v),
         Number::F64(v) => Value::F64(v),
-        Number::Integer(v) => {
-            match kagari_ir::module::abi::AbiType::Builtin(conversion.target).representation() {
-                kagari_ir::module::ValueType::I32 => Value::I32(v as i32),
-                kagari_ir::module::ValueType::U64 => Value::U64(v as u64),
-                _ => Value::I64(v as i64),
-            }
-        }
+        Number::Integer(v) => match AbiType::Builtin(conversion.target).representation() {
+            ValueType::I32 => Value::I32(v as i32),
+            ValueType::U64 => Value::U64(v as u64),
+            _ => Value::I64(v as i64),
+        },
     };
     if conversion.checked {
-        Ok(Value::Enum(gc.alloc_enum(
-            crate::value::EnumTag::ResultOk,
-            vec![value],
-        )?))
+        Ok(Value::Enum(gc.alloc_enum(EnumTag::ResultOk, vec![value])?))
     } else {
         Ok(value)
     }
 }
 
-pub(crate) fn read_integer(
-    ty: kagari_ir::module::abi::BuiltinType,
-    value: &Value,
-) -> Result<i128, RuntimeError> {
+pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, RuntimeError> {
     let fail = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
             "invalid numeric operand type or range",
         )
     };
-    if !value.has_representation(kagari_ir::module::abi::AbiType::Builtin(ty).representation()) {
+    if !value.has_representation(AbiType::Builtin(ty).representation()) {
         return Err(fail());
     }
     let value = match value {
@@ -264,7 +256,7 @@ pub(crate) fn read_integer(
         _ => return Err(fail()),
     };
     let (bits, signed) = ty.integer_layout().ok_or_else(fail)?;
-    let (minimum, maximum) = kagari_common::integer::bounds(bits, signed);
+    let (minimum, maximum) = integer::bounds(bits, signed);
     if !(minimum..=maximum).contains(&value) {
         return Err(fail());
     }

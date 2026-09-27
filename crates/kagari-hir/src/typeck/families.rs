@@ -1,5 +1,8 @@
 //! Check type-family contracts under their own declaration-owned binders.
+
+use super::applications;
 use super::{ConstraintTarget, ModuleSignatures};
+use crate::DiagnosticBuffer;
 use crate::{
     aggregates::AggregateCatalog,
     declarations::Declarations,
@@ -13,7 +16,7 @@ pub(super) fn validate(
     declarations: &Declarations,
     signatures: &ModuleSignatures,
     catalog: &AggregateCatalog,
-    diagnostics: &mut crate::DiagnosticBuffer,
+    diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     for item in &lowered.module.impls {
@@ -93,7 +96,7 @@ pub(super) fn validate(
             let available = catalog
                 .expanded_bounds(&available, cancel)
                 .unwrap_or(available);
-            super::applications::validate(
+            applications::validate(
                 &family.value,
                 &available,
                 (catalog, &declarations.hosts),

@@ -1,3 +1,23 @@
+use super::constraints;
+use crate::builtin::surface::StandardTypeConstraint;
+use crate::builtin::surface::StandardVariant;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::EnumId;
+use crate::hir::GenericParamId;
+use crate::hir::StructId;
+use crate::hir::TraitId;
+use crate::hir::TypeRefId;
+use crate::host::HostFunctionId;
+use crate::host::HostTypeId;
+use crate::imports::SourceFunctionId;
+use crate::imports::SourceTypeId;
+use crate::source_map::SourceMap;
+use crate::types::AssociatedTypeFamily;
+use crate::types::AssociatedTypeParameters;
+use kagari_common::Span;
+use kagari_common::host_interface::HostPathContract;
+use kagari_common::host_interface::HostPathDeclaration;
 use std::collections::{HashMap, HashSet};
 
 use super::ScalarValue;
@@ -8,19 +28,19 @@ use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintTarget {
-    Standard(crate::builtin::surface::StandardTypeConstraint),
+    Standard(StandardTypeConstraint),
     Trait(NominalType),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeTarget {
-    StandardTrait(crate::builtin::traits::StandardTrait),
-    Host(crate::host::HostTypeId),
-    Source(crate::imports::SourceTypeId),
-    Struct(crate::hir::StructId),
-    Enum(crate::hir::EnumId),
-    Trait(crate::hir::TraitId),
-    Generic(crate::hir::GenericParamId),
+    StandardTrait(StandardTrait),
+    Host(HostTypeId),
+    Source(SourceTypeId),
+    Struct(StructId),
+    Enum(EnumId),
+    Trait(TraitId),
+    Generic(GenericParamId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,8 +54,8 @@ pub enum CallTarget {
     /// The recorded receiver is the callee expression. Its evaluation exits
     /// before any callable value or explicit argument can be produced.
     TerminatingCallee,
-    SourceFunction(crate::imports::SourceFunctionId),
-    HostFunction(crate::host::HostFunctionId),
+    SourceFunction(SourceFunctionId),
+    HostFunction(HostFunctionId),
     Function(FunctionId),
     Value,
     StandardIntrinsic(StandardIntrinsic),
@@ -88,22 +108,21 @@ pub struct ResolvedIteration {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
     /// Temporary body-local placeholders; removed before publishing facts.
-    pub(super) inference_holes: HashMap<crate::hir::TypeRefId, TypeId>,
+    pub(super) inference_holes: HashMap<TypeRefId, TypeId>,
     iterations: HashMap<ExprId, ResolvedIteration>,
     protocol_receivers: HashMap<ExprId, TypeId>,
-    standard_constructors: HashMap<ExprId, crate::builtin::surface::StandardVariant>,
-    standard_patterns: HashMap<PatternId, crate::builtin::surface::StandardVariant>,
+    standard_constructors: HashMap<ExprId, StandardVariant>,
+    standard_patterns: HashMap<PatternId, StandardVariant>,
     associated_consts: HashMap<ExprId, ResolvedAssociatedConst>,
-    pub(super) resolving_types: HashSet<crate::hir::TypeRefId>,
+    pub(super) resolving_types: HashSet<TypeRefId>,
     pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
-    pub(crate) associated_type_parameters:
-        HashMap<DefinitionId, crate::types::AssociatedTypeParameters>,
-    pub(crate) associated_type_families: HashMap<DefinitionId, crate::types::AssociatedTypeFamily>,
+    pub(crate) associated_type_parameters: HashMap<DefinitionId, AssociatedTypeParameters>,
+    pub(crate) associated_type_families: HashMap<DefinitionId, AssociatedTypeFamily>,
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
-    constraints: HashMap<crate::hir::TypeRefId, Option<ConstraintTarget>>,
-    type_refs: HashMap<crate::hir::TypeRefId, ResolvedTypeRef>,
+    constraints: HashMap<TypeRefId, Option<ConstraintTarget>>,
+    type_refs: HashMap<TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
     expr_fields: HashMap<ExprId, DefinitionId>,
     place_fields: HashMap<PlaceId, DefinitionId>,
@@ -153,16 +172,16 @@ pub struct ResolvedHostPath {
     pub root: ExprId,
     /// Source-order expressions paired with their declared runtime argument slots.
     pub dynamic_arguments: Vec<(u32, ExprId)>,
-    pub declaration: kagari_common::host_interface::HostPathDeclaration,
-    pub contract: kagari_common::host_interface::HostPathContract,
+    pub declaration: HostPathDeclaration,
+    pub contract: HostPathContract,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedHostPlacePath {
     pub root: PlaceId,
     pub dynamic_arguments: Vec<(u32, ExprId)>,
-    pub declaration: kagari_common::host_interface::HostPathDeclaration,
-    pub contract: kagari_common::host_interface::HostPathContract,
+    pub declaration: HostPathDeclaration,
+    pub contract: HostPathContract,
 }
 
 impl TypeTable {
@@ -187,43 +206,26 @@ impl TypeTable {
         self.place_indexes.insert(id, interface);
     }
 
-    pub fn standard_constructor(
-        &self,
-        id: ExprId,
-    ) -> Option<crate::builtin::surface::StandardVariant> {
+    pub fn standard_constructor(&self, id: ExprId) -> Option<StandardVariant> {
         self.standard_constructors.get(&id).copied()
     }
-    pub(super) fn insert_standard_constructor(
-        &mut self,
-        id: ExprId,
-        value: crate::builtin::surface::StandardVariant,
-    ) {
+    pub(super) fn insert_standard_constructor(&mut self, id: ExprId, value: StandardVariant) {
         self.standard_constructors.insert(id, value);
     }
-    pub fn standard_pattern(
-        &self,
-        id: PatternId,
-    ) -> Option<crate::builtin::surface::StandardVariant> {
+    pub fn standard_pattern(&self, id: PatternId) -> Option<StandardVariant> {
         self.standard_patterns.get(&id).copied()
     }
-    pub(super) fn insert_standard_pattern(
-        &mut self,
-        id: PatternId,
-        value: crate::builtin::surface::StandardVariant,
-    ) {
+    pub(super) fn insert_standard_pattern(&mut self, id: PatternId, value: StandardVariant) {
         self.standard_patterns.insert(id, value);
     }
 
     pub fn associated_type_parameters(
         &self,
         member: &DefinitionId,
-    ) -> Option<&crate::types::AssociatedTypeParameters> {
+    ) -> Option<&AssociatedTypeParameters> {
         self.associated_type_parameters.get(member)
     }
-    pub fn associated_type_family(
-        &self,
-        member: &DefinitionId,
-    ) -> Option<&crate::types::AssociatedTypeFamily> {
+    pub fn associated_type_family(&self, member: &DefinitionId) -> Option<&AssociatedTypeFamily> {
         self.associated_type_families.get(member)
     }
     pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
@@ -314,7 +316,7 @@ impl TypeTable {
 
     pub(super) fn remap_signature_types(
         &self,
-        ids: &HashMap<crate::hir::TypeRefId, crate::hir::TypeRefId>,
+        ids: &HashMap<TypeRefId, TypeRefId>,
         fields: &HashMap<FieldId, FieldId>,
     ) -> Option<Self> {
         let mut result = self.clone();
@@ -417,10 +419,9 @@ impl TypeTable {
     ) -> bool {
         if trait_type.arguments.is_empty()
             && trait_type.associated_types.is_empty()
-            && let Some(kind) =
-                crate::builtin::traits::StandardTrait::from_id(&trait_type.declaration)
+            && let Some(kind) = StandardTrait::from_id(&trait_type.declaration)
         {
-            return crate::builtin::traits::intrinsic_holds(kind, ty, None, &Default::default());
+            return traits::intrinsic_holds(kind, ty, None, &Default::default());
         }
         let key = (trait_type.clone(), ty.clone());
         if !visiting.insert(key.clone()) {
@@ -457,7 +458,7 @@ impl TypeTable {
                 let actual = parameter.instantiate(matched);
                 constraints.iter().all(|constraint| match constraint {
                     ConstraintTarget::Standard(standard) => {
-                        super::constraints::type_satisfies_standard_constraint(
+                        constraints::type_satisfies_standard_constraint(
                             &actual,
                             *standard,
                             &Default::default(),
@@ -471,23 +472,19 @@ impl TypeTable {
                 })
             })
     }
-    pub(crate) fn insert_constraint(
-        &mut self,
-        id: crate::hir::TypeRefId,
-        target: Option<ConstraintTarget>,
-    ) {
+    pub(crate) fn insert_constraint(&mut self, id: TypeRefId, target: Option<ConstraintTarget>) {
         self.constraints.insert(id, target);
     }
-    pub fn constraint(&self, id: crate::hir::TypeRefId) -> Option<ConstraintTarget> {
+    pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget> {
         self.constraints.get(&id).cloned().flatten()
     }
-    pub(crate) fn has_constraint(&self, id: crate::hir::TypeRefId) -> bool {
+    pub(crate) fn has_constraint(&self, id: TypeRefId) -> bool {
         self.constraints.contains_key(&id)
     }
-    pub(crate) fn insert_type_ref(&mut self, id: crate::hir::TypeRefId, resolved: ResolvedTypeRef) {
+    pub(crate) fn insert_type_ref(&mut self, id: TypeRefId, resolved: ResolvedTypeRef) {
         self.type_refs.insert(id, resolved);
     }
-    pub fn type_ref(&self, id: crate::hir::TypeRefId) -> Option<&ResolvedTypeRef> {
+    pub fn type_ref(&self, id: TypeRefId) -> Option<&ResolvedTypeRef> {
         self.type_refs.get(&id)
     }
     pub(crate) fn insert_field_type(&mut self, field: FieldId, ty: TypeId) {
@@ -517,18 +514,18 @@ impl TypeTable {
     pub(crate) fn restore_function(
         &mut self,
         old: &Self,
-        old_map: &crate::source_map::SourceMap,
-        new_map: &crate::source_map::SourceMap,
-        old_span: kagari_common::Span,
-        new_span: kagari_common::Span,
+        old_map: &SourceMap,
+        new_map: &SourceMap,
+        old_span: Span,
+        new_span: Span,
     ) -> bool {
         fn remap(
-            old: &[kagari_common::Span],
-            new: &[kagari_common::Span],
-            old_span: kagari_common::Span,
-            new_span: kagari_common::Span,
+            old: &[Span],
+            new: &[Span],
+            old_span: Span,
+            new_span: Span,
         ) -> Option<Vec<(usize, usize)>> {
-            let relative = |spans: &[kagari_common::Span], owner: kagari_common::Span| {
+            let relative = |spans: &[Span], owner: Span| {
                 spans
                     .iter()
                     .enumerate()
@@ -841,7 +838,7 @@ impl TypeTable {
     /// The produced value type includes checked capability and callable conversions.
     pub fn coerced_expr_type(&self, id: ExprId) -> Option<TypeId> {
         self.callable_coercion(id)
-            .and_then(|(_, interface)| crate::builtin::traits::callable_signature(interface))
+            .and_then(|(_, interface)| traits::callable_signature(interface))
             .or_else(|| {
                 self.interface_coercion(id)
                     .map(|coercion| TypeId::Trait(coercion.interface_type.clone()))

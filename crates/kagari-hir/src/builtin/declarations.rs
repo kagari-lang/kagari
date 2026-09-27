@@ -1,16 +1,30 @@
 //! Public signatures compiled from the bundled declaration sources.
-use super::surface::{self, StandardEnum};
-use crate::types::{BuiltinType, TypeId};
-use kagari_common::collection::CollectionAccess;
-use std::collections::BTreeMap;
 
-pub fn sources() -> &'static [kagari_common::SourceFile] {
-    static SOURCES: std::sync::OnceLock<Vec<kagari_common::SourceFile>> =
-        std::sync::OnceLock::new();
+use super::surface::{self, StandardEnum};
+use super::traits;
+use super::traits::StandardTrait;
+use crate::aggregates::TraitSignature;
+use crate::declarations::Declaration;
+use crate::declarations::DeclarationId;
+use crate::resolver::ResolvedName;
+use crate::typeck::GenericBounds;
+use crate::types;
+use crate::types::NominalType;
+use crate::types::{BuiltinType, TypeId};
+use kagari_common::SourceFile;
+use kagari_common::Span;
+use kagari_common::collection::CollectionAccess;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::DefinitionKind;
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+pub fn sources() -> &'static [SourceFile] {
+    static SOURCES: OnceLock<Vec<SourceFile>> = OnceLock::new();
     SOURCES.get_or_init(|| {
         surface::STANDARD_SOURCES
             .iter()
-            .map(|(uri, text)| kagari_common::SourceFile::new(*uri, *text))
+            .map(|(uri, text)| SourceFile::new(*uri, *text))
             .collect()
     })
 }
@@ -19,7 +33,7 @@ pub fn sources() -> &'static [kagari_common::SourceFile] {
 pub struct ApiItem {
     pub module: &'static str,
     pub uri: &'static str,
-    pub path: &'static [(kagari_common::identity::DefinitionKind, &'static str)],
+    pub path: &'static [(DefinitionKind, &'static str)],
     pub start: usize,
     pub end: usize,
     pub documentation: &'static str,
@@ -117,9 +131,7 @@ pub enum NativeDefaultMethod {
     GroupBy,
 }
 
-pub fn native_default_method(
-    id: &kagari_common::identity::DefinitionId,
-) -> Option<NativeDefaultMethod> {
+pub fn native_default_method(id: &DefinitionId) -> Option<NativeDefaultMethod> {
     surface::STANDARD_TRAITS
         .iter()
         .flat_map(|t| t.methods)
@@ -127,7 +139,7 @@ pub fn native_default_method(
         .and_then(|m| m.native_default)
 }
 
-pub fn native_trait_default(interface: &kagari_common::identity::DefinitionId, name: &str) -> bool {
+pub fn native_trait_default(interface: &DefinitionId, name: &str) -> bool {
     surface::STANDARD_TRAITS
         .iter()
         .find(|t| t.item.identity() == *interface)
@@ -177,7 +189,7 @@ impl ApiImplementation {
     pub fn applied_arguments(
         &self,
         receiver: &TypeId,
-        interface: &crate::types::NominalType,
+        interface: &NominalType,
     ) -> Option<Arguments> {
         if self.trait_declaration().item.identity() != interface.declaration
             || !interface.associated_types.is_empty()
@@ -217,7 +229,7 @@ pub fn implementations(receiver: &TypeId) -> Vec<&'static ApiImplementation> {
 }
 
 impl ApiItem {
-    pub fn identity(&self) -> kagari_common::identity::DefinitionId {
+    pub fn identity(&self) -> DefinitionId {
         use kagari_common::identity::*;
         DefinitionId {
             module: ModuleIdentity {
@@ -235,7 +247,7 @@ impl ApiItem {
                 .collect(),
         }
     }
-    pub fn declaration(&self) -> crate::declarations::Declaration {
+    pub fn declaration(&self) -> Declaration {
         use crate::declarations::*;
         let source = sources()
             .iter()
@@ -245,15 +257,15 @@ impl ApiItem {
             id: DeclarationId::Definition(self.identity()),
             name: self.path.last().unwrap().1.into(),
             location: source
-                .span(kagari_common::Span::new(self.start, self.end))
+                .span(Span::new(self.start, self.end))
                 .expect("declaration source span"),
         }
     }
 }
 
 /// Look up public metadata by semantic identity, including trait members.
-pub fn item(id: &crate::declarations::DeclarationId) -> Option<&'static ApiItem> {
-    let crate::declarations::DeclarationId::Definition(id) = id else {
+pub fn item(id: &DeclarationId) -> Option<&'static ApiItem> {
+    let DeclarationId::Definition(id) = id else {
         return None;
     };
     surface::STANDARD_ITEMS
@@ -261,11 +273,8 @@ pub fn item(id: &crate::declarations::DeclarationId) -> Option<&'static ApiItem>
         .find(|item| item.identity() == *id)
 }
 
-pub fn declaration(
-    id: &crate::declarations::DeclarationId,
-) -> Option<&'static crate::declarations::Declaration> {
-    static DECLARATIONS: std::sync::OnceLock<Vec<crate::declarations::Declaration>> =
-        std::sync::OnceLock::new();
+pub fn declaration(id: &DeclarationId) -> Option<&'static Declaration> {
+    static DECLARATIONS: OnceLock<Vec<Declaration>> = OnceLock::new();
     DECLARATIONS
         .get_or_init(|| {
             surface::STANDARD_ITEMS
@@ -296,9 +305,7 @@ pub fn variant(variant: surface::StandardVariant) -> Option<&'static ApiItem> {
 pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
     let name = match ty {
         TypeId::Projection { member, .. } => {
-            return item(&crate::declarations::DeclarationId::Definition(
-                member.clone(),
-            ));
+            return item(&DeclarationId::Definition(member.clone()));
         }
         TypeId::Builtin(BuiltinType::String) => "String",
         TypeId::Array(_, CollectionAccess::ReadOnly) => "List",
@@ -323,9 +330,7 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
         .find(|item| item.path.len() == 1 && item.path[0].1 == name)
 }
 
-pub fn resolved(
-    name: crate::resolver::ResolvedName,
-) -> Option<&'static crate::declarations::Declaration> {
+pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
     use crate::resolver::ResolvedName;
     let item = match name {
         ResolvedName::StandardFunction(intrinsic) => function(intrinsic)?,
@@ -333,9 +338,7 @@ pub fn resolved(
         ResolvedName::StandardTrait(kind) => return Some(&kind.contract().declaration),
         _ => return None,
     };
-    declaration(&crate::declarations::DeclarationId::Definition(
-        item.identity(),
-    ))
+    declaration(&DeclarationId::Definition(item.identity()))
 }
 
 pub type Arguments = BTreeMap<&'static str, TypeId>;
@@ -373,13 +376,13 @@ impl ApiType {
                 let interface = bound.nominal(arguments);
                 TypeId::Projection {
                     receiver: Box::new(receiver.instantiate(arguments)),
-                    member: crate::types::associated_type_id(&interface.declaration, member),
+                    member: types::associated_type_id(&interface.declaration, member),
                     interface: Box::new(interface),
                     arguments: vec![],
                 }
             }
             Self::Array(element) => {
-                let mut interface = super::traits::StandardTrait::List.nominal();
+                let mut interface = StandardTrait::List.nominal();
                 interface.arguments.push(element.instantiate(arguments));
                 TypeId::Trait(interface)
             }
@@ -401,7 +404,7 @@ impl ApiType {
                     return TypeId::Projection {
                         receiver: Box::new(TypeId::SelfType(interface.declaration.clone())),
                         interface: Box::new(interface.clone()),
-                        member: crate::types::associated_type_id(&interface.declaration, member),
+                        member: types::associated_type_id(&interface.declaration, member),
                         arguments: params.iter().map(|p| p.instantiate(arguments)).collect(),
                     };
                 }
@@ -412,10 +415,7 @@ impl ApiType {
                         return TypeId::Projection {
                             receiver: Box::new(arguments[owner].clone()),
                             interface: Box::new(interface.clone()),
-                            member: crate::types::associated_type_id(
-                                &interface.declaration,
-                                "Item",
-                            ),
+                            member: types::associated_type_id(&interface.declaration, "Item"),
                             arguments: vec![],
                         };
                     }
@@ -431,7 +431,7 @@ impl ApiType {
                 if surface::range_kind(name).is_some() {
                     return surface::standard_generic_type(name, types).unwrap_or(TypeId::Error);
                 }
-                if let Some(kind) = super::traits::StandardTrait::from_name(name) {
+                if let Some(kind) = StandardTrait::from_name(name) {
                     let mut interface = kind.nominal();
                     interface.arguments = types;
                     return TypeId::Trait(interface);
@@ -479,7 +479,7 @@ impl ApiType {
     pub fn infer(&self, actual: &TypeId, arguments: &mut Arguments) {
         match (self, actual) {
             (Self::Named(name, params), TypeId::Trait(interface))
-                if super::traits::StandardTrait::from_id(&interface.declaration).is_some_and(
+                if StandardTrait::from_id(&interface.declaration).is_some_and(
                     |kind| match *name {
                         "ArrayList" => matches!(
                             kind,
@@ -576,11 +576,10 @@ impl ApiType {
 }
 
 impl ApiBound {
-    pub(crate) fn nominal(&self, arguments: &Arguments) -> crate::types::NominalType {
-        let kind =
-            super::traits::StandardTrait::from_name(self.name).expect("standard trait bound");
-        let id = super::traits::identity(kind);
-        crate::types::NominalType {
+    pub(crate) fn nominal(&self, arguments: &Arguments) -> NominalType {
+        let kind = StandardTrait::from_name(self.name).expect("standard trait bound");
+        let id = traits::identity(kind);
+        NominalType {
             declaration: id.clone(),
             arguments: self.args.iter().map(|p| p.instantiate(arguments)).collect(),
             associated_types: self
@@ -588,7 +587,7 @@ impl ApiBound {
                 .iter()
                 .map(|(name, ty)| {
                     (
-                        crate::types::associated_type_id(&id, name),
+                        types::associated_type_id(&id, name),
                         ty.instantiate(arguments),
                     )
                 })
@@ -598,7 +597,7 @@ impl ApiBound {
 }
 
 impl ApiTrait {
-    pub fn contract(&self) -> crate::aggregates::TraitSignature {
+    pub fn contract(&self) -> TraitSignature {
         use crate::{
             aggregates::{MethodParameter, MethodSignature, TraitSignature},
             hir::Writeability,
@@ -663,7 +662,7 @@ impl ApiTrait {
                 .map(|(slot, method)| {
                     let mut arguments = arguments.clone();
                     let mut parameters = generics.clone();
-                    let mut method_bounds = crate::typeck::GenericBounds::new();
+                    let mut method_bounds = GenericBounds::new();
                     for (position, generic) in method.generics.iter().enumerate() {
                         let name = generic.name;
                         let parameter = GenericParameterType {

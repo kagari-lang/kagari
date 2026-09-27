@@ -1,23 +1,25 @@
 use super::*;
+use crate::module::abi::AbiType;
 use crate::module::instruction::StandardEnumOp;
 use kagari_hir::{
     builtin::surface::{StandardEnum, StandardIntrinsic},
     types::TypeId,
 };
+use std::slice;
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn standard_enum_op(
         &mut self,
-        ty: &kagari_hir::types::TypeId,
-        op: crate::module::instruction::StandardEnumOp,
+        ty: &TypeId,
+        op: StandardEnumOp,
         value: Option<IrValue>,
     ) -> Result<IrValue, IrLoweringError> {
         let concrete = self.planner.arguments(
-            std::slice::from_ref(ty),
+            slice::from_ref(ty),
             &self.instance.substitution,
             self.function.debug.source_span,
         )?;
-        let ty = crate::module::abi::AbiType::from_checked_type(&concrete[0]);
+        let ty = AbiType::from_checked_type(&concrete[0]);
         let (_, output) = op
             .contract(&ty)
             .ok_or(IrLoweringError::MissingBinding("standard enum contract"))?;
@@ -31,8 +33,8 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_standard_combinator(
         &mut self,
         site: hir::ExprId,
-        intrinsic: kagari_hir::builtin::surface::StandardIntrinsic,
-        input: &kagari_hir::types::TypeId,
+        intrinsic: StandardIntrinsic,
+        input: &TypeId,
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
         if matches!(
@@ -147,18 +149,14 @@ impl FunctionLowerer<'_, '_> {
                 } else if intrinsic == StandardIntrinsic::ResultMapErr {
                     let concrete = self
                         .planner
-                        .arguments(
-                            std::slice::from_ref(&output),
-                            &self.instance.substitution,
-                            span,
-                        )?
+                        .arguments(slice::from_ref(&output), &self.instance.substitution, span)?
                         .remove(0);
                     let mapped = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::MapResultError {
                         dst: mapped,
                         original: args[0],
                         error: value,
-                        ty: crate::module::abi::AbiType::from_checked_type(&concrete),
+                        ty: AbiType::from_checked_type(&concrete),
                     });
                     mapped
                 } else {
@@ -179,7 +177,7 @@ impl FunctionLowerer<'_, '_> {
                     let concrete = self
                         .planner
                         .arguments(
-                            std::slice::from_ref(&output),
+                            slice::from_ref(&output),
                             &self.instance.substitution,
                             self.analyzed.lowered.source_map.expr_span(site),
                         )?
@@ -189,7 +187,7 @@ impl FunctionLowerer<'_, '_> {
                         dst: mapped,
                         original: args[0],
                         error: payload.expect("Result error payload"),
-                        ty: crate::module::abi::AbiType::from_checked_type(&concrete),
+                        ty: AbiType::from_checked_type(&concrete),
                     });
                     mapped
                 } else {

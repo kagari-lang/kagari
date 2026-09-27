@@ -1,10 +1,12 @@
 //! Guards prevent callbacks from modifying prepared mutation targets through aliases.
+
 use super::*;
+use kagari_ir::builtin::surface::StandardIntrinsic;
 
 impl GcHeap {
     pub(crate) fn commit_prepared_collection(
         &self,
-        operation: kagari_ir::builtin::surface::StandardIntrinsic,
+        operation: StandardIntrinsic,
         args: &[Value],
     ) -> Result<(), RuntimeError> {
         use kagari_ir::builtin::surface::StandardIntrinsic;

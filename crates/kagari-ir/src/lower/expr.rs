@@ -1,3 +1,34 @@
+use super::instances::CallableInstance;
+use super::state::LoopScope;
+use crate::module::PathRef;
+use crate::module::abi::AbiType;
+use crate::module::abi::NominalAbiType;
+use crate::module::ids::BlockId;
+use crate::module::ids::LocalId;
+use crate::module::instruction::InterfaceCallContract;
+use crate::module::instruction::SourceFunctionContract;
+use crate::module::instruction::StandardEnumOp;
+use crate::module::instruction::UnaryOp;
+use crate::module::numeric::NumericConversion;
+use hir::BinaryOp as HirBinaryOp;
+use hir::Condition;
+use hir::ExprKind;
+use hir::PatternKind;
+use kagari_common::collection::CollectionAccess;
+use kagari_common::host_interface;
+use kagari_hir::builtin::traits;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::declarations::DeclarationId;
+use kagari_hir::resolver::ResolvedName;
+use kagari_hir::typeck::CallTarget as TypeckCallTarget;
+use kagari_hir::typeck::ResolvedHostPath;
+use kagari_hir::typeck::ScalarValue;
+use kagari_hir::types::BuiltinType;
+use kagari_hir::types::NominalType;
+use kagari_hir::types::TypeId;
+use smallvec::SmallVec;
+use std::collections::HashMap;
+use std::slice;
 mod adapters;
 mod collections;
 mod enum_extensions;
@@ -31,13 +62,13 @@ impl FunctionLowerer<'_, '_> {
         for resolved in self.analyzed.names.closure_captures(expr_id) {
             let local = self.lookup_binding(*resolved)?;
             let ty = match resolved {
-                kagari_hir::resolver::ResolvedName::Local(id) => self
+                ResolvedName::Local(id) => self
                     .analyzed
                     .typed
                     .type_table
                     .local_type(*id)
                     .ok_or(IrLoweringError::MissingLocalType(*id))?,
-                kagari_hir::resolver::ResolvedName::Param(id) => self
+                ResolvedName::Param(id) => self
                     .analyzed
                     .typed
                     .functions
@@ -115,7 +146,7 @@ impl FunctionLowerer<'_, '_> {
             {
                 let function = self.planner.enqueue_callable(
                     &self.instance,
-                    super::instances::CallableInstance {
+                    CallableInstance {
                         receiver,
                         interface,
                         span: self.analyzed.lowered.source_map.expr_span(expr_id),
@@ -146,36 +177,32 @@ impl FunctionLowerer<'_, '_> {
                     let types = self.planner.arguments(
                         &[
                             coercion.concrete_type,
-                            kagari_hir::types::TypeId::Trait(coercion.interface_type),
+                            TypeId::Trait(coercion.interface_type),
                         ],
                         &self.instance.substitution,
                         span,
                     )?;
-                    let [
-                        kagari_hir::types::TypeId::Trait(source),
-                        kagari_hir::types::TypeId::Trait(target),
-                    ] = types.as_slice()
-                    else {
+                    let [TypeId::Trait(source), TypeId::Trait(target)] = types.as_slice() else {
                         return Err(IrLoweringError::MissingBinding("interface upcast types"));
                     };
                     let dst = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::UpcastInterface {
                         dst,
                         value,
-                        source: crate::module::abi::NominalAbiType::from_checked_type(source),
-                        target: crate::module::abi::NominalAbiType::from_checked_type(target),
+                        source: NominalAbiType::from_checked_type(source),
+                        target: NominalAbiType::from_checked_type(target),
                     });
                     return Ok(dst);
                 }
                 let types = self.planner.arguments(
                     &[
                         coercion.concrete_type.clone(),
-                        kagari_hir::types::TypeId::Trait(coercion.interface_type.clone()),
+                        TypeId::Trait(coercion.interface_type.clone()),
                     ],
                     &self.instance.substitution,
                     span,
                 )?;
-                let kagari_hir::types::TypeId::Trait(interface) = &types[1] else {
+                let TypeId::Trait(interface) = &types[1] else {
                     return Err(IrLoweringError::MissingBinding("interface demand type"));
                 };
                 self.planner
@@ -192,7 +219,7 @@ impl FunctionLowerer<'_, '_> {
                             .arguments(
                                 &[
                                     coercion.concrete_type,
-                                    kagari_hir::types::TypeId::Trait(coercion.interface_type),
+                                    TypeId::Trait(coercion.interface_type),
                                 ],
                                 &self.instance.substitution,
                                 span,
@@ -200,7 +227,7 @@ impl FunctionLowerer<'_, '_> {
                             .into_iter();
                         let receiver = types.next().expect("receiver argument");
                         let applied = types.next().expect("interface argument");
-                        let kagari_hir::types::TypeId::Trait(interface) = applied else {
+                        let TypeId::Trait(interface) = applied else {
                             return Err(IrLoweringError::MissingBinding("host interface type"));
                         };
                         (
@@ -238,10 +265,7 @@ impl FunctionLowerer<'_, '_> {
                         }
                         (
                             declaration,
-                            arguments
-                                .iter()
-                                .map(crate::module::abi::AbiType::from_checked_type)
-                                .collect(),
+                            arguments.iter().map(AbiType::from_checked_type).collect(),
                         )
                     }
                 };
@@ -262,17 +286,15 @@ impl FunctionLowerer<'_, '_> {
                 .type_table
                 .coerced_expr_type(expr_id)
                 .ok_or(IrLoweringError::MissingExprType(expr_id))?;
-            if ty != kagari_hir::types::TypeId::Unknown && ty != kagari_hir::types::TypeId::Error {
+            if ty != TypeId::Unknown && ty != TypeId::Error {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
                 let ty = self
                     .planner
                     .arguments(&[ty], &self.instance.substitution, span)?
                     .remove(0);
-                let abi = crate::module::abi::AbiType::from_checked_type(&ty);
+                let abi = AbiType::from_checked_type(&ty);
                 // A distinct move records access weakening without changing an alias's contract.
-                if ty.collection_access()
-                    == Some(kagari_common::collection::CollectionAccess::ReadOnly)
-                {
+                if ty.collection_access() == Some(CollectionAccess::ReadOnly) {
                     let dst = self.alloc_temp(value.ty);
                     self.emit(Instruction::Move { dst, src: value });
                     value = dst;
@@ -296,14 +318,11 @@ impl FunctionLowerer<'_, '_> {
         {
             let span = self.analyzed.lowered.source_map.expr_span(expr_id);
             let types = self.planner.arguments(
-                &[
-                    fact.receiver,
-                    kagari_hir::types::TypeId::Trait(fact.interface),
-                ],
+                &[fact.receiver, TypeId::Trait(fact.interface)],
                 &self.instance.substitution,
                 span,
             )?;
-            let kagari_hir::types::TypeId::Trait(interface) = &types[1] else {
+            let TypeId::Trait(interface) = &types[1] else {
                 return Err(IrLoweringError::MissingBinding("constant trait"));
             };
             let (implementation, _) = self
@@ -335,7 +354,7 @@ impl FunctionLowerer<'_, '_> {
         }
         if let Some(variant) = self.analyzed.typed.type_table.standard_constructor(expr_id) {
             let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
-                hir::ExprKind::Call { args, .. } => args.to_vec(),
+                ExprKind::Call { args, .. } => args.to_vec(),
                 _ => Vec::new(),
             };
             let fields = match self.lower_values(&args)? {
@@ -350,7 +369,7 @@ impl FunctionLowerer<'_, '_> {
                 .ok_or(IrLoweringError::MissingExprType(expr_id))?;
             return self.standard_enum_op(
                 &ty,
-                crate::module::instruction::StandardEnumOp::Make(variant.index() as u32),
+                StandardEnumOp::Make(variant.index() as u32),
                 fields.first().copied(),
             );
         }
@@ -368,8 +387,8 @@ impl FunctionLowerer<'_, '_> {
                 .ok_or(IrLoweringError::MissingBinding("checked enum variant"))?
                 .slot;
             let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
-                hir::ExprKind::Call { args, .. } => args.to_vec(),
-                hir::ExprKind::Name { .. } => Vec::new(),
+                ExprKind::Call { args, .. } => args.to_vec(),
+                ExprKind::Name { .. } => Vec::new(),
                 _ => {
                     return Err(IrLoweringError::MissingBinding(
                         "enum constructor expression",
@@ -400,10 +419,10 @@ impl FunctionLowerer<'_, '_> {
         }
         let expr = self.analyzed.lowered.module.expr(expr_id).clone();
         match expr.kind {
-            hir::ExprKind::Missing => Err(IrLoweringError::UnresolvedExpr(expr_id)),
-            hir::ExprKind::Name { .. } => self.lower_name_expr(expr_id),
-            hir::ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
-            hir::ExprKind::Propagate { expr } => {
+            ExprKind::Missing => Err(IrLoweringError::UnresolvedExpr(expr_id)),
+            ExprKind::Name { .. } => self.lower_name_expr(expr_id),
+            ExprKind::Literal(_) => Err(IrLoweringError::MissingBinding("checked literal")),
+            ExprKind::Propagate { expr } => {
                 use crate::module::instruction::StandardEnumOp;
                 let value = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
@@ -441,8 +460,7 @@ impl FunctionLowerer<'_, '_> {
                         .type_table
                         .call_resolution(expr_id)
                         .ok_or(IrLoweringError::MissingBinding("propagation conversion"))?;
-                    let kagari_hir::typeck::CallTarget::TraitMethod { method, interface } =
-                        conversion.target
+                    let TypeckCallTarget::TraitMethod { method, interface } = conversion.target
                     else {
                         return Err(IrLoweringError::MissingBinding("propagation From contract"));
                     };
@@ -470,7 +488,7 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(success);
                 self.standard_enum_op(&ty, StandardEnumOp::Read(0), Some(value))
             }
-            hir::ExprKind::InterpolatedString(parts) => {
+            ExprKind::InterpolatedString(parts) => {
                 let elements = match self.lower_values(&parts)? {
                     ControlFlow::Continue(values) => values,
                     ControlFlow::Break(value) => return Ok(value),
@@ -493,7 +511,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
-            hir::ExprKind::FormatPart { expr, .. } => {
+            ExprKind::FormatPart { expr, .. } => {
                 if self
                     .analyzed
                     .typed
@@ -505,7 +523,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 self.lower_call(expr_id, &[])
             }
-            hir::ExprKind::Cast { expr, .. } => {
+            ExprKind::Cast { expr, .. } => {
                 let src = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
                     return Ok(src);
@@ -522,14 +540,10 @@ impl FunctionLowerer<'_, '_> {
                     .type_table
                     .expr_type(expr_id)
                     .ok_or(IrLoweringError::MissingExprType(expr_id))?;
-                let (
-                    kagari_hir::types::TypeId::Builtin(source),
-                    kagari_hir::types::TypeId::Builtin(target),
-                ) = (source, target)
-                else {
+                let (TypeId::Builtin(source), TypeId::Builtin(target)) = (source, target) else {
                     return Err(IrLoweringError::MissingBinding("concrete numeric cast"));
                 };
-                let conversion = crate::module::numeric::NumericConversion {
+                let conversion = NumericConversion {
                     source,
                     target,
                     checked: false,
@@ -545,7 +559,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
-            hir::ExprKind::Prefix { op, expr } => {
+            ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;
                 if self.current_block_terminated() {
                     return Ok(operand);
@@ -567,7 +581,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
-            hir::ExprKind::Binary { lhs, op, rhs } => {
+            ExprKind::Binary { lhs, op, rhs } => {
                 if matches!(op, hir::BinaryOp::AndAnd | hir::BinaryOp::OrOr) {
                     return self.lower_short_circuit(expr_id, lhs, op, rhs);
                 }
@@ -627,19 +641,15 @@ impl FunctionLowerer<'_, '_> {
                             self.function.debug.source_span,
                         )?
                         .remove(0);
-                    let equal = self.lower_protocol(
-                        kagari_hir::builtin::traits::StandardTrait::PartialEq,
-                        &ty,
-                        &[lhs, rhs],
-                        0,
-                    )?;
-                    if op == hir::BinaryOp::Eq {
+                    let equal =
+                        self.lower_protocol(StandardTrait::PartialEq, &ty, &[lhs, rhs], 0)?;
+                    if op == HirBinaryOp::Eq {
                         return Ok(equal);
                     }
                     let dst = self.alloc_temp(ValueType::Bool);
                     self.emit(Instruction::Unary {
                         dst,
-                        op: crate::module::instruction::UnaryOp::Not,
+                        op: UnaryOp::Not,
                         operand: equal,
                     });
                     return Ok(dst);
@@ -653,32 +663,32 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
-            hir::ExprKind::Range {
+            ExprKind::Range {
                 start,
                 end,
                 inclusive,
             } => self.lower_range(expr_id, start, end, inclusive),
-            hir::ExprKind::Call { args, .. } => self.lower_call(expr_id, &args),
-            hir::ExprKind::Block(block) => {
+            ExprKind::Call { args, .. } => self.lower_call(expr_id, &args),
+            ExprKind::Block(block) => {
                 if let Some(temp) = self.lower_block(block)? {
                     Ok(temp)
                 } else {
                     Ok(self.lower_unit())
                 }
             }
-            hir::ExprKind::If {
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => self.lower_if(expr_id, condition, then_branch, else_branch),
-            hir::ExprKind::Field { receiver, .. } => self.lower_field(expr_id, receiver),
-            hir::ExprKind::Index { receiver, index } => self.lower_index(expr_id, receiver, index),
-            hir::ExprKind::Match { scrutinee, arms } => self.lower_match(expr_id, scrutinee, arms),
-            hir::ExprKind::Loop { body } => self.lower_loop_expr(expr_id, body),
-            hir::ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
-            hir::ExprKind::Tuple(elements) if elements.is_empty() => Ok(self.lower_unit()),
-            hir::ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
-            hir::ExprKind::ArrayRepeat { value, count } => {
+            ExprKind::Field { receiver, .. } => self.lower_field(expr_id, receiver),
+            ExprKind::Index { receiver, index } => self.lower_index(expr_id, receiver, index),
+            ExprKind::Match { scrutinee, arms } => self.lower_match(expr_id, scrutinee, arms),
+            ExprKind::Loop { body } => self.lower_loop_expr(expr_id, body),
+            ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
+            ExprKind::Tuple(elements) if elements.is_empty() => Ok(self.lower_unit()),
+            ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
+            ExprKind::ArrayRepeat { value, count } => {
                 let values = match self.lower_values(&[value, count])? {
                     ControlFlow::Continue(values) => values,
                     ControlFlow::Break(value) => return Ok(value),
@@ -691,8 +701,8 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(dst)
             }
-            hir::ExprKind::Array(elements) => self.lower_array(expr_id, elements),
-            hir::ExprKind::Closure { .. } => self.lower_closure(expr_id),
+            ExprKind::Array(elements) => self.lower_array(expr_id, elements),
+            ExprKind::Closure { .. } => self.lower_closure(expr_id),
         }
     }
 
@@ -714,12 +724,12 @@ impl FunctionLowerer<'_, '_> {
         let result = self.alloc_temp(self.expr_type(expr_id)?);
         let mut bindings = Vec::new();
         match condition {
-            hir::Condition::Expr(_) => self.set_terminator(Terminator::Branch {
+            Condition::Expr(_) => self.set_terminator(Terminator::Branch {
                 cond,
                 then_block,
                 else_block,
             }),
-            hir::Condition::Binding {
+            Condition::Binding {
                 pattern,
                 initializer,
             } => {
@@ -788,7 +798,7 @@ impl FunctionLowerer<'_, '_> {
         let result = self.alloc_temp(self.expr_type(expr_id)?);
 
         match op {
-            hir::BinaryOp::AndAnd => {
+            HirBinaryOp::AndAnd => {
                 self.set_terminator(Terminator::Branch {
                     cond: lhs,
                     then_block: rhs_block,
@@ -803,7 +813,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.set_terminator(Terminator::Jump(join_block));
             }
-            hir::BinaryOp::OrOr => {
+            HirBinaryOp::OrOr => {
                 self.set_terminator(Terminator::Branch {
                     cond: lhs,
                     then_block: short_block,
@@ -933,7 +943,7 @@ impl FunctionLowerer<'_, '_> {
         let body_block = self.new_block();
         let exit_block = self.new_block();
         self.ensure_jump(body_block);
-        self.loops.push(super::state::LoopScope {
+        self.loops.push(LoopScope {
             break_block: exit_block,
             continue_block: body_block,
             break_value: Some(result),
@@ -950,9 +960,9 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         pattern: hir::PatternId,
         value: IrValue,
-        expected: &kagari_hir::types::TypeId,
-        fail: crate::module::ids::BlockId,
-        bindings: &mut Vec<(crate::module::ids::LocalId, IrValue)>,
+        expected: &TypeId,
+        fail: BlockId,
+        bindings: &mut Vec<(LocalId, IrValue)>,
     ) -> Result<(), IrLoweringError> {
         if let Some(variant) = self.analyzed.typed.type_table.standard_pattern(pattern) {
             use crate::module::instruction::StandardEnumOp;
@@ -969,10 +979,10 @@ impl FunctionLowerer<'_, '_> {
             });
             self.switch_to_block(next);
             if let Some(index) = variant.payload() {
-                let kagari_hir::types::TypeId::StandardEnum { args, .. } = expected else {
+                let TypeId::StandardEnum { args, .. } = expected else {
                     return Err(IrLoweringError::MissingBinding("standard pattern type"));
                 };
-                let hir::PatternKind::EnumVariant { fields, .. } =
+                let PatternKind::EnumVariant { fields, .. } =
                     &self.analyzed.lowered.module.pattern(pattern).kind
                 else {
                     return Err(IrLoweringError::MissingBinding("standard payload pattern"));
@@ -988,11 +998,11 @@ impl FunctionLowerer<'_, '_> {
             return Ok(());
         }
         match &self.analyzed.lowered.module.pattern(pattern).kind {
-            hir::PatternKind::Wildcard => {}
-            hir::PatternKind::Or(alternatives) => {
+            PatternKind::Wildcard => {}
+            PatternKind::Or(alternatives) => {
                 let alternatives = alternatives.clone();
                 let success = self.new_block();
-                let mut canonical = std::collections::HashMap::<String, IrValue>::new();
+                let mut canonical = HashMap::<String, IrValue>::new();
                 for (index, alternative) in alternatives.iter().copied().enumerate() {
                     let locals_before = self.function.locals.len();
                     let next = if index + 1 == alternatives.len() {
@@ -1035,7 +1045,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 self.switch_to_block(success);
             }
-            hir::PatternKind::Range { inclusive, .. } => {
+            PatternKind::Range { inclusive, .. } => {
                 let (start, end) = self
                     .analyzed
                     .typed
@@ -1072,7 +1082,7 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(next);
                 }
             }
-            hir::PatternKind::Name { local, name } => {
+            PatternKind::Name { local, name } => {
                 let local = *local;
                 let name = name.clone();
                 let local_ty = self
@@ -1104,7 +1114,7 @@ impl FunctionLowerer<'_, '_> {
                 self.locals.insert(local, ir_local);
                 bindings.push((ir_local, value));
             }
-            hir::PatternKind::Literal(_) => {
+            PatternKind::Literal(_) => {
                 let scalar = self
                     .analyzed
                     .typed
@@ -1129,8 +1139,8 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.switch_to_block(next);
             }
-            hir::PatternKind::Tuple(elements) => {
-                let kagari_hir::types::TypeId::Tuple(types) = expected else {
+            PatternKind::Tuple(elements) => {
+                let TypeId::Tuple(types) = expected else {
                     return Err(IrLoweringError::MissingBinding("checked tuple pattern"));
                 };
                 let elements = elements.clone();
@@ -1153,7 +1163,7 @@ impl FunctionLowerer<'_, '_> {
                     self.lower_pattern_decision(element, field, ty, fail, bindings)?;
                 }
             }
-            hir::PatternKind::Struct { fields, .. } => {
+            PatternKind::Struct { fields, .. } => {
                 let fields = fields.clone();
                 let resolved = self
                     .analyzed
@@ -1172,7 +1182,7 @@ impl FunctionLowerer<'_, '_> {
                     let signature = self.analyzed.aggregates.field(declaration).ok_or(
                         IrLoweringError::MissingBinding("struct pattern field signature"),
                     )?;
-                    let kagari_hir::types::TypeId::Struct(owner) = expected else {
+                    let TypeId::Struct(owner) = expected else {
                         return Err(IrLoweringError::MissingBinding(
                             "checked struct pattern type",
                         ));
@@ -1198,9 +1208,9 @@ impl FunctionLowerer<'_, '_> {
                     self.lower_pattern_decision(field.pattern, member, &ty, fail, bindings)?;
                 }
             }
-            hir::PatternKind::EnumVariant { fields, .. } => {
+            PatternKind::EnumVariant { fields, .. } => {
                 let fields = fields.clone();
-                let kagari_hir::types::TypeId::Enum(owner) = expected else {
+                let TypeId::Enum(owner) = expected else {
                     return Err(IrLoweringError::MissingBinding("checked enum pattern type"));
                 };
                 let variant = self
@@ -1236,7 +1246,7 @@ impl FunctionLowerer<'_, '_> {
                         "checked enum pattern arity",
                     ));
                 }
-                let concrete = kagari_hir::types::NominalType {
+                let concrete = NominalType {
                     associated_types: Default::default(),
                     declaration: owner.declaration.clone(),
                     arguments: self.planner.arguments(
@@ -1245,7 +1255,7 @@ impl FunctionLowerer<'_, '_> {
                         self.analyzed.lowered.source_map.pattern_span(pattern),
                     )?,
                 };
-                let enumeration = crate::module::abi::NominalAbiType::from_checked_type(&concrete);
+                let enumeration = NominalAbiType::from_checked_type(&concrete);
                 let cond = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::TestEnumVariant {
                     dst: cond,
@@ -1333,7 +1343,7 @@ impl FunctionLowerer<'_, '_> {
                 self.function.debug.source_span,
             )?
             .remove(0);
-        let ty = crate::module::abi::AbiType::from_checked_type(&ty);
+        let ty = AbiType::from_checked_type(&ty);
         let mut values = values.into_iter();
         let first = start.and_then(|_| values.next());
         let last = end.and_then(|_| values.next());
@@ -1366,7 +1376,7 @@ impl FunctionLowerer<'_, '_> {
                 "checked initializer field count",
             ));
         }
-        let mut lowered_fields = smallvec::SmallVec::new();
+        let mut lowered_fields = SmallVec::new();
         for (field, target) in fields.iter().zip(target.fields) {
             let target =
                 target.ok_or(IrLoweringError::MissingBinding("checked initializer field"))?;
@@ -1396,7 +1406,7 @@ impl FunctionLowerer<'_, '_> {
     fn lower_host_path_read(
         &mut self,
         expr_id: hir::ExprId,
-        checked: kagari_hir::typeck::ResolvedHostPath,
+        checked: ResolvedHostPath,
     ) -> Result<IrValue, IrLoweringError> {
         let root_or_view = self.lower_expr(checked.root)?;
         if self.current_block_terminated() {
@@ -1415,7 +1425,7 @@ impl FunctionLowerer<'_, '_> {
             dst,
             root_or_view,
             dynamic_args,
-            path: crate::module::PathRef {
+            path: PathRef {
                 declaration: Some(checked.declaration),
                 contract_fingerprint: fingerprint,
                 root_ty: root_or_view.ty,
@@ -1533,13 +1543,12 @@ impl FunctionLowerer<'_, '_> {
         }
 
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
-            && kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                .is_some_and(|kind| {
-                    kind.operator()
-                        || kind.collection()
-                        || kind.iteration()
-                        || kind == kagari_hir::builtin::traits::StandardTrait::RangeBounds
-                })
+            && StandardTrait::from_id(&interface.declaration).is_some_and(|kind| {
+                kind.operator()
+                    || kind.collection()
+                    || kind.iteration()
+                    || kind == StandardTrait::RangeBounds
+            })
         {
             let receiver = call
                 .receiver
@@ -1553,8 +1562,7 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             };
-            if kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                == Some(kagari_hir::builtin::traits::StandardTrait::Fn)
+            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
                 && matches!(&self.analyzed.lowered.module.expr(expr).kind, hir::ExprKind::Call { callee, .. } if *callee == receiver)
             {
                 let receiver_type = self
@@ -1567,7 +1575,7 @@ impl FunctionLowerer<'_, '_> {
                     .planner
                     .arguments(&[receiver_type], &self.instance.substitution, span)?
                     .remove(0);
-                if let kagari_hir::types::TypeId::Function { result, .. } = receiver_type {
+                if let TypeId::Function { result, .. } = receiver_type {
                     // Specializing a callable bound does not allocate an argument tuple for closures.
                     return self.call_function_value(values[0], &result, &values[1..]);
                 }
@@ -1587,8 +1595,7 @@ impl FunctionLowerer<'_, '_> {
             return self.lower_selected_operator(expr, &values);
         }
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
-            && let Some(protocol) =
-                kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
+            && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
             && protocol.equality_protocol()
         {
             let receiver = call
@@ -1630,13 +1637,13 @@ impl FunctionLowerer<'_, '_> {
                     .planner
                     .arguments(&[ty], &self.instance.substitution, span)?;
                 let ty = types.pop().expect("receiver type");
-                let interface = kagari_hir::types::NominalType {
+                let interface = NominalType {
                     associated_types: interface
                         .associated_types
                         .iter()
                         .map(|(id, ty)| {
                             let mut types = self.planner.arguments(
-                                std::slice::from_ref(ty),
+                                slice::from_ref(ty),
                                 &self.instance.substitution,
                                 span,
                             )?;
@@ -1678,10 +1685,8 @@ impl FunctionLowerer<'_, '_> {
                         },
                         Vec::new(),
                         Some(CallTarget::InterfaceMethod(Box::new(
-                            crate::module::instruction::InterfaceCallContract {
-                                interface: crate::module::abi::NominalAbiType::from_checked_type(
-                                    &interface,
-                                ),
+                            InterfaceCallContract {
+                                interface: NominalAbiType::from_checked_type(&interface),
                                 method_slot: u32::try_from(method_contract.slot).map_err(|_| {
                                     IrLoweringError::UnsupportedExpr(
                                         "interface method slot overflow",
@@ -1717,9 +1722,8 @@ impl FunctionLowerer<'_, '_> {
                     .catalog
                     .implementation_method(&method, &interface, &ty)
                     .is_none()
-                    && let Some(protocol) =
-                        kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                    && kagari_hir::builtin::traits::intrinsic_holds(
+                    && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+                    && traits::intrinsic_holds(
                         protocol,
                         &ty,
                         Some(self.planner.catalog),
@@ -1816,14 +1820,12 @@ impl FunctionLowerer<'_, '_> {
                             span,
                         )?)
                     } else {
-                        CallTarget::SourceFunction(Box::new(
-                            crate::module::instruction::SourceFunctionContract {
-                                declaration: implementation.clone(),
-                                arguments,
-                                params,
-                                return_type,
-                            },
-                        ))
+                        CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                            declaration: implementation.clone(),
+                            arguments,
+                            params,
+                            return_type,
+                        }))
                     };
                     (
                         SemanticCallTarget::TraitMethod { method, interface },
@@ -1857,7 +1859,7 @@ impl FunctionLowerer<'_, '_> {
                 let receiver = call
                     .receiver
                     .ok_or(IrLoweringError::MissingBinding("closure callee"))?;
-                let kagari_hir::types::TypeId::Function { params, result } = self
+                let TypeId::Function { params, result } = self
                     .analyzed
                     .typed
                     .type_table
@@ -1915,11 +1917,9 @@ impl FunctionLowerer<'_, '_> {
                         let declaration = self
                             .analyzed
                             .declarations
-                            .target(kagari_hir::resolver::ResolvedName::Function(id))
+                            .target(ResolvedName::Function(id))
                             .ok_or(IrLoweringError::MissingBinding("call declaration"))?;
-                        let kagari_hir::declarations::DeclarationId::Definition(declaration) =
-                            &declaration.id
-                        else {
+                        let DeclarationId::Definition(declaration) = &declaration.id else {
                             return Err(IrLoweringError::MissingBinding("call identity"));
                         };
                         if declaration.module
@@ -1950,14 +1950,12 @@ impl FunctionLowerer<'_, '_> {
                             let return_type =
                                 self.planner
                                     .value_type(&typed.return_type, &substitution, span)?;
-                            CallTarget::SourceFunction(Box::new(
-                                crate::module::instruction::SourceFunctionContract {
-                                    declaration: declaration.clone(),
-                                    arguments,
-                                    params,
-                                    return_type,
-                                },
-                            ))
+                            CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                                declaration: declaration.clone(),
+                                arguments,
+                                params,
+                                return_type,
+                            }))
                         }
                     }
                     SemanticCallTarget::SourceFunction(id) => {
@@ -1979,14 +1977,12 @@ impl FunctionLowerer<'_, '_> {
                             &Default::default(),
                             span,
                         )?;
-                        CallTarget::SourceFunction(Box::new(
-                            crate::module::instruction::SourceFunctionContract {
-                                declaration: imported.declaration.clone(),
-                                arguments: Vec::new(),
-                                params,
-                                return_type,
-                            },
-                        ))
+                        CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                            declaration: imported.declaration.clone(),
+                            arguments: Vec::new(),
+                            params,
+                            return_type,
+                        }))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         if matches!(
@@ -2133,11 +2129,7 @@ impl FunctionLowerer<'_, '_> {
                                 .typed
                                 .type_table
                                 .interface_coercion(source_expr)
-                                .map(|coercion| {
-                                    kagari_hir::types::TypeId::Trait(
-                                        coercion.interface_type.clone(),
-                                    )
-                                })
+                                .map(|coercion| TypeId::Trait(coercion.interface_type.clone()))
                                 .or_else(|| self.analyzed.typed.type_table.expr_type(source_expr))
                                 .ok_or(IrLoweringError::MissingExprType(source_expr))?;
                             let source = self
@@ -2177,9 +2169,9 @@ impl FunctionLowerer<'_, '_> {
                                 .arguments(&[source], &self.instance.substitution, span)?
                                 .remove(0);
                             let mut interface = StandardTrait::RangeBounds.nominal();
-                            interface.arguments.push(kagari_hir::types::TypeId::Builtin(
-                                kagari_hir::types::BuiltinType::USize,
-                            ));
+                            interface
+                                .arguments
+                                .push(TypeId::Builtin(BuiltinType::USize));
                             let methods = &StandardTrait::RangeBounds.contract().methods;
                             let start = self.lower_applied_operator(
                                 interface.clone(),
@@ -2208,7 +2200,7 @@ impl FunctionLowerer<'_, '_> {
                                     .planner
                                     .arguments(&[ty], &self.instance.substitution, span)?
                                     .remove(0);
-                                let kagari_hir::types::TypeId::Array(item, _) = &ty else {
+                                let TypeId::Array(item, _) = &ty else {
                                     return Err(IrLoweringError::MissingBinding("array storage"));
                                 };
                                 self.emit_intrinsic(
@@ -2264,7 +2256,7 @@ impl FunctionLowerer<'_, '_> {
                                 .remove(0);
                             if intrinsic == StandardIntrinsic::DebugAssertEq {
                                 let equal = self.lower_protocol(
-                                    kagari_hir::builtin::traits::StandardTrait::PartialEq,
+                                    StandardTrait::PartialEq,
                                     &ty,
                                     &lowered[..2],
                                     0,
@@ -2276,8 +2268,7 @@ impl FunctionLowerer<'_, '_> {
                                 ));
                             }
                             let key = match &ty {
-                                kagari_hir::types::TypeId::Map { key, .. }
-                                | kagari_hir::types::TypeId::Set(key, _) => Some(&**key),
+                                TypeId::Map { key, .. } | TypeId::Set(key, _) => Some(&**key),
                                 _ => None,
                             };
                             if let Some(key) = key
@@ -2374,7 +2365,7 @@ impl FunctionLowerer<'_, '_> {
         helper: BuiltinFunction,
         args: &[hir::ExprId],
     ) -> Result<ControlFlow<IrValue, (CallTarget, ValueBuffer)>, IrLoweringError> {
-        let (target, operands): (_, smallvec::SmallVec<[hir::ExprId; 3]>) = match (helper, args) {
+        let (target, operands): (_, SmallVec<[hir::ExprId; 3]>) = match (helper, args) {
             (BuiltinFunction::TypeOf, [value]) => (
                 CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
                 smallvec::smallvec![*value],
@@ -2396,7 +2387,7 @@ impl FunctionLowerer<'_, '_> {
                 smallvec::smallvec![*base, *index, *value],
             ),
             (BuiltinFunction::Print, [message]) => (
-                CallTarget::HostFunction(Box::new(kagari_common::host_interface::standard_log())),
+                CallTarget::HostFunction(Box::new(host_interface::standard_log())),
                 smallvec::smallvec![*message],
             ),
             _ => {
@@ -2412,7 +2403,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn checked_field_name(&self, expr: hir::ExprId) -> Result<String, IrLoweringError> {
         match self.analyzed.typed.type_table.scalar_value(expr) {
-            Some(kagari_hir::typeck::ScalarValue::String(value)) => Ok(value.clone()),
+            Some(ScalarValue::String(value)) => Ok(value.clone()),
             _ => Err(IrLoweringError::MissingBinding(
                 "checked reflection field name",
             )),

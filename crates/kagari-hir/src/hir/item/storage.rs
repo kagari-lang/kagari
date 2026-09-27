@@ -1,4 +1,6 @@
+use crate::hir::ImplId;
 use crate::hir::{ConstId, EnumId, ExprId, FunctionId, ModuleId, StructId, TraitId, TypeRefId};
+use kagari_common::identity::ModuleIdentity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
@@ -8,11 +10,7 @@ pub enum Visibility {
 }
 
 impl Visibility {
-    pub fn allows(
-        self,
-        owner: &kagari_common::identity::ModuleIdentity,
-        accessor: &kagari_common::identity::ModuleIdentity,
-    ) -> bool {
+    pub fn allows(self, owner: &ModuleIdentity, accessor: &ModuleIdentity) -> bool {
         if self == Self::Public {
             return true;
         }
@@ -41,7 +39,7 @@ pub struct ConstItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstOwner {
     Trait(TraitId),
-    Impl(crate::hir::ImplId),
+    Impl(ImplId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

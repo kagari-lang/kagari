@@ -1,4 +1,8 @@
 use super::{BinaryOp, StandardIntrinsic, UnaryOp, ValueType};
+use kagari_common::host_interface::HostFunctionDeclaration;
+use kagari_hir::builtin::surface;
+use kagari_hir::builtin::traits;
+use kagari_hir::types::TypeId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContractError {
@@ -74,7 +78,7 @@ pub(crate) fn verify_runtime_helper_call(
 
 pub(crate) fn verify_host_call(
     dst: Option<ValueType>,
-    declaration: &kagari_common::host_interface::HostFunctionDeclaration,
+    declaration: &HostFunctionDeclaration,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
     declaration
@@ -201,7 +205,7 @@ pub(crate) fn verify_intrinsic(
         | StandardIntrinsic::ValueDebug
         | StandardIntrinsic::ValueDisplay => 1,
         _ => {
-            kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
+            surface::standard_function_by_intrinsic(intrinsic)
                 .ok_or(ContractError::Intrinsic {
                     intrinsic,
                     reason: "missing standard declaration",
@@ -226,10 +230,7 @@ pub(crate) fn verify_intrinsic(
         StandardIntrinsic::ParseNumber(ty) | StandardIntrinsic::ParseRadix(ty) => {
             if !matches!(intrinsic, StandardIntrinsic::ParseNumber(_))
                 && ty.integer_layout().is_none()
-                || kagari_hir::builtin::traits::parsing_error(&kagari_hir::types::TypeId::Builtin(
-                    ty,
-                ))
-                .is_none()
+                || traits::parsing_error(&TypeId::Builtin(ty)).is_none()
             {
                 return Err(ContractError::Intrinsic {
                     intrinsic,
@@ -243,11 +244,12 @@ pub(crate) fn verify_intrinsic(
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
         StandardIntrinsic::Integer(_, _) => {
-            let spec = kagari_hir::builtin::surface::standard_function_by_intrinsic(intrinsic)
-                .ok_or(ContractError::Intrinsic {
+            let spec = surface::standard_function_by_intrinsic(intrinsic).ok_or(
+                ContractError::Intrinsic {
                     intrinsic,
                     reason: "invalid numeric binding",
-                })?;
+                },
+            )?;
             let arguments = Default::default();
             for (index, parameter) in spec.api.params.iter().enumerate() {
                 expect_arg_ty(

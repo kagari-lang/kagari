@@ -1,5 +1,7 @@
 //! Resolve facade targets once, before declaration/name/signature consumers run.
+
 use super::*;
+use crate::builtin::traits;
 use crate::resolver::ResolvedName;
 
 impl ModuleGraph {
@@ -113,10 +115,7 @@ impl ModuleImports {
                         surface::standard_variant_in_module(module, member)
                             .map(ResolvedName::StandardVariant)
                     })
-                    .or_else(|| {
-                        crate::builtin::traits::in_module(module, member)
-                            .map(ResolvedName::StandardTrait)
-                    }),
+                    .or_else(|| traits::in_module(module, member).map(ResolvedName::StandardTrait)),
                 _ => None,
             },
         }

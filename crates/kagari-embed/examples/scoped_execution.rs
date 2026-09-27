@@ -1,5 +1,7 @@
 //! Per-call budgets and cooperative cancellation without changing runtime defaults.
+
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
 use kagari_embed::{ArtifactOptions, CompileOptions, ExecutionContext, KagariEngine, LoadOptions};
 use kagari_runtime::value::Value;
 
@@ -74,8 +76,7 @@ fn main() {
         .unwrap();
     program.modules[root].functions[alternative].name = "main".into();
     program.modules[root].function_table[alternative].name = "main".into();
-    let ambiguous =
-        kagari_embed::BytecodeArtifact::from_program(program, Default::default()).unwrap();
+    let ambiguous = BytecodeArtifact::from_program(program, Default::default()).unwrap();
     let loaded = runtime
         .load_program(ambiguous, LoadOptions::default())
         .unwrap();

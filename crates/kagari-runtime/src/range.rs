@@ -1,7 +1,13 @@
 //! Immutable integer range values; cursor state belongs to each iterator.
+
+use crate::gc::GcHeap;
+use crate::numeric;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
+use kagari_common::integer;
 use kagari_common::range::RangeKind;
 use kagari_ir::module::abi::{AbiType, BuiltinType};
+use kagari_ir::module::instruction;
+use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RangeValue {
@@ -37,24 +43,23 @@ impl RangeValue {
             kind: *kind,
             item: *item,
             start: start
-                .map(|v| crate::numeric::read_integer(*item, v))
+                .map(|v| numeric::read_integer(*item, v))
                 .transpose()?
                 .unwrap_or(0) as u64,
             end: end
-                .map(|v| crate::numeric::read_integer(*item, v))
+                .map(|v| numeric::read_integer(*item, v))
                 .transpose()?
                 .unwrap_or(0) as u64,
         })
     }
     pub fn bound(
         &self,
-        gc: &crate::gc::GcHeap,
+        gc: &GcHeap,
         range: &AbiType,
         bound: &AbiType,
         upper: bool,
     ) -> Result<Value, RuntimeError> {
-        if !self.matches(range) || !kagari_ir::module::instruction::range_bound_valid(range, bound)
-        {
+        if !self.matches(range) || !instruction::range_bound_valid(range, bound) {
             return Err(invalid());
         }
         let value = if upper {
@@ -99,7 +104,7 @@ impl RangeValue {
             return Ok(None);
         }
         let (bits, signed) = self.item.integer_layout().ok_or_else(invalid)?;
-        let (min, max) = kagari_common::integer::bounds(bits, signed);
+        let (min, max) = integer::bounds(bits, signed);
         if n < min || n > max {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -117,10 +122,7 @@ pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
     }
 }
 
-pub(crate) fn index_bound(
-    gc: &crate::gc::GcHeap,
-    value: &Value,
-) -> Result<std::ops::Bound<usize>, RuntimeError> {
+pub(crate) fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeError> {
     use crate::value::EnumTag;
     use std::ops::Bound;
     let Value::Enum(id) = value else {

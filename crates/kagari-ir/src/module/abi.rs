@@ -1,8 +1,26 @@
+use super::ValueType;
+use super::function::FunctionInstance;
+use bincode::DefaultOptions;
 use kagari_common::collection::CollectionAccess;
+use kagari_common::host_interface::HostValueType;
+use kagari_common::identity::DefinitionId;
+use kagari_common::identity::ModuleIdentity;
+use kagari_common::range::RangeKind;
+use kagari_hir::aggregates::ImplementationSignature;
 pub use kagari_hir::builtin::declarations::native_trait_default;
 pub use kagari_hir::builtin::surface::StandardEnum as StandardEnumKind;
+use kagari_hir::builtin::surface::StandardTypeConstraint;
+use kagari_hir::builtin::traits::StandardTrait;
+use kagari_hir::typeck::ConstraintTarget;
+use kagari_hir::types::AssociatedTypeFamily;
+use kagari_hir::types::AssociatedTypeParameters;
 pub use kagari_hir::types::BuiltinType;
+use kagari_hir::types::GenericParameterType;
+use kagari_hir::types::NominalType;
+use kagari_hir::types::TypeId;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleAbi {
@@ -46,7 +64,7 @@ impl PublicAbiItem {
         if let Self::InterfaceTable(table) = self {
             use bincode::Options;
             use std::fmt::Write;
-            let encoded = bincode::DefaultOptions::new()
+            let encoded = DefaultOptions::new()
                 .with_fixint_encoding()
                 .with_little_endian()
                 .serialize(&table.declaration)
@@ -126,17 +144,16 @@ pub struct VariantAbi {
 /// ValueType describes only the representation used by instruction operands.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NominalAbiType {
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::map")]
-    pub associated_types:
-        std::collections::BTreeMap<kagari_common::identity::DefinitionId, AbiType>,
+    pub associated_types: BTreeMap<DefinitionId, AbiType>,
 }
 
 impl NominalAbiType {
-    pub(crate) fn to_checked_type(&self) -> kagari_hir::types::NominalType {
-        kagari_hir::types::NominalType {
+    pub(crate) fn to_checked_type(&self) -> NominalType {
+        NominalType {
             associated_types: self
                 .associated_types
                 .iter()
@@ -151,7 +168,7 @@ impl NominalAbiType {
         }
     }
 
-    pub(crate) fn from_checked_type(ty: &kagari_hir::types::NominalType) -> Self {
+    pub(crate) fn from_checked_type(ty: &NominalType) -> Self {
         Self {
             associated_types: ty
                 .associated_types
@@ -174,24 +191,24 @@ pub enum AbiType {
         arguments: Vec<AbiType>,
         receiver: Box<AbiType>,
         interface: Box<NominalAbiType>,
-        member: kagari_common::identity::DefinitionId,
+        member: DefinitionId,
     },
-    Host(kagari_common::identity::DefinitionId),
+    Host(DefinitionId),
     /// Receiver template in a trait signature, never an executable value layout.
-    SelfType(kagari_common::identity::DefinitionId),
+    SelfType(DefinitionId),
     /// Valid only in a declaration template, never in an executable layout.
     Parameter {
-        owner: kagari_common::identity::DefinitionId,
+        owner: DefinitionId,
         position: usize,
     },
-    Builtin(kagari_hir::types::BuiltinType),
+    Builtin(BuiltinType),
     Tuple(Vec<AbiType>),
     Function {
         params: Vec<AbiType>,
         result: Box<AbiType>,
     },
     Iter(Box<AbiType>),
-    Range(Box<AbiType>, kagari_common::range::RangeKind),
+    Range(Box<AbiType>, RangeKind),
     Array(Box<AbiType>, CollectionAccess),
     Map {
         key: Box<AbiType>,
@@ -203,13 +220,13 @@ pub enum AbiType {
     Enum(NominalAbiType),
     Trait(NominalAbiType),
     StandardEnum {
-        kind: kagari_hir::builtin::surface::StandardEnum,
+        kind: StandardEnumKind,
         args: Vec<AbiType>,
     },
 }
 
 impl AbiType {
-    pub(crate) fn to_checked_type(&self) -> kagari_hir::types::TypeId {
+    pub(crate) fn to_checked_type(&self) -> TypeId {
         use kagari_hir::types::{GenericParameterType, TypeId};
         match self {
             Self::Projection {
@@ -255,7 +272,7 @@ impl AbiType {
         }
     }
 
-    pub(crate) fn from_host_type(ty: &kagari_common::host_interface::HostValueType) -> Self {
+    pub(crate) fn from_host_type(ty: &HostValueType) -> Self {
         use kagari_common::host_interface::HostValueType as Host;
         match ty {
             Host::Unit => Self::Builtin(BuiltinType::Unit),
@@ -287,15 +304,13 @@ impl AbiType {
 
     pub fn representation(&self) -> super::ValueType {
         match self {
-            Self::Host(_) => super::ValueType::HostHandle,
-            Self::Builtin(ty) => {
-                super::ValueType::from_type_id(&kagari_hir::types::TypeId::Builtin(*ty))
-            }
-            _ => super::ValueType::HeapObject,
+            Self::Host(_) => ValueType::HostHandle,
+            Self::Builtin(ty) => ValueType::from_type_id(&TypeId::Builtin(*ty)),
+            _ => ValueType::HeapObject,
         }
     }
 
-    pub(crate) fn from_checked_type(ty: &kagari_hir::types::TypeId) -> Self {
+    pub(crate) fn from_checked_type(ty: &TypeId) -> Self {
         use kagari_hir::types::TypeId;
         match ty {
             TypeId::Projection {
@@ -379,11 +394,7 @@ impl AbiType {
         true
     }
 
-    pub(crate) fn instantiate(
-        &self,
-        owner: &kagari_common::identity::DefinitionId,
-        arguments: &[AbiType],
-    ) -> Option<Self> {
+    pub(crate) fn instantiate(&self, owner: &DefinitionId, arguments: &[AbiType]) -> Option<Self> {
         let nominal = |ty: &NominalAbiType| -> Option<NominalAbiType> {
             Some(NominalAbiType {
                 associated_types: ty
@@ -470,7 +481,7 @@ pub struct TraitAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedConstAbi {
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     pub ty: AbiType,
     pub default_value: Option<String>,
 }
@@ -481,14 +492,14 @@ pub struct AssociatedTypeAbi {
     pub generic_params: Vec<GenericParameterAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub parameter_bounds: Vec<GenericBoundAbi>,
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub bounds: Vec<ConstraintAbi>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssociatedTypeFamilyAbi {
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -504,7 +515,7 @@ pub struct InterfaceTableAbi {
     pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
     pub native_bridge: bool,
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
@@ -517,13 +528,11 @@ pub struct InterfaceTableAbi {
 }
 
 impl InterfaceTableAbi {
-    pub(crate) fn checked_signature(
-        &self,
-    ) -> Option<kagari_hir::aggregates::ImplementationSignature> {
+    pub(crate) fn checked_signature(&self) -> Option<ImplementationSignature> {
         let AbiType::Trait(trait_type) = &self.trait_type else {
             return None;
         };
-        let parameter = |param: &GenericParameterAbi| kagari_hir::types::GenericParameterType {
+        let parameter = |param: &GenericParameterAbi| GenericParameterType {
             owner: param.owner.clone(),
             position: param.position,
             name: String::new(),
@@ -539,12 +548,10 @@ impl InterfaceTableAbi {
                             .iter()
                             .map(|constraint| match constraint {
                                 ConstraintAbi::Standard(value) => {
-                                    kagari_hir::typeck::ConstraintTarget::Standard(*value)
+                                    ConstraintTarget::Standard(*value)
                                 }
                                 ConstraintAbi::Trait(value) => {
-                                    kagari_hir::typeck::ConstraintTarget::Trait(
-                                        value.to_checked_type(),
-                                    )
+                                    ConstraintTarget::Trait(value.to_checked_type())
                                 }
                             })
                             .collect(),
@@ -552,7 +559,7 @@ impl InterfaceTableAbi {
                 })
                 .collect()
         };
-        Some(kagari_hir::aggregates::ImplementationSignature {
+        Some(ImplementationSignature {
             id: self.declaration.clone(),
             trait_type: trait_type.to_checked_type(),
             for_type: self.for_type.to_checked_type(),
@@ -565,8 +572,8 @@ impl InterfaceTableAbi {
                 .map(|family| {
                     (
                         family.declaration.clone(),
-                        kagari_hir::types::AssociatedTypeFamily {
-                            inputs: kagari_hir::types::AssociatedTypeParameters {
+                        AssociatedTypeFamily {
+                            inputs: AssociatedTypeParameters {
                                 parameters: family.generic_params.iter().map(parameter).collect(),
                                 bounds: bounds(&family.bounds),
                             },
@@ -592,7 +599,7 @@ impl InterfaceTableAbi {
             .zip(arguments)
             .map(|(parameter, argument)| {
                 (
-                    kagari_hir::types::GenericParameterType {
+                    GenericParameterType {
                         owner: parameter.owner.clone(),
                         position: parameter.position,
                         name: String::new(),
@@ -681,7 +688,7 @@ impl InterfaceTableAbi {
 /// The first argument is the boxed receiver; the runtime unwraps it only after
 /// checking the interface identity and selected method slot.
 pub(crate) fn interface_method_types(
-    owner: &kagari_common::identity::ModuleIdentity,
+    owner: &ModuleIdentity,
     public_items: &[PublicAbiItem],
     trait_contracts: &[TraitContract],
     interface: &NominalAbiType,
@@ -696,7 +703,7 @@ pub(crate) fn interface_method_types(
 }
 
 pub(crate) fn interface_method_semantics(
-    owner: &kagari_common::identity::ModuleIdentity,
+    owner: &ModuleIdentity,
     public_items: &[PublicAbiItem],
     trait_contracts: &[TraitContract],
     interface: &NominalAbiType,
@@ -756,7 +763,7 @@ pub(crate) fn interface_method_semantics(
         let substitution = trait_abi
             .generic_params
             .iter()
-            .map(|parameter| kagari_hir::types::GenericParameterType {
+            .map(|parameter| GenericParameterType {
                 owner: parameter.owner.clone(),
                 position: parameter.position,
                 name: String::new(),
@@ -784,20 +791,20 @@ pub(crate) fn interface_method_semantics(
 /// Executable contract for a private trait absent from the public ABI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraitContract {
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     pub abi: TraitAbi,
 }
 
 /// Concrete executable identity; diagnostic function names are not binding keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ConcreteFunctionIdentity {
-    pub declaration: kagari_common::identity::DefinitionId,
+    pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
 }
 
 impl ConcreteFunctionIdentity {
-    pub(crate) fn from_ir(instance: &super::function::FunctionInstance) -> Self {
+    pub(crate) fn from_ir(instance: &FunctionInstance) -> Self {
         Self {
             declaration: instance.declaration.clone(),
             arguments: instance
@@ -813,7 +820,7 @@ mod wire;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenericParameterAbi {
-    pub owner: kagari_common::identity::DefinitionId,
+    pub owner: DefinitionId,
     pub position: usize,
 }
 
@@ -826,7 +833,7 @@ pub struct GenericBoundAbi {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ConstraintAbi {
-    Standard(kagari_hir::builtin::surface::StandardTypeConstraint),
+    Standard(StandardTypeConstraint),
     Trait(NominalAbiType),
 }
 
@@ -835,11 +842,9 @@ pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
 pub(crate) mod verify;
 
 /// Canonical standard contracts are engine-owned, never supplied by an artifact.
-pub fn standard_trait_contract(
-    id: &kagari_common::identity::DefinitionId,
-) -> Option<&'static TraitAbi> {
+pub fn standard_trait_contract(id: &DefinitionId) -> Option<&'static TraitAbi> {
     use kagari_hir::builtin::traits::StandardTrait;
-    static CONTRACTS: std::sync::OnceLock<Vec<TraitAbi>> = std::sync::OnceLock::new();
+    static CONTRACTS: OnceLock<Vec<TraitAbi>> = OnceLock::new();
     let kind = StandardTrait::from_id(id)?;
     Some(
         &CONTRACTS.get_or_init(|| {
@@ -860,19 +865,22 @@ pub fn standard_trait_contract(
                                 bounds: bounds
                                     .iter()
                                     .map(|bound| match bound {
-                                        kagari_hir::typeck::ConstraintTarget::Standard(s) => {
+                                        ConstraintTarget::Standard(s) => {
                                             ConstraintAbi::Standard(*s)
                                         }
-                                        kagari_hir::typeck::ConstraintTarget::Trait(t) => {
-                                            ConstraintAbi::Trait(NominalAbiType::from_checked_type(
-                                                t,
-                                            ))
-                                        }
+                                        ConstraintTarget::Trait(t) => ConstraintAbi::Trait(
+                                            NominalAbiType::from_checked_type(t),
+                                        ),
                                     })
                                     .collect(),
                             })
                             .collect(),
-                        default_methods: contract.methods.iter().filter(|m| m.has_default).map(|m| m.slot).collect(),
+                        default_methods: contract
+                            .methods
+                            .iter()
+                            .filter(|m| m.has_default)
+                            .map(|m| m.slot)
+                            .collect(),
                         generic_params: contract
                             .generic_params
                             .iter()
@@ -892,17 +900,37 @@ pub fn standard_trait_contract(
                             .iter()
                             .map(|method| FunctionAbi {
                                 name: method.name.clone(),
-                                generic_params: method.generic_params.iter()
+                                generic_params: method
+                                    .generic_params
+                                    .iter()
                                     .skip(contract.generic_params.len())
-                                    .map(|p| GenericParameterAbi { owner: p.owner.clone(), position: p.position })
+                                    .map(|p| GenericParameterAbi {
+                                        owner: p.owner.clone(),
+                                        position: p.position,
+                                    })
                                     .collect(),
-                                bounds: standard_bounds(method.bounds.iter().map(|(ty, bounds)| GenericBoundAbi {
-                                    ty: AbiType::from_checked_type(ty),
-                                    constraints: bounds.iter().map(|bound| match bound {
-                                        kagari_hir::typeck::ConstraintTarget::Standard(s) => ConstraintAbi::Standard(*s),
-                                        kagari_hir::typeck::ConstraintTarget::Trait(t) => ConstraintAbi::Trait(NominalAbiType::from_checked_type(t)),
-                                    }).collect(),
-                                }).collect()),
+                                bounds: standard_bounds(
+                                    method
+                                        .bounds
+                                        .iter()
+                                        .map(|(ty, bounds)| GenericBoundAbi {
+                                            ty: AbiType::from_checked_type(ty),
+                                            constraints: bounds
+                                                .iter()
+                                                .map(|bound| match bound {
+                                                    ConstraintTarget::Standard(s) => {
+                                                        ConstraintAbi::Standard(*s)
+                                                    }
+                                                    ConstraintTarget::Trait(t) => {
+                                                        ConstraintAbi::Trait(
+                                                            NominalAbiType::from_checked_type(t),
+                                                        )
+                                                    }
+                                                })
+                                                .collect(),
+                                        })
+                                        .collect(),
+                                ),
                                 params: method
                                     .params
                                     .iter()
@@ -933,7 +961,6 @@ fn standard_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
 }
 
 /// Whether a canonical standard interface uses collection identity semantics.
-pub fn is_collection_interface(id: &kagari_common::identity::DefinitionId) -> bool {
-    kagari_hir::builtin::traits::StandardTrait::from_id(id)
-        .is_some_and(kagari_hir::builtin::traits::StandardTrait::collection)
+pub fn is_collection_interface(id: &DefinitionId) -> bool {
+    StandardTrait::from_id(id).is_some_and(StandardTrait::collection)
 }

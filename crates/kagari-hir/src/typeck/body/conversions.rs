@@ -1,6 +1,11 @@
 use super::*;
+use crate::builtin::traits;
 use crate::builtin::traits::{StandardTrait, conversion_requirement};
+use crate::hir::TypeKind;
+use crate::typeck::ty;
+use crate::types;
 use crate::types::NominalType;
+use surface::StandardEnum;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_conversion_call(
@@ -26,7 +31,7 @@ impl BodyChecker<'_> {
                 let target = if protocol.fallible_conversion() {
                     match expected {
                         Some(TypeId::StandardEnum {
-                            kind: surface::StandardEnum::Result,
+                            kind: StandardEnum::Result,
                             args,
                         }) => args.first().cloned(),
                         _ => None,
@@ -66,7 +71,7 @@ impl BodyChecker<'_> {
                     implementation: None,
                 };
                 let (mut target, qualified) = if let Some(id) = explicit_type {
-                    if let crate::hir::TypeKind::Projection {
+                    if let TypeKind::Projection {
                         receiver,
                         trait_ref,
                         ..
@@ -102,10 +107,7 @@ impl BodyChecker<'_> {
                 } else if owner == "Self" {
                     (env.self_type.clone().unwrap_or(TypeId::Error), None)
                 } else {
-                    (
-                        super::super::ty::resolve_named_type(owner, context).ty,
-                        None,
-                    )
+                    (ty::resolve_named_type(owner, context).ty, None)
                 };
                 if protocol == StandardTrait::FromIterator
                     && explicit_type.is_none()
@@ -243,7 +245,7 @@ impl BodyChecker<'_> {
             return Some(TypeId::Error);
         }
         let error = if protocol.fallible_conversion() || protocol == StandardTrait::FromStr {
-            let own = crate::types::associated_type_id(
+            let own = types::associated_type_id(
                 &interface.declaration,
                 if protocol == StandardTrait::FromStr {
                     "Err"
@@ -282,7 +284,7 @@ impl BodyChecker<'_> {
         }
         Some(match error {
             Some(error) => TypeId::StandardEnum {
-                kind: surface::StandardEnum::Result,
+                kind: StandardEnum::Result,
                 args: vec![target, error],
             },
             None => target,
@@ -316,7 +318,7 @@ impl BodyChecker<'_> {
         self.trait_bounds_for(&target, env)
             .iter()
             .any(|b| b.satisfies(&required))
-            || crate::builtin::traits::intrinsic_applies(
+            || traits::intrinsic_applies(
                 &required,
                 &target,
                 Some(self.aggregates),

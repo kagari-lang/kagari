@@ -1,3 +1,5 @@
+use crate::hir::HirArenaId;
+use crate::hir::HirOwner;
 use crate::hir::{
     BlockData, BlockId, ExprData, ExprId, PatternData, PatternId, PlaceData, PlaceId, StmtData,
     StmtId, TypeData, TypeRefId,
@@ -5,17 +7,17 @@ use crate::hir::{
 
 #[derive(Debug, Clone, Default)]
 pub struct Body {
-    pub(crate) arena: crate::hir::HirArenaId,
-    pub(crate) blocks: Vec<(crate::hir::HirOwner, BlockData)>,
-    pub(crate) stmts: Vec<(crate::hir::HirOwner, StmtData)>,
-    pub(crate) exprs: Vec<(crate::hir::HirOwner, ExprData)>,
-    pub(crate) places: Vec<(crate::hir::HirOwner, PlaceData)>,
-    pub(crate) patterns: Vec<(crate::hir::HirOwner, PatternData)>,
-    pub(crate) types: Vec<(crate::hir::HirOwner, TypeData)>,
+    pub(crate) arena: HirArenaId,
+    pub(crate) blocks: Vec<(HirOwner, BlockData)>,
+    pub(crate) stmts: Vec<(HirOwner, StmtData)>,
+    pub(crate) exprs: Vec<(HirOwner, ExprData)>,
+    pub(crate) places: Vec<(HirOwner, PlaceData)>,
+    pub(crate) patterns: Vec<(HirOwner, PatternData)>,
+    pub(crate) types: Vec<(HirOwner, TypeData)>,
 }
 
 impl Body {
-    pub fn arena(&self) -> crate::hir::HirArenaId {
+    pub fn arena(&self) -> HirArenaId {
         self.arena
     }
     pub fn expressions(&self) -> impl Iterator<Item = (ExprId, &ExprData)> {

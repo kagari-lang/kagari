@@ -1,3 +1,5 @@
+use crate::hir::FieldId;
+use crate::hir::VariantId;
 use crate::hir::{EnumId, ImplId, MethodId, StructId, TypeRefId, Writeability};
 
 use super::Visibility;
@@ -15,7 +17,7 @@ pub struct Struct {
 
 #[derive(Debug, Clone)]
 pub struct Field {
-    pub id: crate::hir::FieldId,
+    pub id: FieldId,
     pub visibility: Visibility,
     pub writeability: Writeability,
     pub name: String,
@@ -35,7 +37,7 @@ pub struct Enum {
 
 #[derive(Debug, Clone)]
 pub struct Variant {
-    pub id: crate::hir::VariantId,
+    pub id: VariantId,
     pub name: String,
     pub payload: Vec<TypeRefId>,
 }

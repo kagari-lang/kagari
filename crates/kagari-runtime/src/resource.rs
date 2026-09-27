@@ -1,3 +1,5 @@
+use crate::execution_state::ExecutionState;
+use crate::session::SessionState;
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
@@ -33,15 +35,15 @@ pub struct ResourceCounters {
 
 #[derive(Debug)]
 pub struct ResourceState {
-    active_session: RefCell<Option<Rc<crate::session::SessionState>>>,
-    execution: crate::execution_state::ExecutionState,
+    active_session: RefCell<Option<Rc<SessionState>>>,
+    execution: ExecutionState,
     policy: ResourcePolicy,
     counters: RefCell<ResourceCounters>,
 }
 
 /// A checked, uncharged growth operation. No user code runs while it is held.
 pub(crate) struct HeapGrowth<'a> {
-    session: Option<Rc<crate::session::SessionState>>,
+    session: Option<Rc<SessionState>>,
     counters: RefMut<'a, ResourceCounters>,
     live: usize,
     allocated: usize,
@@ -87,22 +89,22 @@ impl ResourceState {
             .map_or(self.policy, |session| session.options.resources)
     }
 
-    pub(crate) fn active_session(&self) -> Option<Rc<crate::session::SessionState>> {
+    pub(crate) fn active_session(&self) -> Option<Rc<SessionState>> {
         self.active_session.borrow().clone()
     }
 
     pub(crate) fn replace_session(
         &self,
-        session: Option<Rc<crate::session::SessionState>>,
-    ) -> Option<Rc<crate::session::SessionState>> {
+        session: Option<Rc<SessionState>>,
+    ) -> Option<Rc<SessionState>> {
         self.active_session.replace(session)
     }
 
-    pub(crate) fn start_execution(&self, session: Rc<crate::session::SessionState>) {
+    pub(crate) fn start_execution(&self, session: Rc<SessionState>) {
         *self.active_session.borrow_mut() = Some(session);
     }
 
-    pub(crate) fn end_execution(&self, session: &Rc<crate::session::SessionState>) {
+    pub(crate) fn end_execution(&self, session: &Rc<SessionState>) {
         let mut active = self.active_session.borrow_mut();
         if active
             .as_ref()

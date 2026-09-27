@@ -1,3 +1,10 @@
+use crate::module::ValueType;
+use crate::module::abi::AbiType;
+use crate::module::abi::NominalAbiType;
+use crate::module::instruction::IterOp;
+use crate::module::instruction::StandardEnumOp;
+use crate::module::numeric::NumericConversion;
+use crate::module::numeric::NumericOperation;
 use kagari_hir::builtin::surface::StandardIntrinsic;
 use serde::{Deserialize, Serialize};
 
@@ -158,7 +165,7 @@ pub enum CallTarget {
     Function(FunctionRef),
     InterfaceMethod {
         module: super::ModuleRef,
-        interface: crate::module::abi::NominalAbiType,
+        interface: NominalAbiType,
         method_slot: u32,
     },
     HostFunction(HostImportId),
@@ -166,8 +173,8 @@ pub enum CallTarget {
     ClosureRegister {
         register: Register,
         #[serde(deserialize_with = "crate::decode_limits::table")]
-        params: Vec<crate::module::ValueType>,
-        return_type: crate::module::ValueType,
+        params: Vec<ValueType>,
+        return_type: ValueType,
     },
     StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(RuntimeHelper),
@@ -190,7 +197,7 @@ pub enum UnaryOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOp {
-    Numeric(crate::module::numeric::NumericOperation),
+    Numeric(NumericOperation),
     Add,
     Sub,
     Mul,
@@ -211,11 +218,11 @@ pub enum BytecodeInstruction {
     Convert {
         dst: Register,
         src: Register,
-        conversion: crate::module::numeric::NumericConversion,
+        conversion: NumericConversion,
     },
     Numeric {
         dst: Register,
-        operation: crate::module::numeric::NumericOperation,
+        operation: NumericOperation,
         lhs: Register,
         rhs: Option<Register>,
     },
@@ -223,19 +230,19 @@ pub enum BytecodeInstruction {
         dst: Register,
         original: Register,
         error: Register,
-        ty: crate::module::abi::AbiType,
+        ty: AbiType,
     },
     Iter {
         dst: Register,
         value: Option<Register>,
-        ty: crate::module::abi::AbiType,
-        op: crate::module::instruction::IterOp,
+        ty: AbiType,
+        op: IterOp,
     },
     StandardEnum {
         dst: Register,
         value: Option<Register>,
-        ty: crate::module::abi::AbiType,
-        op: crate::module::instruction::StandardEnumOp,
+        ty: AbiType,
+        op: StandardEnumOp,
     },
     LoadConst {
         dst: Register,
@@ -290,15 +297,15 @@ pub enum BytecodeInstruction {
     RangeBound {
         dst: Register,
         value: Register,
-        range: crate::module::abi::AbiType,
-        bound: crate::module::abi::AbiType,
+        range: AbiType,
+        bound: AbiType,
         upper: bool,
     },
     MakeRange {
         dst: Register,
         start: Option<Register>,
         end: Option<Register>,
-        ty: crate::module::abi::AbiType,
+        ty: AbiType,
     },
     RepeatArray {
         dst: Register,
@@ -331,8 +338,8 @@ pub enum BytecodeInstruction {
     UpcastInterface {
         dst: Register,
         value: Register,
-        source: crate::module::abi::NominalAbiType,
-        target: crate::module::abi::NominalAbiType,
+        source: NominalAbiType,
+        target: NominalAbiType,
     },
     MakeInterface {
         dst: Register,

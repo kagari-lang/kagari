@@ -1,5 +1,12 @@
 use super::*;
+use crate::typeck::GenericBounds;
+use crate::types;
+use crate::types::AssociatedTypeParameters;
+use crate::types::NominalType;
 use crate::{typeck::ConstraintTarget, types::GenericParameterType};
+use kagari_common::identity::FileSpan;
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodParameter {
@@ -16,7 +23,7 @@ pub struct MethodSignature {
     pub slot: usize,
     pub name: String,
     pub generic_params: Vec<GenericParameterType>,
-    pub bounds: crate::typeck::GenericBounds,
+    pub bounds: GenericBounds,
     pub params: Vec<MethodParameter>,
     pub return_type: TypeId,
     pub declaration: Declaration,
@@ -38,12 +45,12 @@ impl MethodSignature {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature {
-    pub associated_type_parameters: BTreeMap<DefinitionId, crate::types::AssociatedTypeParameters>,
+    pub associated_type_parameters: BTreeMap<DefinitionId, AssociatedTypeParameters>,
     pub associated_consts: BTreeMap<DefinitionId, AssociatedConstSignature>,
     pub id: DefinitionId,
     pub generic_params: Vec<GenericParameterType>,
-    pub bounds: crate::typeck::GenericBounds,
-    pub supertraits: Vec<crate::types::NominalType>,
+    pub bounds: GenericBounds,
+    pub supertraits: Vec<NominalType>,
     pub methods: Vec<MethodSignature>,
     pub declaration: Declaration,
     pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
@@ -62,10 +69,10 @@ impl AggregateCatalog {
     /// cycles and expanding paths fail before reaching a body or backend.
     pub fn trait_closure(
         &self,
-        interface: &crate::types::NominalType,
+        interface: &NominalType,
         receiver: &TypeId,
         cancel: &CancellationToken,
-    ) -> Result<Vec<crate::types::NominalType>, super::ImplementationSearchError> {
+    ) -> Result<Vec<NominalType>, super::ImplementationSearchError> {
         trait_inheritance_closure(interface, receiver, cancel, &|id| {
             self.trait_(id).map(|contract| {
                 (
@@ -78,9 +85,9 @@ impl AggregateCatalog {
 
     pub fn expanded_bounds(
         &self,
-        bounds: &crate::typeck::GenericBounds,
+        bounds: &GenericBounds,
         cancel: &CancellationToken,
-    ) -> Result<crate::typeck::GenericBounds, super::ImplementationSearchError> {
+    ) -> Result<GenericBounds, super::ImplementationSearchError> {
         let mut result = bounds.clone();
         for (receiver, constraints) in bounds {
             for constraint in constraints {
@@ -117,7 +124,7 @@ impl AggregateCatalog {
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
-        let mut functions = std::collections::HashMap::new();
+        let mut functions = HashMap::new();
         for function in signatures.functions() {
             cancel.check()?;
             functions.insert(function.id, function);
@@ -131,7 +138,7 @@ impl AggregateCatalog {
                 unreachable!("nominal trait");
             };
             let mut generic_params = Vec::new();
-            let mut bounds = crate::typeck::GenericBounds::new();
+            let mut bounds = GenericBounds::new();
             for param in &item.generic_params {
                 cancel.check()?;
                 let identity = declarations
@@ -191,7 +198,7 @@ impl AggregateCatalog {
                         .iter()
                         .filter(|member| !member.generic_params.is_empty())
                         .filter_map(|member| {
-                            let id = crate::types::associated_type_id(id, &member.name);
+                            let id = types::associated_type_id(id, &member.name);
                             Some((
                                 id.clone(),
                                 signatures
@@ -205,14 +212,14 @@ impl AggregateCatalog {
                         .associated_consts
                         .iter()
                         .map(|member| {
-                            let identity = crate::types::associated_const_id(id, &member.name);
+                            let identity = types::associated_const_id(id, &member.name);
                             (
                                 identity.clone(),
                                 AssociatedConstSignature {
                                     declaration: Declaration {
                                         id: DeclarationId::Definition(identity.clone()),
                                         name: member.name.clone(),
-                                        location: kagari_common::identity::FileSpan {
+                                        location: FileSpan {
                                             file: lowered.source.id(),
                                             revision: lowered.source.revision(),
                                             range: lowered.source_map.type_span(member.name_ref),
@@ -241,7 +248,7 @@ impl AggregateCatalog {
                         .associated_types
                         .iter()
                         .map(|member| {
-                            let member = crate::types::associated_type_id(id, &member.name);
+                            let member = types::associated_type_id(id, &member.name);
                             let bounds = signatures
                                 .type_table()
                                 .associated_bounds
@@ -315,16 +322,14 @@ impl AggregateCatalog {
 }
 
 pub fn trait_inheritance_closure(
-    interface: &crate::types::NominalType,
+    interface: &NominalType,
     receiver: &TypeId,
     cancel: &CancellationToken,
-    lookup: &impl Fn(
-        &DefinitionId,
-    ) -> Option<(Vec<GenericParameterType>, Vec<crate::types::NominalType>)>,
-) -> Result<Vec<crate::types::NominalType>, super::ImplementationSearchError> {
+    lookup: &impl Fn(&DefinitionId) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
+) -> Result<Vec<NominalType>, super::ImplementationSearchError> {
     use super::ImplementationSearchError as Error;
     let mut result = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
     let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];
     while let Some((applied, mut path)) = pending.pop() {
         cancel.check().map_err(|_| Error::Cancelled)?;

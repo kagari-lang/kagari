@@ -1,5 +1,7 @@
 //! Compile checked host mappings into ordinary verified interface call bridges.
+
 use super::{IrLoweringError, instances::InstancePlanner};
+use crate::module::function::SemanticSlots;
 use crate::module::{
     ModuleAbi, PublicAbiItem,
     abi::{AbiType, FunctionAbi, InterfaceTableAbi, NominalAbiType, ParameterAbi},
@@ -11,17 +13,19 @@ use crate::module::{
     instruction::{CallTarget, Instruction, IrValue, Terminator},
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_hir::AnalyzedModule;
+use kagari_hir::types::TypeId;
 
 pub(super) fn collect(
     planner: &mut InstancePlanner<'_>,
-    module: &kagari_hir::AnalyzedModule,
+    module: &AnalyzedModule,
     abi: &mut ModuleAbi,
     functions: &mut Vec<IrFunction>,
 ) -> Result<(), IrLoweringError> {
     for (declaration, receiver, interface, span) in planner.host_interfaces.clone() {
         planner.check()?;
         let host_id = match &receiver {
-            kagari_hir::types::TypeId::Host(id) => id,
+            TypeId::Host(id) => id,
             _ => return Err(IrLoweringError::MissingBinding("host interface receiver")),
         };
         let host = module
@@ -114,7 +118,7 @@ pub(super) fn collect(
             }
             planner.check()?;
             functions.push(IrFunction {
-                semantic: crate::module::function::SemanticSlots {
+                semantic: SemanticSlots {
                     params: params
                         .iter()
                         .enumerate()

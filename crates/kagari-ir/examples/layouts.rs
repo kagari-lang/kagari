@@ -1,6 +1,9 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
+
 use kagari_common::SourceFile;
+use kagari_common::cancellation::CancellationToken;
 use kagari_hir::analyze_source;
+use kagari_ir::module::PublicAbiItem;
 use kagari_ir::{
     bytecode::{BytecodeInstruction, lower_to_bytecode},
     lower_to_ir,
@@ -28,7 +31,7 @@ fn main() {
             );
         }
     }
-    let cancelled = kagari_common::cancellation::CancellationToken::default();
+    let cancelled = CancellationToken::default();
     cancelled.cancel();
     assert_eq!(
         kagari_ir::module::verify_ir(ir.clone().into_unverified(), &cancelled)
@@ -47,7 +50,7 @@ fn main() {
         .public_items
         .iter()
         .find_map(|item| match item {
-            kagari_ir::module::PublicAbiItem::InterfaceTable(table) => Some(table),
+            PublicAbiItem::InterfaceTable(table) => Some(table),
             _ => None,
         })
         .expect("checked interface declaration");

@@ -1,12 +1,20 @@
 //! Bounded flat encoding keeps untrusted ABI type decoding off the Rust call stack.
+
 use super::{AbiType, NominalAbiType};
+use de::Error as DeError;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
+use kagari_common::range::RangeKind;
 use kagari_hir::{builtin::surface::StandardEnum, types::BuiltinType};
+use serde::ser::Error;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{self, SeqAccess, Visitor},
 };
+use std::collections::BTreeMap;
+use std::fmt;
+use std::fmt::Formatter;
+use std::vec::IntoIter;
 
 const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 4_096;
@@ -23,7 +31,7 @@ enum Node {
     Tuple(u32),
     Function(u32),
     Iter,
-    Range(kagari_common::range::RangeKind),
+    Range(RangeKind),
     Array(CollectionAccess),
     Map(CollectionAccess),
     Set(CollectionAccess),
@@ -219,7 +227,7 @@ impl AbiType {
 impl Serialize for AbiType {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.wire_nodes()
-            .map_err(serde::ser::Error::custom)?
+            .map_err(Error::custom)?
             .serialize(serializer)
     }
 }
@@ -229,7 +237,7 @@ impl<'de> Deserialize<'de> for AbiType {
         struct TypeVisitor;
         impl<'de> Visitor<'de> for TypeVisitor {
             type Value = AbiType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a bounded preorder ABI type")
             }
             fn visit_seq<A: SeqAccess<'de>>(
@@ -237,19 +245,19 @@ impl<'de> Deserialize<'de> for AbiType {
                 mut sequence: A,
             ) -> Result<Self::Value, A::Error> {
                 if sequence.size_hint().is_some_and(|count| count > MAX_NODES) {
-                    return Err(de::Error::custom("ABI type node limit exceeded"));
+                    return Err(DeError::custom("ABI type node limit exceeded"));
                 }
                 let mut nodes = Vec::new();
                 while let Some(node) = sequence.next_element::<Node>()? {
                     if nodes.len() >= MAX_NODES {
-                        return Err(de::Error::custom("ABI type node limit exceeded"));
+                        return Err(DeError::custom("ABI type node limit exceeded"));
                     }
                     nodes.push(node);
                 }
                 let mut nodes = nodes.into_iter();
                 let ty = build::<A::Error>(&mut nodes, 1)?;
                 if nodes.next().is_some() {
-                    return Err(de::Error::custom("trailing ABI type nodes"));
+                    return Err(DeError::custom("trailing ABI type nodes"));
                 }
                 Ok(ty)
             }
@@ -258,14 +266,14 @@ impl<'de> Deserialize<'de> for AbiType {
     }
 }
 
-fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Result<AbiType, E> {
+fn build<E: de::Error>(nodes: &mut IntoIter<Node>, depth: usize) -> Result<AbiType, E> {
     if depth > MAX_DEPTH {
         return Err(E::custom("ABI type depth limit exceeded"));
     }
     let next = nodes
         .next()
         .ok_or_else(|| E::custom("missing ABI type node"))?;
-    let children = |count: u32, nodes: &mut std::vec::IntoIter<Node>| {
+    let children = |count: u32, nodes: &mut IntoIter<Node>| {
         if count as usize > nodes.len() {
             return Err(E::custom("missing ABI child nodes"));
         }
@@ -304,7 +312,7 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
         }),
         Node::Trait(id, count, bindings) => {
             let arguments = children(count, nodes)?;
-            let mut associated_types = std::collections::BTreeMap::new();
+            let mut associated_types = BTreeMap::new();
             for id in bindings {
                 if associated_types
                     .last_key_value()
@@ -329,7 +337,7 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
         } => {
             let receiver = Box::new(build(nodes, depth + 1)?);
             let arguments = children(arguments, nodes)?;
-            let mut associated_types = std::collections::BTreeMap::new();
+            let mut associated_types = BTreeMap::new();
             for id in bindings {
                 if associated_types
                     .last_key_value()

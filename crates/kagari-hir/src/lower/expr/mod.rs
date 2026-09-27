@@ -1,3 +1,10 @@
+use crate::hir::Literal;
+use crate::hir::LiteralKind;
+use crate::hir::TypeData;
+use crate::hir::TypeKind;
+use ast::Expr;
+use ast::Interpolation;
+use kagari_common::Span;
 mod literal;
 mod pattern;
 
@@ -42,8 +49,8 @@ impl Lowerer {
             return self.missing_expr();
         }
         let kind = match expr {
-            ast::Expr::BlockExpr(block) => ExprKind::Block(self.lower_block(block)),
-            ast::Expr::PathExpr(path) => ExprKind::Name {
+            Expr::BlockExpr(block) => ExprKind::Block(self.lower_block(block)),
+            Expr::PathExpr(path) => ExprKind::Name {
                 name: path.name_text().unwrap_or_default(),
                 explicit_type: path
                     .qualified_type()
@@ -59,8 +66,8 @@ impl Lowerer {
                             let bindings = self.lower_associated_bindings(&arguments);
                             let id = self.alloc_type(
                                 span,
-                                crate::hir::TypeData {
-                                    kind: crate::hir::TypeKind::Generic {
+                                TypeData {
+                                    kind: TypeKind::Generic {
                                         name,
                                         args,
                                         bindings,
@@ -78,28 +85,26 @@ impl Lowerer {
                         })
                     }),
             },
-            ast::Expr::InterpolatedString(string) => {
+            Expr::InterpolatedString(string) => {
                 let mut parts = SmallVec::new();
                 for element in string.syntax().children_with_tokens() {
                     if let Some(token) = element.as_token() {
                         if token.kind() == SyntaxKind::FormatText {
                             let text = token.text().replace("{{", "{").replace("}}", "}");
                             parts.push(self.alloc_expr(
-                                kagari_common::Span::new(
+                                Span::new(
                                     usize::from(token.text_range().start()),
                                     usize::from(token.text_range().end()),
                                 ),
                                 ExprData {
-                                    kind: ExprKind::Literal(crate::hir::Literal {
-                                        kind: crate::hir::LiteralKind::String,
+                                    kind: ExprKind::Literal(Literal {
+                                        kind: LiteralKind::String,
                                         text: format!("\"{text}\""),
                                     }),
                                 },
                             ));
                         }
-                    } else if let Some(part) =
-                        element.into_node().and_then(ast::Interpolation::cast)
-                    {
+                    } else if let Some(part) = element.into_node().and_then(Interpolation::cast) {
                         let expr = part
                             .expr()
                             .map(|expr| self.lower_expr(&expr))
@@ -117,20 +122,20 @@ impl Lowerer {
                 }
                 ExprKind::InterpolatedString(parts)
             }
-            ast::Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
-            ast::Expr::ParenExpr(paren) => {
+            Expr::Literal(literal) => ExprKind::Literal(self.lower_literal(literal)),
+            Expr::ParenExpr(paren) => {
                 return paren
                     .expr()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr());
             }
-            ast::Expr::PropagateExpr(node) => ExprKind::Propagate {
+            Expr::PropagateExpr(node) => ExprKind::Propagate {
                 expr: node
                     .expr()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Expr::CastExpr(cast) => ExprKind::Cast {
+            Expr::CastExpr(cast) => ExprKind::Cast {
                 expr: cast
                     .expr()
                     .map(|expr| self.lower_expr(&expr))
@@ -140,7 +145,7 @@ impl Lowerer {
                     .map(|ty| self.lower_type(&ty))
                     .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
             },
-            ast::Expr::PrefixExpr(prefix) => ExprKind::Prefix {
+            Expr::PrefixExpr(prefix) => ExprKind::Prefix {
                 op: match prefix.operator() {
                     Some(SyntaxKind::Minus) => PrefixOp::Neg,
                     _ => PrefixOp::Not,
@@ -150,7 +155,7 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Expr::BinaryExpr(binary) => ExprKind::Binary {
+            Expr::BinaryExpr(binary) => ExprKind::Binary {
                 lhs: binary
                     .lhs()
                     .map(|expr| self.lower_expr(&expr))
@@ -161,13 +166,13 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Expr::RangeExpr(range) => ExprKind::Range {
+            Expr::RangeExpr(range) => ExprKind::Range {
                 start: range.start().map(|expr| self.lower_expr(&expr)),
                 end: range.end().map(|expr| self.lower_expr(&expr)),
                 inclusive: range.inclusive(),
             },
 
-            ast::Expr::CallExpr(call) => ExprKind::Call {
+            Expr::CallExpr(call) => ExprKind::Call {
                 type_args: call
                     .generic_args()
                     .map(|args| args.args().map(|ty| self.lower_type(&ty)).collect()),
@@ -180,14 +185,14 @@ impl Lowerer {
                     .map(|arg| self.lower_expr(&arg))
                     .collect::<SmallVec<[_; 4]>>(),
             },
-            ast::Expr::FieldExpr(field) => ExprKind::Field {
+            Expr::FieldExpr(field) => ExprKind::Field {
                 receiver: field
                     .receiver()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
                 name: field.name_text().unwrap_or_default(),
             },
-            ast::Expr::IndexExpr(index) => ExprKind::Index {
+            Expr::IndexExpr(index) => ExprKind::Index {
                 receiver: index
                     .receiver()
                     .map(|expr| self.lower_expr(&expr))
@@ -197,7 +202,7 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Expr::IfExpr(if_expr) => ExprKind::If {
+            Expr::IfExpr(if_expr) => ExprKind::If {
                 condition: self.lower_condition(if_expr.binding_condition(), if_expr.condition()),
                 then_branch: match if_expr.then_branch() {
                     Some(block) => self.lower_block(&block),
@@ -211,7 +216,7 @@ impl Lowerer {
                 },
                 else_branch: if_expr.else_branch().map(|expr| self.lower_expr(&expr)),
             },
-            ast::Expr::StructExpr(struct_expr) => ExprKind::StructInit {
+            Expr::StructExpr(struct_expr) => ExprKind::StructInit {
                 explicit_type: struct_expr.generic_args().map(|arguments| {
                     let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
                     let name = struct_expr
@@ -225,8 +230,8 @@ impl Lowerer {
                     let bindings = self.lower_associated_bindings(&arguments);
                     let id = self.alloc_type(
                         span,
-                        crate::hir::TypeData {
-                            kind: crate::hir::TypeKind::Generic {
+                        TypeData {
+                            kind: TypeKind::Generic {
                                 name,
                                 args,
                                 bindings,
@@ -279,7 +284,7 @@ impl Lowerer {
                     })
                     .unwrap_or_default(),
             },
-            ast::Expr::MatchExpr(match_expr) => ExprKind::Match {
+            Expr::MatchExpr(match_expr) => ExprKind::Match {
                 scrutinee: match_expr
                     .scrutinee()
                     .map(|expr| self.lower_expr(&expr))
@@ -303,7 +308,7 @@ impl Lowerer {
                     })
                     .unwrap_or_default(),
             },
-            ast::Expr::LoopExpr(loop_expr) => ExprKind::Loop {
+            Expr::LoopExpr(loop_expr) => ExprKind::Loop {
                 body: loop_expr
                     .body()
                     .map(|body| self.lower_block(&body))
@@ -317,7 +322,7 @@ impl Lowerer {
                         )
                     }),
             },
-            ast::Expr::ClosureExpr(closure) => ExprKind::Closure {
+            Expr::ClosureExpr(closure) => ExprKind::Closure {
                 params: closure
                     .params()
                     .map(|param| ClosureParam {
@@ -334,13 +339,13 @@ impl Lowerer {
                     .map(|body| self.lower_expr(&body))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Expr::TupleExpr(tuple) => ExprKind::Tuple(
+            Expr::TupleExpr(tuple) => ExprKind::Tuple(
                 tuple
                     .elements()
                     .map(|expr| self.lower_expr(&expr))
                     .collect::<SmallVec<[_; 4]>>(),
             ),
-            ast::Expr::ArrayExpr(array) if array.is_repeat() => {
+            Expr::ArrayExpr(array) if array.is_repeat() => {
                 let mut elements = array.elements();
                 let value = elements
                     .next()
@@ -352,7 +357,7 @@ impl Lowerer {
                     .unwrap_or_else(|| self.missing_expr());
                 ExprKind::ArrayRepeat { value, count }
             }
-            ast::Expr::ArrayExpr(array) => ExprKind::Array(
+            Expr::ArrayExpr(array) => ExprKind::Array(
                 array
                     .elements()
                     .map(|expr| self.lower_expr(&expr))
@@ -362,12 +367,12 @@ impl Lowerer {
 
         let id = self.alloc_expr(syntax_span(expr), ExprData { kind });
         match expr {
-            ast::Expr::FieldExpr(field) => {
+            Expr::FieldExpr(field) => {
                 if let Some(name) = field.name() {
                     self.source_map.insert_expr_reference(id, token_span(&name));
                 }
             }
-            ast::Expr::PathExpr(path) => {
+            Expr::PathExpr(path) => {
                 let name = path
                     .name()
                     .or_else(|| path.path()?.segments().last())
@@ -392,7 +397,7 @@ impl Lowerer {
                     }
                 }
             }
-            ast::Expr::StructExpr(struct_expr) => {
+            Expr::StructExpr(struct_expr) => {
                 if let Some(name) = struct_expr
                     .path()
                     .and_then(|path| path.name().or_else(|| path.path()?.segments().last()))

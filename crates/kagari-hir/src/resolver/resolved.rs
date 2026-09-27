@@ -1,4 +1,17 @@
+use crate::builtin::BuiltinFunction;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::ExportItem;
+use crate::hir::Module;
+use crate::hir::PatternId;
+use crate::hir::PatternKind;
+use crate::host::HostDeclarations;
+use crate::host::HostFunctionId;
+use crate::host::HostModuleId;
+use crate::host::HostTypeId;
+use crate::imports::ModuleImports;
+use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::builtin::surface;
 use crate::hir::{
@@ -26,15 +39,12 @@ pub struct LexicalScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
-    StandardTrait(crate::builtin::traits::StandardTrait),
+    StandardTrait(StandardTrait),
     SourceImport(usize),
-    SourceItem {
-        import: usize,
-        item: crate::hir::ExportItem,
-    },
-    HostModule(crate::host::HostModuleId),
-    HostFunction(crate::host::HostFunctionId),
-    HostType(crate::host::HostTypeId),
+    SourceItem { import: usize, item: ExportItem },
+    HostModule(HostModuleId),
+    HostFunction(HostFunctionId),
+    HostType(HostTypeId),
     Function(FunctionId),
     Const(ConstId),
     Param(ParamId),
@@ -43,7 +53,7 @@ pub enum ResolvedName {
     StandardModule(surface::StandardModule),
     StandardVariant(surface::StandardVariant),
     StandardFunction(surface::StandardIntrinsic),
-    RuntimeHelper(crate::builtin::BuiltinFunction),
+    RuntimeHelper(BuiltinFunction),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),
@@ -51,9 +61,9 @@ pub enum ResolvedName {
 
 #[derive(Debug, Clone)]
 pub struct DeclarationNames {
-    pub imports: std::sync::Arc<crate::imports::ModuleImports>,
-    pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
-    pub items: std::sync::Arc<NameTable>,
+    pub imports: Arc<ModuleImports>,
+    pub hosts: Arc<HostDeclarations>,
+    pub items: Arc<NameTable>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,45 +74,41 @@ pub struct QualifiedMember {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedNames {
-    pub imports: std::sync::Arc<crate::imports::ModuleImports>,
-    pub hosts: std::sync::Arc<crate::host::HostDeclarations>,
-    pub items: std::sync::Arc<NameTable>,
+    pub imports: Arc<ModuleImports>,
+    pub hosts: Arc<HostDeclarations>,
+    pub items: Arc<NameTable>,
     pub(crate) scopes: Vec<LexicalScope>,
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
-    pub(crate) pattern_variants: HashMap<crate::hir::PatternId, surface::StandardVariant>,
+    pub(crate) pattern_variants: HashMap<PatternId, surface::StandardVariant>,
     closure_captures: HashMap<ExprId, Vec<ResolvedName>>,
 }
 
 impl ResolvedNames {
-    pub fn pattern_is_irrefutable(
-        &self,
-        module: &crate::hir::Module,
-        id: crate::hir::PatternId,
-    ) -> bool {
+    pub fn pattern_is_irrefutable(&self, module: &Module, id: PatternId) -> bool {
         match &module.pattern(id).kind {
-            crate::hir::PatternKind::Wildcard => true,
-            crate::hir::PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),
-            crate::hir::PatternKind::Tuple(elements) => elements
+            PatternKind::Wildcard => true,
+            PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),
+            PatternKind::Tuple(elements) => elements
                 .iter()
                 .all(|element| self.pattern_is_irrefutable(module, *element)),
-            crate::hir::PatternKind::Struct { fields, .. } => fields
+            PatternKind::Struct { fields, .. } => fields
                 .iter()
                 .all(|field| self.pattern_is_irrefutable(module, field.pattern)),
-            crate::hir::PatternKind::Or(alternatives) => alternatives
+            PatternKind::Or(alternatives) => alternatives
                 .iter()
                 .any(|alternative| self.pattern_is_irrefutable(module, *alternative)),
-            crate::hir::PatternKind::Range { .. }
-            | crate::hir::PatternKind::Literal(_)
-            | crate::hir::PatternKind::EnumVariant { .. } => false,
+            PatternKind::Range { .. }
+            | PatternKind::Literal(_)
+            | PatternKind::EnumVariant { .. } => false,
         }
     }
 
     pub(crate) fn new(
-        items: std::sync::Arc<NameTable>,
-        hosts: std::sync::Arc<crate::host::HostDeclarations>,
-        imports: std::sync::Arc<crate::imports::ModuleImports>,
+        items: Arc<NameTable>,
+        hosts: Arc<HostDeclarations>,
+        imports: Arc<ModuleImports>,
     ) -> Self {
         Self {
             imports,
@@ -159,7 +165,7 @@ impl ResolvedNames {
             .iter()
             .enumerate()
             .filter(|(_, scope)| scope.span.start <= offset && offset < scope.span.end)
-            .min_by_key(|(id, scope)| (scope.span.end - scope.span.start, std::cmp::Reverse(*id)))
+            .min_by_key(|(id, scope)| (scope.span.end - scope.span.start, Reverse(*id)))
             .map(|(id, _)| id);
         let mut visible = HashMap::new();
         while let Some(id) = scope {

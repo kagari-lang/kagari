@@ -1,3 +1,4 @@
+use kagari_common::host_interface::HostValueType;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -164,7 +165,7 @@ pub struct TypeRegistry {
 
 #[derive(Debug, Clone, Default)]
 struct TypeRegistryInner {
-    host_value_types: HashMap<kagari_common::host_interface::HostValueType, TypeId>,
+    host_value_types: HashMap<HostValueType, TypeId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,
     public_abi_fingerprints: HashSet<AbiFingerprint>,
@@ -220,10 +221,7 @@ impl TypeRegistry {
         self.inner.borrow().by_id.get(id.index()).cloned()
     }
 
-    pub(crate) fn host_value_type(
-        &self,
-        id: TypeId,
-    ) -> Option<kagari_common::host_interface::HostValueType> {
+    pub(crate) fn host_value_type(&self, id: TypeId) -> Option<HostValueType> {
         self.inner
             .borrow()
             .host_value_types
@@ -231,10 +229,7 @@ impl TypeRegistry {
             .find_map(|(ty, registered)| (*registered == id).then(|| ty.clone()))
     }
 
-    pub(crate) fn host_value_type_id(
-        &self,
-        ty: &kagari_common::host_interface::HostValueType,
-    ) -> Option<TypeId> {
+    pub(crate) fn host_value_type_id(&self, ty: &HostValueType) -> Option<TypeId> {
         self.inner.borrow().host_value_types.get(ty).copied()
     }
 

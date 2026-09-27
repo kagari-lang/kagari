@@ -1,4 +1,7 @@
 use super::*;
+use crate::builtin::traits::StandardTrait;
+use crate::typeck::completion;
+use crate::typeck::constraints;
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(
@@ -18,18 +21,15 @@ impl BodyChecker<'_> {
             return ty;
         }
         let inner = self.infer_expr_type_expected(*expr, env, expected);
-        let Ok(completes) = crate::typeck::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            *expr,
-            self.cancel,
-        ) else {
+        let Ok(completes) =
+            completion::expr_can_complete(&self.lowered.module, self.names, *expr, self.cancel)
+        else {
             return TypeId::Unknown;
         };
         if completes {
             let protocol = match op {
-                PrefixOp::Neg => crate::builtin::traits::StandardTrait::Neg,
-                PrefixOp::Not => crate::builtin::traits::StandardTrait::Not,
+                PrefixOp::Neg => StandardTrait::Neg,
+                PrefixOp::Not => StandardTrait::Not,
             };
             if let Some(result) =
                 self.record_operator(expr_id, *expr, &inner, protocol.nominal(), env)
@@ -40,7 +40,7 @@ impl BodyChecker<'_> {
         match op {
             PrefixOp::Neg => {
                 if completes
-                    && crate::typeck::constraints::known_type_violates_constraint(
+                    && constraints::known_type_violates_constraint(
                         &inner,
                         StandardTypeConstraint::SignedNumber,
                         &env.generic_bounds,
@@ -82,28 +82,25 @@ impl BodyChecker<'_> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let arithmetic = match op {
-            BinaryOp::Add => Some(crate::builtin::traits::StandardTrait::Add),
-            BinaryOp::Sub => Some(crate::builtin::traits::StandardTrait::Sub),
-            BinaryOp::Mul => Some(crate::builtin::traits::StandardTrait::Mul),
-            BinaryOp::Div => Some(crate::builtin::traits::StandardTrait::Div),
-            BinaryOp::Rem => Some(crate::builtin::traits::StandardTrait::Rem),
-            BinaryOp::BitAnd => Some(crate::builtin::traits::StandardTrait::BitAnd),
-            BinaryOp::BitOr => Some(crate::builtin::traits::StandardTrait::BitOr),
-            BinaryOp::BitXor => Some(crate::builtin::traits::StandardTrait::BitXor),
-            BinaryOp::Shl => Some(crate::builtin::traits::StandardTrait::Shl),
-            BinaryOp::Shr => Some(crate::builtin::traits::StandardTrait::Shr),
+            BinaryOp::Add => Some(StandardTrait::Add),
+            BinaryOp::Sub => Some(StandardTrait::Sub),
+            BinaryOp::Mul => Some(StandardTrait::Mul),
+            BinaryOp::Div => Some(StandardTrait::Div),
+            BinaryOp::Rem => Some(StandardTrait::Rem),
+            BinaryOp::BitAnd => Some(StandardTrait::BitAnd),
+            BinaryOp::BitOr => Some(StandardTrait::BitOr),
+            BinaryOp::BitXor => Some(StandardTrait::BitXor),
+            BinaryOp::Shl => Some(StandardTrait::Shl),
+            BinaryOp::Shr => Some(StandardTrait::Shr),
 
             _ => None,
         };
         let numeric_context =
             expected.filter(|ty| arithmetic.is_some() && matches!(ty, TypeId::Builtin(_)));
         let lhs_ty = self.infer_expr_type_expected(*lhs, env, numeric_context);
-        let Ok(lhs_completes) = crate::typeck::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            *lhs,
-            self.cancel,
-        ) else {
+        let Ok(lhs_completes) =
+            completion::expr_can_complete(&self.lowered.module, self.names, *lhs, self.cancel)
+        else {
             return TypeId::Unknown;
         };
         let lhs_ty = lhs_completes.then_some(lhs_ty);
@@ -136,12 +133,9 @@ impl BodyChecker<'_> {
             }
         };
         let rhs_ty = self.infer_expr_type_expected(*rhs, env, rhs_context.as_ref());
-        let Ok(rhs_completes) = crate::typeck::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            *rhs,
-            self.cancel,
-        ) else {
+        let Ok(rhs_completes) =
+            completion::expr_can_complete(&self.lowered.module, self.names, *rhs, self.cancel)
+        else {
             return TypeId::Unknown;
         };
         if let (Some(protocol), Some(left)) = (arithmetic, lhs_ty.as_ref())
@@ -165,7 +159,7 @@ impl BodyChecker<'_> {
                     expr_id,
                     *lhs,
                     left,
-                    crate::builtin::traits::StandardTrait::PartialOrd.nominal(),
+                    StandardTrait::PartialOrd.nominal(),
                     env,
                 )
                 .is_some()
@@ -186,19 +180,16 @@ impl BodyChecker<'_> {
         let context = self
             .trait_bounds_for(&receiver_ty, env)
             .into_iter()
-            .find(|t| t.declaration == crate::builtin::traits::StandardTrait::Index.contract().id)
+            .find(|t| t.declaration == StandardTrait::Index.contract().id)
             .and_then(|t| t.arguments.into_iter().next());
         let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
-        let Ok(completes) = crate::typeck::completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            *receiver,
-            self.cancel,
-        ) else {
+        let Ok(completes) =
+            completion::expr_can_complete(&self.lowered.module, self.names, *receiver, self.cancel)
+        else {
             return TypeId::Unknown;
         };
         if completes {
-            let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
+            let mut requested = StandardTrait::Index.nominal();
             requested.arguments.push(index_ty.clone());
             if let Some(result) =
                 self.record_operator(expr_id, *receiver, &receiver_ty, requested, env)

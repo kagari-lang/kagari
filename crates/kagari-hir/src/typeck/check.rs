@@ -1,8 +1,34 @@
+use super::ConstraintTarget;
+use super::associated;
+use super::associated_consts;
+use super::completion;
+use super::const_budget::ConstBudget;
+use super::const_eval;
+use super::constraints;
+use crate::aggregates::AggregateCatalog;
+use crate::aggregates::MethodSignature;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::declarations::Declarations;
+use crate::hir::Function;
+use crate::hir::FunctionId;
+use crate::hir::Module;
+use crate::hir::TypeKind;
+use crate::hir::Visibility;
+use crate::hir::Writeability;
+use crate::types;
+use crate::types::GenericParameterType;
+use crate::types::NominalType;
+use crate::types::TypeSubstitution;
+use kagari_common::Span;
+use kagari_common::cancellation::CancellationToken;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
+use kagari_common::identity::DefinitionId;
 use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
+use std::iter;
 
 use crate::{
     AnalysisResult,
@@ -22,28 +48,28 @@ use crate::{
 
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,
-    declarations: &crate::declarations::Declarations,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    declarations: &Declarations,
+    cancel: &CancellationToken,
 ) -> AnalysisResult<super::ModuleSignatures> {
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
     let mut function_index = FunctionTypeIndex::default();
     let mut type_table = TypeTable::default();
-    super::constraints::resolve_constraints(
+    constraints::resolve_constraints(
         lowered,
         declarations,
         &mut type_table,
         &mut diagnostics,
         cancel,
     );
-    super::associated::prepare(
+    associated::prepare(
         lowered,
         declarations,
         &mut type_table,
         &mut diagnostics,
         cancel,
     );
-    super::associated_consts::prepare(
+    associated_consts::prepare(
         lowered,
         declarations,
         &mut type_table,
@@ -74,7 +100,7 @@ pub(crate) fn check_signatures(
             .clone();
         type_bounds.insert(
             id,
-            super::constraints::parameter_bounds(params, declarations, &type_table),
+            constraints::parameter_bounds(params, declarations, &type_table),
         );
     }
 
@@ -211,9 +237,7 @@ pub(crate) fn check_signatures(
         if cancel.check().is_err() {
             break;
         }
-        if function.visibility != crate::hir::Visibility::Private
-            && !function.generic_params.is_empty()
-        {
+        if function.visibility != Visibility::Private && !function.generic_params.is_empty() {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PublicGenericFunction {
                     name: function.name.clone(),
@@ -223,12 +247,8 @@ pub(crate) fn check_signatures(
         }
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
-        let bounds = super::constraints::function_bounds(
-            &lowered.module,
-            function,
-            declarations,
-            &type_table,
-        );
+        let bounds =
+            constraints::function_bounds(&lowered.module, function, declarations, &type_table);
         let function_name = if function.name.is_empty() {
             "<missing>".to_string()
         } else {
@@ -342,10 +362,10 @@ pub(crate) fn check_signatures(
 pub(crate) fn check_bodies_controlled(
     lowered: &LoweredModule,
     names: &ResolvedNames,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     inputs: super::BodyInputs<'_>,
     reuse: Option<&super::BodyReuse<'_>>,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> AnalysisResult<TypedModule> {
     let super::BodyInputs {
         const_limits,
@@ -473,7 +493,7 @@ pub(crate) fn check_bodies_controlled(
             top_level_index.consts.insert(const_item.id, ty.clone());
         }
 
-        let mut const_budget = super::const_budget::ConstBudget::new(const_limits);
+        let mut const_budget = ConstBudget::new(const_limits);
         validate_const_initializers(
             lowered,
             names,
@@ -484,7 +504,7 @@ pub(crate) fn check_bodies_controlled(
             &mut const_budget,
         );
 
-        let const_values = super::const_eval::evaluate_constants(
+        let const_values = const_eval::evaluate_constants(
             lowered,
             names,
             &type_table,
@@ -548,7 +568,7 @@ pub(crate) fn check_bodies_controlled(
                     .and_then(|id| aggregates.trait_(id))
                 {
                     let receiver = TypeId::SelfType(contract.id.clone());
-                    let applied = crate::types::NominalType {
+                    let applied = NominalType {
                         declaration: contract.id.clone(),
                         arguments: contract
                             .generic_params
@@ -562,7 +582,7 @@ pub(crate) fn check_bodies_controlled(
                         env.generic_bounds
                             .entry(receiver)
                             .or_default()
-                            .extend(parents.into_iter().map(super::ConstraintTarget::Trait));
+                            .extend(parents.into_iter().map(ConstraintTarget::Trait));
                     }
                 }
                 for param in &typed_function.params {
@@ -587,12 +607,9 @@ pub(crate) fn check_bodies_controlled(
                 );
                 let body_ty =
                     checker.solve_body(function.body, &mut env, Some(&typed_function.return_type));
-                let Ok(completes) = super::completion::block_can_complete(
-                    &lowered.module,
-                    names,
-                    function.body,
-                    cancel,
-                ) else {
+                let Ok(completes) =
+                    completion::block_can_complete(&lowered.module, names, function.body, cancel)
+                else {
                     break;
                 };
                 if completes && body_ty.conflicts_with(&typed_function.return_type) {
@@ -623,9 +640,9 @@ pub(crate) fn check_bodies_controlled(
 }
 
 fn function_type_context<'a>(
-    module: &'a crate::hir::Module,
-    function: &'a crate::hir::Function,
-    declarations: &'a crate::declarations::Declarations,
+    module: &'a Module,
+    function: &'a Function,
+    declarations: &'a Declarations,
 ) -> TypeContext<'a> {
     TypeContext {
         declarations,
@@ -652,7 +669,7 @@ fn function_type_context<'a>(
 }
 fn validate_trait_surface(
     lowered: &LoweredModule,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     function_index: &FunctionTypeIndex,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
@@ -665,7 +682,7 @@ fn validate_trait_surface(
             .params
             .iter()
             .map(|param| &param.ty)
-            .chain(std::iter::once(&typed_function.return_type))
+            .chain(iter::once(&typed_function.return_type))
         {
             validate_interface_type(
                 lowered,
@@ -678,7 +695,7 @@ fn validate_trait_surface(
         }
     }
 
-    let mut seen_impls: Vec<(crate::types::NominalType, TypeId)> = Vec::new();
+    let mut seen_impls: Vec<(NominalType, TypeId)> = Vec::new();
     for impl_block in &lowered.module.impls {
         let Some(reference) = &impl_block.trait_ref else {
             continue;
@@ -687,7 +704,7 @@ fn validate_trait_surface(
         let Some(target) = table.constraint(reference.ty) else {
             continue;
         };
-        let super::ConstraintTarget::Trait(id) = target else {
+        let ConstraintTarget::Trait(id) = target else {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidTraitReference {
                     trait_name: trait_name.clone(),
@@ -715,15 +732,11 @@ fn validate_trait_surface(
             trait_def,
             table.type_ref(reference.ty).map(|entry| &entry.ty),
         ) {
-            let required = super::constraints::parameter_bounds(
-                &trait_def.generic_params,
-                declarations,
-                table,
-            );
-            let available =
-                super::constraints::implementation_bounds(impl_block, declarations, table);
+            let required =
+                constraints::parameter_bounds(&trait_def.generic_params, declarations, table);
+            let available = constraints::implementation_bounds(impl_block, declarations, table);
             let source_arguments = match &lowered.module.type_ref(reference.ty).kind {
-                crate::hir::TypeKind::Generic { args, .. } => args.as_slice(),
+                TypeKind::Generic { args, .. } => args.as_slice(),
                 _ => &[],
             };
             for ((parameter, actual), source_argument) in trait_def
@@ -745,7 +758,7 @@ fn validate_trait_surface(
                     .flatten()
                 {
                     match constraint {
-                        super::ConstraintTarget::Standard(standard) => {
+                        ConstraintTarget::Standard(standard) => {
                             validate_standard_constraint_type(
                                 actual,
                                 *standard,
@@ -754,22 +767,19 @@ fn validate_trait_surface(
                                 diagnostics,
                             );
                         }
-                        super::ConstraintTarget::Trait(required_trait) => {
-                            let satisfied = crate::builtin::traits::StandardTrait::from_id(
-                                &required_trait.declaration,
-                            )
-                            .is_some_and(|kind| {
-                                required_trait.arguments.is_empty()
-                                    && required_trait.associated_types.is_empty()
-                                    && crate::builtin::traits::intrinsic_holds(
-                                        kind, actual, None, &available,
-                                    )
-                            }) || match actual {
-                                TypeId::Generic(parameter) => available
-                                    .get(&TypeId::Generic(parameter.clone()))
-                                    .is_some_and(|bounds| bounds.contains(constraint)),
-                                _ => table.implements(required_trait, actual),
-                            };
+                        ConstraintTarget::Trait(required_trait) => {
+                            let satisfied = StandardTrait::from_id(&required_trait.declaration)
+                                .is_some_and(|kind| {
+                                    required_trait.arguments.is_empty()
+                                        && required_trait.associated_types.is_empty()
+                                        && traits::intrinsic_holds(kind, actual, None, &available)
+                                })
+                                || match actual {
+                                    TypeId::Generic(parameter) => available
+                                        .get(&TypeId::Generic(parameter.clone()))
+                                        .is_some_and(|bounds| bounds.contains(constraint)),
+                                    _ => table.implements(required_trait, actual),
+                                };
                             if !satisfied {
                                 diagnostics.push(
                                     Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
@@ -838,7 +848,7 @@ fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        let standard = crate::builtin::traits::StandardTrait::from_id(&id.declaration);
+        let standard = StandardTrait::from_id(&id.declaration);
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
                 || !kind.conversion()
@@ -900,7 +910,7 @@ fn validate_trait_surface(
             .iter()
             .filter_map(|parameter| declarations.generic_type(parameter.id))
             .collect();
-        let bounds = super::constraints::implementation_bounds(impl_block, declarations, table);
+        let bounds = constraints::implementation_bounds(impl_block, declarations, table);
         table.insert_implementation(
             declarations
                 .impl_identity(impl_block.id)
@@ -944,9 +954,9 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
 pub(super) fn validate_standard_type_constraints(
     ty: &TypeId,
     generic_bounds: &HashMap<TypeId, Vec<super::ConstraintTarget>>,
-    span: kagari_common::Span,
+    span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
@@ -984,13 +994,13 @@ pub(super) fn validate_standard_type_constraints(
                 pending.push(element)
             }
             TypeId::StandardEnum { args, .. }
-            | TypeId::Struct(crate::types::NominalType {
+            | TypeId::Struct(NominalType {
                 arguments: args, ..
             })
-            | TypeId::Enum(crate::types::NominalType {
+            | TypeId::Enum(NominalType {
                 arguments: args, ..
             })
-            | TypeId::Trait(crate::types::NominalType {
+            | TypeId::Trait(NominalType {
                 arguments: args, ..
             }) => pending.extend(args.iter().rev()),
             _ => {}
@@ -1002,7 +1012,7 @@ pub(super) fn validate_standard_constraint_type(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
     generic_bounds: &HashMap<TypeId, Vec<super::ConstraintTarget>>,
-    span: kagari_common::Span,
+    span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     if matches!(ty, TypeId::Unknown | TypeId::Error) {
@@ -1011,7 +1021,7 @@ pub(super) fn validate_standard_constraint_type(
     if constraint == StandardTypeConstraint::Comparable && ty.is_unresolved() {
         return;
     }
-    if super::constraints::type_satisfies_standard_constraint(ty, constraint, generic_bounds) {
+    if constraints::type_satisfies_standard_constraint(ty, constraint, generic_bounds) {
         return;
     }
 
@@ -1019,7 +1029,7 @@ pub(super) fn validate_standard_constraint_type(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
             type_name: display_type_id(ty),
             constraint: surface::standard_constraint_name(constraint).to_owned(),
-            reason: super::constraints::standard_constraint_reason(constraint).to_owned(),
+            reason: constraints::standard_constraint_reason(constraint).to_owned(),
         })
         .with_span(span),
     );
@@ -1028,9 +1038,9 @@ pub(super) fn validate_standard_constraint_type(
 fn trait_method_interface_compatible(
     lowered: &LoweredModule,
     function_index: &FunctionTypeIndex,
-    function_id: crate::hir::FunctionId,
+    function_id: FunctionId,
     trait_generic_count: usize,
-    interface: &crate::types::NominalType,
+    interface: &NominalType,
 ) -> bool {
     let Some(hir_function) = lowered
         .module
@@ -1078,10 +1088,10 @@ pub(super) fn interface_method_compatible<'a>(
 
 fn validate_interface_type(
     lowered: &LoweredModule,
-    declarations: &crate::declarations::Declarations,
+    declarations: &Declarations,
     function_index: &FunctionTypeIndex,
     ty: &TypeId,
-    span: kagari_common::Span,
+    span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {
     if let TypeId::Struct(nominal) | TypeId::Enum(nominal) | TypeId::Trait(nominal) = ty {
@@ -1130,7 +1140,7 @@ fn validate_interface_type(
                 if trait_def.associated_types.iter().any(|member| {
                     !trait_name
                         .associated_types
-                        .contains_key(&crate::types::associated_type_id(
+                        .contains_key(&types::associated_type_id(
                             &trait_name.declaration,
                             &member.name,
                         ))
@@ -1253,15 +1263,15 @@ fn validate_interface_type(
 }
 
 pub(super) trait MethodSignatureView {
-    fn generic_params(&self) -> &[crate::types::GenericParameterType];
+    fn generic_params(&self) -> &[GenericParameterType];
     fn bounds(&self) -> &super::GenericBounds;
     fn params_len(&self) -> usize;
-    fn param(&self, index: usize) -> (&str, crate::hir::Writeability, &TypeId);
+    fn param(&self, index: usize) -> (&str, Writeability, &TypeId);
     fn return_type(&self) -> &TypeId;
 }
 
 impl MethodSignatureView for TypedFunction {
-    fn generic_params(&self) -> &[crate::types::GenericParameterType] {
+    fn generic_params(&self) -> &[GenericParameterType] {
         &self.generic_params
     }
     fn bounds(&self) -> &super::GenericBounds {
@@ -1270,7 +1280,7 @@ impl MethodSignatureView for TypedFunction {
     fn params_len(&self) -> usize {
         self.params.len()
     }
-    fn param(&self, index: usize) -> (&str, crate::hir::Writeability, &TypeId) {
+    fn param(&self, index: usize) -> (&str, Writeability, &TypeId) {
         let param = &self.params[index];
         (&param.name, param.writeability, &param.ty)
     }
@@ -1279,8 +1289,8 @@ impl MethodSignatureView for TypedFunction {
     }
 }
 
-impl MethodSignatureView for crate::aggregates::MethodSignature {
-    fn generic_params(&self) -> &[crate::types::GenericParameterType] {
+impl MethodSignatureView for MethodSignature {
+    fn generic_params(&self) -> &[GenericParameterType] {
         &self.generic_params
     }
     fn bounds(&self) -> &super::GenericBounds {
@@ -1289,7 +1299,7 @@ impl MethodSignatureView for crate::aggregates::MethodSignature {
     fn params_len(&self) -> usize {
         self.params.len()
     }
-    fn param(&self, index: usize) -> (&str, crate::hir::Writeability, &TypeId) {
+    fn param(&self, index: usize) -> (&str, Writeability, &TypeId) {
         let param = &self.params[index];
         (&param.name, param.writeability, &param.ty)
     }
@@ -1304,10 +1314,10 @@ pub(super) struct MethodComparison<'a> {
     pub trait_generic_count: usize,
     pub impl_generic_count: usize,
     pub receiver: &'a TypeId,
-    pub trait_owner: &'a kagari_common::identity::DefinitionId,
+    pub trait_owner: &'a DefinitionId,
     pub trait_arguments: &'a [TypeId],
-    pub catalog: &'a crate::aggregates::AggregateCatalog,
-    pub span: kagari_common::Span,
+    pub catalog: &'a AggregateCatalog,
+    pub span: Span,
 }
 
 pub(super) fn compare_method_contract(
@@ -1342,7 +1352,7 @@ pub(super) fn compare_method_contract(
         diagnostics.push(mismatch("generic parameter count differs".into()));
         return;
     }
-    let mut substitution: crate::types::TypeSubstitution = expected
+    let mut substitution: TypeSubstitution = expected
         .generic_params()
         .iter()
         .take(comparison.trait_generic_count)
@@ -1381,11 +1391,9 @@ pub(super) fn compare_method_contract(
         let substituted = required
             .iter()
             .map(|constraint| match constraint {
-                super::ConstraintTarget::Standard(value) => {
-                    super::ConstraintTarget::Standard(*value)
-                }
-                super::ConstraintTarget::Trait(instance) => {
-                    super::ConstraintTarget::Trait(instance.instantiate(&substitution))
+                ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
+                ConstraintTarget::Trait(instance) => {
+                    ConstraintTarget::Trait(instance.instantiate(&substitution))
                 }
             })
             .collect::<Vec<_>>();
@@ -1428,11 +1436,9 @@ pub(super) fn compare_method_contract(
                 constraints
                     .iter()
                     .map(|constraint| match constraint {
-                        super::ConstraintTarget::Standard(value) => {
-                            super::ConstraintTarget::Standard(*value)
-                        }
-                        super::ConstraintTarget::Trait(instance) => {
-                            super::ConstraintTarget::Trait(instance.instantiate(&substitution))
+                        ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
+                        ConstraintTarget::Trait(instance) => {
+                            ConstraintTarget::Trait(instance.instantiate(&substitution))
                         }
                     })
                     .collect::<Vec<_>>(),
@@ -1476,19 +1482,19 @@ fn validate_const_initializers(
     names: &ResolvedNames,
     top_level_index: &TopLevelTypeIndex,
     type_table: &TypeTable,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-    budget: &mut super::const_budget::ConstBudget,
+    budget: &mut ConstBudget,
 ) {
     struct ConstValidator<'a> {
         lowered: &'a LoweredModule,
         names: &'a ResolvedNames,
         top_level_index: &'a TopLevelTypeIndex,
         type_table: &'a TypeTable,
-        cancel: &'a kagari_common::cancellation::CancellationToken,
+        cancel: &'a CancellationToken,
         diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
         states: HashMap<ConstId, ConstVisitState>,
-        budget: &'a mut super::const_budget::ConstBudget,
+        budget: &'a mut ConstBudget,
     }
 
     impl ConstValidator<'_> {

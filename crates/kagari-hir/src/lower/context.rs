@@ -1,4 +1,5 @@
 use kagari_common::Span;
+use kagari_common::cancellation::CancellationToken;
 use kagari_syntax::ast::AstNode;
 use kagari_syntax::kind::SyntaxKind;
 
@@ -10,13 +11,13 @@ use crate::hir::{
 use crate::source_map::SourceMap;
 
 pub(crate) struct Lowerer {
-    pub(crate) cancel: kagari_common::cancellation::CancellationToken,
+    pub(crate) cancel: CancellationToken,
     pub(crate) source_map: SourceMap,
     pub(crate) module: Module,
 }
 
 impl Lowerer {
-    pub(crate) fn new(cancel: kagari_common::cancellation::CancellationToken) -> Self {
+    pub(crate) fn new(cancel: CancellationToken) -> Self {
         let source_map = SourceMap::default();
         let mut module = Module::default();
         module.body.arena = source_map.arena();

@@ -4,6 +4,8 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_ir::module::abi::BuiltinType;
+use std::num::IntErrorKind;
+use std::num::ParseIntError;
 
 pub(crate) fn parse(
     gc: &GcHeap,
@@ -55,9 +57,9 @@ pub(crate) fn parse(
 }
 
 fn integer(text: &str, ty: BuiltinType, base: u32) -> Result<Value, u8> {
-    let failure = |error: std::num::ParseIntError| match error.kind() {
-        std::num::IntErrorKind::Empty => 0,
-        std::num::IntErrorKind::PosOverflow | std::num::IntErrorKind::NegOverflow => 2,
+    let failure = |error: ParseIntError| match error.kind() {
+        IntErrorKind::Empty => 0,
+        IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => 2,
         _ => 1,
     };
     match ty {

@@ -1,6 +1,11 @@
 //! Normal completion is separate from the type of a produced value. In particular,
 //! a returning block does not produce Unit at the function's fallthrough boundary.
+
+use crate::hir::MatchArm;
+use crate::hir::StmtId;
+use crate::resolver::ResolvedNames;
 use std::collections::HashMap;
+use std::iter;
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
@@ -35,7 +40,7 @@ impl Exits {
 
 pub(super) fn block_can_complete(
     module: &Module,
-    names: &crate::resolver::ResolvedNames,
+    names: &ResolvedNames,
     block: BlockId,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
@@ -50,13 +55,13 @@ pub(super) fn block_can_complete(
 
 struct Completion<'a> {
     module: &'a Module,
-    names: &'a crate::resolver::ResolvedNames,
+    names: &'a ResolvedNames,
     cancel: &'a CancellationToken,
 }
 
 pub(super) fn expr_can_complete(
     module: &Module,
-    names: &crate::resolver::ResolvedNames,
+    names: &ResolvedNames,
     expr: ExprId,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
@@ -74,7 +79,7 @@ enum Node {
     Expr(ExprId),
     Block(BlockId),
     Place(PlaceId),
-    Stmt(crate::hir::StmtId),
+    Stmt(StmtId),
     Branches(BlockId, Option<ExprId>),
     ShortCircuit(ExprId),
     Guarded(ExprId, ExprId),
@@ -85,7 +90,7 @@ type Nodes<'a> = Box<dyn Iterator<Item = Node> + 'a>;
 
 enum Task<'a> {
     Record(Node),
-    MatchArms(&'a [crate::hir::MatchArm]),
+    MatchArms(&'a [MatchArm]),
     Then(Exits),
     Visit(Node),
     Walk {
@@ -328,7 +333,7 @@ impl<'a> Completion<'a> {
                                 count: end,
                             } => Box::new([Node::Expr(*start), Node::Expr(*end)].into_iter()),
                             ExprKind::Call { callee, args, .. } => Box::new(
-                                std::iter::once(Node::Expr(*callee))
+                                iter::once(Node::Expr(*callee))
                                     .chain(args.iter().copied().map(Node::Expr)),
                             ),
                             ExprKind::Index { receiver, index } => {

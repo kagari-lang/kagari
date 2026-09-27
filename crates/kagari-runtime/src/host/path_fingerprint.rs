@@ -1,13 +1,17 @@
 //! Versioned fixed-width encoding of resolved path contracts, independent of slots.
+
 use super::*;
 use crate::metadata::TypeRegistry;
+use crate::module::LinkedHostBindings;
+use kagari_ir::bytecode::BytecodeModule;
+use kagari_ir::module::ValueType;
 
 impl HostRegistry {
     pub(crate) fn link_module(
         &self,
-        module: &kagari_ir::bytecode::BytecodeModule,
+        module: &BytecodeModule,
         types: &TypeRegistry,
-    ) -> Result<crate::module::LinkedHostBindings, RuntimeError> {
+    ) -> Result<LinkedHostBindings, RuntimeError> {
         let functions = self.link_interface(&module.host_interface)?;
         let paths = module
             .paths
@@ -31,8 +35,8 @@ impl HostRegistry {
                     .ok_or_else(|| {
                         RuntimeError::typed_path_validation("missing path result contract")
                     })?;
-                if required.root_ty != kagari_ir::module::ValueType::HostHandle
-                    || required.result_ty != kagari_ir::module::ValueType::from_host_type(&result)
+                if required.root_ty != ValueType::HostHandle
+                    || required.result_ty != ValueType::from_host_type(&result)
                     || (!required.read_only && actual.access != PathAccess::ReadWrite)
                 {
                     return Err(RuntimeError::typed_path_validation(
@@ -80,7 +84,7 @@ impl HostRegistry {
                             RuntimeError::typed_path_validation("missing path parameter contract")
                         })?;
                     if function.metadata.registers.get(argument.index()).copied()
-                        != Some(kagari_ir::module::ValueType::from_host_type(&expected))
+                        != Some(ValueType::from_host_type(&expected))
                     {
                         return Err(RuntimeError::typed_path_validation(
                             "path dynamic argument type differs from its binding",
@@ -89,7 +93,7 @@ impl HostRegistry {
                 }
             }
         }
-        Ok(crate::module::LinkedHostBindings { functions, paths })
+        Ok(LinkedHostBindings { functions, paths })
     }
 
     pub(super) fn path_fingerprint(

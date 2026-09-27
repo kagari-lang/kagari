@@ -1,5 +1,20 @@
 //! Signature queries consume declarations without running any body analysis.
+
 use super::*;
+use crate::DiagnosticBuffer;
+use crate::PreparedAnalysis;
+use crate::aggregates::AggregateCatalog;
+use crate::declarations::Declaration;
+use crate::declarations::Declarations;
+use crate::imports::FunctionCatalog;
+use crate::imports::ImportedFunctions;
+use crate::imports::ModuleGraph;
+use crate::imports::TypeCatalog;
+use crate::typeck::ModuleSignatures;
+use crate::typeck::TypeTarget;
+use kagari_common::Diagnostic;
+use kagari_common::host_interface::HostTypeDeclaration;
+use std::collections::BTreeMap;
 
 #[cfg(test)]
 mod tests;
@@ -7,14 +22,14 @@ mod tests;
 #[derive(Debug, Clone)]
 pub struct FileSignatures {
     pub(super) declaration: Arc<FileDeclarations>,
-    pub(super) prepared: crate::PreparedAnalysis,
-    diagnostics: crate::DiagnosticBuffer,
+    pub(super) prepared: PreparedAnalysis,
+    diagnostics: DiagnosticBuffer,
 }
 
 impl FileSignatures {
     /// Navigate checked signature type names and declaration sites without
     /// resolving any function body.
-    pub fn definition_at(&self, offset: usize) -> Option<&crate::declarations::Declaration> {
+    pub fn definition_at(&self, offset: usize) -> Option<&Declaration> {
         self.prepared.declarations.site_at(offset).or_else(|| {
             type_reference_at(
                 &self.prepared.lowered,
@@ -27,18 +42,13 @@ impl FileSignatures {
     }
 
     /// Read an offline host type declaration from a checked signature name.
-    pub fn host_type_at(
-        &self,
-        offset: usize,
-    ) -> Option<&kagari_common::host_interface::HostTypeDeclaration> {
+    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
         match type_reference_target_at(
             &self.prepared.lowered,
             self.prepared.signatures.facts().type_table(),
             offset,
         )? {
-            Some(crate::typeck::TypeTarget::Host(id)) => {
-                self.prepared.declarations.hosts.type_declaration(id)
-            }
+            Some(TypeTarget::Host(id)) => self.prepared.declarations.hosts.type_declaration(id),
             _ => None,
         }
     }
@@ -56,13 +66,13 @@ impl FileSignatures {
     pub fn source(&self) -> &SourceFile {
         self.declaration.source()
     }
-    pub fn declarations(&self) -> &crate::declarations::Declarations {
+    pub fn declarations(&self) -> &Declarations {
         &self.prepared.declarations
     }
-    pub fn signatures(&self) -> &Arc<AnalysisResult<crate::typeck::ModuleSignatures>> {
+    pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
         &self.prepared.signatures
     }
-    pub fn diagnostics(&self) -> &[kagari_common::Diagnostic] {
+    pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
     /// Whether construction reused checked signature facts from an earlier query.
@@ -74,8 +84,8 @@ impl FileSignatures {
 #[derive(Debug, Clone)]
 pub struct SignatureSnapshot {
     pub(super) declarations: DeclarationSnapshot,
-    pub(super) files: Arc<std::collections::BTreeMap<FileId, Arc<FileSignatures>>>,
-    aggregates: Arc<crate::aggregates::AggregateCatalog>,
+    pub(super) files: Arc<BTreeMap<FileId, Arc<FileSignatures>>>,
+    aggregates: Arc<AggregateCatalog>,
 }
 
 impl SignatureSnapshot {
@@ -83,8 +93,7 @@ impl SignatureSnapshot {
         &self,
         cancel: &CancellationToken,
     ) -> Result<HashMap<FileId, BodyEnvironment>, Cancelled> {
-        let catalog =
-            crate::imports::FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
+        let catalog = FunctionCatalog::new(self.files.values().map(|file| &file.prepared));
         let mut result = HashMap::new();
         for (id, file) in self.files.iter() {
             cancel.check()?;
@@ -119,15 +128,15 @@ impl SignatureSnapshot {
     pub fn declaration_snapshot(&self) -> &DeclarationSnapshot {
         &self.declarations
     }
-    pub fn module_graph(&self) -> &crate::imports::ModuleGraph {
+    pub fn module_graph(&self) -> &ModuleGraph {
         self.declarations.module_graph()
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct BodyEnvironment {
-    pub imported_functions: crate::imports::ImportedFunctions,
-    pub aggregates: crate::aggregates::AggregateCatalog,
+    pub imported_functions: ImportedFunctions,
+    pub aggregates: AggregateCatalog,
 }
 
 impl AnalysisDatabase {
@@ -159,15 +168,13 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, Cancelled> {
         let declarations = self.prepare_declarations(source, cancel)?;
-        let catalog = crate::imports::TypeCatalog::new(
-            declarations.files.values().map(|file| &file.declared),
-        );
+        let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
         let mut imported_types = HashMap::new();
         for (id, file) in declarations.files.iter() {
             cancel.check()?;
             imported_types.insert(*id, catalog.bindings(&file.names().imports, cancel)?);
         }
-        let mut files = std::collections::BTreeMap::new();
+        let mut files = BTreeMap::new();
         for (id, declaration) in declarations.files.iter() {
             cancel.check()?;
             let imported = imported_types.remove(id).expect("declared type bindings");
@@ -187,7 +194,7 @@ impl AnalysisDatabase {
                     .diagnostics()
                     .iter()
                     .cloned()
-                    .collect::<crate::DiagnosticBuffer>();
+                    .collect::<DiagnosticBuffer>();
                 diagnostics.extend(prepared.signatures.diagnostics().iter().cloned());
                 Arc::new(FileSignatures {
                     declaration: declaration.clone(),
@@ -197,7 +204,7 @@ impl AnalysisDatabase {
             };
             files.insert(*id, result);
         }
-        let mut aggregates = crate::aggregates::AggregateCatalog::default();
+        let mut aggregates = AggregateCatalog::default();
         for file in files.values() {
             let prepared = &file.prepared;
             aggregates.add_module(

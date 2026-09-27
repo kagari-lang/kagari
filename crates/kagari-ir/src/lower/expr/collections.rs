@@ -1,5 +1,9 @@
 use super::*;
+use crate::module::abi::AbiType;
+use crate::module::instruction::IterOp;
 use crate::module::instruction::StandardEnumOp;
+use kagari_common::collection::CollectionAccess;
+use kagari_hir::builtin::traits;
 use kagari_hir::builtin::{
     declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait,
 };
@@ -11,12 +15,9 @@ impl FunctionLowerer<'_, '_> {
         item: TypeId,
         array: IrValue,
     ) -> Result<IrValue, IrLoweringError> {
-        let mut interface = kagari_hir::builtin::traits::StandardTrait::List.nominal();
+        let mut interface = StandardTrait::List.nominal();
         interface.arguments.push(item.clone());
-        let storage = TypeId::Array(
-            Box::new(item),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let storage = TypeId::Array(Box::new(item), CollectionAccess::Mutable);
         let span = self.function.debug.source_span;
         self.planner
             .require_parent_interfaces(&storage, &interface, span)?;
@@ -33,7 +34,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_map_view_snapshot(
         &mut self,
-        operation: kagari_hir::builtin::declarations::NativeDefaultMethod,
+        operation: NativeDefaultMethod,
         source: &TypeId,
         value: IrValue,
     ) -> Result<IrValue, IrLoweringError> {
@@ -49,10 +50,7 @@ impl FunctionLowerer<'_, '_> {
             _ => unreachable!(),
         };
         let item = index.map_or_else(|| pair.clone(), |i| fields[i].clone());
-        let array_type = TypeId::Array(
-            Box::new(item.clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let array_type = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
         let array = self.collection_new(&array_type)?;
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
@@ -124,10 +122,7 @@ impl FunctionLowerer<'_, '_> {
         let [item] = interface.arguments.as_slice() else {
             return Err(IrLoweringError::MissingBinding("snapshot element type"));
         };
-        let storage = TypeId::Array(
-            Box::new(item.clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let storage = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
         self.planner
             .require_parent_interfaces(&storage, &interface, span)?;
         let implementation = self.planner.native_interface(&storage, &interface, span)?;
@@ -164,9 +159,9 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .arguments(&[ty], &self.instance.substitution, span)?
             .remove(0);
-        let item = kagari_hir::builtin::traits::collection_item(&ty)
+        let item = traits::collection_item(&ty)
             .ok_or(IrLoweringError::MissingBinding("collection factory result"))?;
-        let mut interface = kagari_hir::builtin::traits::StandardTrait::List.nominal();
+        let mut interface = StandardTrait::List.nominal();
         interface.arguments.push(item);
         let source = TypeId::Trait(interface);
         self.lower_collect(&ty, &source, input)
@@ -254,8 +249,8 @@ impl FunctionLowerer<'_, '_> {
             self.emit(Instruction::Iter {
                 dst,
                 value: Some(args[0]),
-                ty: crate::module::abi::AbiType::from_checked_type(ty),
-                op: crate::module::instruction::IterOp::New,
+                ty: AbiType::from_checked_type(ty),
+                op: IterOp::New,
             });
             return Ok(dst);
         }
@@ -295,7 +290,7 @@ impl FunctionLowerer<'_, '_> {
                 (StandardIntrinsic::ArrayTruncate, ValueType::Unit, false)
             }
             (TypeId::Array(item, _), "extend") => {
-                let mut interface = kagari_hir::builtin::traits::StandardTrait::List.nominal();
+                let mut interface = StandardTrait::List.nominal();
                 interface.arguments.push((**item).clone());
                 return self.lower_list_copy(TypeId::Trait(interface), args[0], args[1], true);
             }
@@ -387,7 +382,7 @@ impl FunctionLowerer<'_, '_> {
         };
         let storage = TypeId::Array(
             Box::new(interface.arguments[0].clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
+            CollectionAccess::Mutable,
         );
         let snapshot = self.lower_collect(&storage, &source, input)?;
         Ok(self.emit_intrinsic(

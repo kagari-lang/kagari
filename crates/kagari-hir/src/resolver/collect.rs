@@ -1,5 +1,10 @@
+use crate::hir::BodySelection;
+use crate::host::HostDeclarations;
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::AnalysisResult;
 use crate::hir::FunctionKind;
@@ -10,7 +15,7 @@ use crate::resolver::table::NameTable;
 use crate::resolver::{DeclarationNames, ResolvedName, ResolvedNames};
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
-    let hosts = crate::host::HostDeclarations::empty();
+    let hosts = HostDeclarations::empty();
     let graph = ModuleGraph::build([lowered], &hosts, &Default::default())
         .expect("uncancelled name resolution");
     let imports = graph
@@ -23,7 +28,7 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
         facts: resolve_bodies(
             lowered,
             &declarations.facts,
-            crate::hir::BodySelection::All,
+            BodySelection::All,
             &Default::default(),
         ),
         diagnostics: declarations.diagnostics,
@@ -31,9 +36,9 @@ pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
 }
 pub(crate) fn collect_declarations(
     lowered: &LoweredModule,
-    hosts: std::sync::Arc<crate::host::HostDeclarations>,
-    imports: std::sync::Arc<ModuleImports>,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    hosts: Arc<HostDeclarations>,
+    imports: Arc<ModuleImports>,
+    cancel: &CancellationToken,
 ) -> AnalysisResult<DeclarationNames> {
     let mut names = NameTable::default();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
@@ -138,7 +143,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for variant in &enum_def.variants {
             if cancel.check().is_err() {
                 break;
@@ -159,7 +164,7 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for method in &item.methods {
             if cancel.check().is_err() {
                 break;
@@ -180,7 +185,7 @@ pub(crate) fn collect_declarations(
             break;
         }
         names.insert_impl(impl_block.id);
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = HashSet::new();
         for method in &impl_block.methods {
             if cancel.check().is_err() {
                 break;
@@ -199,7 +204,7 @@ pub(crate) fn collect_declarations(
 
     AnalysisResult {
         facts: DeclarationNames {
-            items: std::sync::Arc::new(names),
+            items: Arc::new(names),
             hosts,
             imports,
         },
@@ -210,8 +215,8 @@ pub(crate) fn collect_declarations(
 pub(crate) fn resolve_bodies(
     lowered: &LoweredModule,
     names: &DeclarationNames,
-    selection: crate::hir::BodySelection,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    selection: BodySelection,
+    cancel: &CancellationToken,
 ) -> ResolvedNames {
     let mut resolver = BodyResolver::new(
         &names.items,

@@ -1,11 +1,20 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
+
+use super::PublicAbiItem;
+use super::TypeAbiKind;
+use super::abi::AbiType;
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
 use kagari_common::identity::DefinitionId;
+use kagari_common::identity::ModuleIdentity;
+use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumLayout {
     pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<super::abi::AbiType>,
+    pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub variants: Vec<EnumVariantLayout>,
 }
@@ -14,17 +23,17 @@ pub struct EnumLayout {
 pub struct EnumVariantLayout {
     pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub payload: Vec<super::abi::AbiType>,
+    pub payload: Vec<AbiType>,
 }
 
 /// Compare executable instances to validated public declarations after substitution.
 pub(crate) fn struct_abi_matches(
     layouts: &[StructLayout],
-    identity: &kagari_common::identity::ModuleIdentity,
+    identity: &ModuleIdentity,
     items: &[super::PublicAbiItem],
-    cancel: &kagari_common::cancellation::CancellationToken,
-) -> Result<bool, kagari_common::cancellation::Cancelled> {
-    let templates = public_templates(items, super::TypeAbiKind::Struct, cancel)?;
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    let templates = public_templates(items, TypeAbiKind::Struct, cancel)?;
     for layout in layouts {
         cancel.check()?;
         if &layout.declaration.module != identity {
@@ -62,12 +71,12 @@ pub(crate) fn struct_abi_matches(
 
 pub(crate) fn enum_abi_matches(
     layouts: &[EnumLayout],
-    identity: &kagari_common::identity::ModuleIdentity,
+    identity: &ModuleIdentity,
     items: &[super::PublicAbiItem],
-    cancel: &kagari_common::cancellation::CancellationToken,
-) -> Result<bool, kagari_common::cancellation::Cancelled> {
-    let templates = public_templates(items, super::TypeAbiKind::Enum, cancel)?;
-    let mut instantiated = std::collections::HashSet::new();
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    let templates = public_templates(items, TypeAbiKind::Enum, cancel)?;
+    let mut instantiated = HashSet::new();
     for layout in layouts {
         cancel.check()?;
         if &layout.declaration.module != identity {
@@ -122,16 +131,13 @@ pub(crate) fn enum_abi_matches(
 fn public_templates<'a>(
     items: &'a [super::PublicAbiItem],
     kind: super::TypeAbiKind,
-    cancel: &kagari_common::cancellation::CancellationToken,
-) -> Result<
-    std::collections::HashMap<&'a str, &'a super::TypeAbi>,
-    kagari_common::cancellation::Cancelled,
-> {
+    cancel: &CancellationToken,
+) -> Result<HashMap<&'a str, &'a super::TypeAbi>, Cancelled> {
     cancel.check()?;
-    let mut templates = std::collections::HashMap::new();
+    let mut templates = HashMap::new();
     for item in items {
         cancel.check()?;
-        if let super::PublicAbiItem::Type(ty) = item
+        if let PublicAbiItem::Type(ty) = item
             && ty.kind == kind
         {
             templates.insert(ty.name.as_str(), ty);
@@ -143,7 +149,7 @@ fn public_templates<'a>(
 pub(crate) fn validate_enum_layouts(
     layouts: &[EnumLayout],
     structures: &[StructLayout],
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
     use kagari_common::identity::DefinitionKind;
     let mut pending = structures
@@ -155,7 +161,7 @@ pub(crate) fn validate_enum_layouts(
         })
         .chain(layouts.iter().flat_map(|e| &e.arguments))
         .collect::<Vec<_>>();
-    let mut identities = std::collections::HashSet::new();
+    let mut identities = HashSet::new();
     for layout in layouts {
         cancel
             .check()
@@ -172,7 +178,7 @@ pub(crate) fn validate_enum_layouts(
         {
             return Err(LayoutValidationError::Invalid);
         }
-        let mut names = std::collections::HashSet::new();
+        let mut names = HashSet::new();
         if layout.variants.len() > u32::MAX as usize || layouts.len() > u32::MAX as usize {
             return Err(LayoutValidationError::Limit {
                 resource: "enum layout slots",
@@ -277,7 +283,7 @@ pub(crate) fn validate_enum_layouts(
 pub struct StructLayout {
     pub declaration: DefinitionId,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub arguments: Vec<super::abi::AbiType>,
+    pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub fields: Vec<StructFieldLayout>,
 }
@@ -296,7 +302,7 @@ impl StructLayout {
 pub struct StructFieldLayout {
     pub declaration: DefinitionId,
     pub name: String,
-    pub ty: super::abi::AbiType,
+    pub ty: AbiType,
     pub mutable: bool,
 }
 
@@ -311,7 +317,7 @@ pub(crate) enum LayoutValidationError {
 }
 pub(crate) fn validate_layouts(
     layouts: &[StructLayout],
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> Result<(), LayoutValidationError> {
     use kagari_common::identity::DefinitionKind;
     use std::collections::HashSet;

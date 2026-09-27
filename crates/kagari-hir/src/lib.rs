@@ -1,3 +1,21 @@
+use aggregates::AggregateCatalog;
+use declarations::Declarations;
+use hir::BodySelection;
+use host::HostDeclarations;
+use imports::FunctionCatalog;
+use imports::ModuleGraph;
+use imports::TypeCatalog;
+use kagari_common::DiagnosticKind;
+use kagari_common::Severity;
+use kagari_common::SourceFile;
+use kagari_common::Span;
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::cancellation::Cancelled;
+use kagari_syntax::Parse;
+use kagari_syntax::parse;
+use smallvec::SmallVec;
+use std::sync::Arc;
+use typeck::associated_consts;
 pub mod aggregates;
 pub mod analysis;
 pub mod builtin;
@@ -18,17 +36,17 @@ use std::ops::Deref;
 
 pub use profile::LanguageFeatureProfile;
 
-pub type DiagnosticBuffer = smallvec::SmallVec<[Diagnostic; 4]>;
+pub type DiagnosticBuffer = SmallVec<[Diagnostic; 4]>;
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule {
     pub aggregates: aggregates::AggregateCatalog,
-    pub lowered: std::sync::Arc<lower::LoweredModule>,
+    pub lowered: Arc<lower::LoweredModule>,
     pub names: resolver::ResolvedNames,
     pub declarations: declarations::Declarations,
     pub typed: typeck::TypedModule,
-    pub signatures: std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>,
+    pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
     pub imported_functions: imports::ImportedFunctions,
 }
 
@@ -49,7 +67,7 @@ impl<T> AnalysisResult<T> {
         if self
             .diagnostics
             .iter()
-            .any(|d| d.severity == kagari_common::Severity::Error)
+            .any(|d| d.severity == Severity::Error)
         {
             Err(Box::new(self.diagnostics))
         } else {
@@ -82,23 +100,20 @@ pub(crate) struct PreparedAnalysis {
     // The suffix after this boundary depends on the complete aggregate catalog.
     // Recompute it after all declaration signatures exist, including on reuse.
     local_signature_diagnostics: usize,
-    lowered: std::sync::Arc<lower::LoweredModule>,
+    lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<resolver::DeclarationNames>,
     declarations: declarations::Declarations,
-    signatures: std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>,
+    signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
 }
 
 impl PreparedAnalysis {
     fn completed_signatures(
         &self,
         aggregates: &aggregates::AggregateCatalog,
-        cancel: &kagari_common::cancellation::CancellationToken,
-    ) -> Result<
-        Option<std::sync::Arc<AnalysisResult<typeck::ModuleSignatures>>>,
-        kagari_common::cancellation::Cancelled,
-    > {
+        cancel: &CancellationToken,
+    ) -> Result<Option<Arc<AnalysisResult<typeck::ModuleSignatures>>>, Cancelled> {
         let mut diagnostics = DiagnosticBuffer::new();
-        typeck::associated_consts::validate(
+        associated_consts::validate(
             &self.lowered,
             &self.declarations,
             aggregates,
@@ -136,7 +151,7 @@ impl PreparedAnalysis {
                     .implements(&implementation.trait_type, &implementation.for_type)
             {
                 diagnostics.push(
-                    Diagnostic::error(kagari_common::DiagnosticKind::InvalidTraitImpl {
+                    Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                         trait_name: implementation
                             .trait_type
                             .declaration
@@ -147,14 +162,14 @@ impl PreparedAnalysis {
                         type_name: implementation.for_type.display_name(),
                         reason: "host and script implementations overlap".into(),
                     })
-                    .with_span(kagari_common::Span::default()),
+                    .with_span(Span::default()),
                 );
             }
         }
         for (first, second) in aggregates.overlapping_implementations() {
             cancel.check()?;
             diagnostics.push(
-                Diagnostic::error(kagari_common::DiagnosticKind::InvalidTraitImpl {
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
                     trait_name: first
                         .trait_type
                         .declaration
@@ -168,7 +183,7 @@ impl PreparedAnalysis {
                         first.id.module, second.id.module
                     ),
                 })
-                .with_span(kagari_common::Span::default()),
+                .with_span(Span::default()),
             );
         }
         cancel.check()?;
@@ -182,13 +197,13 @@ impl PreparedAnalysis {
             .diagnostics
             .truncate(self.local_signature_diagnostics);
         result.diagnostics.extend(diagnostics);
-        Ok(Some(std::sync::Arc::new(result)))
+        Ok(Some(Arc::new(result)))
     }
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct DeclaredAnalysis {
-    lowered: std::sync::Arc<lower::LoweredModule>,
+    lowered: Arc<lower::LoweredModule>,
     names: AnalysisResult<resolver::DeclarationNames>,
     declarations: declarations::Declarations,
 }
@@ -198,7 +213,7 @@ impl DeclaredAnalysis {
         mut self,
         imported_types: imports::ImportedTypes,
         previous_analysis: Option<&PreparedAnalysis>,
-        cancel: &kagari_common::cancellation::CancellationToken,
+        cancel: &CancellationToken,
     ) -> PreparedAnalysis {
         self.declarations.imported_types = imported_types;
         let previous = previous_analysis.and_then(|old| {
@@ -219,7 +234,7 @@ impl DeclaredAnalysis {
                 Some(old.signatures.clone())
             } else {
                 typeck::reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel)
-                    .map(std::sync::Arc::new)
+                    .map(Arc::new)
             }
         });
         let signatures_reused = previous.is_some();
@@ -229,7 +244,7 @@ impl DeclaredAnalysis {
                 .local_signature_diagnostics
         });
         let signatures = previous.unwrap_or_else(|| {
-            std::sync::Arc::new(typeck::check_signatures(
+            Arc::new(typeck::check_signatures(
                 &self.lowered,
                 &self.declarations,
                 cancel,
@@ -248,14 +263,13 @@ impl DeclaredAnalysis {
 }
 
 fn declare_analysis(
-    lowered: std::sync::Arc<lower::LoweredModule>,
-    hosts: std::sync::Arc<host::HostDeclarations>,
-    imports: std::sync::Arc<imports::ModuleImports>,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    lowered: Arc<lower::LoweredModule>,
+    hosts: Arc<host::HostDeclarations>,
+    imports: Arc<imports::ModuleImports>,
+    cancel: &CancellationToken,
 ) -> DeclaredAnalysis {
     let names = resolver::collect_declarations(&lowered, hosts, imports, cancel);
-    let declarations =
-        declarations::Declarations::collect_named(&lowered.source, &lowered, &names.facts, cancel);
+    let declarations = Declarations::collect_named(&lowered.source, &lowered, &names.facts, cancel);
     DeclaredAnalysis {
         lowered,
         names,
@@ -269,7 +283,7 @@ fn analyze_prepared(
     imported_functions: imports::ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
     reuse: Option<&typeck::BodyReuse<'_>>,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let PreparedAnalysis {
         signatures_reused: _,
@@ -280,7 +294,7 @@ fn analyze_prepared(
         signatures,
     } = prepared;
     let names = AnalysisResult {
-        facts: resolver::resolve_bodies(&lowered, &names.facts, hir::BodySelection::All, cancel),
+        facts: resolver::resolve_bodies(&lowered, &names.facts, BodySelection::All, cancel),
         diagnostics: names.diagnostics,
     };
     let declarations = declarations.with_bindings(&lowered, &names.facts, cancel);
@@ -290,7 +304,7 @@ fn analyze_prepared(
         &declarations,
         typeck::BodyInputs {
             const_limits,
-            selection: hir::BodySelection::All,
+            selection: BodySelection::All,
             signatures: &signatures,
             imported_functions: &imported_functions,
             aggregates: &aggregates,
@@ -315,37 +329,32 @@ fn analyze_prepared(
 }
 
 pub fn analyze_source(
-    source: &kagari_common::SourceFile,
+    source: &SourceFile,
     profile: LanguageFeatureProfile,
 ) -> AnalysisResult<AnalyzedModule> {
-    let parsed = kagari_syntax::parse(source);
+    let parsed = parse(source);
     let lowered = lower::lower_module_controlled(
-        std::sync::Arc::new(source.clone()),
+        Arc::new(source.clone()),
         &parsed.syntax(),
         &Default::default(),
     );
-    let hosts = host::HostDeclarations::empty();
-    let graph = imports::ModuleGraph::build([&lowered], &hosts, &Default::default())
+    let hosts = HostDeclarations::empty();
+    let graph = ModuleGraph::build([&lowered], &hosts, &Default::default())
         .expect("uncancelled source analysis");
     let imports = graph
         .node(source.module_identity())
         .unwrap()
         .imports
         .clone();
-    let declared = declare_analysis(
-        std::sync::Arc::new(lowered),
-        hosts,
-        imports,
-        &Default::default(),
-    );
-    let imported_types = imports::TypeCatalog::new([&declared])
+    let declared = declare_analysis(Arc::new(lowered), hosts, imports, &Default::default());
+    let imported_types = TypeCatalog::new([&declared])
         .bindings(&declared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
     let mut prepared = declared.check_signatures(imported_types, None, &Default::default());
-    let mut imported_functions = imports::FunctionCatalog::new([&prepared])
+    let mut imported_functions = FunctionCatalog::new([&prepared])
         .bindings(&prepared.names.facts.imports, &Default::default())
         .expect("uncancelled source analysis");
-    let mut aggregates = aggregates::AggregateCatalog::default();
+    let mut aggregates = AggregateCatalog::default();
     aggregates
         .add_module(
             &prepared.lowered,
@@ -384,12 +393,12 @@ pub(crate) struct AnalysisPolicy {
 
 pub(crate) fn analyze_parsed(
     prepared: PreparedAnalysis,
-    parsed: &kagari_syntax::Parse,
+    parsed: &Parse,
     policy: AnalysisPolicy,
     imported_functions: imports::ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
     reuse: Option<&typeck::BodyReuse<'_>>,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let mut analyzed = analyze_prepared(
         prepared,
@@ -405,30 +414,28 @@ pub(crate) fn analyze_parsed(
     for attribute in &analyzed.facts.lowered.attributes {
         let kind = match attribute.name.as_str() {
             "meta" => continue,
-            "reflect" | "requires" | "profile" => {
-                kagari_common::DiagnosticKind::UnsupportedAttribute {
-                    name: attribute.name.clone(),
-                }
-            }
+            "reflect" | "requires" | "profile" => DiagnosticKind::UnsupportedAttribute {
+                name: attribute.name.clone(),
+            },
             name if name.starts_with("tool::") => continue,
-            _ => kagari_common::DiagnosticKind::UnknownAttribute {
+            _ => DiagnosticKind::UnknownAttribute {
                 name: attribute.name.clone(),
             },
         };
         analyzed
             .diagnostics
-            .push(kagari_common::Diagnostic::error(kind).with_span(attribute.span));
+            .push(Diagnostic::error(kind).with_span(attribute.span));
     }
     if analyzed.diagnostics.len() > policy.max_semantic_diagnostics {
         analyzed
             .diagnostics
             .truncate(policy.max_semantic_diagnostics);
-        analyzed.diagnostics.push(kagari_common::Diagnostic::error(
-            kagari_common::DiagnosticKind::CompileLimitExceeded {
+        analyzed
+            .diagnostics
+            .push(Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
                 resource: "semantic diagnostics",
                 limit: policy.max_semantic_diagnostics,
-            },
-        ));
+            }));
     }
     analyzed
         .diagnostics

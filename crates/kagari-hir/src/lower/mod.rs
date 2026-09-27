@@ -1,3 +1,9 @@
+use ast::Attribute;
+use kagari_common::SourceFile;
+use kagari_common::Span;
+use kagari_common::cancellation::CancellationToken;
+use kagari_syntax::parse;
+use std::sync::Arc;
 mod context;
 mod expr;
 mod item;
@@ -13,7 +19,7 @@ use crate::lower::context::Lowerer;
 
 #[derive(Debug, Clone)]
 pub struct LoweredModule {
-    pub source: std::sync::Arc<kagari_common::SourceFile>,
+    pub source: Arc<SourceFile>,
     pub module: Module,
     pub source_map: SourceMap,
     pub attributes: Vec<AttributeFact>,
@@ -23,8 +29,8 @@ pub struct LoweredModule {
 pub struct AttributeFact {
     pub name: String,
     pub arguments: Option<Vec<AttributeArgument>>,
-    pub span: kagari_common::Span,
-    pub target_span: kagari_common::Span,
+    pub span: Span,
+    pub target_span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +70,7 @@ fn lower_attributes(module: &ast::SourceFile) -> Vec<AttributeFact> {
     module
         .syntax()
         .descendants()
-        .filter_map(ast::Attribute::cast)
+        .filter_map(Attribute::cast)
         .filter_map(|attribute| {
             let parent = attribute.syntax().parent()?;
             let target = parent.text_range();
@@ -74,28 +80,25 @@ fn lower_attributes(module: &ast::SourceFile) -> Vec<AttributeFact> {
                     .args()
                     .map(|args| args.arguments().map(attribute_argument).collect()),
                 span: context::syntax_span(&attribute),
-                target_span: kagari_common::Span::new(
-                    usize::from(target.start()),
-                    usize::from(target.end()),
-                ),
+                target_span: Span::new(usize::from(target.start()), usize::from(target.end())),
             })
         })
         .collect()
 }
 
-pub fn lower_module(source: &kagari_common::SourceFile) -> LoweredModule {
-    let parsed = kagari_syntax::parse(source);
+pub fn lower_module(source: &SourceFile) -> LoweredModule {
+    let parsed = parse(source);
     lower_module_controlled(
-        std::sync::Arc::new(source.clone()),
+        Arc::new(source.clone()),
         &parsed.syntax(),
         &Default::default(),
     )
 }
 
 pub(crate) fn lower_module_controlled(
-    source: std::sync::Arc<kagari_common::SourceFile>,
+    source: Arc<SourceFile>,
     module: &ast::SourceFile,
-    cancel: &kagari_common::cancellation::CancellationToken,
+    cancel: &CancellationToken,
 ) -> LoweredModule {
     let attributes = lower_attributes(module);
     let mut lowerer = Lowerer::new(cancel.clone());

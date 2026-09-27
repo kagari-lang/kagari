@@ -1,14 +1,26 @@
+use super::NameResolution;
+use crate::builtin::BuiltinFunction;
 use crate::builtin::surface;
+use crate::builtin::traits;
+use crate::builtin::traits::StandardTrait;
+use crate::hir::Condition;
+use crate::hir::PatternId;
 use crate::hir::{
     BlockId, ConstId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
     PlaceKind, StmtId, StmtKind,
 };
 use crate::hir::{BodyOwner, HirOwner};
+use crate::host::HostDeclarations;
+use crate::imports::ModuleImports;
+use crate::resolver::QualifiedMember;
 use crate::resolver::{LexicalScope, ScopeBinding};
 use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
 use crate::source_map::SourceMap;
 use kagari_common::Span;
+use kagari_common::cancellation::CancellationToken;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 struct ActiveScope {
     id: usize,
@@ -16,27 +28,23 @@ struct ActiveScope {
 }
 
 pub(crate) struct BodyResolver<'a> {
-    cancel: kagari_common::cancellation::CancellationToken,
+    cancel: CancellationToken,
     names: &'a NameTable,
     module: &'a Module,
     resolved: ResolvedNames,
     source_map: &'a SourceMap,
     scopes: Vec<ActiveScope>,
-    closures: Vec<(
-        ExprId,
-        std::collections::HashSet<ResolvedName>,
-        Vec<ResolvedName>,
-    )>,
+    closures: Vec<(ExprId, HashSet<ResolvedName>, Vec<ResolvedName>)>,
 }
 
 impl<'a> BodyResolver<'a> {
     pub(crate) fn new(
-        names: &'a std::sync::Arc<NameTable>,
+        names: &'a Arc<NameTable>,
         module: &'a Module,
         source_map: &'a SourceMap,
-        hosts: std::sync::Arc<crate::host::HostDeclarations>,
-        imports: std::sync::Arc<crate::imports::ModuleImports>,
-        cancel: kagari_common::cancellation::CancellationToken,
+        hosts: Arc<HostDeclarations>,
+        imports: Arc<ModuleImports>,
+        cancel: CancellationToken,
     ) -> Self {
         Self {
             cancel,
@@ -136,7 +144,7 @@ impl<'a> BodyResolver<'a> {
             }
             StmtKind::While { condition, body } => {
                 self.resolve_expr(condition.value());
-                if let crate::hir::Condition::Binding { pattern, .. } = condition {
+                if let Condition::Binding { pattern, .. } = condition {
                     self.push_child_scope(self.source_map.block_span(*body));
                     self.bind_pattern(*pattern, self.source_map.block_span(*body).start);
                 }
@@ -180,7 +188,7 @@ impl<'a> BodyResolver<'a> {
                 {
                     self.resolved.insert_qualified_member(
                         expr_id,
-                        crate::resolver::QualifiedMember {
+                        QualifiedMember {
                             owner,
                             name: member.to_owned(),
                         },
@@ -222,7 +230,7 @@ impl<'a> BodyResolver<'a> {
                 else_branch,
             } => {
                 self.resolve_expr(condition.value());
-                if let crate::hir::Condition::Binding { pattern, .. } = condition {
+                if let Condition::Binding { pattern, .. } = condition {
                     self.push_child_scope(self.source_map.block_span(*then_branch));
                     self.bind_pattern(*pattern, self.source_map.block_span(*then_branch).start);
                 }
@@ -290,12 +298,12 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn bind_pattern(&mut self, pattern: crate::hir::PatternId, start: usize) {
+    fn bind_pattern(&mut self, pattern: PatternId, start: usize) {
         self.resolve_pattern_variants(pattern);
         self.bind_pattern_locals(pattern, start);
     }
 
-    fn resolve_pattern_variants(&mut self, pattern: crate::hir::PatternId) {
+    fn resolve_pattern_variants(&mut self, pattern: PatternId) {
         if self.cancel.check().is_err() {
             return;
         }
@@ -327,7 +335,7 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn bind_pattern_locals(&mut self, pattern: crate::hir::PatternId, start: usize) {
+    fn bind_pattern_locals(&mut self, pattern: PatternId, start: usize) {
         match &self.module.pattern(pattern).kind {
             PatternKind::Or(alternatives) => {
                 if let Some(first) = alternatives.first() {
@@ -397,7 +405,7 @@ impl<'a> BodyResolver<'a> {
     fn binding(&self, name: &str) -> Option<super::NameResolution> {
         for scope in self.scopes.iter().rev() {
             if let Some(index) = scope.latest.get(name) {
-                return Some(super::NameResolution::Unique(
+                return Some(NameResolution::Unique(
                     self.resolved.scopes[scope.id].bindings[*index].resolved,
                 ));
             }
@@ -433,10 +441,7 @@ impl<'a> BodyResolver<'a> {
                         surface::standard_variant_in_module(module, member)
                             .map(ResolvedName::StandardVariant)
                     })
-                    .or_else(|| {
-                        crate::builtin::traits::in_module(module, member)
-                            .map(ResolvedName::StandardTrait)
-                    }),
+                    .or_else(|| traits::in_module(module, member).map(ResolvedName::StandardTrait)),
                 _ => None,
             };
         }
@@ -446,10 +451,10 @@ impl<'a> BodyResolver<'a> {
         if let Some(module) = surface::standard_module(name) {
             return Some(ResolvedName::StandardModule(module.kind));
         }
-        if let Some(helper) = crate::builtin::BuiltinFunction::from_name(name) {
+        if let Some(helper) = BuiltinFunction::from_name(name) {
             return Some(ResolvedName::RuntimeHelper(helper));
         }
-        if let Some(kind) = crate::builtin::traits::StandardTrait::from_name(name) {
+        if let Some(kind) = StandardTrait::from_name(name) {
             return Some(ResolvedName::StandardTrait(kind));
         }
         if let Some(variant) = surface::standard_variant(name) {

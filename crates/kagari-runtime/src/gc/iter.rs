@@ -1,21 +1,28 @@
+use super::string_iter::StringTraversal;
 use super::*;
+use crate::LoadedModule;
+use crate::module::RetainedRuntimeProgram;
+use crate::session::SessionState;
+use crate::value::EnumTag;
+use kagari_ir::module::instruction::StringIterKind;
 use kagari_ir::module::{
     abi::{AbiType, BuiltinType},
     instruction::IterOp,
 };
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub(super) struct NativeIter {
     pub(super) source: Value,
     pub(super) item_type: AbiType,
     position: u128,
-    string: Option<super::string_iter::StringTraversal>,
+    string: Option<StringTraversal>,
     revision: u64,
     pub(super) guard: Option<CollectionIteration>,
     pub(super) loops: Rc<Cell<usize>>,
-    session: Weak<crate::session::SessionState>,
-    owner: crate::LoadedModule,
-    _retention: crate::module::RetainedRuntimeProgram,
+    session: Weak<SessionState>,
+    owner: LoadedModule,
+    _retention: RetainedRuntimeProgram,
 }
 
 fn invalid() -> RuntimeError {
@@ -31,7 +38,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
         let mut pending = vec![value.clone()];
-        let mut visited = std::collections::HashSet::new();
+        let mut visited = HashSet::new();
         while let Some(value) = pending.pop() {
             self.resources.consume_instruction_steps(1)?;
             let Value::GcHandle(id) = value else {
@@ -60,7 +67,7 @@ impl GcHeap {
                                 return Err(invalid());
                             };
                             let snapshot = self.enum_snapshot(value).ok_or_else(invalid)?;
-                            if snapshot.tag == crate::value::EnumTag::OptionSome {
+                            if snapshot.tag == EnumTag::OptionSome {
                                 pending.extend(snapshot.fields);
                             }
                         }
@@ -95,8 +102,8 @@ impl GcHeap {
         &self,
         source: &Value,
         ty: &AbiType,
-        owner: &crate::LoadedModule,
-        retention: crate::module::RetainedRuntimeProgram,
+        owner: &LoadedModule,
+        retention: RetainedRuntimeProgram,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         let item_type = IterOp::closure_item(ty).ok_or_else(invalid)?.clone();
@@ -140,7 +147,7 @@ impl GcHeap {
 
     fn close_iter_tree(&self, value: &Value) -> Result<(), RuntimeError> {
         let mut pending = vec![value.clone()];
-        let mut visited = std::collections::HashSet::new();
+        let mut visited = HashSet::new();
         while let Some(Value::GcHandle(id)) = pending.pop() {
             if !visited.insert(id) {
                 continue;
@@ -164,10 +171,8 @@ impl GcHeap {
                             };
                             let snapshot = self.enum_snapshot(value).ok_or_else(invalid)?;
                             match snapshot.tag {
-                                crate::value::EnumTag::OptionSome => {
-                                    pending.extend(snapshot.fields)
-                                }
-                                crate::value::EnumTag::OptionNone => {}
+                                EnumTag::OptionSome => pending.extend(snapshot.fields),
+                                EnumTag::OptionNone => {}
                                 _ => return Err(invalid()),
                             }
                         }
@@ -193,8 +198,8 @@ impl GcHeap {
         &self,
         source: &Value,
         ty: &AbiType,
-        owner: &crate::LoadedModule,
-        retention: crate::module::RetainedRuntimeProgram,
+        owner: &LoadedModule,
+        retention: RetainedRuntimeProgram,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
         let valid = match (source, ty) {
@@ -251,9 +256,9 @@ impl GcHeap {
         &self,
         source: &Value,
         ty: &AbiType,
-        kind: kagari_ir::module::instruction::StringIterKind,
-        owner: &crate::LoadedModule,
-        retention: crate::module::RetainedRuntimeProgram,
+        kind: StringIterKind,
+        owner: &LoadedModule,
+        retention: RetainedRuntimeProgram,
     ) -> Result<Value, RuntimeError> {
         if !kind.valid_source(ty) {
             return Err(invalid());
@@ -261,7 +266,7 @@ impl GcHeap {
         let Value::Tuple(fields) = source else {
             return Err(invalid());
         };
-        let traversal = super::string_iter::StringTraversal::new(kind, fields)?;
+        let traversal = StringTraversal::new(kind, fields)?;
         let value = self.new_iter(
             &fields[0],
             &AbiType::Builtin(BuiltinType::String),
@@ -387,9 +392,9 @@ impl GcHeap {
         };
         // Allocate before committing the position so allocation failure does not skip an item.
         let tag = if payload.is_some() {
-            crate::value::EnumTag::OptionSome
+            EnumTag::OptionSome
         } else {
-            crate::value::EnumTag::OptionNone
+            EnumTag::OptionNone
         };
         let result = self.alloc_enum(tag, payload.clone().into_iter().collect())?;
         let mut objects = self.objects.borrow_mut();
@@ -411,7 +416,7 @@ impl GcHeap {
         }
         Ok(Value::Enum(result))
     }
-    pub(crate) fn release_iter_guards(&self, session: &Rc<crate::session::SessionState>) {
+    pub(crate) fn release_iter_guards(&self, session: &Rc<SessionState>) {
         let mut objects = self.objects.borrow_mut();
         for id in session.iter_guards.borrow_mut().drain() {
             if id.owner != self.owner {

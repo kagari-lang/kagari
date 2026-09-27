@@ -1,3 +1,15 @@
+use crate::module::IrVerificationError;
+use crate::module::PublicAbiItem;
+use crate::module::function::FunctionInstance;
+use crate::module::host as module_host;
+use instances::InstancePlanner;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
+use kagari_hir::CheckedAnalysis;
+use kagari_hir::imports::ImportTarget;
+use std::collections::BTreeSet;
+use std::collections::HashSet;
+use std::slice;
 mod abi;
 mod expr;
 mod function;
@@ -16,8 +28,8 @@ use kagari_hir::hir::{ExprId, FunctionId, FunctionKind, LocalId, PlaceId};
 
 #[derive(Debug)]
 pub enum IrLoweringError {
-    Verification(crate::module::IrVerificationError),
-    Diagnostic(Box<kagari_common::Diagnostic>),
+    Verification(IrVerificationError),
+    Diagnostic(Box<Diagnostic>),
     Cancelled,
     MissingTypedFunction(FunctionId),
     MissingExprType(ExprId),
@@ -31,25 +43,25 @@ pub enum IrLoweringError {
 }
 
 impl IrLoweringError {
-    pub(crate) fn diagnostic(diagnostic: kagari_common::Diagnostic) -> Self {
+    pub(crate) fn diagnostic(diagnostic: Diagnostic) -> Self {
         Self::Diagnostic(Box::new(diagnostic))
     }
 }
 
 pub fn lower_to_ir(
-    module: &kagari_hir::CheckedAnalysis,
+    module: &CheckedAnalysis,
     options: &IrLoweringOptions,
 ) -> Result<VerifiedIrModule, IrLoweringError> {
-    lower_to_ir_with_requests(module, options, &[], std::slice::from_ref(module))
+    lower_to_ir_with_requests(module, options, &[], slice::from_ref(module))
 }
 
 pub(crate) fn lower_to_ir_with_requests<'a>(
-    module: &'a kagari_hir::CheckedAnalysis,
+    module: &'a CheckedAnalysis,
     options: &'a IrLoweringOptions,
-    requests: &[crate::module::function::FunctionInstance],
-    modules: &'a [kagari_hir::CheckedAnalysis],
+    requests: &[FunctionInstance],
+    modules: &'a [CheckedAnalysis],
 ) -> Result<VerifiedIrModule, IrLoweringError> {
-    let mut planner = instances::InstancePlanner::new(module, options, modules);
+    let mut planner = InstancePlanner::new(module, options, modules);
     planner.check()?;
     let callable_methods = module
         .lowered
@@ -60,7 +72,7 @@ pub(crate) fn lower_to_ir_with_requests<'a>(
             implementation.trait_ref.is_none() || implementation.generic_params.is_empty()
         })
         .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
     for function in &module.lowered.module.functions {
         if (matches!(function.kind, FunctionKind::User) || callable_methods.contains(&function.id))
             && function.generic_params.is_empty()
@@ -133,10 +145,10 @@ pub(crate) fn lower_to_ir_with_requests<'a>(
             .native_tables
             .iter()
             .cloned()
-            .map(|t| crate::module::PublicAbiItem::InterfaceTable(Box::new(t))),
+            .map(|t| PublicAbiItem::InterfaceTable(Box::new(t))),
     );
     planner.host_types.extend(
-        crate::module::host::references(
+        module_host::references(
             &abi.public_items,
             &structures,
             &enumerations,
@@ -161,14 +173,13 @@ pub(crate) fn lower_to_ir_with_requests<'a>(
                 .entries
                 .iter()
                 .filter_map(|import| {
-                    if let Some(kagari_hir::imports::ImportTarget::Source(target)) = &import.target
-                    {
+                    if let Some(ImportTarget::Source(target)) = &import.target {
                         Some(target.module.clone())
                     } else {
                         None
                     }
                 })
-                .collect::<std::collections::BTreeSet<_>>()
+                .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
             structures,
@@ -184,11 +195,8 @@ pub(crate) fn lower_to_ir_with_requests<'a>(
     .map_err(|error| match error.kind {
         IrVerificationErrorKind::Cancelled => IrLoweringError::Cancelled,
         IrVerificationErrorKind::Limit { resource, limit } => IrLoweringError::diagnostic(
-            kagari_common::Diagnostic::error(kagari_common::DiagnosticKind::CompileLimitExceeded {
-                resource,
-                limit,
-            })
-            .with_span(error.span.unwrap_or_default()),
+            Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
+                .with_span(error.span.unwrap_or_default()),
         ),
         _ => IrLoweringError::Verification(error),
     })

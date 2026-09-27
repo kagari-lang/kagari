@@ -1,4 +1,10 @@
+use crate::hir::BinaryOp;
+use crate::hir::PatternData;
+use crate::hir::PatternKind;
+use ast::Expr;
+use ast::Stmt;
 use kagari_syntax::ast;
+use kagari_syntax::kind::SyntaxKind;
 use smallvec::{SmallVec, smallvec};
 
 use crate::hir::{
@@ -27,7 +33,7 @@ impl Lowerer {
 
     pub(crate) fn lower_stmt(&mut self, stmt: &ast::Stmt) -> StmtId {
         let kind = match stmt {
-            ast::Stmt::BindingStmt(stmt) => StmtKind::Binding {
+            Stmt::BindingStmt(stmt) => StmtKind::Binding {
                 local: self.source_map.push_local(
                     stmt.name()
                         .map(|name| token_span(&name))
@@ -45,34 +51,18 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Stmt::AssignStmt(stmt) => StmtKind::Assign {
+            Stmt::AssignStmt(stmt) => StmtKind::Assign {
                 op: match stmt.operator() {
-                    Some(kagari_syntax::kind::SyntaxKind::PlusEq) => {
-                        Some(crate::hir::BinaryOp::Add)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::MinusEq) => {
-                        Some(crate::hir::BinaryOp::Sub)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::StarEq) => {
-                        Some(crate::hir::BinaryOp::Mul)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::PercentEq) => {
-                        Some(crate::hir::BinaryOp::Rem)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::SlashEq) => {
-                        Some(crate::hir::BinaryOp::Div)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::AmpEq) => {
-                        Some(crate::hir::BinaryOp::BitAnd)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::PipeEq) => {
-                        Some(crate::hir::BinaryOp::BitOr)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::CaretEq) => {
-                        Some(crate::hir::BinaryOp::BitXor)
-                    }
-                    Some(kagari_syntax::kind::SyntaxKind::ShlEq) => Some(crate::hir::BinaryOp::Shl),
-                    Some(kagari_syntax::kind::SyntaxKind::ShrEq) => Some(crate::hir::BinaryOp::Shr),
+                    Some(SyntaxKind::PlusEq) => Some(BinaryOp::Add),
+                    Some(SyntaxKind::MinusEq) => Some(BinaryOp::Sub),
+                    Some(SyntaxKind::StarEq) => Some(BinaryOp::Mul),
+                    Some(SyntaxKind::PercentEq) => Some(BinaryOp::Rem),
+                    Some(SyntaxKind::SlashEq) => Some(BinaryOp::Div),
+                    Some(SyntaxKind::AmpEq) => Some(BinaryOp::BitAnd),
+                    Some(SyntaxKind::PipeEq) => Some(BinaryOp::BitOr),
+                    Some(SyntaxKind::CaretEq) => Some(BinaryOp::BitXor),
+                    Some(SyntaxKind::ShlEq) => Some(BinaryOp::Shl),
+                    Some(SyntaxKind::ShrEq) => Some(BinaryOp::Shr),
                     _ => None,
                 },
                 target: stmt
@@ -84,10 +74,10 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Stmt::ReturnStmt(stmt) => StmtKind::Return {
+            Stmt::ReturnStmt(stmt) => StmtKind::Return {
                 expr: stmt.expr().map(|expr| self.lower_expr(&expr)),
             },
-            ast::Stmt::WhileStmt(stmt) => StmtKind::While {
+            Stmt::WhileStmt(stmt) => StmtKind::While {
                 condition: self.lower_condition(stmt.binding_condition(), stmt.condition()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
@@ -100,7 +90,7 @@ impl Lowerer {
                     ),
                 },
             },
-            ast::Stmt::LoopStmt(stmt) => StmtKind::Loop {
+            Stmt::LoopStmt(stmt) => StmtKind::Loop {
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
                     None => self.alloc_block(
@@ -112,15 +102,15 @@ impl Lowerer {
                     ),
                 },
             },
-            ast::Stmt::ForStmt(stmt) => StmtKind::For {
+            Stmt::ForStmt(stmt) => StmtKind::For {
                 pattern: stmt
                     .pattern()
                     .map(|pattern| self.lower_pattern(&pattern))
                     .unwrap_or_else(|| {
                         self.alloc_pattern(
                             syntax_span(stmt),
-                            crate::hir::PatternData {
-                                kind: crate::hir::PatternKind::Wildcard,
+                            PatternData {
+                                kind: PatternKind::Wildcard,
                             },
                         )
                     }),
@@ -139,12 +129,12 @@ impl Lowerer {
                     ),
                 },
             },
-            ast::Stmt::BreakStmt(stmt) => match stmt.expr() {
+            Stmt::BreakStmt(stmt) => match stmt.expr() {
                 Some(expr) => StmtKind::BreakValue(self.lower_expr(&expr)),
                 None => StmtKind::Break,
             },
-            ast::Stmt::ContinueStmt(_) => StmtKind::Continue,
-            ast::Stmt::ExprStmt(stmt) => StmtKind::Expr(
+            Stmt::ContinueStmt(_) => StmtKind::Continue,
+            Stmt::ExprStmt(stmt) => StmtKind::Expr(
                 stmt.expr()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
@@ -156,13 +146,13 @@ impl Lowerer {
 
     fn lower_place(&mut self, expr: &ast::Expr) -> PlaceId {
         match expr {
-            ast::Expr::PathExpr(path) => self.alloc_place(
+            Expr::PathExpr(path) => self.alloc_place(
                 syntax_span(path),
                 PlaceData {
                     kind: PlaceKind::Name(path.name_text().unwrap_or_default()),
                 },
             ),
-            ast::Expr::FieldExpr(field) => {
+            Expr::FieldExpr(field) => {
                 let base = field
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
@@ -181,7 +171,7 @@ impl Lowerer {
                 }
                 id
             }
-            ast::Expr::IndexExpr(index_expr) => {
+            Expr::IndexExpr(index_expr) => {
                 let base = index_expr
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
@@ -197,7 +187,7 @@ impl Lowerer {
                     },
                 )
             }
-            ast::Expr::ParenExpr(paren) => paren
+            Expr::ParenExpr(paren) => paren
                 .expr()
                 .map(|expr| self.lower_place(&expr))
                 .unwrap_or_else(|| self.synthetic_name_place("<missing>")),

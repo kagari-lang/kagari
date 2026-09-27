@@ -1,5 +1,6 @@
 use super::*;
 use crate::module::instruction::StandardEnumOp as Op;
+use kagari_common::collection::CollectionAccess;
 use kagari_hir::{
     builtin::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::TypeId,
@@ -32,10 +33,7 @@ impl FunctionLowerer<'_, '_> {
                 | NativeDefaultMethod::SetIsSuperset
                 | NativeDefaultMethod::SetIsDisjoint
         );
-        let result_type = TypeId::Set(
-            Box::new(item.clone()),
-            kagari_common::collection::CollectionAccess::Mutable,
-        );
+        let result_type = TypeId::Set(Box::new(item.clone()), CollectionAccess::Mutable);
         let result = if relation {
             self.lower_constant(Constant::Bool(true), ValueType::Bool)
         } else {
