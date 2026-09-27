@@ -68,7 +68,8 @@ pub(super) fn declaration() -> HostFunctionDeclaration {
 #[test]
 fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     let mut sources = SourceDatabase::default();
-    let text = "use demo::{echo as echo}; use demo as api; fn good() -> i32 { echo(api::echo(demo::echo(7))) }";
+    let text =
+        "use demo::{echo}; use demo as api; fn good() -> i32 { echo(api::echo(demo::echo(7))) }";
     let file = sources
         .set("host.kgr", text.into(), SourceLayer::Base)
         .unwrap();

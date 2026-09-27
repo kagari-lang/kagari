@@ -1,0 +1,13 @@
+[package]
+name = "kagari-bytecode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-abi.workspace = true
+kagari-common.workspace = true
+serde.workspace = true
+smallvec.workspace = true
+bincode.workspace = true
+thiserror.workspace = true

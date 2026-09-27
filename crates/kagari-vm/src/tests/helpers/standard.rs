@@ -24,8 +24,8 @@ fn executes_source_lowered_print_builtin() {
     let loaded = runtime
         .load_program(
             "print.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -266,8 +266,8 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
     let error = runtime
         .load_program(
             "standard_invalid_key.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -298,8 +298,8 @@ fn main() -> usize {
     let loaded = runtime
         .load_program(
             "standard_resource_limit.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )

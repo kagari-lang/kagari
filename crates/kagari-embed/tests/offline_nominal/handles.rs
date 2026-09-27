@@ -86,7 +86,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -192,7 +192,8 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         assert_eq!(total.get(), 40);
         assert_eq!(*trace.borrow(), ["receiver", "argument"]);
         trace.borrow_mut().clear();
-        let mut backend = jit.then(|| kagari_jit_cranelift::CraneliftBackend::for_host().unwrap());
+        let mut backend =
+            jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {
             let result = if let Some(backend) = &mut backend {
                 runtime.execute_with_backend(&loaded, "main", &[], &context, backend)
@@ -230,12 +231,12 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     ).unwrap();
     let module = &artifact.program.modules[artifact.program.root.index()];
     assert_eq!(module.host_interface.types, interface.types[..2]);
-    let kagari_ir::module::PublicAbiItem::Function(pass) = &module.public_items[0] else {
+    let kagari_abi::types::PublicAbiItem::Function(pass) = &module.public_items[0] else {
         panic!("public pass")
     };
     assert_eq!(
         pass.return_type,
-        kagari_ir::module::abi::AbiType::Host(interface.types[0].id.clone())
+        kagari_abi::types::AbiType::Host(interface.types[0].id.clone())
     );
     assert_eq!(
         pass.return_type.representation(),
@@ -246,10 +247,10 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         .host_interface
         .types
         .clear();
-    assert!(kagari_ir::bytecode::KbcArtifact::from_program(invalid, Default::default()).is_err());
+    assert!(kagari_bytecode::KbcArtifact::from_program(invalid, Default::default()).is_err());
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -311,7 +312,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         assert!(trace.borrow().is_empty());
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -371,5 +372,5 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         .host_interface
         .types
         .clear();
-    assert!(kagari_ir::bytecode::verify_program(&invalid).is_err());
+    assert!(kagari_bytecode::verify_program(&invalid).is_err());
 }

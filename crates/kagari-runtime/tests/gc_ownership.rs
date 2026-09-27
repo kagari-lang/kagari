@@ -1,4 +1,7 @@
-use kagari_runtime::{Runtime, RuntimeErrorKind, value::Value, value_semantics::script_equal};
+use crate::Runtime;
+use crate::RuntimeErrorKind;
+use crate::value::Value;
+use crate::value_semantics::script_equal;
 
 #[test]
 fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting() {
@@ -130,12 +133,14 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 
 #[test]
 fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
-    use {
-        kagari_runtime::CapabilitySet, kagari_runtime::HostExposurePolicy,
-        kagari_runtime::HostFunctionDeclaration, kagari_runtime::HostValueType,
-        kagari_runtime::LanguageProfile, kagari_runtime::RuntimeConfig,
-        kagari_runtime::SecurityContext, kagari_runtime::host::HostFunction,
-    };
+    use crate::CapabilitySet;
+    use crate::HostExposurePolicy;
+    use crate::HostFunctionDeclaration;
+    use crate::HostValueType;
+    use crate::LanguageProfile;
+    use crate::RuntimeConfig;
+    use crate::SecurityContext;
+    use crate::host::HostFunction;
     let mut runtime = Runtime::new(RuntimeConfig {
         security: SecurityContext {
             profile: LanguageProfile {
@@ -184,7 +189,8 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
-    use kagari_runtime::value::{EnumTag, MapKey};
+    use crate::value::EnumTag;
+    use crate::value::MapKey;
     let runtime = Runtime::default();
     let object = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
     let value = runtime
@@ -276,7 +282,7 @@ fn invalid_identity_keys_are_rejected_without_container_modification() {
 
 #[test]
 fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
-    use kagari_runtime::value_semantics::format_value;
+    use crate::value_semantics::format_value;
     let runtime = Runtime::default();
     let object = runtime.alloc_array(vec![]).unwrap();
     runtime
@@ -300,7 +306,7 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
 
 #[test]
 fn identity_comparison_rejects_foreign_stale_and_disguised_handles() {
-    use kagari_runtime::value_semantics::identity_equal;
+    use crate::value_semantics::identity_equal;
     let first = Runtime::default();
     let second = Runtime::default();
     let a = first.alloc_array(vec![]).unwrap();

@@ -1,11 +1,11 @@
 //! Run with `cargo run -p kagari-embed --example source_queries`.
 
+use crate::KagariEngine;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     line_index::PositionEncoding,
     source_database::SourceLayer,
 };
-use kagari_embed::KagariEngine;
 use kagari_hir::declarations::DeclarationId;
 use kagari_hir::resolver::ResolvedName;
 use kagari_hir::types::TypeId;

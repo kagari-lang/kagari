@@ -1,11 +1,15 @@
+use crate::CapabilitySet;
+use crate::HostExposurePolicy;
+use crate::LanguageProfile;
+use crate::Runtime;
+use crate::RuntimeConfig;
+use crate::SecurityContext;
+use crate::host::HostFunction;
+use crate::value::Value;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::HostImportId;
+use kagari_bytecode::ModuleRef;
 use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
-use kagari_ir::bytecode::BytecodeProgram;
-use kagari_ir::bytecode::HostImportId;
-use kagari_ir::bytecode::ModuleRef;
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    host::HostFunction, value::Value,
-};
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -46,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "offline-demo",
         BytecodeProgram {
             root: ModuleRef::new(0),
-            modules: vec![kagari_ir::bytecode::BytecodeModule {
+            modules: vec![kagari_bytecode::BytecodeModule {
                 host_interface: expected,
                 ..Default::default()
             }],

@@ -1,0 +1,979 @@
+use cranelift_codegen::settings::Flags;
+use cranelift_module::ModuleError;
+use cranelift_native::builder as native_builder;
+use kagari_abi::native::ExecutableTrap;
+use kagari_abi::native_call::JIT_STATUS_CANCELLED;
+use kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT;
+use kagari_abi::native_call::JIT_STATUS_INVALID_HEAP_REFERENCE;
+use kagari_runtime::RuntimeError;
+use kagari_runtime::RuntimeErrorKind;
+use std::{fmt, mem, sync::Arc};
+
+use cranelift_codegen::{
+    Context,
+    ir::{self, AbiParam, InstBuilder, MemFlags, condcodes::IntCC, types},
+    isa::TargetIsa,
+    settings::{self, Configurable},
+};
+use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
+use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::{FuncId, Linkage, Module, default_libcall_names};
+use kagari_abi::native::BackendId;
+use kagari_abi::native::BackendTarget;
+use kagari_abi::native::ExecutableEntryPoint;
+use kagari_abi::native::ExecutableFunctionArtifact;
+use kagari_abi::native::ExecutableSafepoint;
+use kagari_abi::native::ExecutableSafepointKind;
+use kagari_abi::native::ExecutableStackMap;
+use kagari_abi::native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL;
+use kagari_abi::native_call::JIT_STATUS_INTEGER_OVERFLOW;
+use kagari_abi::native_call::JIT_STATUS_INVALID_RUNTIME;
+use kagari_abi::native_call::JIT_STATUS_OK;
+use kagari_abi::native_call::JIT_STATUS_RESOURCE_LIMIT;
+use kagari_abi::native_call::JIT_VALUE_TAG_BOOL;
+use kagari_abi::native_call::JIT_VALUE_TAG_I32;
+use kagari_abi::native_call::JIT_VALUE_TAG_UNIT;
+use kagari_abi::native_call::JitCompiledFunction;
+use kagari_abi::native_call::JitValue;
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::BinaryOp;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::Register;
+use kagari_bytecode::UnaryOp;
+use kagari_codegen::BackendCompileError;
+use kagari_codegen::BackendDiagnostic;
+use kagari_codegen::BackendDiagnosticKind;
+use kagari_codegen::BackendFunctionInput;
+use kagari_codegen::CodegenBackend;
+use kagari_runtime::BackendInvocationError;
+use kagari_runtime::Runtime;
+use kagari_runtime::jit_abi::jit_consume_instruction_step;
+use kagari_runtime::value::Value as RuntimeValue;
+
+pub struct CraneliftBackend {
+    backend_id: BackendId,
+    target: BackendTarget,
+    module: JITModule,
+    consume_step: FuncId,
+    next_symbol: u64,
+}
+
+impl fmt::Debug for CraneliftBackend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CraneliftBackend")
+            .field("backend_id", &self.backend_id)
+            .field("target", &self.target)
+            .field("next_symbol", &self.next_symbol)
+            .finish_non_exhaustive()
+    }
+}
+
+impl CraneliftBackend {
+    pub fn for_host() -> Result<Self, CraneliftBackendError> {
+        let isa = host_isa()?;
+        let target = BackendTarget {
+            triple: isa.triple().to_string(),
+            pointer_width: isa.pointer_bytes() * 8,
+            features: Vec::new(),
+        };
+        let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
+        builder.symbol(
+            JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
+            jit_consume_instruction_step as *const u8,
+        );
+        let mut module = JITModule::new(builder);
+        let mut consume_step_sig = module.make_signature();
+        consume_step_sig
+            .params
+            .push(AbiParam::new(module.target_config().pointer_type()));
+        consume_step_sig.params.push(AbiParam::new(types::I64));
+        consume_step_sig.returns.push(AbiParam::new(types::I32));
+        let consume_step = module
+            .declare_function(
+                JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
+                Linkage::Import,
+                &consume_step_sig,
+            )
+            .map_err(CraneliftBackendError::from_module_error)?;
+
+        Ok(Self {
+            backend_id: BackendId::new("cranelift"),
+            target,
+            module,
+            consume_step,
+            next_symbol: 0,
+        })
+    }
+
+    pub fn invoke_compiled_scalar(
+        &self,
+        artifact: &ExecutableFunctionArtifact,
+        runtime: &Runtime,
+    ) -> Result<RuntimeValue, BackendInvocationError> {
+        runtime
+            .resources()
+            .ensure_execution_allowed()
+            .map_err(BackendInvocationError::RuntimeFailure)?;
+        let ExecutableEntryPoint::Native { address, .. } = artifact.entry else {
+            return Err(BackendInvocationError::UnsupportedArtifact(
+                "artifact does not contain a native entry point".into(),
+            ));
+        };
+        let function: JitCompiledFunction =
+            unsafe { mem::transmute::<usize, JitCompiledFunction>(address) };
+        let mut result = JitValue::default();
+        let status = unsafe { function(runtime as *const Runtime, &mut result) };
+        match status {
+            JIT_STATUS_CANCELLED => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::Cancelled,
+                    "execution cancelled",
+                )));
+            }
+            JIT_STATUS_ENGINE_FAULT => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::EngineFault,
+                    "runtime is quarantined after a commit fault",
+                )));
+            }
+            JIT_STATUS_INVALID_HEAP_REFERENCE => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "invalid heap reference at safepoint",
+                )));
+            }
+            JIT_STATUS_OK => {}
+            JIT_STATUS_RESOURCE_LIMIT => {
+                return Err(BackendInvocationError::RuntimeFailure(
+                    runtime
+                        .resources()
+                        .termination()
+                        .unwrap_or_else(|| RuntimeError::resource_limit("instruction steps")),
+                ));
+            }
+            JIT_STATUS_INTEGER_OVERFLOW => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "integer overflow",
+                )));
+            }
+            JIT_STATUS_INVALID_RUNTIME => {
+                return Err(BackendInvocationError::InternalError(
+                    "invalid runtime pointer".into(),
+                ));
+            }
+            _ => {
+                return Err(BackendInvocationError::InternalError(format!(
+                    "unknown compiled function status {status}"
+                )));
+            }
+        }
+        result.into_value().ok_or_else(|| {
+            BackendInvocationError::InternalError("compiled function returned bad value tag".into())
+        })
+    }
+
+    fn compile_eligible_function(
+        &mut self,
+        input: &BackendFunctionInput<'_>,
+    ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
+        if input.function().parameter_count != 0 {
+            return Err(BackendCompileError::unsupported(format!(
+                "Cranelift baseline currently supports only zero-argument functions, `{}` has {}",
+                input.function().name,
+                input.function().parameter_count
+            )));
+        }
+        ensure_stack_maps_supported(input.function())?;
+        let safepoints = derive_safepoints(input.function());
+        let symbol = self.next_function_symbol(input.module().name.as_str(), input.function());
+        let address = self.emit_scalar_function(&symbol, input.function())?;
+        let mut artifact = ExecutableFunctionArtifact::new(
+            self.backend_id.clone(),
+            self.target.clone(),
+            input.function_ref(),
+        );
+        artifact.entry = ExecutableEntryPoint::Native { symbol, address };
+        artifact.safepoints = safepoints;
+        artifact.traps = input
+            .function()
+            .instructions
+            .iter()
+            .enumerate()
+            .filter(|(_, instruction)| {
+                matches!(
+                    instruction,
+                    BytecodeInstruction::Unary {
+                        op: UnaryOp::Neg,
+                        ..
+                    } | BytecodeInstruction::Binary {
+                        op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul,
+                        ..
+                    }
+                )
+            })
+            .map(|(instruction_offset, _)| ExecutableTrap {
+                instruction_offset,
+                reason: "integer overflow".into(),
+            })
+            .collect();
+        Ok(artifact)
+    }
+
+    fn next_function_symbol(&mut self, module_name: &str, function: &BytecodeFunction) -> String {
+        let symbol = format!(
+            "kagari_jit_{}_{}_{}",
+            sanitize_symbol(module_name),
+            function.id.index(),
+            self.next_symbol
+        );
+        self.next_symbol += 1;
+        symbol
+    }
+
+    fn emit_scalar_function(
+        &mut self,
+        symbol: &str,
+        function: &BytecodeFunction,
+    ) -> Result<usize, BackendCompileError> {
+        let mut signature = self.module.make_signature();
+        let pointer_type = self.module.target_config().pointer_type();
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.params.push(AbiParam::new(pointer_type));
+        signature.returns.push(AbiParam::new(types::I32));
+        let function_id = self
+            .module
+            .declare_function(symbol, Linkage::Local, &signature)
+            .map_err(|error| backend_internal_error(format!("declare JIT function: {error}")))?;
+
+        let mut context = Context::new();
+        context.func.signature = signature;
+        let mut function_context = FunctionBuilderContext::new();
+        {
+            let mut builder = FunctionBuilder::new(&mut context.func, &mut function_context);
+            let entry_block = builder.create_block();
+            let helper_error_block = builder.create_block();
+            builder.append_block_param(helper_error_block, types::I32);
+            let overflow_block = builder.create_block();
+            builder.switch_to_block(entry_block);
+            builder.append_block_params_for_function_params(entry_block);
+            let runtime_ptr = builder.block_params(entry_block)[0];
+            let result_ptr = builder.block_params(entry_block)[1];
+            let consume_step = self
+                .module
+                .declare_func_in_func(self.consume_step, builder.func);
+            let mut registers = vec![None; usize::from(function.register_count)];
+            let mut returned = false;
+
+            for (offset, instruction) in function.instructions.iter().enumerate() {
+                emit_resource_check(
+                    &mut builder,
+                    consume_step,
+                    runtime_ptr,
+                    helper_error_block,
+                    offset,
+                );
+                match instruction {
+                    BytecodeInstruction::LoadConst { dst, constant } => {
+                        let value = emit_constant(&mut builder, constant)?;
+                        write_register(&mut registers, *dst, value)?;
+                    }
+                    BytecodeInstruction::Move { dst, src } => {
+                        let value = read_register(&registers, *src)?;
+                        write_register(&mut registers, *dst, value)?;
+                    }
+                    BytecodeInstruction::Unary { dst, op, operand } => {
+                        let operand = read_register(&registers, *operand)?;
+                        let value = emit_unary(&mut builder, *op, operand, overflow_block)?;
+                        write_register(&mut registers, *dst, value)?;
+                    }
+                    BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
+                        let lhs = read_register(&registers, *lhs)?;
+                        let rhs = read_register(&registers, *rhs)?;
+                        let value = emit_binary(&mut builder, *op, lhs, rhs, overflow_block)?;
+                        write_register(&mut registers, *dst, value)?;
+                    }
+                    BytecodeInstruction::Return(value) => {
+                        let value = match value {
+                            Some(register) => read_register(&registers, *register)?,
+                            None => emit_unit(&mut builder),
+                        };
+                        emit_store_result(&mut builder, result_ptr, value);
+                        let ok_status = builder.ins().iconst(types::I32, i64::from(JIT_STATUS_OK));
+                        builder.ins().return_(&[ok_status]);
+                        if offset + 1 != function.instructions.len() {
+                            return Err(BackendCompileError::unsupported(format!(
+                                "Cranelift baseline does not support instructions after return in `{}`",
+                                function.name
+                            )));
+                        }
+                        returned = true;
+                        break;
+                    }
+                    unsupported => {
+                        return Err(BackendCompileError::unsupported(format!(
+                            "Cranelift baseline does not support instruction `{unsupported:?}` in `{}`",
+                            function.name
+                        )));
+                    }
+                }
+            }
+
+            if !returned {
+                return Err(BackendCompileError::unsupported(format!(
+                    "Cranelift baseline requires an explicit return in `{}`",
+                    function.name
+                )));
+            }
+
+            builder.switch_to_block(helper_error_block);
+            let error_status = builder.block_params(helper_error_block)[0];
+            builder.ins().return_(&[error_status]);
+            builder.switch_to_block(overflow_block);
+            let overflow_status = builder
+                .ins()
+                .iconst(types::I32, i64::from(JIT_STATUS_INTEGER_OVERFLOW));
+            builder.ins().return_(&[overflow_status]);
+            builder.seal_all_blocks();
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(function_id, &mut context)
+            .map_err(|error| backend_internal_error(format!("define JIT function: {error}")))?;
+        self.module.clear_context(&mut context);
+        self.module
+            .finalize_definitions()
+            .map_err(|error| backend_internal_error(format!("finalize JIT function: {error}")))?;
+        Ok(self.module.get_finalized_function(function_id) as usize)
+    }
+}
+
+impl CodegenBackend for CraneliftBackend {
+    fn backend_id(&self) -> BackendId {
+        self.backend_id.clone()
+    }
+
+    fn target(&self) -> BackendTarget {
+        self.target.clone()
+    }
+
+    fn compile_function(
+        &mut self,
+        input: BackendFunctionInput<'_>,
+    ) -> Result<ExecutableFunctionArtifact, BackendCompileError> {
+        self.compile_eligible_function(&input)
+    }
+
+    fn invoke_function(
+        &self,
+        artifact: &ExecutableFunctionArtifact,
+        runtime: &Runtime,
+    ) -> Result<RuntimeValue, BackendInvocationError> {
+        self.invoke_compiled_scalar(artifact, runtime)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+pub struct CraneliftBackendError {
+    message: String,
+}
+
+impl CraneliftBackendError {
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    fn from_module_error(error: ModuleError) -> Self {
+        Self {
+            message: error.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LoweredValue {
+    tag: u8,
+    payload: ir::Value,
+}
+
+fn host_isa() -> Result<Arc<dyn TargetIsa>, CraneliftBackendError> {
+    let mut flag_builder = settings::builder();
+    flag_builder
+        .set("use_colocated_libcalls", "false")
+        .map_err(|error| CraneliftBackendError {
+            message: error.to_string(),
+        })?;
+    flag_builder
+        .set("is_pic", "false")
+        .map_err(|error| CraneliftBackendError {
+            message: error.to_string(),
+        })?;
+    let flags = Flags::new(flag_builder);
+    native_builder()
+        .map_err(|error| CraneliftBackendError {
+            message: error.to_string(),
+        })?
+        .finish(flags)
+        .map_err(|error| CraneliftBackendError {
+            message: error.to_string(),
+        })
+}
+
+fn backend_internal_error(message: impl Into<String>) -> BackendCompileError {
+    BackendCompileError {
+        diagnostics: vec![BackendDiagnostic {
+            kind: BackendDiagnosticKind::InternalError,
+            message: message.into(),
+        }],
+    }
+}
+
+fn ensure_stack_maps_supported(function: &BytecodeFunction) -> Result<(), BackendCompileError> {
+    for (layout, index, ty) in function
+        .metadata
+        .params
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, ty)| ("param", index, ty))
+        .chain(
+            function
+                .metadata
+                .locals
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, ty)| ("local", index, ty)),
+        )
+        .chain(
+            function
+                .metadata
+                .registers
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, ty)| ("register", index, ty)),
+        )
+    {
+        if !is_stack_map_scalar(ty) {
+            return Err(BackendCompileError::unsupported(format!(
+                "Cranelift baseline cannot emit precise stack maps for {layout} {index} with type `{ty:?}` in `{}`",
+                function.name
+            )));
+        }
+    }
+    if !is_stack_map_scalar(function.metadata.return_type) {
+        return Err(BackendCompileError::unsupported(format!(
+            "Cranelift baseline cannot emit precise stack maps for return type `{:?}` in `{}`",
+            function.metadata.return_type, function.name
+        )));
+    }
+    Ok(())
+}
+
+fn is_stack_map_scalar(ty: ValueType) -> bool {
+    matches!(ty, ValueType::Unit | ValueType::Bool | ValueType::I32)
+}
+
+fn derive_safepoints(function: &BytecodeFunction) -> Vec<ExecutableSafepoint> {
+    function
+        .instructions
+        .iter()
+        .enumerate()
+        .map(|(instruction_offset, _)| ExecutableSafepoint {
+            instruction_offset,
+            kind: ExecutableSafepointKind::RuntimeHelperCall {
+                helper: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.to_owned(),
+            },
+            stack_map: ExecutableStackMap::empty(),
+        })
+        .collect()
+}
+
+fn emit_resource_check(
+    builder: &mut FunctionBuilder<'_>,
+    consume_step: ir::FuncRef,
+    runtime_ptr: ir::Value,
+    helper_error_block: ir::Block,
+    offset: usize,
+) {
+    let offset = builder.ins().iconst(types::I64, offset as i64);
+    let call = builder.ins().call(consume_step, &[runtime_ptr, offset]);
+    let status = builder.inst_results(call)[0];
+    let ok = builder
+        .ins()
+        .icmp_imm(IntCC::Equal, status, i64::from(JIT_STATUS_OK));
+    let continue_block = builder.create_block();
+    builder.ins().brif(
+        ok,
+        continue_block,
+        &[],
+        helper_error_block,
+        &[status.into()],
+    );
+    builder.switch_to_block(continue_block);
+}
+
+fn emit_constant(
+    builder: &mut FunctionBuilder<'_>,
+    constant: &ConstantOperand,
+) -> Result<LoweredValue, BackendCompileError> {
+    match constant {
+        ConstantOperand::Unit => Ok(emit_unit(builder)),
+        ConstantOperand::Bool(value) => {
+            let payload = builder.ins().iconst(types::I64, i64::from(*value as u8));
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_BOOL,
+                payload,
+            })
+        }
+        ConstantOperand::I32(value) => {
+            let payload = builder.ins().iconst(types::I64, i64::from(*value));
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_I32,
+                payload,
+            })
+        }
+        unsupported => Err(BackendCompileError::unsupported(format!(
+            "Cranelift baseline does not support constant `{unsupported:?}`"
+        ))),
+    }
+}
+
+fn emit_unit(builder: &mut FunctionBuilder<'_>) -> LoweredValue {
+    LoweredValue {
+        tag: JIT_VALUE_TAG_UNIT,
+        payload: builder.ins().iconst(types::I64, 0),
+    }
+}
+
+fn emit_unary(
+    builder: &mut FunctionBuilder<'_>,
+    op: UnaryOp,
+    operand: LoweredValue,
+    overflow_block: ir::Block,
+) -> Result<LoweredValue, BackendCompileError> {
+    match (op, operand.tag) {
+        (UnaryOp::Neg, JIT_VALUE_TAG_I32) => {
+            let zero = builder.ins().iconst(types::I64, 0);
+            let payload = builder.ins().isub(zero, operand.payload);
+            emit_i32_range_check(builder, payload, overflow_block);
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_I32,
+                payload,
+            })
+        }
+        (UnaryOp::Not, JIT_VALUE_TAG_BOOL) => {
+            let is_false = builder.ins().icmp_imm(IntCC::Equal, operand.payload, 0);
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_BOOL,
+                payload: builder.ins().uextend(types::I64, is_false),
+            })
+        }
+        _ => Err(BackendCompileError::unsupported(format!(
+            "Cranelift baseline does not support unary `{op:?}` for tag {}",
+            operand.tag
+        ))),
+    }
+}
+
+fn emit_binary(
+    builder: &mut FunctionBuilder<'_>,
+    op: BinaryOp,
+    lhs: LoweredValue,
+    rhs: LoweredValue,
+    overflow_block: ir::Block,
+) -> Result<LoweredValue, BackendCompileError> {
+    match op {
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul
+            if lhs.tag == JIT_VALUE_TAG_I32 && rhs.tag == JIT_VALUE_TAG_I32 =>
+        {
+            let payload = match op {
+                BinaryOp::Add => builder.ins().iadd(lhs.payload, rhs.payload),
+                BinaryOp::Sub => builder.ins().isub(lhs.payload, rhs.payload),
+                BinaryOp::Mul => builder.ins().imul(lhs.payload, rhs.payload),
+                _ => unreachable!(),
+            };
+            emit_i32_range_check(builder, payload, overflow_block);
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_I32,
+                payload,
+            })
+        }
+        BinaryOp::Eq | BinaryOp::NotEq
+            if lhs.tag == rhs.tag && is_comparable_scalar_tag(lhs.tag) =>
+        {
+            let condition = if op == BinaryOp::Eq {
+                IntCC::Equal
+            } else {
+                IntCC::NotEqual
+            };
+            let comparison = builder.ins().icmp(condition, lhs.payload, rhs.payload);
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_BOOL,
+                payload: builder.ins().uextend(types::I64, comparison),
+            })
+        }
+        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge
+            if lhs.tag == JIT_VALUE_TAG_I32 && rhs.tag == JIT_VALUE_TAG_I32 =>
+        {
+            let condition = match op {
+                BinaryOp::Lt => IntCC::SignedLessThan,
+                BinaryOp::Gt => IntCC::SignedGreaterThan,
+                BinaryOp::Le => IntCC::SignedLessThanOrEqual,
+                BinaryOp::Ge => IntCC::SignedGreaterThanOrEqual,
+                _ => unreachable!(),
+            };
+            let comparison = builder.ins().icmp(condition, lhs.payload, rhs.payload);
+            Ok(LoweredValue {
+                tag: JIT_VALUE_TAG_BOOL,
+                payload: builder.ins().uextend(types::I64, comparison),
+            })
+        }
+        _ => Err(BackendCompileError::unsupported(format!(
+            "Cranelift baseline does not support binary `{op:?}` for tags {} and {}",
+            lhs.tag, rhs.tag
+        ))),
+    }
+}
+
+fn emit_i32_range_check(
+    builder: &mut FunctionBuilder<'_>,
+    value: ir::Value,
+    overflow_block: ir::Block,
+) {
+    // Inputs are sign-extended i32. Their sum, difference, product and negation
+    // fit i64, so checking the widened result detects each i32 overflow before
+    // any later instruction can observe it or hide it through another operation.
+    let below = builder
+        .ins()
+        .icmp_imm(IntCC::SignedLessThan, value, i64::from(i32::MIN));
+    let above = builder
+        .ins()
+        .icmp_imm(IntCC::SignedGreaterThan, value, i64::from(i32::MAX));
+    let overflow = builder.ins().bor(below, above);
+    let next = builder.create_block();
+    builder.ins().brif(overflow, overflow_block, &[], next, &[]);
+    builder.switch_to_block(next);
+}
+
+fn is_comparable_scalar_tag(tag: u8) -> bool {
+    matches!(
+        tag,
+        JIT_VALUE_TAG_UNIT | JIT_VALUE_TAG_BOOL | JIT_VALUE_TAG_I32
+    )
+}
+
+fn emit_store_result(
+    builder: &mut FunctionBuilder<'_>,
+    result_ptr: ir::Value,
+    value: LoweredValue,
+) {
+    let flags = MemFlags::new();
+    let tag = builder.ins().iconst(types::I8, i64::from(value.tag));
+    builder.ins().store(flags, tag, result_ptr, 0);
+    builder.ins().store(flags, value.payload, result_ptr, 8);
+}
+
+fn read_register(
+    registers: &[Option<LoweredValue>],
+    register: Register,
+) -> Result<LoweredValue, BackendCompileError> {
+    registers
+        .get(register.index())
+        .and_then(|value| *value)
+        .ok_or_else(|| {
+            BackendCompileError::unsupported(format!(
+                "Cranelift baseline cannot read uninitialized register {}",
+                register.index()
+            ))
+        })
+}
+
+fn write_register(
+    registers: &mut [Option<LoweredValue>],
+    register: Register,
+    value: LoweredValue,
+) -> Result<(), BackendCompileError> {
+    let Some(slot) = registers.get_mut(register.index()) else {
+        return Err(BackendCompileError::unsupported(format!(
+            "Cranelift baseline cannot write register {} beyond frame layout",
+            register.index()
+        )));
+    };
+    *slot = Some(value);
+    Ok(())
+}
+
+fn sanitize_symbol(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_abi::ids::FunctionRef;
+    use kagari_abi::representation::ValueType;
+    use kagari_bytecode::BytecodeFunction;
+    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::BytecodeModule;
+    use kagari_bytecode::ConstantOperand;
+    use kagari_bytecode::FunctionMetadata;
+    use kagari_bytecode::FunctionRecord;
+    use kagari_bytecode::JumpTarget;
+    use kagari_bytecode::Register;
+    use kagari_codegen::BackendDiagnosticKind;
+    use kagari_codegen::BackendFunctionInput;
+    use kagari_runtime::LoadedModule;
+    use kagari_runtime::ResourcePolicy;
+    use kagari_runtime::RuntimeConfig;
+
+    #[test]
+    fn cranelift_backend_initializes_host_target_without_leaking_backend_types() {
+        let backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+        let target = backend.target();
+
+        assert_eq!(backend.backend_id().as_str(), "cranelift");
+        assert!(!target.triple.is_empty());
+        assert!(matches!(target.pointer_width, 32 | 64));
+    }
+
+    #[test]
+    fn cranelift_backend_compiles_and_invokes_scalar_bytecode() {
+        let mut backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+        let loaded = loaded_module(function(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::I32(40),
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(1),
+                    constant: ConstantOperand::I32(2),
+                },
+                BytecodeInstruction::Binary {
+                    dst: Register::new(2),
+                    op: BinaryOp::Add,
+                    lhs: Register::new(0),
+                    rhs: Register::new(1),
+                },
+                BytecodeInstruction::Return(Some(Register::new(2))),
+            ],
+            ValueType::I32,
+            vec![ValueType::I32, ValueType::I32, ValueType::I32],
+        ));
+
+        let artifact = backend
+            .compile_function(input_for(&loaded))
+            .expect("eligible scalar bytecode should compile");
+
+        assert!(matches!(
+            artifact.entry,
+            ExecutableEntryPoint::Native { address, .. } if address != 0
+        ));
+        assert_eq!(artifact.safepoints.len(), 4);
+        assert_eq!(artifact.safepoints[0].instruction_offset, 0);
+        assert_eq!(
+            artifact.safepoints[0].kind,
+            ExecutableSafepointKind::RuntimeHelperCall {
+                helper: JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.to_owned()
+            }
+        );
+        assert!(artifact.safepoints[0].stack_map.live_slots.is_empty());
+        let runtime = Runtime::new(RuntimeConfig::default());
+        let value = backend
+            .invoke_compiled_scalar(&artifact, &runtime)
+            .expect("compiled scalar function should execute");
+        assert_eq!(value, RuntimeValue::I32(42));
+        assert_eq!(runtime.resources().counters().instruction_steps, 4);
+    }
+
+    #[test]
+    fn cranelift_backend_calls_runtime_resource_helper_and_reports_failure() {
+        let mut backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+        let loaded = loaded_module(function(
+            "main",
+            vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Register::new(0),
+                    constant: ConstantOperand::Bool(true),
+                },
+                BytecodeInstruction::Return(Some(Register::new(0))),
+            ],
+            ValueType::Bool,
+            vec![ValueType::Bool],
+        ));
+        let artifact = backend
+            .compile_function(input_for(&loaded))
+            .expect("eligible scalar bytecode should compile");
+        let runtime = Runtime::new(RuntimeConfig {
+            resources: ResourcePolicy {
+                max_instruction_steps: Some(1),
+                ..ResourcePolicy::default()
+            },
+            ..RuntimeConfig::default()
+        });
+
+        let error = backend
+            .invoke_compiled_scalar(&artifact, &runtime)
+            .expect_err("resource helper failure should be visible to the ABI caller");
+
+        assert!(
+            matches!(error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
+        );
+        assert!(error.message().contains("instruction steps"));
+        assert_eq!(runtime.resources().counters().instruction_steps, 1);
+    }
+
+    #[test]
+    fn cranelift_backend_reports_unsupported_instructions_for_fallback_step() {
+        let mut backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+        let loaded = loaded_module(function(
+            "main",
+            vec![BytecodeInstruction::Return(None)],
+            ValueType::Unit,
+            Vec::new(),
+        ));
+        let mut bytecode = (*loaded.bytecode).clone();
+        bytecode.functions[0].instructions.insert(
+            0,
+            BytecodeInstruction::Jump {
+                target: JumpTarget::new(1),
+            },
+        );
+        let unsupported = Runtime::default()
+            .load_program(
+                "unsupported",
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
+                    modules: vec![bytecode],
+                },
+            )
+            .unwrap();
+
+        let error = backend
+            .compile_function(input_for(&unsupported))
+            .expect_err("unsupported instructions should remain a backend diagnostic");
+
+        assert_eq!(
+            error.diagnostics[0].kind,
+            BackendDiagnosticKind::UnsupportedFunction
+        );
+        assert!(
+            error.diagnostics[0]
+                .message
+                .contains("does not support instruction")
+        );
+    }
+
+    #[test]
+    fn cranelift_backend_requires_precise_stack_maps_for_gc_values() {
+        let mut backend =
+            CraneliftBackend::for_host().expect("host Cranelift target should initialize");
+        let loaded = loaded_module(function(
+            "main",
+            vec![BytecodeInstruction::Return(None)],
+            ValueType::Unit,
+            vec![ValueType::HeapObject],
+        ));
+
+        let error = backend
+            .compile_function(input_for(&loaded))
+            .expect_err("GC-managed frame slots require stack-map support before JIT");
+
+        assert_eq!(
+            error.diagnostics[0].kind,
+            BackendDiagnosticKind::UnsupportedFunction
+        );
+        assert!(error.diagnostics[0].message.contains("stack maps"));
+    }
+
+    fn input_for(loaded: &LoadedModule) -> BackendFunctionInput<'_> {
+        BackendFunctionInput::new(loaded, FunctionRef::new(0)).unwrap()
+    }
+
+    fn loaded_module(function: BytecodeFunction) -> LoadedModule {
+        let mut module = BytecodeModule {
+            types: vec![
+                ValueType::Unit,
+                ValueType::Bool,
+                ValueType::I32,
+                ValueType::HeapObject,
+            ],
+            constants: constants_for_function(&function),
+            ..BytecodeModule::default()
+        };
+        module.function_table.push(FunctionRecord {
+            id: function.id,
+            identity: function.identity.clone(),
+            name: function.name.clone(),
+            params: function.metadata.params.clone(),
+            return_type: function.metadata.return_type,
+            effects: function.metadata.effects,
+        });
+        module.functions.push(function);
+        Runtime::default()
+            .load_program(
+                "jit_test",
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
+                    modules: vec![module],
+                },
+            )
+            .unwrap()
+    }
+
+    fn function(
+        name: &str,
+        instructions: Vec<BytecodeInstruction>,
+        return_type: ValueType,
+        registers: Vec<ValueType>,
+    ) -> BytecodeFunction {
+        let register_count = registers.len() as u16;
+        let roots = kagari_bytecode::RootSlotLayout::from_types(&[], &registers);
+        BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: name.to_owned(),
+            register_count,
+            metadata: FunctionMetadata {
+                return_type,
+                registers,
+                roots,
+                ..FunctionMetadata::default()
+            },
+            instructions,
+            ..BytecodeFunction::default()
+        }
+    }
+
+    fn constants_for_function(function: &BytecodeFunction) -> Vec<ConstantOperand> {
+        let mut constants = Vec::new();
+        for instruction in &function.instructions {
+            let BytecodeInstruction::LoadConst { constant, .. } = instruction else {
+                continue;
+            };
+            if !constants.contains(constant) {
+                constants.push(constant.clone());
+            }
+        }
+        constants
+    }
+}

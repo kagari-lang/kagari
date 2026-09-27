@@ -1,0 +1,206 @@
+use instances::InstancePlanner;
+use kagari_abi::host as module_host;
+use kagari_abi::types::ConcreteFunctionIdentity;
+use kagari_abi::types::PublicAbiItem;
+use kagari_common::Diagnostic;
+use kagari_common::DiagnosticKind;
+use kagari_hir::CheckedAnalysis;
+use kagari_hir::imports::ImportTarget;
+use kagari_mir::MirVerificationError;
+use std::collections::BTreeSet;
+use std::collections::HashSet;
+use std::slice;
+mod abi;
+mod expr;
+mod function;
+mod host;
+mod host_interfaces;
+mod instances;
+mod layouts;
+mod place;
+mod state;
+mod stmt;
+mod support;
+
+pub use instances::MirLoweringOptions;
+use kagari_hir::hir::{ExprId, FunctionId, FunctionKind, LocalId, PlaceId};
+use kagari_mir::MirModule;
+use kagari_mir::MirVerificationErrorKind;
+use kagari_mir::VerifiedMirModule;
+use kagari_mir::verify_mir;
+
+#[derive(Debug)]
+pub enum MirLoweringError {
+    Verification(MirVerificationError),
+    Diagnostic(Box<Diagnostic>),
+    Cancelled,
+    MissingTypedFunction(FunctionId),
+    MissingExprType(ExprId),
+    MissingLocalType(LocalId),
+    UnresolvedExpr(ExprId),
+    UnresolvedPlace(PlaceId),
+    MissingBinding(&'static str),
+    UnsupportedExpr(&'static str),
+    UnsupportedStatement(&'static str),
+    InvalidLoopControl,
+}
+
+impl MirLoweringError {
+    pub(crate) fn diagnostic(diagnostic: Diagnostic) -> Self {
+        Self::Diagnostic(Box::new(diagnostic))
+    }
+}
+
+pub fn lower_to_mir(
+    module: &CheckedAnalysis,
+    options: &MirLoweringOptions,
+) -> Result<VerifiedMirModule, MirLoweringError> {
+    lower_to_mir_with_requests(module, options, &[], slice::from_ref(module))
+}
+
+pub(crate) fn lower_to_mir_with_requests<'a>(
+    module: &'a CheckedAnalysis,
+    options: &'a MirLoweringOptions,
+    requests: &[ConcreteFunctionIdentity],
+    modules: &'a [CheckedAnalysis],
+) -> Result<VerifiedMirModule, MirLoweringError> {
+    let mut planner = InstancePlanner::new(module, options, modules);
+    planner.check()?;
+    let callable_methods = module
+        .lowered
+        .module
+        .impls
+        .iter()
+        .filter(|implementation| {
+            implementation.trait_ref.is_none() || implementation.generic_params.is_empty()
+        })
+        .flat_map(|implementation| implementation.methods.iter().map(|method| method.function))
+        .collect::<HashSet<_>>();
+    for function in &module.lowered.module.functions {
+        if (matches!(function.kind, FunctionKind::User) || callable_methods.contains(&function.id))
+            && function.generic_params.is_empty()
+        {
+            planner.enqueue(
+                function.id,
+                Vec::new(),
+                module.lowered.source_map.function_span(function.id),
+            )?;
+        }
+    }
+    for implementation in module.aggregates.implementations().filter(|item| {
+        item.id.module == *module.lowered.source.module_identity() && item.generic_params.is_empty()
+    }) {
+        for target in module.aggregates.implementation_methods(implementation) {
+            if let Some((_, method)) = module.aggregates.default_method(&target)
+                && module
+                    .aggregates
+                    .trait_(&method.owner)
+                    .is_some_and(|contract| {
+                        method.generic_params.len() == contract.generic_params.len()
+                    })
+            {
+                planner.enqueue_declaration(&target, Vec::new(), Default::default())?;
+            }
+        }
+    }
+    for request in requests {
+        planner.check()?;
+        if request.declaration.module != *module.lowered.source.module_identity() {
+            return Err(MirLoweringError::MissingBinding("requested instance owner"));
+        }
+        planner.enqueue_declaration(
+            &request.declaration,
+            request.arguments.clone(),
+            Default::default(),
+        )?;
+    }
+    let mut functions = Vec::new();
+    while let Some(instance) = planner.instances.get(functions.len()).cloned() {
+        planner.check()?;
+        let origin = planner.origin(&instance);
+        let function = origin
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|function| function.id == instance.function)
+            .ok_or(MirLoweringError::MissingTypedFunction(instance.function))?;
+        functions.push(if instance.callable.is_some() {
+            function::lower_callable(origin, function, instance, &mut planner)?
+        } else if instance.native_method.is_some() {
+            function::lower_native_method(origin, function, instance, &mut planner)?
+        } else if instance.iterator.is_some() {
+            function::lower_iterator(origin, function, instance, &mut planner)?
+        } else if instance.protocol.is_some() {
+            function::lower_protocol(origin, function, instance, &mut planner)?
+        } else if let Some(closure) = instance.closure {
+            function::lower_closure(origin, function, closure, instance, &mut planner)?
+        } else {
+            function::lower_function(origin, function, instance, &mut planner)?
+        });
+    }
+
+    let (structures, enumerations) = layouts::collect(module, &mut planner)?;
+    let mut abi = abi::collect_module_abi(module);
+    host_interfaces::collect(&mut planner, module, &mut abi, &mut functions)?;
+    abi.public_items.extend(
+        planner
+            .native_tables
+            .iter()
+            .cloned()
+            .map(|t| PublicAbiItem::InterfaceTable(Box::new(t))),
+    );
+    planner.host_types.extend(
+        module_host::references(
+            &abi.public_items,
+            &structures,
+            &enumerations,
+            &options.cancel,
+        )
+        .map_err(|_| MirLoweringError::Cancelled)?,
+    );
+    let host_types = host::collect(
+        &module.names.hosts,
+        planner.host_types,
+        &functions,
+        &options.cancel,
+    )?;
+
+    verify_mir(
+        MirModule {
+            interface_instances: planner.interface_instances,
+            host_types,
+            dependencies: module
+                .names
+                .imports
+                .entries
+                .iter()
+                .filter_map(|import| {
+                    if let Some(ImportTarget::Source(target)) = &import.target {
+                        Some(target.module.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            structures,
+            enumerations,
+            identity: module.lowered.source.module_identity().clone(),
+            source_name: module.lowered.source.name().to_owned(),
+            module_slots: Vec::new(),
+            abi,
+            functions,
+        },
+        &options.cancel,
+    )
+    .map_err(|error| match error.kind {
+        MirVerificationErrorKind::Cancelled => MirLoweringError::Cancelled,
+        MirVerificationErrorKind::Limit { resource, limit } => MirLoweringError::diagnostic(
+            Diagnostic::error(DiagnosticKind::CompileLimitExceeded { resource, limit })
+                .with_span(error.span.unwrap_or_default()),
+        ),
+        _ => MirLoweringError::Verification(error),
+    })
+}

@@ -1,6 +1,8 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::ModuleRef;
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
     RuntimeErrorKind, SecurityContext, host::HostFunction, value::Value,
@@ -125,7 +127,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 )
                 .unwrap();
             let mut vm = Vm::new(runtime);
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let report = if jit {
                 vm.execute_with_backend(&loaded, "main", &mut backend)
             } else {
@@ -211,7 +213,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 }
                 let scope = runtime.begin_execution(&loaded, options).unwrap();
                 let mut vm = Vm::new(runtime);
-                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
                 let error = if jit {
                     vm.execute_with_backend(&loaded, "main", &mut backend)
                 } else {
@@ -414,7 +416,9 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
 
 #[test]
 fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
-    use kagari_runtime::{BackendFunctionInput, BackendInvocationError, CodegenBackend};
+    use kagari_codegen::BackendFunctionInput;
+    use kagari_codegen::CodegenBackend;
+    use kagari_runtime::BackendInvocationError;
     let mut runtime = runtime(None);
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
     let function = module
@@ -432,7 +436,7 @@ fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
             },
         )
         .unwrap();
-    let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+    let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
     let artifact = backend
         .compile_function(BackendFunctionInput::new(&loaded, function).unwrap())
         .unwrap();
@@ -489,7 +493,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             options.cancellation = token;
             let session = runtime.begin_execution(&loaded, options).unwrap();
             let mut vm = Vm::new(runtime);
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let error = if jit {
                 vm.execute_with_backend(&loaded, "main", &mut backend)
                     .unwrap_err()

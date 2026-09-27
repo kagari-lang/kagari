@@ -1,6 +1,8 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_abi::standard::StandardIntrinsic;
 use kagari_common::{SourceFile, host_interface::standard_log};
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_hir::builtin::surface;
 use kagari_runtime::{host::HostFunction, value::Value};
 

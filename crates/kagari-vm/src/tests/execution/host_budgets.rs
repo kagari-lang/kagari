@@ -26,8 +26,8 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let loaded = runtime
         .load_program(
             "host_capability.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     verified_module(vec![test_function(
                         0,
@@ -36,7 +36,7 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
                                 callee: CallTarget::HostFunction(
-                                    kagari_ir::bytecode::HostImportId::new(0),
+                                    kagari_bytecode::HostImportId::new(0),
                                 ),
                                 args: vec![],
                             },
@@ -108,8 +108,8 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let loaded = runtime
         .load_program(
             "host_cost.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     verified_module(vec![test_function(
                         0,
@@ -118,7 +118,7 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
                                 callee: CallTarget::HostFunction(
-                                    kagari_ir::bytecode::HostImportId::new(0),
+                                    kagari_bytecode::HostImportId::new(0),
                                 ),
                                 args: vec![],
                             },
@@ -190,8 +190,8 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     let loaded = runtime
         .load_program(
             "host_call_limit.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     verified_module(vec![test_function(
                         0,
@@ -200,7 +200,7 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
                                 callee: CallTarget::HostFunction(
-                                    kagari_ir::bytecode::HostImportId::new(0),
+                                    kagari_bytecode::HostImportId::new(0),
                                 ),
                                 args: vec![],
                             },

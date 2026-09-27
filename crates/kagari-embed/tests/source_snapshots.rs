@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
+use crate::ArtifactOptions;
+use crate::CompileOptions;
+use crate::EmbeddingError;
+use crate::KagariEngine;
 use kagari_common::{SourceFile, source_database::SourceLayer};
-use kagari_embed::{ArtifactOptions, CompileOptions, EmbeddingError, KagariEngine};
 use kagari_hir::analysis::CancellationToken;
 use kagari_runtime::LanguageProfile;
 
@@ -520,7 +523,7 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
 
 #[test]
 fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results() {
-    use kagari_embed::ConstLimits;
+    use crate::ConstLimits;
     let engine = KagariEngine::default();
     let id = engine
         .set_source(
@@ -619,7 +622,7 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
 
 #[test]
 fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
-    use kagari_embed::ConstLimits;
+    use crate::ConstLimits;
     let engine = KagariEngine::default();
     engine.set_const_limits(ConstLimits {
         max_steps: 5,

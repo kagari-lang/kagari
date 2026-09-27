@@ -9,17 +9,17 @@ use crate::module::LoadedModule;
 use crate::value;
 use crate::value::EnumTag;
 use crate::value::Value;
+use kagari_abi::ids::FunctionRef;
+use kagari_abi::operations::IterOp;
 use kagari_abi::representation::ValueType;
+use kagari_abi::types as abi;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::NominalAbiType;
+use kagari_abi::types::PublicAbiItem;
+use kagari_bytecode as bytecode;
 use kagari_common::identity::DefinitionId;
 use kagari_common::identity::DefinitionKind;
 use kagari_common::identity::DefinitionPathSegment;
-use kagari_ir::bytecode;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::module::PublicAbiItem;
-use kagari_ir::module::abi;
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::abi::NominalAbiType;
-use kagari_ir::module::instruction::IterOp;
 use std::slice;
 
 impl Runtime {
@@ -274,9 +274,9 @@ impl Runtime {
         self.validate_loaded_module(owner)?;
         if matches!(
             op,
-            kagari_ir::module::instruction::IterOp::New
-                | kagari_ir::module::instruction::IterOp::FromClosure
-                | kagari_ir::module::instruction::IterOp::String(_)
+            kagari_abi::operations::IterOp::New
+                | kagari_abi::operations::IterOp::FromClosure
+                | kagari_abi::operations::IterOp::String(_)
         ) {
             let retention = self
                 .modules

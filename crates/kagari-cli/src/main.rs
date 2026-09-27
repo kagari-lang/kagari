@@ -1,7 +1,7 @@
+#[cfg(feature = "jit")]
+use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::host_interface;
 use kagari_embed::KagariRuntime;
-#[cfg(feature = "jit")]
-use kagari_jit_cranelift::CraneliftBackend;
 use kagari_runtime::LoadedModule;
 use kagari_runtime::RuntimeError;
 use kagari_vm::ExecutionReport;

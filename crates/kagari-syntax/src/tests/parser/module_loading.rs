@@ -71,7 +71,7 @@ fn parses_use_declarations_and_import_trees() {
     let module = common::parse_ok(
         r#"
 pub use crate::gameplay::{Player as Hero, inventory::*};
-use {std::math, super::util as util};
+use {std::math, super::util};
 "#,
     );
     let items = module.items().collect::<Vec<_>>();

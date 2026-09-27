@@ -1,7 +1,12 @@
+use crate::DeterministicInputs;
+use crate::Runtime;
+use crate::RuntimeErrorKind;
+use crate::value::Value;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::ModuleRef;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
-use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
-use kagari_runtime::{DeterministicInputs, Runtime, RuntimeErrorKind, value::Value};
 
 fn load(runtime: &mut Runtime, name: &str) -> kagari_runtime::LoadedModule {
     runtime
@@ -252,10 +257,12 @@ fn zero_wall_budget_rejects_before_counter_charges() {
 
 #[test]
 fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
+    use crate::ExecutionPhase;
+    use crate::HostExposurePolicy;
+    use crate::host::HostFunction;
     use kagari_common::host_interface::{
         HostFunctionDeclaration, HostFunctionEffects, HostValueType,
     };
-    use kagari_runtime::{ExecutionPhase, HostExposurePolicy, host::HostFunction};
     use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
@@ -364,7 +371,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
 
 #[test]
 fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
-    use kagari_runtime::ExecutionPhase;
+    use crate::ExecutionPhase;
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
     let _session = runtime
@@ -385,8 +392,9 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
 
 #[test]
 fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
+    use crate::HostExposurePolicy;
+    use crate::host::HostFunction;
     use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
-    use kagari_runtime::{HostExposurePolicy, host::HostFunction};
     let mut runtime = Runtime::default();
     let mut security = runtime.security();
     security.profile.allow_host_calls = true;

@@ -1,19 +1,38 @@
+use crate::host::PreparedHostPathWrite;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::host_interface::{
     HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration,
 };
-use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
-use kagari_ir::bytecode::BinaryOp;
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, DynamicPathArgument, DynamicPathArguments, HostBorrowTable,
-    HostExposurePolicy, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-    HostPathDescriptorRegistration, HostPathOperation, HostPathSegmentRegistration,
-    HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration,
-    LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
-    TypeKind, TypeRegistration, host::HostError, value::Value,
-};
+use crate::AbiFingerprint;
+use crate::CapabilitySet;
+use crate::DynamicPathArgument;
+use crate::DynamicPathArguments;
+use crate::HostBorrowTable;
+use crate::HostExposurePolicy;
+use crate::HostObjectId;
+use crate::HostPathAdapter;
+use crate::HostPathDescriptorId;
+use crate::HostPathDescriptorRegistration;
+use crate::HostPathOperation;
+use crate::HostPathSegmentRegistration;
+use crate::HostReflectionPolicy;
+use crate::HostSchemaEpoch;
+use crate::HostTypeOwnership;
+use crate::HostTypeRegistration;
+use crate::LanguageProfile;
+use crate::PathAccess;
+use crate::Runtime;
+use crate::RuntimeConfig;
+use crate::RuntimeErrorKind;
+use crate::SecurityContext;
+use crate::TypeId;
+use crate::TypeKind;
+use crate::TypeRegistration;
+use crate::host::HostError;
+use crate::value::Value;
+use kagari_bytecode::BinaryOp;
 
 fn path_mutation_runtime() -> Runtime {
     Runtime::new(path_mutation_config())

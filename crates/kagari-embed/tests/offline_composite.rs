@@ -1,3 +1,9 @@
+use crate::ArtifactOptions;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::HostExposurePolicy;
+use crate::KagariEngine;
+use crate::LoadOptions;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
@@ -5,10 +11,6 @@ use kagari_common::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         HostValueType as Type,
     },
-};
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
-    LoadOptions,
 };
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
@@ -63,7 +65,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, LinkedHashMap<String, bool>, LinkedHashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -121,7 +123,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             .unwrap();
         assert!(trace.lock().unwrap().is_empty());
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -236,7 +238,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             .unwrap();
         for (encoded, jit) in [(false, false), (true, false), (true, true)] {
             let artifact = if encoded {
-                kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+                kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
             } else {
                 artifact.clone()
             };
@@ -280,7 +282,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                 .load_program(artifact, LoadOptions::default())
                 .unwrap();
             let report = if jit {
-                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
                 runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
             } else {
                 runtime.execute(&loaded, "main", &[], &context)

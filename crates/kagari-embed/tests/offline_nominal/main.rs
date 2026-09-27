@@ -1,3 +1,8 @@
+use crate::ArtifactOptions;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::HostExposurePolicy;
+use crate::KagariEngine;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
@@ -8,9 +13,6 @@ use kagari_common::{
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
     source_database::SourceLayer,
-};
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
 };
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
@@ -144,7 +146,7 @@ fn assert_source_index_path(field_prefix: bool) {
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -245,7 +247,7 @@ fn assert_source_index_path(field_prefix: bool) {
             .unwrap();
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)

@@ -6,7 +6,7 @@ use crate::{
     gc::{GcHeap, GcObjectKind},
     value::Value,
 };
-use kagari_ir::module::abi;
+use kagari_abi::types as abi;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Error;
@@ -276,16 +276,16 @@ mod tests {
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
+        use kagari_abi::layout::EnumLayout;
+        use kagari_abi::layout::EnumVariantLayout;
         use kagari_abi::scalar::BuiltinType;
+        use kagari_abi::types::AbiType;
+        use kagari_bytecode::BytecodeModule;
+        use kagari_bytecode::BytecodeProgram;
+        use kagari_bytecode::ModuleRef;
         use kagari_common::identity::{
             DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
         };
-        use kagari_ir::bytecode::BytecodeModule;
-        use kagari_ir::bytecode::BytecodeProgram;
-        use kagari_ir::bytecode::ModuleRef;
-        use kagari_ir::module::EnumLayout;
-        use kagari_ir::module::EnumVariantLayout;
-        use kagari_ir::module::abi::AbiType;
 
         let identity = ModuleIdentity::single_file("enum-equality.kgr");
         let declaration = DefinitionId {
@@ -360,7 +360,7 @@ mod tests {
             .load_program("enum-equality", program(false))
             .unwrap();
         let old_tag = crate::value::EnumTag::Declared(
-            old.enum_variant(kagari_ir::bytecode::EnumId::new(0), 0)
+            old.enum_variant(kagari_bytecode::EnumId::new(0), 0)
                 .unwrap(),
         );
         let old_value = Value::Enum(runtime.alloc_enum(old_tag, vec![Value::I32(7)]).unwrap());
@@ -369,14 +369,14 @@ mod tests {
             .unwrap();
         let new = runtime.publish_staged_reload(candidate).unwrap();
         let new_tag = crate::value::EnumTag::Declared(
-            new.enum_variant(kagari_ir::bytecode::EnumId::new(0), 1)
+            new.enum_variant(kagari_bytecode::EnumId::new(0), 1)
                 .unwrap(),
         );
         let new_value = Value::Enum(runtime.alloc_enum(new_tag, vec![Value::I32(7)]).unwrap());
 
         assert!(script_equal(runtime.gc(), &old_value, &new_value).unwrap());
         let other_tag = crate::value::EnumTag::Declared(
-            new.enum_variant(kagari_ir::bytecode::EnumId::new(1), 0)
+            new.enum_variant(kagari_bytecode::EnumId::new(1), 0)
                 .unwrap(),
         );
         let other_value = Value::Enum(runtime.alloc_enum(other_tag, vec![Value::I32(7)]).unwrap());

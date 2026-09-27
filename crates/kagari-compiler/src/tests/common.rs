@@ -1,0 +1,29 @@
+use crate::bytecode::lower_to_bytecode;
+use crate::lower_to_mir;
+use kagari_bytecode::BytecodeModule;
+use kagari_common::SourceFile;
+use kagari_hir::{CheckedAnalysis, analyze_source};
+
+pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
+    let source = SourceFile::new("test.kg", text);
+
+    Box::new(
+        analyze_source(
+            &source,
+            kagari_hir::LanguageFeatureProfile {
+                allow_host_calls: true,
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+        )
+        .into_codegen()
+        .expect("analysis should succeed"),
+    )
+}
+
+pub fn bytecode_ok(text: &str) -> BytecodeModule {
+    let analyzed = analyze_ok(text);
+    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
+}

@@ -1,8 +1,10 @@
-use kagari_ir::bytecode::EnumId;
-use kagari_ir::bytecode::{FieldRef, Register, StructId};
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::abi::StandardEnumKind;
-use kagari_ir::module::instruction::StandardEnumOp;
+use kagari_abi::operations::StandardEnumOp;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::StandardEnumKind;
+use kagari_bytecode::EnumId;
+use kagari_bytecode::FieldRef;
+use kagari_bytecode::Register;
+use kagari_bytecode::StructId;
 use kagari_runtime::RuntimeErrorKind;
 use kagari_runtime::value::EnumTag;
 use kagari_runtime::value::Value;

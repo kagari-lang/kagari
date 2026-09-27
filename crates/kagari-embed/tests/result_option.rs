@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 #[test]
@@ -106,7 +108,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -367,11 +369,11 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_enum_operations_are_rejected_before_execution() {
+    use kagari_abi::operations::StandardEnumOp;
     use kagari_abi::scalar::BuiltinType;
-    use kagari_ir::bytecode::BytecodeInstruction;
-    use kagari_ir::module::abi::AbiType;
-    use kagari_ir::module::abi::StandardEnumKind;
-    use kagari_ir::module::instruction::StandardEnumOp;
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::StandardEnumKind;
+    use kagari_bytecode::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),

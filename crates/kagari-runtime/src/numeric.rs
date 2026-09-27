@@ -1,17 +1,18 @@
 use crate::gc::GcHeap;
 use crate::value::EnumTag;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
+use kagari_abi::numeric::NumericConversion;
+use kagari_abi::numeric::NumericOperation;
 use kagari_abi::representation::ValueType;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::types::AbiType;
+use kagari_bytecode::BinaryOp;
+use kagari_bytecode::UnaryOp;
 use kagari_common::arithmetic::{self, ArithmeticError, IntegerBinaryOp};
 use kagari_common::integer;
 use kagari_common::integer::IntegerMethod;
 use kagari_common::numeric;
 use kagari_common::numeric::Number;
-use kagari_ir::bytecode::{BinaryOp, UnaryOp};
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::numeric::NumericConversion;
-use kagari_ir::module::numeric::NumericOperation;
 
 pub fn arithmetic_trap(error: ArithmeticError) -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, error.message())

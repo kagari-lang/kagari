@@ -1,12 +1,17 @@
-use kagari_ir::bytecode;
+use kagari_bytecode as bytecode;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use kagari_ir::bytecode::{
-    ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError, BytecodeModule,
-    BytecodeProgram, BytecodeVerificationError, KbcArtifact, PathDescriptorFingerprint,
-    PublicAbiFingerprint, verify_program,
-};
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::ArtifactFingerprint;
+use kagari_bytecode::ArtifactValidationError;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::BytecodeVerificationError;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::PathDescriptorFingerprint;
+use kagari_bytecode::PublicAbiFingerprint;
+use kagari_bytecode::verify_program;
 
 use crate::{
     error::RuntimeError,
@@ -189,7 +194,7 @@ mod epoch_tests {
     #[test]
     fn reload_preflight_rejects_oversized_in_memory_programs() {
         let oversized = BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+            root: kagari_bytecode::ModuleRef::new(0),
             modules: vec![BytecodeModule::default(); 1_025],
         };
         assert!(matches!(

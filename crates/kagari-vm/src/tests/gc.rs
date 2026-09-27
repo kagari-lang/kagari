@@ -1,5 +1,6 @@
 use crate::{Vm, tests::common::compile_test_bytecode};
-use kagari_ir::bytecode::{BytecodeProgram, ModuleRef};
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::ModuleRef;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, SecurityContext,
     gc::GcHeapConfig, value::Value,
@@ -42,10 +43,10 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             };
             let program = if encoded {
                 let artifact =
-                    kagari_ir::bytecode::KbcArtifact::from_program(program, Default::default())
+                    kagari_bytecode::KbcArtifact::from_program(program, Default::default())
                         .unwrap();
                 let decoded =
-                    kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
+                    kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
                         .unwrap();
                 decoded.validate_for_loader(&Default::default()).unwrap();
                 decoded.program
@@ -58,7 +59,7 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
                 vm.execute_with_backend(
                     &loaded,
                     "main",
-                    &mut kagari_jit_cranelift::CraneliftBackend::for_host().unwrap(),
+                    &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
                 )
                 .unwrap()
             } else {
@@ -160,12 +161,12 @@ fn malformed_closure_function_is_rejected_before_execution() {
         .find(|instruction| {
             matches!(
                 instruction,
-                kagari_ir::bytecode::BytecodeInstruction::MakeClosure { .. }
+                kagari_bytecode::BytecodeInstruction::MakeClosure { .. }
             )
         })
         .expect("compiled closure");
-    if let kagari_ir::bytecode::BytecodeInstruction::MakeClosure { function, .. } = instruction {
-        *function = kagari_ir::bytecode::FunctionRef::new(999);
+    if let kagari_bytecode::BytecodeInstruction::MakeClosure { function, .. } = instruction {
+        *function = kagari_bytecode::FunctionRef::new(999);
     }
     let mut runtime = runtime(None);
     assert!(
@@ -237,7 +238,7 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
         .execute_with_backend(
             &loaded,
             "main",
-            &mut kagari_jit_cranelift::CraneliftBackend::for_host().unwrap(),
+            &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
         )
         .unwrap();
     assert_eq!(
@@ -279,7 +280,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
         compile_test_bytecode("fn init() -> ArrayList<i32> { [7] } fn main() -> i32 { 42 }");
     module
         .module_slots
-        .push(kagari_ir::bytecode::BytecodeModuleSlot {
+        .push(kagari_bytecode::BytecodeModuleSlot {
             name: "state".into(),
             ty: kagari_abi::representation::ValueType::HeapObject,
             mutable: true,

@@ -1,18 +1,21 @@
+use kagari_bytecode::BytecodeProgram;
 use kagari_common::identity::ModuleIdentity;
-use kagari_ir::bytecode::BytecodeProgram;
 use std::{cell::RefCell, collections::HashMap};
 
-use kagari_ir::bytecode::{
-    ArtifactFingerprint, BytecodeModule, DependencyFingerprint, FunctionRef,
-    KAGARI_RUNTIME_HELPER_ABI_VERSION, KbcArtifact, PathDescriptorFingerprint,
-    PublicAbiFingerprint,
-};
+use kagari_abi::ids::FunctionRef;
+use kagari_bytecode::ArtifactFingerprint;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::DependencyFingerprint;
+use kagari_bytecode::KAGARI_RUNTIME_HELPER_ABI_VERSION;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::PathDescriptorFingerprint;
+use kagari_bytecode::PublicAbiFingerprint;
 
-use crate::{
-    backend::ExecutableFunctionArtifact,
-    module::{ModuleId, ModuleKey},
-    reload::{path_fingerprints_for_module, public_abi_fingerprints_for_module},
-};
+use crate::module::ModuleId;
+use crate::module::ModuleKey;
+use crate::reload::path_fingerprints_for_module;
+use crate::reload::public_abi_fingerprints_for_module;
+use kagari_abi::native::ExecutableFunctionArtifact;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExecutionArtifactId(u64);

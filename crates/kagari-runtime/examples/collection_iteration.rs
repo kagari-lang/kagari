@@ -1,5 +1,6 @@
 //! Run with `cargo run -p kagari-runtime --example collection_iteration`.
-use kagari_runtime::{Runtime, value::Value};
+use crate::Runtime;
+use crate::value::Value;
 
 fn main() {
     let runtime = Runtime::default();

@@ -12,5 +12,9 @@ jit = []
 kagari-abi.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
-kagari-ir.workspace = true
+kagari-bytecode.workspace = true
 indexmap.workspace = true
+
+[dev-dependencies]
+kagari-compiler.workspace = true
+kagari-mir.workspace = true

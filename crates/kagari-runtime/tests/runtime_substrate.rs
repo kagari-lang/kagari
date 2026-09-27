@@ -1,20 +1,33 @@
 use kagari_common::collection::CollectionAccess;
 #[path = "support/layouts.rs"]
 mod layouts;
-use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::module::abi::AbiType;
-use {
-    kagari_runtime::AbiFingerprint, kagari_runtime::CapabilitySet, kagari_runtime::FieldInfo,
-    kagari_runtime::FieldMetadataId, kagari_runtime::HostTypeOwnership, kagari_runtime::MethodInfo,
-    kagari_runtime::MethodMetadataId, kagari_runtime::MethodOrigin, kagari_runtime::ParameterInfo,
-    kagari_runtime::PathAccess, kagari_runtime::Runtime, kagari_runtime::RuntimeErrorKind,
-    kagari_runtime::TraitInfo, kagari_runtime::TypeId, kagari_runtime::TypeKind,
-    kagari_runtime::TypeRegistration, kagari_runtime::Visibility,
-    kagari_runtime::host::DynamicPathArguments, kagari_runtime::host::HostBorrowTable,
-    kagari_runtime::host::HostObjectId, kagari_runtime::host::HostPathDescriptorRegistration,
-    kagari_runtime::host::HostPathSegmentRegistration, kagari_runtime::host::HostSchemaEpoch,
-    kagari_runtime::value::Value, kagari_runtime::value::ValueCategory,
-};
+use crate::AbiFingerprint;
+use crate::CapabilitySet;
+use crate::FieldInfo;
+use crate::FieldMetadataId;
+use crate::HostTypeOwnership;
+use crate::MethodInfo;
+use crate::MethodMetadataId;
+use crate::MethodOrigin;
+use crate::ParameterInfo;
+use crate::PathAccess;
+use crate::Runtime;
+use crate::RuntimeErrorKind;
+use crate::TraitInfo;
+use crate::TypeId;
+use crate::TypeKind;
+use crate::TypeRegistration;
+use crate::Visibility;
+use crate::host::DynamicPathArguments;
+use crate::host::HostBorrowTable;
+use crate::host::HostObjectId;
+use crate::host::HostPathDescriptorRegistration;
+use crate::host::HostPathSegmentRegistration;
+use crate::host::HostSchemaEpoch;
+use crate::value::Value;
+use crate::value::ValueCategory;
+use kagari_abi::types::AbiType;
+use kagari_bytecode::BytecodeModule;
 
 fn host_root_value(object_id: u64) -> Value {
     let Value::HostPathView(view) = path_view_value(object_id) else {
@@ -149,8 +162,8 @@ fn module_epochs_have_independent_runtime_instances() {
     let first = runtime
         .load_program(
             "game.player",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -158,8 +171,8 @@ fn module_epochs_have_independent_runtime_instances() {
     let second = runtime
         .load_program(
             "game.player",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )

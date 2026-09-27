@@ -1,4 +1,4 @@
-use kagari_ir::bytecode::Register;
+use kagari_bytecode::Register;
 use kagari_runtime::ExecutionEvent;
 use std::cell::Ref;
 use std::cell::RefMut;
@@ -6,7 +6,9 @@ mod aggregate_ops;
 mod dispatch;
 mod value_ops;
 
-use kagari_ir::bytecode::{BytecodeInstruction, FunctionRef, ModuleRef};
+use kagari_abi::ids::FunctionRef;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::ModuleRef;
 use kagari_runtime::{LoadedModule, RootedInterfaceMethod, Runtime, value::Value};
 
 use crate::error::VmError;

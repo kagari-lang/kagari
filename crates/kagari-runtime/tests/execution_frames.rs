@@ -1,14 +1,17 @@
+use crate::LoadedModule;
+use crate::Runtime;
+use crate::RuntimeErrorKind;
+use crate::value::Value;
+use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
-use kagari_ir::bytecode::BytecodeFunction;
-use kagari_ir::bytecode::BytecodeInstruction;
-use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::bytecode::BytecodeProgram;
-use kagari_ir::bytecode::FunctionMetadata;
-use kagari_ir::bytecode::FunctionRecord;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::bytecode::ModuleRef;
-use kagari_ir::bytecode::Register;
-use kagari_runtime::{LoadedModule, Runtime, RuntimeErrorKind, value::Value};
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::FunctionMetadata;
+use kagari_bytecode::FunctionRecord;
+use kagari_bytecode::ModuleRef;
+use kagari_bytecode::Register;
 
 #[derive(Debug)]
 struct ReentrantObserver;
@@ -33,7 +36,7 @@ fn loaded(runtime: &mut Runtime) -> LoadedModule {
         register_count: 1,
         metadata: FunctionMetadata {
             registers: vec![ValueType::HeapObject],
-            roots: kagari_ir::bytecode::RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
+            roots: kagari_bytecode::RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
             ..Default::default()
         },
         instructions: vec![BytecodeInstruction::Return(None)],

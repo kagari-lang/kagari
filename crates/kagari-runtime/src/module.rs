@@ -5,16 +5,16 @@ use crate::cache::ReloadDependencySnapshot;
 use crate::host::HostFunctionId;
 use crate::host::HostPathDescriptorId;
 use crate::host::HostRegistryId;
+use kagari_abi::layout::EnumLayout;
+use kagari_abi::layout::EnumVariantLayout;
+use kagari_abi::layout::StructLayout;
+use kagari_bytecode as bytecode;
+use kagari_bytecode::ArtifactFingerprint;
+use kagari_bytecode::EnumId;
+use kagari_bytecode::HostImportId;
+use kagari_bytecode::PathId;
+use kagari_bytecode::StructId;
 use kagari_common::identity::ModuleIdentity;
-use kagari_ir::bytecode;
-use kagari_ir::bytecode::ArtifactFingerprint;
-use kagari_ir::bytecode::EnumId;
-use kagari_ir::bytecode::HostImportId;
-use kagari_ir::bytecode::PathId;
-use kagari_ir::bytecode::StructId;
-use kagari_ir::module::EnumLayout;
-use kagari_ir::module::EnumVariantLayout;
-use kagari_ir::module::StructLayout;
 use std::cell::BorrowError;
 use std::rc::Rc;
 use std::{
@@ -24,7 +24,9 @@ use std::{
     sync::Arc,
 };
 
-use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::ModuleRef;
 
 use crate::{reload::ModuleEpoch, value::Value};
 
@@ -681,7 +683,7 @@ mod tests {
         let code = VerifiedProgram::new(BytecodeProgram {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
-                module_slots: vec![kagari_ir::bytecode::BytecodeModuleSlot {
+                module_slots: vec![kagari_bytecode::BytecodeModuleSlot {
                     name: "state".into(),
                     ty: kagari_abi::representation::ValueType::I32,
                     mutable: true,
@@ -732,7 +734,7 @@ mod tests {
         let store = ModuleStore::default();
         let stage = |epoch| {
             let dependency = BytecodeModule {
-                module_slots: vec![kagari_ir::bytecode::BytecodeModuleSlot {
+                module_slots: vec![kagari_bytecode::BytecodeModuleSlot {
                     name: "state".into(),
                     ty: kagari_abi::representation::ValueType::I32,
                     mutable: true,
@@ -856,8 +858,8 @@ mod tests {
             .stage_program(
                 "game.player",
                 ModuleEpoch(1),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
                 crate::host::HostRegistryId::default(),
@@ -869,8 +871,8 @@ mod tests {
             .stage_program(
                 "game.player",
                 ModuleEpoch(2),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
                 crate::host::HostRegistryId::default(),
@@ -882,8 +884,8 @@ mod tests {
             .stage_program(
                 "game.world",
                 ModuleEpoch(1),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
                 crate::host::HostRegistryId::default(),
@@ -907,8 +909,8 @@ mod tests {
             .stage_program(
                 "game.snapshot",
                 ModuleEpoch(1),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
                 crate::host::HostRegistryId::default(),
@@ -929,8 +931,8 @@ mod tests {
             .stage_program(
                 "game.player",
                 ModuleEpoch(1),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
                 crate::host::HostRegistryId::default(),
@@ -942,8 +944,8 @@ mod tests {
             .stage_program(
                 "game.player",
                 ModuleEpoch(2),
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 },
                 crate::host::HostRegistryId::default(),

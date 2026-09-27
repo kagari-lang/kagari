@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -30,7 +32,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -170,8 +172,8 @@ fn main()->i32 {
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
     use kagari_abi::scalar::BuiltinType;
-    use kagari_ir::module::PublicAbiItem;
-    use kagari_ir::module::abi::AbiType;
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::PublicAbiItem;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default(),Default::default()).unwrap();
     for mutation in 0..5 {
@@ -214,7 +216,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
             }
         }
         assert!(
-            kagari_ir::bytecode::verify_program(&program).is_err(),
+            kagari_bytecode::verify_program(&program).is_err(),
             "mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
@@ -657,8 +659,9 @@ pub fn make()->LinkedHashMap<Key,i32> {val m:LinkedHashMap<Key,i32> = LinkedHash
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::PublicAbiItem;
     use kagari_hir::builtin::traits::StandardTrait;
-    use kagari_ir::module::{PublicAbiItem, abi::AbiType};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -680,7 +683,7 @@ fn main()->i64 {Key{id:1}.hash()}
         let module = &mut program.modules[program.root.index()];
         module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==missing.contract().id)));
         assert!(
-            kagari_ir::bytecode::verify_program(&program).is_err(),
+            kagari_bytecode::verify_program(&program).is_err(),
             "missing {missing:?}"
         );
     }
@@ -689,8 +692,8 @@ fn main()->i64 {Key{id:1}.hash()}
 #[test]
 fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
     use kagari_abi::standard::StandardIntrinsic;
-    use kagari_ir::bytecode::BytecodeInstruction;
-    use kagari_ir::bytecode::CallTarget;
+    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::CallTarget;
     for custom in [false, true] {
         let implementation = if custom {
             "impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}} impl Eq for Key {} impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}"

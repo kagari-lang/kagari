@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00 complete; A01 contract extraction is in progress.
+Status: A00 complete; A01 crate extraction is in progress; workspace build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -446,9 +446,12 @@ must not be the sole record needed to resume the goal.
 - [ ] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
-Current state: A00 is complete. All local commands used by both CI jobs pass on
-the final cleanup checkpoint, with no structural exceptions or carried errors.
-A01 is now extracting shared execution contracts from the frozen inventory below.
+Current state: A00 passed at `4d82fcb`. A01's first ABI checkpoint `1838e57`
+also built and passed its focused tests. The subsequent thirteen-crate extraction
+is intentionally not green: ABI verification still contains frontend queries that
+must be replaced, and downstream compiler/runtime/backend wiring remains open.
+A01 is not complete; do not advance its checklist until execution contracts have
+lost their source-analysis types and queries. Resume with portable ABI contracts.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -463,7 +466,7 @@ does not authorize starting the MIR refactor with failing gates.
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
-| A01 | Frozen migration inventory; ABI scalar/intrinsic identities, physical representation and shared decoder limits extracted | Workspace clippy, 435-file structure audit and 810 subsystem tests pass | Ownership extraction remains open; no current build errors |
+| A01 | `1838e57` shared ABI identities; frozen inventory; thirteen real crate owners and compile/invocation boundary extracted | Cargo metadata resolves 13 packages; 447-file structure audit, fmt and diff checks pass; all 1,312 test functions retained; workspace check fails in ABI | A01 owns remaining HIR-dependent ABI/MIR/bytecode validation and contract visibility; A02-A04 own downstream wiring listed below |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
@@ -682,6 +685,79 @@ passes for 435 Rust files with no violations/exceptions.
 `cargo test -p kagari-abi -p kagari-hir -p kagari-ir -p kagari-runtime -p kagari-vm`
 passes 810 tests, including doc tests.
 Formatting and diff checks pass. No build errors are carried from this checkpoint.
+
+### A01 checkpoint: compiler and execution crate ownership (2026-09-28)
+
+Checkpoint commit subject: `refactor(architecture)!: separate compiler and execution crates`.
+The workspace now has all thirteen target package names with migrated implementation
+or concrete contracts. `kagari-ir` is removed, and `kagari-jit-cranelift` is renamed
+`kagari-codegen-cranelift`; neither remains as a facade. MIR owns CFG functions,
+instructions, IDs and module/program verification. Compiler source owns lowering,
+instance planning and source orchestration; compiler core owns bytecode emission
+and debug lowering. Bytecode owns the interpreter model, linked verifier and codec.
+ABI owns logical types/layouts, shared operations/effects, executable IDs, slot
+semantics and native call/installation descriptors. Source type encoding and scalar
+constant conversion are ordinary compiler functions rather than methods/foreign
+trait implementations on execution types.
+
+MIR function and source-call identities now carry `ConcreteFunctionIdentity` and
+ABI arguments instead of HIR arguments. There is no renamed `FunctionInstance`
+alias. The source planner still needs its checked-to-concrete handoff repaired;
+use a private source request key only where semantic instantiation requires it,
+then construct the concrete identity at the MIR boundary. Do not put HIR types back
+into MIR to satisfy those callers.
+
+Codegen now owns the compile-only trait and diagnostics. Its input is a selected
+function in verified MIR plus an explicit immutable native helper description.
+ABI pairs native artifacts with an owning memory handle; the native scalar call
+signature uses an opaque context pointer rather than `Runtime`. Runtime retains
+helper implementations, value decoding and invocation errors/debug capability
+checks. A03 must install/invoke those products with pinned execution versions;
+A04 must make Cranelift return actual memory-owning MIR compilation products.
+The current backend implementation still contains its old bytecode/runtime calls
+and therefore cannot yet implement the new interface.
+
+The compiler `source` feature gates HIR/syntax and source-only bincode use; core
+bytecode emission is outside that feature. Manifests omit frontend edges from ABI,
+MIR, bytecode and runtime, and omit runtime/bytecode edges from native codegen.
+Those declarations are **not** evidence that the graph builds: unresolved old
+queries intentionally expose work still needed at those boundaries. No compatibility
+aliases, frontend dependency cycle, validation bypass or success stub was added.
+The artifact producer fingerprint now names `kagari-compiler`; portable MIR and
+version changes remain A03 work.
+
+Validation and carried errors:
+
+- `cargo metadata --format-version 1 --no-deps`: resolves exactly thirteen workspace
+  packages with the intended names. Manifests and lockfile are updated.
+- `uv run --locked scripts/check_structure.py`: 447 files, zero violations and zero
+  exceptions. Module/re-export ownership and moved macro paths were reviewed;
+  new cross-crate contract visibility still needs compilation-driven review.
+- `cargo fmt --all -- --check` and `git diff --check`: pass.
+- Syntax inventory preserves all 1,312 `#[test]` functions by name. Source-driven
+  ABI corruption/conversion suites moved into compiler tests; codec/contract unit
+  tests remain with their owners. This is coverage inventory, not test execution.
+- `cargo check --workspace --all-targets`: fails (exit 101), with 45 ABI library
+  errors and 47 library-test errors at the recorded attempt. Representative
+  diagnostics: E0432/E0433 for missing `kagari_hir` in ABI host/trait verification,
+  standard contracts and wire types; E0599 for removed `from_checked_type` methods
+  still used by runtime-side semantic checks. A01 owns replacing these with
+  bounded portable ABI substitution/validation and generated standard descriptors.
+  Do not restore a production HIR dependency to ABI. This first failing crate
+  prevents downstream compilation, so later compiler/native failures are not yet
+  exhaustively enumerated.
+- Tests and clippy are unavailable for this revision until those build errors are
+  fixed. Previous A00 and `1838e57` results do not validate this migration revision.
+
+Next work by owner: A01 removes remaining HIR queries from ABI, MIR linked
+verification and bytecode access/trait validation, reviews required public contract
+APIs, and relocates any remaining source-only conversion fixtures. A02 repairs
+concrete instance handoff, link lowering and the verified-analysis seal, removes
+source text from backend debug inputs, and supplies liveness/safepoint/budget facts.
+A03 reconnects SDK feature selection, native product installation/invocation and
+portable artifacts. A04 replaces Cranelift's removed runtime/bytecode inputs and
+preserves its scalar behavior with actual code-memory ownership. A05 remains the
+full integration/feature/behavior gate. A01's checklist stays open.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

@@ -1,6 +1,12 @@
 //! Offline host associated-output declarations and dynamic interface binding.
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
 
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::HostExposurePolicy;
+use crate::JitPolicy;
+use crate::KagariEngine;
 use kagari_common::host_interface::PathAccess;
 use kagari_common::{
     host_interface::{
@@ -10,10 +16,6 @@ use kagari_common::{
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
-};
-use kagari_embed::JitPolicy;
-use kagari_embed::{
-    BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
 };
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,

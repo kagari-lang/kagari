@@ -8,8 +8,8 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let foreign = first
         .load_program(
             "same",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode.clone()],
             },
         )
@@ -17,8 +17,8 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let local = second
         .load_program(
             "same",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -63,8 +63,8 @@ fn reports_runtime_instruction_step_limit() {
     let loaded = runtime
         .load_program(
             "limited.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -95,8 +95,8 @@ fn reports_runtime_allocation_unit_limit() {
     let loaded = runtime
         .load_program(
             "allocation_limited.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -142,8 +142,8 @@ fn rejects_unverified_bytecode_before_publication() {
     let error = runtime
         .load_program(
             "unverified.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -196,8 +196,8 @@ fn rejects_unsupported_bytecode_before_publication() {
         let error = runtime
             .load_program(
                 name,
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![bytecode],
                 },
             )
@@ -240,8 +240,8 @@ fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
     let error = runtime
         .load_program(
             "dynamic_call_capable.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![dynamic_call],
             },
         )
@@ -315,8 +315,8 @@ fn main() -> i32 { middle() }
     let loaded = runtime
         .load_program(
             "call_depth.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -342,8 +342,8 @@ fn unreachable_instruction_is_a_script_trap() {
     let loaded = runtime
         .load_program(
             "trap.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![verified_module(vec![test_function(
                     0,
                     "main",
@@ -445,8 +445,8 @@ fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
     let loaded = runtime
         .load_program(
             "module-slot-invariant",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_mutable_slot(7)],
             },
         )
@@ -478,8 +478,8 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let first_loaded = runtime
         .load_program(
             "hot_reload.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![reloadable_value_module(1)],
             },
         )
@@ -494,8 +494,8 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .stage_reload_program(
             &first_loaded,
             "hot_reload.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![reloadable_value_module(2)],
             },
         )
@@ -545,7 +545,7 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
         let mut bytecode = compile_test_bytecode(
             "struct P { var x: i32 } struct Q { var x: i32 } fn main() -> i32 { val p = P { x: 1 }; p.x = 42; p.x }",
         );
-        let wrong = kagari_ir::bytecode::StructId::new(
+        let wrong = kagari_bytecode::StructId::new(
             bytecode
                 .structures
                 .iter()
@@ -567,6 +567,6 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 _ => {}
             }
         }
-        assert!(kagari_ir::bytecode::verify_module(&bytecode).is_err());
+        assert!(kagari_bytecode::verify_module(&bytecode).is_err());
     }
 }

@@ -1,9 +1,11 @@
 use crate::{DebugSession, JitExecutionStatus, SourceBreakpoint, Vm};
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::KbcArtifact;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, lower_program_to_bytecode};
+use kagari_compiler::bytecode::lower_program_to_bytecode;
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
     value::Value,
@@ -37,7 +39,8 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
-    let ir = kagari_ir::program::lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let ir = kagari_compiler::source::program::lower_program_to_mir(&checked, &Default::default())
+        .unwrap();
     lower_program_to_bytecode(&ir).unwrap()
 }
 
@@ -73,7 +76,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                     vm.execute_with_backend(
                         &loaded,
                         "main",
-                        &mut kagari_jit_cranelift::CraneliftBackend::for_host().unwrap(),
+                        &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
                     )
                 } else {
                     vm.execute(&loaded, "main")

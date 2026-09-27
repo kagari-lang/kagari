@@ -1,4 +1,4 @@
-use kagari_ir::bytecode::FunctionRef;
+use kagari_abi::ids::FunctionRef;
 use kagari_runtime::{
     LoadedModule, RuntimeError, gc::RootedValue, host::HostCallContext, value::Value,
 };

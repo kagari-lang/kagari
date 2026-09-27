@@ -49,7 +49,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
     assert_eq!(required.types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -126,7 +126,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         assert_eq!(*trace.borrow(), ["root"], "{denied_error:?}");
         trace.borrow_mut().clear();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -232,7 +232,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -332,7 +332,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             .unwrap();
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -428,8 +428,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             );
             for (encoded, jit) in [(false, false), (true, false), (true, true)] {
                 let artifact = if encoded {
-                    kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
-                        .unwrap()
+                    kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
                 } else {
                     artifact.clone()
                 };
@@ -529,7 +528,8 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .unwrap();
                 let loaded = runtime.load_program(artifact, Default::default()).unwrap();
                 let result = if jit {
-                    let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                    let mut backend =
+                        kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
                     runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
                 } else {
                     runtime.execute(&loaded, "main", &[], &context)

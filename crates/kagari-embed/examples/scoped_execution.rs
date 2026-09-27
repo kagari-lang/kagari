@@ -1,8 +1,12 @@
 //! Per-call budgets and cooperative cancellation without changing runtime defaults.
 
+use crate::ArtifactOptions;
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::KagariEngine;
+use crate::LoadOptions;
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::{ArtifactOptions, CompileOptions, ExecutionContext, KagariEngine, LoadOptions};
 use kagari_runtime::value::Value;
 
 fn main() {

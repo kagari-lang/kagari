@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -30,7 +32,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -309,8 +311,9 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::PublicAbiItem;
     use kagari_hir::builtin::traits::StandardTrait;
-    use kagari_ir::module::{PublicAbiItem, abi::AbiType};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -340,13 +343,13 @@ fn main()->i32 {Number{value:20}+22}
         } else {
             interface.associated_types.clear();
         }
-        assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+        assert!(kagari_bytecode::verify_program(&program).is_err());
     }
 }
 
 #[test]
 fn builtin_arithmetic_and_indexing_keep_direct_instructions() {
-    use kagari_ir::bytecode::BytecodeInstruction;
+    use kagari_bytecode::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

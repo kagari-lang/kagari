@@ -1,6 +1,8 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
 use kagari_common::collection::CollectionAccess;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -31,7 +33,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -146,9 +148,9 @@ fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 
 #[test]
 fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
+    use kagari_abi::operations::IterOp;
     use kagari_abi::scalar::BuiltinType;
-    use kagari_ir::module::abi::AbiType;
-    use kagari_ir::module::instruction::IterOp;
+    use kagari_abi::types::AbiType;
     let mut config = kagari_embed::EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
@@ -368,10 +370,10 @@ fn main()->i32 {
 
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
+    use kagari_abi::operations::IterOp;
     use kagari_abi::scalar::BuiltinType;
-    use kagari_ir::bytecode::BytecodeInstruction;
-    use kagari_ir::module::abi::AbiType;
-    use kagari_ir::module::instruction::IterOp;
+    use kagari_abi::types::AbiType;
+    use kagari_bytecode::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -412,7 +414,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 )
             }
         }
-        assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+        assert!(kagari_bytecode::verify_program(&program).is_err());
     }
 }
 

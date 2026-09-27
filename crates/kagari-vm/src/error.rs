@@ -1,10 +1,15 @@
-use kagari_ir::bytecode::{BytecodeVerificationError, CallTarget, FunctionRef, ModuleSlot};
+use kagari_abi::ids::FunctionRef;
+use kagari_bytecode::BytecodeVerificationError;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::ModuleSlot;
+use kagari_codegen::BackendDiagnostic;
+use kagari_runtime::BackendInvocationError;
 use kagari_runtime::ErrorTrace;
+use kagari_runtime::RuntimeError;
 use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::{
-    BackendDiagnostic, BackendInvocationError, RuntimeError, builtin::BuiltinError,
-    host::HostError, reflection::ReflectionError,
-};
+use kagari_runtime::builtin::BuiltinError;
+use kagari_runtime::host::HostError;
+use kagari_runtime::reflection::ReflectionError;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]

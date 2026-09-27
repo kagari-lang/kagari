@@ -1,18 +1,29 @@
 use std::sync::{Arc, Mutex};
 
-use {
-    kagari_runtime::AbiFingerprint, kagari_runtime::CapabilitySet,
-    kagari_runtime::HostExposurePolicy, kagari_runtime::HostFunctionDeclaration,
-    kagari_runtime::HostFunctionEffects, kagari_runtime::HostParameter,
-    kagari_runtime::HostPassingStyle, kagari_runtime::HostReflectionPolicy,
-    kagari_runtime::HostTypeOwnership, kagari_runtime::HostTypeRegistration,
-    kagari_runtime::LanguageProfile, kagari_runtime::PathAccess, kagari_runtime::Runtime,
-    kagari_runtime::RuntimeConfig, kagari_runtime::RuntimeErrorKind,
-    kagari_runtime::SecurityContext, kagari_runtime::TypeId, kagari_runtime::TypeKind,
-    kagari_runtime::TypeRegistration, kagari_runtime::host::HostError,
-    kagari_runtime::host::HostFunction, kagari_runtime::host::HostObjectId,
-    kagari_runtime::host::HostSchemaEpoch, kagari_runtime::value::Value,
-};
+use crate::AbiFingerprint;
+use crate::CapabilitySet;
+use crate::HostExposurePolicy;
+use crate::HostFunctionDeclaration;
+use crate::HostFunctionEffects;
+use crate::HostParameter;
+use crate::HostPassingStyle;
+use crate::HostReflectionPolicy;
+use crate::HostTypeOwnership;
+use crate::HostTypeRegistration;
+use crate::LanguageProfile;
+use crate::PathAccess;
+use crate::Runtime;
+use crate::RuntimeConfig;
+use crate::RuntimeErrorKind;
+use crate::SecurityContext;
+use crate::TypeId;
+use crate::TypeKind;
+use crate::TypeRegistration;
+use crate::host::HostError;
+use crate::host::HostFunction;
+use crate::host::HostObjectId;
+use crate::host::HostSchemaEpoch;
+use crate::value::Value;
 
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
     let mut registration = HostTypeRegistration::new(

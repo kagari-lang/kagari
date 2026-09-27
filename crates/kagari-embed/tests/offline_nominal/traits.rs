@@ -50,8 +50,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
             ArtifactOptions::default(),
         )
         .unwrap();
-    let encoded =
-        kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let encoded = kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let required = &encoded.program.modules[encoded.program.root.index()].host_interface;
     assert_eq!(
         required.types[0].trait_implementations,
@@ -302,11 +301,11 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         !executable
             .public_items
             .iter()
-            .any(|item| matches!(item, kagari_ir::module::PublicAbiItem::Trait(_)))
+            .any(|item| matches!(item, kagari_abi::types::PublicAbiItem::Trait(_)))
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -372,7 +371,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .unwrap();
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)

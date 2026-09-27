@@ -1,18 +1,25 @@
+use kagari_abi::ids::FunctionRef;
+use kagari_abi::native::BackendId;
+use kagari_abi::native::ExecutableFunctionArtifact;
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::KbcArtifact;
+use kagari_codegen::BackendDiagnostic;
+use kagari_codegen::BackendFunctionInput;
+use kagari_codegen::CodegenBackend;
 use kagari_common::identity::DefinitionId;
-use kagari_ir::bytecode::ArtifactCompatibility;
-use kagari_ir::bytecode::BytecodeFunction;
-use kagari_ir::bytecode::BytecodeProgram;
-use kagari_ir::bytecode::KbcArtifact;
-use kagari_ir::bytecode::{BytecodeModule, FunctionRef};
-use kagari_runtime::ExecutableFunctionArtifact;
+use kagari_runtime::BackendInvocationError;
+use kagari_runtime::ExecutionArtifactId;
 use kagari_runtime::ExecutionSession;
 use kagari_runtime::ExecutionTrace;
+use kagari_runtime::LoadedModule;
+use kagari_runtime::ReloadDependencySnapshot;
 use kagari_runtime::ReloadValidationError;
 use kagari_runtime::ResultFailure;
-use kagari_runtime::{
-    BackendDiagnostic, BackendFunctionInput, BackendId, BackendInvocationError, CodegenBackend,
-    ExecutionArtifactId, LoadedModule, ReloadDependencySnapshot, Runtime, value::Value,
-};
+use kagari_runtime::Runtime;
+use kagari_runtime::value::Value;
 use std::cell::RefCell;
 use std::iter;
 

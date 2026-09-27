@@ -124,7 +124,7 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
             SourceLayer::Base,
         )
         .unwrap();
-    let text = "use pkg::facade::{Object as Item, api}; use pkg::facade as facade; fn pass(value: facade::Object) -> api::Item { value } fn main() -> i32 { val value: Item = left::make(); left::take(pass(value)) }";
+    let text = "use pkg::facade::{Object as Item, api}; use pkg::facade; fn pass(value: facade::Object) -> api::Item { value } fn main() -> i32 { val value: Item = left::make(); left::take(pass(value)) }";
     let root = sources
         .set("mem://root", text.into(), SourceLayer::Base)
         .unwrap();

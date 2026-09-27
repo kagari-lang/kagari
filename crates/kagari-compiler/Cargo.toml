@@ -1,0 +1,20 @@
+[package]
+name = "kagari-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["source"]
+source = ["dep:kagari-hir", "dep:kagari-syntax", "dep:bincode"]
+
+[dependencies]
+kagari-abi.workspace = true
+kagari-common.workspace = true
+kagari-mir.workspace = true
+kagari-bytecode.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+kagari-hir = { workspace = true, optional = true }
+kagari-syntax = { workspace = true, optional = true }
+bincode = { workspace = true, optional = true }

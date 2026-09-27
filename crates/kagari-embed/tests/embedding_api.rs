@@ -1,23 +1,29 @@
+use crate::ArtifactOptions;
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::EmbeddingError;
+use crate::ExecutionContext;
+use crate::HostExposurePolicy;
+use crate::KagariEngine;
+use crate::KagariRuntime;
+use crate::LoadOptions;
+use crate::ReloadOptions;
+use crate::RuntimeFailureKind;
+use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::ArtifactBuildOptions;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::FunctionMetadata;
+use kagari_bytecode::FunctionRecord;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::PathId;
+use kagari_bytecode::PathRecord;
+use kagari_bytecode::Register;
 use kagari_common::SourceFile;
-use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext,
-    HostExposurePolicy, KagariEngine, KagariRuntime, LoadOptions, ReloadOptions,
-    RuntimeFailureKind,
-};
-use kagari_ir::bytecode::ArtifactBuildOptions;
-use kagari_ir::bytecode::BytecodeFunction;
-use kagari_ir::bytecode::BytecodeInstruction;
-use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::bytecode::CallTarget;
-use kagari_ir::bytecode::ConstantOperand;
-use kagari_ir::bytecode::FunctionMetadata;
-use kagari_ir::bytecode::FunctionRecord;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::bytecode::KbcArtifact;
-use kagari_ir::bytecode::PathId;
-use kagari_ir::bytecode::PathRecord;
-use kagari_ir::bytecode::Register;
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, HostObjectId, HostPathAdapter, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,
@@ -153,13 +159,13 @@ fn host_path_artifact(
         .collect();
     let metadata = FunctionMetadata {
         return_type,
-        roots: kagari_ir::bytecode::RootSlotLayout::from_types(&[], &registers),
+        roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
     KbcArtifact::from_program(
-        kagari_ir::bytecode::BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+        kagari_bytecode::BytecodeProgram {
+            root: kagari_bytecode::ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 host_interface: kagari_common::host_interface::HostInterface {
                     paths: vec![],
@@ -581,7 +587,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
@@ -649,7 +655,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::ReadPath {

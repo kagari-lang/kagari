@@ -3,10 +3,12 @@ use crate::RuntimeErrorKind;
 use crate::gc::ClosureValueSnapshot;
 use crate::gc::{CollectionIteration, GcHeap, RootSet};
 use crate::value::Value;
-use kagari_ir::bytecode::ModuleRef;
-use kagari_ir::bytecode::{
-    BytecodeFunction, BytecodeInstruction, FunctionRef, LocalSlot, Register,
-};
+use kagari_abi::ids::FunctionRef;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::LocalSlot;
+use kagari_bytecode::ModuleRef;
+use kagari_bytecode::Register;
 use std::cell::Ref;
 use std::cell::RefMut;
 use std::fmt;

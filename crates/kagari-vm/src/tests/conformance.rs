@@ -59,7 +59,9 @@ fn main() -> i32 {
 
 #[test]
 fn missing_entry_is_rejected_before_execution() {
-    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
     let bytecode = compile_test_bytecode("fn main() -> i32 { 42 }");
     for encoded in [false, true] {
         let program = BytecodeProgram {
@@ -79,7 +81,7 @@ fn missing_entry_is_rejected_before_execution() {
         let mut vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
-                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
                 vm.execute_with_backend(&loaded, "missing", &mut backend)
                     .unwrap_err()
             } else {
@@ -97,7 +99,9 @@ fn missing_entry_is_rejected_before_execution() {
 
 #[test]
 fn ambiguous_entry_is_rejected_on_all_load_routes() {
-    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
     let mut bytecode = compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }");
     let second = bytecode
         .functions
@@ -126,7 +130,7 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
         let mut vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
-                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
                 vm.execute_with_backend(&loaded, "first", &mut backend)
                     .unwrap_err()
             } else {
@@ -167,8 +171,8 @@ fn interpreter_conformance_classifies_failure_paths() {
     let loaded = runtime
         .load_program(
             "resource_limit.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -205,8 +209,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "debug_conformance.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )
@@ -320,8 +324,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "debug_steps.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )

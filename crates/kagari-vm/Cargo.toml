@@ -7,12 +7,14 @@ license.workspace = true
 [dependencies]
 kagari-abi.workspace = true
 kagari-common.workspace = true
-kagari-ir.workspace = true
+kagari-bytecode.workspace = true
 kagari-runtime.workspace = true
 
 [dev-dependencies]
+kagari-compiler.workspace = true
+kagari-mir.workspace = true
 kagari-common.workspace = true
 kagari-hir.workspace = true
-kagari-ir.workspace = true
-kagari-jit-cranelift.workspace = true
+kagari-bytecode.workspace = true
+kagari-codegen-cranelift.workspace = true
 kagari-syntax.workspace = true

@@ -1,6 +1,10 @@
+use kagari_abi::operations::IterOp;
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
-use kagari_ir::module::instruction::IterOp;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::PathId;
+use kagari_bytecode::Register;
+use kagari_bytecode::RuntimeHelper;
 use kagari_runtime::numeric;
 use kagari_runtime::range::RangeValue;
 use kagari_runtime::{HostPathDescriptorId, value::Value};

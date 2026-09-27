@@ -1,7 +1,9 @@
+use crate::ArtifactOptions;
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, ExecutionContext, KagariEngine,
-};
 use kagari_runtime::value::Value;
 
 fn compile(source: &str) -> Result<BytecodeArtifact, kagari_embed::EmbeddingError> {
@@ -30,7 +32,7 @@ fn execute(artifact: BytecodeArtifact) {
         let mut runtime = KagariEngine::default().runtime(context.clone());
         let program = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&program, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&program, "main", &[], &context)
@@ -217,7 +219,7 @@ fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
 
 #[test]
 fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected() {
-    use kagari_ir::module::PublicAbiItem;
+    use kagari_abi::types::PublicAbiItem;
     let artifact = compile("pub trait Parent {} pub trait Child: Parent {} struct S {} impl Parent for S {} impl Child for S {} fn main() {}").unwrap();
     for cycle in [true, false] {
         let mut program = artifact.program.clone();
@@ -243,9 +245,9 @@ fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected()
             };
             ty.supertraits.push(parent);
         } else {
-            module.public_items.retain(|item| !matches!(item, PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_ir::module::abi::AbiType::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
+            module.public_items.retain(|item| !matches!(item, PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_abi::types::AbiType::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
         }
-        assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+        assert!(kagari_bytecode::verify_program(&program).is_err());
     }
 }
 

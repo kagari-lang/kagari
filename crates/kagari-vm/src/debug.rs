@@ -1,5 +1,9 @@
+use kagari_abi::ids::DebugPointId;
+use kagari_abi::ids::FunctionRef;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::LocalSlot;
+use kagari_bytecode::SafeDebugPoint;
 use kagari_common::Span;
-use kagari_ir::bytecode::{BytecodeFunction, DebugPointId, FunctionRef, LocalSlot, SafeDebugPoint};
 use kagari_runtime::ExecutionEvent;
 use kagari_runtime::ExecutionObserver;
 use kagari_runtime::RuntimeErrorKind;

@@ -1,5 +1,9 @@
+use crate::ResourcePolicy;
+use crate::Runtime;
+use crate::RuntimeConfig;
+use crate::RuntimeErrorKind;
+use crate::value::Value;
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, value::Value};
 
 fn limited(heap: Option<usize>, allocation: Option<usize>) -> Runtime {
     Runtime::new(RuntimeConfig {

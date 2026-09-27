@@ -1,3 +1,12 @@
+use kagari_bytecode::ArtifactBuildOptions;
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::ArtifactValidationError;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::RuntimeHelper;
+use kagari_codegen::CodegenBackend;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::host_interface::HostInterfaceError;
 use kagari_common::identity::ModuleIdentity;
@@ -6,6 +15,11 @@ use kagari_common::{
     identity::{DefinitionId, FileId, FileSpan},
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
+use kagari_compiler::MirLoweringError;
+use kagari_compiler::MirLoweringOptions;
+use kagari_compiler::bytecode::BytecodeLoweringError;
+use kagari_compiler::bytecode::lower_program_to_bytecode;
+use kagari_compiler::source::program::lower_program_to_mir;
 use kagari_hir::host::HostDeclarations;
 use kagari_hir::imports::ModuleOrderError;
 use kagari_hir::{
@@ -16,26 +30,26 @@ use kagari_hir::{
     },
     program::{CheckedProgram, ProgramCheckError},
 };
-use kagari_ir::IrLoweringOptions;
-use kagari_ir::{
-    IrLoweringError,
-    bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, ArtifactValidationError, BytecodeInstruction,
-        BytecodeLoweringError, BytecodeModule, CallTarget, KbcArtifact, RuntimeHelper,
-        lower_program_to_bytecode,
-    },
-    program::{ProgramErrorKind, lower_program_to_ir},
-};
+use kagari_mir::program::ProgramErrorKind;
+use kagari_runtime::CapabilitySet;
 use kagari_runtime::DeterministicInputs;
 use kagari_runtime::ErrorTrace;
 use kagari_runtime::ExecutionOptions;
 use kagari_runtime::ExecutionPhase;
-use kagari_runtime::{
-    CapabilitySet, CodegenBackend, HostFunctionId, HostTypeRegistration, LanguageProfile,
-    LoadedModule, ReloadValidationError as RuntimeReloadValidationError, ResourcePolicy, Runtime,
-    RuntimeConfig, RuntimeError, RuntimeErrorKind, SecurityContext, TypeId, host::HostFunction,
-    value::Value,
-};
+use kagari_runtime::HostFunctionId;
+use kagari_runtime::HostTypeRegistration;
+use kagari_runtime::LanguageProfile;
+use kagari_runtime::LoadedModule;
+use kagari_runtime::ReloadValidationError as RuntimeReloadValidationError;
+use kagari_runtime::ResourcePolicy;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeConfig;
+use kagari_runtime::RuntimeError;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::SecurityContext;
+use kagari_runtime::TypeId;
+use kagari_runtime::host::HostFunction;
+use kagari_runtime::value::Value;
 use kagari_vm::ReloadError;
 use kagari_vm::{ExecutionReport, Vm, VmError};
 use smallvec::SmallVec;
@@ -280,7 +294,7 @@ impl KagariEngine {
         checked: &CheckedModule,
         options: ArtifactOptions,
     ) -> CompileResult<BytecodeArtifact> {
-        let ir = lower_program_to_ir(&checked.program, &options.lowering).map_err(|error| {
+        let ir = lower_program_to_mir(&checked.program, &options.lowering).map_err(|error| {
             let source = &checked
                 .program
                 .modules()
@@ -293,7 +307,7 @@ impl KagariEngine {
                 ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
                 ProgramErrorKind::Lowering(error) => EmbeddingError::ir_lowering(error, source),
                 error => EmbeddingError::Compilation {
-                    phase: CompilationPhase::IrLowering,
+                    phase: CompilationPhase::MirLowering,
                     message: format!("{error:?}"),
                 },
             }
@@ -489,7 +503,7 @@ fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFe
 #[derive(Debug, Clone, Default)]
 pub struct ArtifactOptions {
     pub build: ArtifactBuildOptions,
-    pub lowering: IrLoweringOptions,
+    pub lowering: MirLoweringOptions,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -710,7 +724,7 @@ pub struct DiagnosticLabel {
 pub enum CompilationPhase {
     Parse,
     Analyze,
-    IrLowering,
+    MirLowering,
     BytecodeLowering,
 }
 
@@ -719,7 +733,7 @@ impl CompilationPhase {
         match self {
             Self::Parse => "KG_COMPILE_PARSE",
             Self::Analyze => "KG_COMPILE_ANALYZE",
-            Self::IrLowering => "KG_COMPILE_IR_LOWERING",
+            Self::MirLowering => "KG_COMPILE_IR_LOWERING",
             Self::BytecodeLowering => "KG_COMPILE_BYTECODE_LOWERING",
         }
     }
@@ -823,15 +837,15 @@ impl EmbeddingError {
         }
     }
 
-    fn ir_lowering(error: IrLoweringError, source: &SourceFile) -> Self {
-        if let IrLoweringError::Cancelled = error {
+    fn ir_lowering(error: MirLoweringError, source: &SourceFile) -> Self {
+        if let MirLoweringError::Cancelled = error {
             return Self::Cancelled;
         }
-        if let IrLoweringError::Diagnostic(diagnostic) = error {
+        if let MirLoweringError::Diagnostic(diagnostic) = error {
             return Self::diagnostics(Box::new(smallvec::smallvec![*diagnostic]), source);
         }
         Self::Compilation {
-            phase: CompilationPhase::IrLowering,
+            phase: CompilationPhase::MirLowering,
             message: format!("{error:?}"),
         }
     }

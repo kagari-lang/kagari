@@ -1,12 +1,23 @@
 use std::sync::{Arc, Mutex};
 
+use kagari_abi::ids::DebugPointId;
+use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeModuleSlot;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::FunctionMetadata;
+use kagari_bytecode::FunctionRecord;
+use kagari_bytecode::InstructionSourceSpan;
+use kagari_bytecode::ModuleSlot;
+use kagari_bytecode::Register;
+use kagari_bytecode::RuntimeHelper;
+use kagari_bytecode::SafeDebugPoint;
+use kagari_bytecode::SafeDebugPointKind;
 use kagari_common::Span;
-use kagari_ir::bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
-    ConstantOperand, DebugPointId, FunctionMetadata, FunctionRecord, FunctionRef,
-    InstructionSourceSpan, ModuleSlot, Register, RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
-};
 use kagari_runtime::value::{StructValueField, Value};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention, ResourcePolicy,
@@ -26,7 +37,7 @@ fn test_function(
 ) -> BytecodeFunction {
     let metadata = FunctionMetadata {
         return_type,
-        roots: kagari_ir::bytecode::RootSlotLayout::from_types(&[], &registers),
+        roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
@@ -196,15 +207,16 @@ fn debug_capabilities() -> CapabilitySet {
 
 fn interface_instruction_module() -> BytecodeModule {
     use kagari_abi::scalar::BuiltinType;
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::InterfaceTableAbi;
+    use kagari_abi::types::NominalAbiType;
+    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::types::TraitAbi;
+    use kagari_bytecode::InterfaceTableRecord;
+    use kagari_bytecode::InterfaceTableRef;
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };
-    use kagari_ir::bytecode::{InterfaceTableRecord, InterfaceTableRef};
-    use kagari_ir::module::InterfaceTableAbi;
-    use kagari_ir::module::PublicAbiItem;
-    use kagari_ir::module::TraitAbi;
-    use kagari_ir::module::abi::AbiType;
-    use kagari_ir::module::abi::NominalAbiType;
 
     let identity = ModuleIdentity::single_file("interface-instruction.kgr");
     let declaration = |kind, name: &str| DefinitionId {
@@ -228,7 +240,7 @@ fn interface_instruction_module() -> BytecodeModule {
             BytecodeInstruction::MakeInterface {
                 dst: Register::new(1),
                 value: Register::new(0),
-                module: kagari_ir::bytecode::ModuleRef::new(0),
+                module: kagari_bytecode::ModuleRef::new(0),
                 implementation: InterfaceTableRef::new(0),
             },
             BytecodeInstruction::Return(Some(Register::new(1))),

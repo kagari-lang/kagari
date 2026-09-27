@@ -1,7 +1,9 @@
+use crate::BytecodeArtifact;
+use crate::KagariEngine;
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::PublicAbiItem;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, KagariEngine};
-use kagari_ir::module::{PublicAbiItem, abi::AbiType};
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine
@@ -24,7 +26,7 @@ fn variant(
         .position(|layout| layout.declaration.path.last().unwrap().name == name)
         .unwrap();
     module
-        .enum_variant(kagari_ir::bytecode::EnumId::new(slot), 0)
+        .enum_variant(kagari_bytecode::EnumId::new(slot), 0)
         .unwrap()
 }
 

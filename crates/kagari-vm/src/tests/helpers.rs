@@ -1,17 +1,17 @@
+use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_ir::bytecode::BinaryOp;
-use kagari_ir::bytecode::BytecodeFunction;
-use kagari_ir::bytecode::BytecodeInstruction;
-use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::bytecode::CallTarget;
-use kagari_ir::bytecode::ConstantOperand;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::bytecode::PathId;
-use kagari_ir::bytecode::PathRecord;
-use kagari_ir::bytecode::Register;
-use kagari_ir::bytecode::RuntimeHelper;
-use kagari_ir::bytecode::StructId;
+use kagari_bytecode::BinaryOp;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::PathId;
+use kagari_bytecode::PathRecord;
+use kagari_bytecode::Register;
+use kagari_bytecode::RuntimeHelper;
+use kagari_bytecode::StructId;
 use kagari_runtime::host::PreparedHostPathWrite;
 use std::sync::{Arc, Mutex};
 
@@ -181,7 +181,7 @@ fn path_module(
             _ => None,
         })
         .collect();
-    let metadata = kagari_ir::bytecode::FunctionMetadata {
+    let metadata = kagari_bytecode::FunctionMetadata {
         return_type,
         registers: vec![
             ValueType::HostHandle,
@@ -219,7 +219,7 @@ fn path_module(
             read_only: false,
             debug_name: "game.Player.hp".to_owned(),
         }],
-        function_table: vec![kagari_ir::bytecode::FunctionRecord {
+        function_table: vec![kagari_bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: name.to_owned(),

@@ -1,6 +1,6 @@
 use crate::error::RuntimeError;
 use crate::value::Value;
-use kagari_ir::module::instruction::StringIterKind;
+use kagari_abi::operations::StringIterKind;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct Cursor {

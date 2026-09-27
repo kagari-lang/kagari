@@ -1,13 +1,25 @@
+use crate::CapabilitySet;
+use crate::HostBorrowKind;
+use crate::HostExposurePolicy;
+use crate::HostObjectId;
+use crate::HostSchemaEpoch;
+use crate::HostTypeOwnership;
+use crate::HostTypeRegistration;
+use crate::LanguageProfile;
+use crate::PathAccess;
+use crate::Runtime;
+use crate::RuntimeConfig;
+use crate::RuntimeErrorKind;
+use crate::SecurityContext;
+use crate::TypeId;
+use crate::host::HostError;
+use crate::host::HostFunction;
+use crate::value::Value;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::ModuleRef;
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType,
-};
-use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
-use kagari_runtime::{
-    CapabilitySet, HostBorrowKind, HostExposurePolicy, HostObjectId, HostSchemaEpoch,
-    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, TypeId,
-    host::{HostError, HostFunction},
-    value::Value,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -265,7 +277,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
         stack
             .push(
                 loaded.slot(),
-                kagari_ir::bytecode::FunctionRef::new(0),
+                kagari_bytecode::FunctionRef::new(0),
                 &[],
                 None
             )

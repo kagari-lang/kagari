@@ -1,10 +1,12 @@
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::EmbeddingError;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::SourceLayer,
-};
-use kagari_embed::{
-    BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine,
 };
 use kagari_runtime::value::Value;
 

@@ -1,12 +1,15 @@
 [workspace]
 members = [
+    "crates/kagari-codegen",
     "crates/kagari-abi",
     "crates/kagari-cli",
     "crates/kagari-common",
     "crates/kagari-embed",
     "crates/kagari-hir",
-    "crates/kagari-ir",
-    "crates/kagari-jit-cranelift",
+    "crates/kagari-mir",
+    "crates/kagari-bytecode",
+    "crates/kagari-compiler",
+    "crates/kagari-codegen-cranelift",
     "crates/kagari-runtime",
     "crates/kagari-syntax",
     "crates/kagari-vm",
@@ -19,12 +22,15 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+kagari-codegen = { path = "crates/kagari-codegen" }
 kagari-abi = { path = "crates/kagari-abi" }
 kagari-common = { path = "crates/kagari-common" }
 kagari-embed = { path = "crates/kagari-embed" }
 kagari-hir = { path = "crates/kagari-hir" }
-kagari-ir = { path = "crates/kagari-ir" }
-kagari-jit-cranelift = { path = "crates/kagari-jit-cranelift" }
+kagari-mir = { path = "crates/kagari-mir" }
+kagari-bytecode = { path = "crates/kagari-bytecode" }
+kagari-compiler = { path = "crates/kagari-compiler" }
+kagari-codegen-cranelift = { path = "crates/kagari-codegen-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }

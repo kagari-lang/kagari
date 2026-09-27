@@ -1,20 +1,20 @@
 use super::*;
+use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
-use kagari_ir::bytecode::ArtifactBuildOptions;
-use kagari_ir::bytecode::ArtifactCompatibility;
-use kagari_ir::bytecode::BytecodeFunction;
-use kagari_ir::bytecode::BytecodeInstruction;
-use kagari_ir::bytecode::BytecodeModule;
-use kagari_ir::bytecode::ConstantOperand;
-use kagari_ir::bytecode::DependencyFingerprint;
-use kagari_ir::bytecode::FunctionMetadata;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::bytecode::KbcArtifact;
-use kagari_ir::module::FunctionAbi;
-use kagari_ir::module::PublicAbiItem;
+use kagari_abi::types::FunctionAbi;
+use kagari_abi::types::PublicAbiItem;
+use kagari_bytecode::ArtifactBuildOptions;
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::DependencyFingerprint;
+use kagari_bytecode::FunctionMetadata;
+use kagari_bytecode::KbcArtifact;
 
 use kagari_abi::scalar::BuiltinType;
-use kagari_ir::module::abi::AbiType;
+use kagari_abi::types::AbiType;
 
 #[test]
 fn corrupted_collection_root_quarantines_the_runtime() {
@@ -23,7 +23,7 @@ fn corrupted_collection_root_quarantines_the_runtime() {
         .load_program(
             "gc-invariant",
             BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -47,7 +47,7 @@ fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
         .load_program(
             "borrowed-module",
             BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -88,7 +88,7 @@ fn module_with_executable_function() -> BytecodeModule {
     };
     BytecodeModule {
         types: vec![ValueType::Unit],
-        function_table: vec![kagari_ir::bytecode::FunctionRecord {
+        function_table: vec![kagari_bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "main".to_owned(),
@@ -116,7 +116,7 @@ fn load_rejects_missing_function_terminator_before_publication() {
         .load_program(
             "missing-return",
             BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module],
             },
         )
@@ -131,10 +131,10 @@ fn artifact_with_loader_fingerprints() -> KbcArtifact {
         ..Default::default()
     };
     let mut root = module_with_public_function(BuiltinType::I32);
-    root.dependencies = vec![kagari_ir::bytecode::ModuleRef::new(0)];
+    root.dependencies = vec![kagari_bytecode::ModuleRef::new(0)];
     KbcArtifact::from_program(
         BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(1),
+            root: kagari_bytecode::ModuleRef::new(1),
             modules: vec![dependency, root],
         },
         ArtifactBuildOptions {
@@ -228,8 +228,8 @@ fn load_module_reports_module_resource_limit() {
     runtime
         .load_program(
             "first",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -237,8 +237,8 @@ fn load_module_reports_module_resource_limit() {
     let error = runtime
         .load_program(
             "second",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -254,8 +254,8 @@ fn reload_publishes_valid_candidate_after_validation() {
     let loaded = runtime
         .load_program(
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -265,8 +265,8 @@ fn reload_publishes_valid_candidate_after_validation() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -287,8 +287,8 @@ fn reload_rejects_public_abi_changes_before_publication() {
     let loaded = runtime
         .load_program(
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -299,8 +299,8 @@ fn reload_rejects_public_abi_changes_before_publication() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::String)],
             },
         )
@@ -325,8 +325,8 @@ fn reload_rejects_stale_active_epoch_before_publication() {
     let first = runtime
         .load_program(
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -335,8 +335,8 @@ fn reload_rejects_stale_active_epoch_before_publication() {
         .stage_reload_program(
             &first,
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -348,8 +348,8 @@ fn reload_rejects_stale_active_epoch_before_publication() {
         .stage_reload_program(
             &first,
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -384,8 +384,8 @@ fn reload_resource_failure_preserves_active_epoch() {
     let loaded = runtime
         .load_program(
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -395,8 +395,8 @@ fn reload_resource_failure_preserves_active_epoch() {
         .stage_reload_program(
             &loaded,
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -442,7 +442,7 @@ fn reload_artifact_validates_loader_compatibility_before_publication() {
     assert!(matches!(
         error,
         ReloadValidationError::Artifact(
-            kagari_ir::bytecode::ArtifactValidationError::DependencyFingerprintMismatch
+            kagari_bytecode::ArtifactValidationError::DependencyFingerprintMismatch
         )
     ));
     assert_eq!(runtime.modules().loaded_count(), before_count);
@@ -581,8 +581,8 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
 #[test]
 fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
     let dependency_v1 = KbcArtifact::from_program(
-        kagari_ir::bytecode::BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+        kagari_bytecode::BytecodeProgram {
+            root: kagari_bytecode::ModuleRef::new(0),
             modules: vec![module_with_public_function_and_constant(
                 BuiltinType::I32,
                 1,
@@ -592,8 +592,8 @@ fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
     )
     .unwrap();
     let dependency_v2 = KbcArtifact::from_program(
-        kagari_ir::bytecode::BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+        kagari_bytecode::BytecodeProgram {
+            root: kagari_bytecode::ModuleRef::new(0),
             modules: vec![module_with_public_function_and_constant(
                 BuiltinType::I32,
                 2,
@@ -611,8 +611,8 @@ fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
     let consumer = runtime
         .load_program(
             "consumer",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -681,8 +681,8 @@ fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_ab
     let loaded = runtime
         .load_program(
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function_and_constant(
                     BuiltinType::I32,
                     1,
@@ -712,8 +712,8 @@ fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_ab
         .stage_reload_program(
             &loaded,
             "reloadable",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function_and_constant(
                     BuiltinType::I32,
                     2,
@@ -742,8 +742,8 @@ fn backend_boundary_registers_executable_function_artifacts() {
     let loaded = runtime
         .load_program(
             "backend_module",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_executable_function()],
             },
         )
@@ -818,8 +818,8 @@ fn failed_reload_does_not_invalidate_registered_artifacts() {
     let consumer = runtime
         .load_program(
             "consumer",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![module_with_public_function(BuiltinType::I32)],
             },
         )
@@ -854,7 +854,7 @@ fn failed_reload_does_not_invalidate_registered_artifacts() {
     assert!(matches!(
         error,
         ReloadValidationError::Artifact(
-            kagari_ir::bytecode::ArtifactValidationError::ContentHashMismatch
+            kagari_bytecode::ArtifactValidationError::ContentHashMismatch
         )
     ));
     assert!(runtime.execution_artifact(artifact).is_some());

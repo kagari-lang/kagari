@@ -1,17 +1,17 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
+use crate::ExecutionContext;
+use crate::KagariEngine;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::PublicAbiItem;
+use kagari_bytecode as bytecode;
+use kagari_bytecode::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_ir::bytecode;
-use kagari_ir::bytecode::KbcArtifact;
-use kagari_ir::module::PublicAbiItem;
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::program;
+use kagari_mir::program;
 
 fn main() {
     let engine = KagariEngine::default();
@@ -76,7 +76,7 @@ fn main() {
     let checked = snapshot
         .check_program(root.file, &CancellationToken::default())
         .unwrap();
-    let ir = program::lower_program_to_ir(&checked, &Default::default()).unwrap();
+    let ir = program::lower_program_to_mir(&checked, &Default::default()).unwrap();
     for module in ir.modules() {
         for function in &module.functions {
             let binding = ir.function(&function.instance).unwrap();

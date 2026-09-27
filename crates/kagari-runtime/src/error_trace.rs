@@ -1,6 +1,6 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
-use kagari_ir::module::abi::StandardEnumKind;
+use kagari_abi::types::StandardEnumKind;
 
 use crate::LoadedModule;
 use crate::ResourceState;
@@ -10,9 +10,10 @@ use crate::session::SessionState;
 use crate::value::Value;
 use crate::value_semantics;
 use crate::{Runtime, frame::ExecutionFrame};
+use kagari_abi::ids::FunctionRef;
+use kagari_abi::types::AbiType;
+use kagari_bytecode::ArtifactFingerprint;
 use kagari_common::Span;
-use kagari_ir::bytecode::{ArtifactFingerprint, FunctionRef};
-use kagari_ir::module::abi::AbiType;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;

@@ -6,10 +6,10 @@ use crate::gc::GcHeap;
 use crate::numeric;
 use crate::{RuntimeError, RuntimeErrorKind, value::Value};
 use kagari_abi::scalar::BuiltinType;
+use kagari_abi::types::AbiType;
 use kagari_common::integer;
 use kagari_common::range::RangeKind;
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::instruction;
+use kagari_mir::instruction;
 use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

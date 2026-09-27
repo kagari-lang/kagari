@@ -31,8 +31,8 @@ fn executes_runtime_host_helper_call() {
     let loaded = runtime
         .load_program(
             "helper.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     test_function_module(
                         "main",
@@ -48,7 +48,7 @@ fn executes_runtime_host_helper_call() {
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(2)),
                                 callee: CallTarget::HostFunction(
-                                    kagari_ir::bytecode::HostImportId::new(0),
+                                    kagari_bytecode::HostImportId::new(0),
                                 ),
                                 args: vec![Register::new(0), Register::new(1)],
                             },
@@ -86,7 +86,9 @@ fn executes_runtime_host_helper_call() {
 
 #[test]
 fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_execution() {
-    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
@@ -121,7 +123,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     },
                 )
                 .unwrap();
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let native = kagari_runtime::CodegenBackend::compile_function(
                 &mut backend,
                 kagari_runtime::BackendFunctionInput::new(&scalar, FunctionRef::new(0)).unwrap(),
@@ -135,9 +137,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(
-                                kagari_ir::bytecode::HostImportId::new(0),
-                            ),
+                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::LoadConst {
@@ -210,7 +210,9 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 
 #[test]
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
-    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
     use std::{cell::RefCell, rc::Rc};
     fn reenter(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
@@ -311,7 +313,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .begin_execution(&loaded, runtime.execution_options())
                 .unwrap();
             let mut vm = Vm::new(runtime);
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let report = if jit {
                 vm.execute_with_backend(&loaded, "main", &mut backend)
             } else {
@@ -338,17 +340,15 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     let loaded = runtime
         .load_program(
             "paths.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![path_module(
                     &runtime,
                     "main",
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(
-                                kagari_ir::bytecode::HostImportId::new(0),
-                            ),
+                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::ReadPath {
@@ -407,17 +407,15 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
     let error = runtime
         .load_program(
             "readonly_path.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![path_module(
                     &runtime,
                     "main",
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(
-                                kagari_ir::bytecode::HostImportId::new(0),
-                            ),
+                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::LoadConst {
@@ -453,17 +451,15 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
     let loaded = runtime
         .load_program(
             "path_capability.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![path_module(
                     &runtime,
                     "main",
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(
-                                kagari_ir::bytecode::HostImportId::new(0),
-                            ),
+                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                             args: vec![],
                         },
                         BytecodeInstruction::ReadPath {
@@ -493,7 +489,9 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
 
 #[test]
 fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
-    use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
@@ -534,7 +532,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                        callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::ReadPath {
@@ -592,7 +590,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             runtime.set_security_context(security);
             let mut vm = Vm::new(runtime);
             let value = if jit {
-                let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
                 vm.execute_with_backend(&loaded, "main", &mut backend)
                     .unwrap()
             } else {
@@ -605,8 +603,9 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::ModuleRef;
     use kagari_common::host_interface::{HostIndexSegmentDeclaration, HostValueType};
-    use kagari_ir::bytecode::{BytecodeProgram, ModuleRef};
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let field = runtime
         .host()
@@ -679,7 +678,7 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_ir::bytecode::HostImportId::new(0)),
+                        callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
                         args: vec![],
                     },
                     BytecodeInstruction::LoadConst {

@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -30,7 +32,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -273,7 +275,9 @@ fn map_snapshot_return_types_reject_writes_without_annotations() {
 #[test]
 fn map_snapshot_bindings_must_be_lowered_before_execution() {
     use kagari_abi::standard::StandardIntrinsic as S;
-    use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, verify_program};
+    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::CallTarget;
+    use kagari_bytecode::verify_program;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(
         SourceFile::new("snapshot-wire.kgr", "fn main() { val map = LinkedHashMap::from([(1,2)]); map.keys(); map.values(); map.entries(); }"),

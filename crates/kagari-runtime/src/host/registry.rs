@@ -32,6 +32,7 @@ use crate::host::validate_path_access;
 use crate::metadata::TypeId;
 use crate::metadata::TypeRegistry;
 use crate::value::Value;
+use kagari_bytecode::BinaryOp;
 use kagari_common::host_interface;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::host_interface::HostPathDeclaration;
@@ -41,7 +42,6 @@ use kagari_common::host_interface::HostValueType;
 use kagari_common::host_interface::PathAccess;
 use kagari_common::host_interface::Visibility;
 use kagari_common::identity::DefinitionId;
-use kagari_ir::bytecode::BinaryOp;
 use std::iter;
 
 impl HostRegistry {

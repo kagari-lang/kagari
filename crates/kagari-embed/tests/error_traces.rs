@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
@@ -54,7 +56,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
             .load_program(artifact.clone(), Default::default())
             .unwrap();
         let error = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -94,7 +96,7 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)

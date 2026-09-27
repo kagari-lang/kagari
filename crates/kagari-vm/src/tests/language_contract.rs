@@ -6,14 +6,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use kagari_bytecode::ArtifactBuildOptions;
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::KbcArtifact;
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_compiler::bytecode::lower_program_to_bytecode;
+use kagari_compiler::source::program::lower_program_to_mir;
 use kagari_hir::LanguageFeatureProfile;
-use kagari_ir::{
-    bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact, lower_program_to_bytecode,
-    },
-    program::lower_program_to_ir,
-};
-use kagari_jit_cranelift::CraneliftBackend;
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
     host::{HostError, HostFunction},
@@ -162,7 +161,7 @@ impl<'a> Case<'a> {
     }
 }
 
-fn compile(case: &Case<'_>, route: Route) -> Option<kagari_ir::bytecode::BytecodeProgram> {
+fn compile(case: &Case<'_>, route: Route) -> Option<kagari_bytecode::BytecodeProgram> {
     let profile = LanguageFeatureProfile {
         allow_host_calls: true,
         allow_reflection: case.reflection,
@@ -232,7 +231,7 @@ fn compile(case: &Case<'_>, route: Route) -> Option<kagari_ir::bytecode::Bytecod
     }
     let checked = checked.unwrap_or_else(|error| panic!("{} ({route:?}): {error:?}", case.name));
     let compiled =
-        lower_program_to_bytecode(&lower_program_to_ir(&checked, &Default::default()).unwrap())
+        lower_program_to_bytecode(&lower_program_to_mir(&checked, &Default::default()).unwrap())
             .unwrap();
     let module = match route {
         Route::Source | Route::Jit => compiled,

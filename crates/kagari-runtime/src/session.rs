@@ -17,8 +17,8 @@ use std::{
     time::Instant,
 };
 
+use kagari_bytecode::ArtifactFingerprint;
 use kagari_common::cancellation::CancellationToken;
-use kagari_ir::bytecode::ArtifactFingerprint;
 
 use crate::{
     HostExposurePolicy, LoadedModule, ModuleEpochRetention, ModuleStore, ResourceCounters,
@@ -391,7 +391,9 @@ impl Drop for CandidateSession<'_> {
 mod tests {
     use super::*;
     use crate::value::Value;
-    use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+    use kagari_bytecode::BytecodeModule;
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::ModuleRef;
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {

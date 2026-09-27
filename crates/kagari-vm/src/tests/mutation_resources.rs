@@ -1,5 +1,7 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_ir::bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::ModuleRef;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
     SecurityContext,
@@ -56,7 +58,7 @@ fn standard_mutation_resource_failures_match_across_execution_routes() {
                         vm.execute_with_backend(
                             &loaded,
                             "main",
-                            &mut kagari_jit_cranelift::CraneliftBackend::for_host().unwrap(),
+                            &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
                         )
                         .unwrap_err()
                     } else {

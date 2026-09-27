@@ -1,6 +1,10 @@
-use kagari_runtime::{
-    HostBorrowKind, HostBorrowTable, HostObjectId, Runtime, RuntimeErrorKind, TypeId, value::Value,
-};
+use crate::HostBorrowKind;
+use crate::HostBorrowTable;
+use crate::HostObjectId;
+use crate::Runtime;
+use crate::RuntimeErrorKind;
+use crate::TypeId;
+use crate::value::Value;
 
 #[test]
 fn shared_borrows_coexist_and_unique_conflicts_until_frame_exits() {

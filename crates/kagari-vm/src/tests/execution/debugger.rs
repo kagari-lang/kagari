@@ -12,8 +12,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "debug.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )
@@ -103,8 +103,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "lexical.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )
@@ -196,8 +196,8 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     let loaded = runtime
         .load_program(
             "debug_trap.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![verified_module(vec![main])],
             },
         )
@@ -307,8 +307,8 @@ fn debugger_pause_control_is_separate_from_breakpoint_capability() {
     let loaded = runtime
         .load_program(
             "debug_step_only.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(
                     "fn main() -> i32 { val value = 1; value }",
                 )],
@@ -364,8 +364,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "debug_watch.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )

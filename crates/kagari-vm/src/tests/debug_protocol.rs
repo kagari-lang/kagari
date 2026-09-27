@@ -45,8 +45,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "adapter.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )
@@ -132,8 +132,8 @@ fn main() -> i32 {
     let loaded = runtime
         .load_program(
             "adapter_step.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(source)],
             },
         )

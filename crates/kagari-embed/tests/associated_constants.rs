@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -28,7 +30,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -192,7 +194,7 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
 
 #[test]
 fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
-    use kagari_ir::module::PublicAbiItem;
+    use kagari_abi::types::PublicAbiItem;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("constants.kgr", "pub trait Limit { const VALUE: i32; } struct Number {} impl Limit for Number { const VALUE: i32 = 42; } fn main() -> i32 { Number::VALUE }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..4 {
@@ -247,7 +249,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
             let PublicAbiItem::InterfaceTable(table) = item else {
                 return None;
             };
-            let kagari_ir::module::abi::AbiType::Trait(interface) = &table.trait_type else {
+            let kagari_abi::types::AbiType::Trait(interface) = &table.trait_type else {
                 return None;
             };
             Some(interface.declaration.clone())
@@ -266,9 +268,9 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .unwrap();
     record
         .associated_consts
-        .push(kagari_ir::module::abi::AssociatedConstAbi {
+        .push(kagari_abi::types::AssociatedConstAbi {
             declaration: kagari_hir::types::associated_const_id(&identity, "VALUE"),
-            ty: kagari_ir::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
+            ty: kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32),
             default_value: Some("const-v1:i32:42".into()),
         });
     assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());

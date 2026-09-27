@@ -1,5 +1,11 @@
 //! Compile against declarations without registering callbacks or starting services.
 
+use crate::ArtifactOptions;
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::KagariEngine;
+use kagari_bytecode::ArtifactSectionId;
+use kagari_bytecode::KBC_ARTIFACT_FORMAT_VERSION;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     host_interface::{
@@ -11,9 +17,6 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
-use kagari_ir::bytecode::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
 use kagari_runtime::LanguageProfile;
 use std::error::Error;
 
@@ -172,11 +175,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (name, text) in [
         (
             "api",
-            "pub use demo::echo as echo; pub use demo::Player; pub use demo as service;",
+            "pub use demo::echo; pub use demo::Player; pub use demo as service;",
         ),
         (
             "main",
-            "use build::api::echo; use build::api as api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 { value[first][second].selected.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> ArrayList<i32> { echo(api::service::echo([42])) }",
+            "use build::api::echo; use build::api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 { value[first][second].selected.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> ArrayList<i32> { echo(api::service::echo([42])) }",
         ),
     ] {
         let path = format!("mem://{name}");

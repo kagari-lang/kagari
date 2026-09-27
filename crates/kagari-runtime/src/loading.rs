@@ -12,11 +12,11 @@ use crate::module::VerifiedProgram;
 use crate::reload::ReloadValidationError;
 use crate::reload::validate_reload_artifact_candidate;
 use crate::reload::validate_reload_candidate;
-use kagari_ir::bytecode;
-use kagari_ir::bytecode::ArtifactCompatibility;
-use kagari_ir::bytecode::ArtifactFingerprint;
-use kagari_ir::bytecode::BytecodeProgram;
-use kagari_ir::bytecode::KbcArtifact;
+use kagari_bytecode as bytecode;
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::ArtifactFingerprint;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::KbcArtifact;
 
 impl Runtime {
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {

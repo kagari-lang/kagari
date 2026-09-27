@@ -1,5 +1,7 @@
+use crate::ArtifactOptions;
+use crate::EmbeddingError;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine};
 
 #[test]
 fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {
@@ -309,7 +311,7 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -338,7 +340,7 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
         .emit_bytecode(
             &checked,
             ArtifactOptions {
-                lowering: kagari_ir::IrLoweringOptions {
+                lowering: kagari_compiler::MirLoweringOptions {
                     max_generic_instances: 0,
                     ..Default::default()
                 },

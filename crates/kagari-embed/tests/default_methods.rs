@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -28,7 +30,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -229,7 +231,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 .public_items
                 .iter_mut()
                 .find_map(|item| {
-                    let kagari_ir::module::PublicAbiItem::Trait(contract) = item else {
+                    let kagari_abi::types::PublicAbiItem::Trait(contract) = item else {
                         return None;
                     };
                     Some(contract)
@@ -242,7 +244,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
             }
         } else {
             module.functions[0].metadata.debug.source_module =
-                Some(kagari_ir::bytecode::ModuleRef::new(999));
+                Some(kagari_bytecode::ModuleRef::new(999));
         }
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }

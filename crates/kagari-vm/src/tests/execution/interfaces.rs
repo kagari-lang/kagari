@@ -38,7 +38,8 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 
 #[test]
 fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
-    use kagari_ir::module::{PublicAbiItem, abi::AbiType};
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::PublicAbiItem;
     let (runtime, loaded) = load_test_module(
         "trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );
@@ -161,8 +162,8 @@ fn interface_method_keeps_its_implementation_across_reload() {
     let first = compile_test_bytecode(source);
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
     let mut runtime = Runtime::default();
-    let program = |module| kagari_ir::bytecode::BytecodeProgram {
-        root: kagari_ir::bytecode::ModuleRef::new(0),
+    let program = |module| kagari_bytecode::BytecodeProgram {
+        root: kagari_bytecode::ModuleRef::new(0),
         modules: vec![module],
     };
     let old = runtime
@@ -199,8 +200,8 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let program = |module| kagari_ir::bytecode::BytecodeProgram {
-        root: kagari_ir::bytecode::ModuleRef::new(0),
+    let program = |module| kagari_bytecode::BytecodeProgram {
+        root: kagari_bytecode::ModuleRef::new(0),
         modules: vec![module],
     };
     let mut runtime = Runtime::default();
@@ -258,8 +259,8 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let program = |module| kagari_ir::bytecode::BytecodeProgram {
-        root: kagari_ir::bytecode::ModuleRef::new(0),
+    let program = |module| kagari_bytecode::BytecodeProgram {
+        root: kagari_bytecode::ModuleRef::new(0),
         modules: vec![module],
     };
     let mut runtime = Runtime::default();
@@ -342,10 +343,13 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
 
 #[test]
 fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
-    use kagari_ir::bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
-        KbcArtifact, ModuleRef, verify_module,
-    };
+    use kagari_bytecode::ArtifactBuildOptions;
+    use kagari_bytecode::ArtifactCompatibility;
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::InterfaceTableRef;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::verify_module;
     let module = interface_instruction_module();
     verify_module(&module).unwrap();
 
@@ -389,11 +393,14 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
 
 #[test]
 fn interface_instruction_uses_a_reachable_dependency_table() {
+    use kagari_bytecode::ArtifactBuildOptions;
+    use kagari_bytecode::ArtifactCompatibility;
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::InterfaceTableRef;
+    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::verify_program;
     use kagari_common::identity::ModuleIdentity;
-    use kagari_ir::bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
-        KbcArtifact, ModuleRef, verify_program,
-    };
 
     let dependency = interface_instruction_module();
     let mut consumer = verified_module(vec![test_function(

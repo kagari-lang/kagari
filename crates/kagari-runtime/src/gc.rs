@@ -8,14 +8,14 @@ use crate::module::RetainedRuntimeProgram;
 use crate::module::StructLayoutRef;
 use crate::resource::ResourceState;
 use crate::value::EnumTag;
+use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::NominalAbiType;
+use kagari_abi::types::StandardEnumKind;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::abi::NominalAbiType;
-use kagari_ir::module::abi::StandardEnumKind;
 use std::slice;
 use std::sync::Arc;
 use std::{
@@ -711,7 +711,7 @@ impl GcHeap {
         // registry ownership/schema, before entering this allocation boundary.
         let durable_host = matches!(
             (&snapshot.data, &snapshot.concrete_type),
-            (Value::HostRoot(_), kagari_ir::module::abi::AbiType::Host(_))
+            (Value::HostRoot(_), kagari_abi::types::AbiType::Host(_))
         );
         if !durable_host && !self.valid_payload(&snapshot.data) {
             return Err(RuntimeError::new(

@@ -1,33 +1,47 @@
+use kagari_abi::ids::DebugPointId;
+use kagari_abi::ids::FunctionRef;
+use kagari_abi::native::BackendId;
+use kagari_abi::native::BackendTarget;
+use kagari_abi::native::ExecutableDebugInfo;
+use kagari_abi::native::ExecutableDebugPoint;
+use kagari_abi::native::ExecutableEntryPoint;
+use kagari_abi::native::ExecutableFunctionArtifact;
+use kagari_abi::native::ExecutableSafepoint;
+use kagari_abi::native::ExecutableSafepointKind;
+use kagari_abi::native::ExecutableStackMap;
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::BinaryOp;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::InstructionSourceSpan;
+use kagari_bytecode::LineTableEntry;
+use kagari_bytecode::Register;
+use kagari_bytecode::SafeDebugPoint;
+use kagari_bytecode::SafeDebugPointKind;
+use kagari_bytecode::UnaryOp;
+use kagari_codegen::BackendCompileError;
+use kagari_codegen::BackendFunctionInput;
+use kagari_codegen::CodegenBackend;
+use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::Span;
-use kagari_ir::bytecode::BinaryOp;
-use kagari_ir::bytecode::BytecodeInstruction;
-use kagari_ir::bytecode::ConstantOperand;
-use kagari_ir::bytecode::DebugPointId;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::bytecode::InstructionSourceSpan;
-use kagari_ir::bytecode::LineTableEntry;
-use kagari_ir::bytecode::Register;
-use kagari_ir::bytecode::SafeDebugPoint;
-use kagari_ir::bytecode::SafeDebugPointKind;
-use kagari_ir::bytecode::UnaryOp;
-use kagari_jit_cranelift::CraneliftBackend;
-use kagari_runtime::{
-    BackendCompileError, BackendFunctionInput, BackendId, BackendInvocationError, BackendTarget,
-    CapabilitySet, CodegenBackend, DebugVisibilityPolicy, ExecutableDebugInfo,
-    ExecutableDebugPoint, ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
-    ExecutableSafepointKind, ExecutableStackMap, LanguageProfile, Runtime, RuntimeConfig,
-    SecurityContext, value::Value,
-};
+use kagari_runtime::BackendInvocationError;
+use kagari_runtime::CapabilitySet;
+use kagari_runtime::DebugVisibilityPolicy;
+use kagari_runtime::LanguageProfile;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeConfig;
+use kagari_runtime::SecurityContext;
+use kagari_runtime::value::Value;
 
 use crate::{DebugSession, JitExecutionStatus, Vm, tests::common};
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
+    use kagari_bytecode::ArtifactBuildOptions;
+    use kagari_bytecode::ArtifactCompatibility;
+    use kagari_bytecode::HostImportId;
+    use kagari_bytecode::KbcArtifact;
     use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType, standard_log};
-    use kagari_ir::bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, HostImportId, KbcArtifact,
-    };
     use kagari_runtime::{HostExposurePolicy, host::HostFunction};
     use std::sync::{Arc, Mutex};
     let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
@@ -35,8 +49,8 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
         for jit in [false, true] {
             let module = if artifact {
                 let encoded = KbcArtifact::from_program(
-                    kagari_ir::bytecode::BytecodeProgram {
-                        root: kagari_ir::bytecode::ModuleRef::new(0),
+                    kagari_bytecode::BytecodeProgram {
+                        root: kagari_bytecode::ModuleRef::new(0),
                         modules: vec![bytecode.clone()],
                     },
                     ArtifactBuildOptions::default(),
@@ -88,8 +102,8 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             let loaded = runtime
                 .load_program(
                     "linked",
-                    kagari_ir::bytecode::BytecodeProgram {
-                        root: kagari_ir::bytecode::ModuleRef::new(0),
+                    kagari_bytecode::BytecodeProgram {
+                        root: kagari_bytecode::ModuleRef::new(0),
                         modules: vec![module],
                     },
                 )
@@ -652,7 +666,7 @@ fn jit_runtime() -> Runtime {
     })
 }
 
-fn debug_test_module(value: i32) -> kagari_ir::bytecode::BytecodeModule {
+fn debug_test_module(value: i32) -> kagari_bytecode::BytecodeModule {
     let mut module = common::test_function_module(
         "main",
         vec![

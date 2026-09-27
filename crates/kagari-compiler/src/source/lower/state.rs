@@ -1,0 +1,339 @@
+use crate::source::lower::MirLoweringError;
+use crate::source::lower::instances::Instance;
+use crate::source::lower::instances::InstancePlanner;
+use crate::source::types::lower_type;
+use hir::StmtKind;
+use hir::Writeability;
+use kagari_abi::types::AbiType;
+use kagari_hir::resolver::ResolvedName;
+use kagari_hir::types::TypeId;
+use std::collections::{HashMap, HashSet};
+use std::slice;
+
+use kagari_common::Span;
+use kagari_hir::typeck::TypedFunction;
+use kagari_hir::{AnalyzedModule, hir};
+
+use kagari_abi::effects::EffectSet;
+use kagari_abi::representation::ValueType;
+use kagari_mir::function::BasicBlock;
+use kagari_mir::function::MirFunction;
+use kagari_mir::function::MirFunctionDebugMetadata;
+use kagari_mir::function::MirLexicalScope;
+use kagari_mir::function::MirLocal;
+use kagari_mir::function::MirLocalDebugInfo;
+use kagari_mir::function::MirParameter;
+use kagari_mir::function::MirTemp;
+use kagari_mir::function::ParameterBuffer;
+use kagari_mir::ids::BlockId;
+use kagari_mir::ids::LocalId;
+use kagari_mir::ids::TempId;
+use kagari_mir::instruction::Instruction;
+use kagari_mir::instruction::MirValue;
+use kagari_mir::instruction::Terminator;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LoopScope {
+    pub(crate) break_block: BlockId,
+    pub(crate) continue_block: BlockId,
+    pub(crate) break_value: Option<MirValue>,
+}
+
+pub(crate) struct FunctionLowerer<'a, 'p> {
+    pub(crate) analyzed: &'a AnalyzedModule,
+    pub(crate) instance: Instance,
+    pub(crate) planner: &'p mut InstancePlanner<'a>,
+    pub(crate) function: MirFunction,
+    pub(crate) current_block: BlockId,
+
+    pub(crate) params: HashMap<hir::ParamId, LocalId>,
+    pub(crate) locals: HashMap<hir::LocalId, LocalId>,
+    pub(crate) cell_locals: HashSet<hir::LocalId>,
+    pub(crate) loops: Vec<LoopScope>,
+    pub(crate) effects: EffectSet,
+    pub(crate) current_scope: usize,
+    current_debug_span: Option<Span>,
+}
+
+impl<'a, 'p> FunctionLowerer<'a, 'p> {
+    pub(crate) fn new(
+        analyzed: &'a AnalyzedModule,
+        hir_function: &hir::Function,
+        typed_function: &TypedFunction,
+        instance: Instance,
+        planner: &'p mut InstancePlanner<'a>,
+    ) -> Result<Self, MirLoweringError> {
+        let entry = BlockId::new(0);
+        let span = analyzed.lowered.source_map.function_span(hir_function.id);
+        let value_type = |ty| planner.value_type(ty, &instance.substitution, span);
+        let mut function = MirFunction {
+            semantic: Default::default(),
+            id: instance.id,
+            instance: instance.key.clone(),
+            name: if instance.key.arguments.is_empty() {
+                hir_function.name.clone()
+            } else {
+                format!("{}#{}", hir_function.name, instance.id.index())
+            },
+            params: ParameterBuffer::new(),
+            return_type: value_type(&typed_function.return_type)?,
+            locals: Vec::new(),
+            temps: Vec::new(),
+            blocks: vec![BasicBlock {
+                instructions: Vec::new(),
+                instruction_spans: Vec::new(),
+                instruction_scopes: Vec::new(),
+                terminator: None,
+                terminator_span: None,
+                terminator_scope: None,
+            }],
+            entry,
+            effects: EffectSet::default(),
+            debug: MirFunctionDebugMetadata {
+                source: Some(analyzed.lowered.source.clone()),
+                source_module: Some(analyzed.lowered.source.module_identity().clone()),
+                source_span: analyzed.lowered.source_map.function_span(hir_function.id),
+                locals: Vec::new(),
+                captured_bindings: Vec::new(),
+                lexical_scopes: vec![MirLexicalScope {
+                    parent: None,
+                    local: None,
+                }],
+            },
+        };
+
+        let mut params = HashMap::new();
+        let mutable_locals = analyzed
+            .lowered
+            .module
+            .body
+            .statements()
+            .filter_map(|(id, stmt)| {
+                if id.owner() != hir_function.body.owner() {
+                    return None;
+                }
+                match &stmt.kind {
+                    StmtKind::Binding {
+                        local,
+                        writeability: Writeability::Var,
+                        ..
+                    } => Some(*local),
+                    _ => None,
+                }
+            })
+            .collect::<HashSet<_>>();
+        let cell_locals = analyzed
+            .lowered
+            .module
+            .body
+            .expressions()
+            .filter(|(id, expr)| {
+                id.owner() == hir_function.body.owner()
+                    && matches!(expr.kind, hir::ExprKind::Closure { .. })
+            })
+            .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
+            .filter_map(|resolved| match resolved {
+                ResolvedName::Local(id) if mutable_locals.contains(id) => Some(*id),
+                _ => None,
+            })
+            .collect();
+        for param in &typed_function.params {
+            let local = LocalId::new(function.locals.len());
+            function.locals.push(MirLocal {
+                name: param.name.clone(),
+                ty: value_type(&param.ty)?,
+            });
+            function.debug.locals.push(MirLocalDebugInfo {
+                local,
+                name: param.name.clone(),
+                span: analyzed.lowered.source_map.param_span(param.id),
+                ty: value_type(&param.ty)?,
+                is_parameter: true,
+            });
+            function.params.push(MirParameter {
+                name: param.name.clone(),
+                ty: value_type(&param.ty)?,
+                local,
+            });
+            params.insert(param.id, local);
+        }
+
+        let concrete = |ty: &TypeId| {
+            let ty = planner
+                .arguments(slice::from_ref(ty), &instance.substitution, span)?
+                .remove(0);
+            Ok::<_, MirLoweringError>(lower_type(&ty))
+        };
+        function.semantic.result = Some(concrete(&typed_function.return_type)?);
+        for (index, param) in typed_function.params.iter().enumerate() {
+            function.semantic.params.insert(index, concrete(&param.ty)?);
+            function.semantic.locals.insert(index, concrete(&param.ty)?);
+        }
+        Ok(Self {
+            analyzed,
+            instance,
+            planner,
+            function,
+            current_block: entry,
+
+            params,
+            locals: HashMap::new(),
+            cell_locals,
+            loops: Vec::new(),
+            effects: EffectSet::default(),
+            current_scope: 0,
+            current_debug_span: None,
+        })
+    }
+
+    pub(crate) fn semantic_type(&self, ty: &TypeId) -> Result<AbiType, MirLoweringError> {
+        let concrete = self
+            .planner
+            .arguments(
+                slice::from_ref(ty),
+                &self.instance.substitution,
+                self.function.debug.source_span,
+            )?
+            .remove(0);
+        Ok(lower_type(&concrete))
+    }
+
+    pub(crate) fn finish(mut self) -> MirFunction {
+        self.function.effects = self.effects;
+        self.function
+    }
+
+    pub(crate) fn new_block(&mut self) -> BlockId {
+        let id = BlockId::new(self.function.blocks.len());
+        self.function.blocks.push(BasicBlock {
+            instructions: Vec::new(),
+            instruction_spans: Vec::new(),
+            instruction_scopes: Vec::new(),
+            terminator: None,
+            terminator_span: None,
+            terminator_scope: None,
+        });
+        id
+    }
+
+    pub(crate) fn switch_to_block(&mut self, block: BlockId) {
+        self.current_block = block;
+    }
+
+    /// All incoming edges to a structured join have been emitted at this point.
+    pub(crate) fn switch_to_join(&mut self, block: BlockId) {
+        let has_predecessor =
+            self.function
+                .blocks
+                .iter()
+                .any(|candidate| match candidate.terminator.as_ref() {
+                    Some(Terminator::Jump(target)) => *target == block,
+                    Some(Terminator::Branch {
+                        then_block,
+                        else_block,
+                        ..
+                    }) => *then_block == block || *else_block == block,
+                    _ => false,
+                });
+        self.switch_to_block(block);
+        if !has_predecessor {
+            self.set_terminator(Terminator::Unreachable);
+        }
+    }
+
+    pub(crate) fn current_block_terminated(&self) -> bool {
+        self.function.blocks[self.current_block.index()]
+            .terminator
+            .is_some()
+    }
+
+    pub(crate) fn emit(&mut self, instruction: Instruction) {
+        self.planner.charge_instruction(
+            self.current_debug_span
+                .unwrap_or(self.function.debug.source_span),
+        );
+        if self.planner.check().is_err() {
+            return;
+        }
+        self.effects = self.effects.union(instruction.effects());
+        let block = &mut self.function.blocks[self.current_block.index()];
+        block
+            .instruction_spans
+            .push(self.current_debug_span.unwrap_or_default());
+        block.instruction_scopes.push(self.current_scope);
+        block.instructions.push(instruction);
+    }
+
+    pub(crate) fn set_terminator(&mut self, terminator: Terminator) {
+        self.planner.charge_instruction(
+            self.current_debug_span
+                .unwrap_or(self.function.debug.source_span),
+        );
+        if self.planner.check().is_err() {
+            return;
+        }
+        self.effects = self.effects.union(terminator.effects());
+        let block = &mut self.function.blocks[self.current_block.index()];
+        block.terminator = Some(terminator);
+        block.terminator_span = self.current_debug_span;
+        block.terminator_scope = Some(self.current_scope);
+    }
+
+    pub(crate) fn introduce_debug_local(&mut self, local: LocalId) {
+        let scope = self.function.debug.lexical_scopes.len();
+        self.function.debug.lexical_scopes.push(MirLexicalScope {
+            parent: Some(self.current_scope),
+            local: Some(local),
+        });
+        self.current_scope = scope;
+    }
+
+    pub(crate) fn ensure_jump(&mut self, target: BlockId) {
+        if !self.current_block_terminated() {
+            self.set_terminator(Terminator::Jump(target));
+        }
+    }
+
+    pub(crate) fn alloc_temp(&mut self, ty: ValueType) -> MirValue {
+        let id = TempId::new(self.function.temps.len());
+        self.function.temps.push(MirTemp { ty });
+        MirValue { temp: id, ty }
+    }
+
+    pub(crate) fn alloc_local(&mut self, name: String, ty: ValueType, span: Span) -> LocalId {
+        let id = LocalId::new(self.function.locals.len());
+        self.function.locals.push(MirLocal {
+            name: name.clone(),
+            ty,
+        });
+        self.function.debug.locals.push(MirLocalDebugInfo {
+            local: id,
+            name,
+            span,
+            ty,
+            is_parameter: false,
+        });
+        id
+    }
+
+    pub(crate) fn with_debug_span<R>(&mut self, span: Span, f: impl FnOnce(&mut Self) -> R) -> R {
+        let previous = self.current_debug_span.replace(span);
+        let result = f(self);
+        self.current_debug_span = previous;
+        result
+    }
+
+    pub(crate) fn debug_span(&self) -> Span {
+        self.current_debug_span
+            .unwrap_or(self.function.debug.source_span)
+    }
+
+    pub(crate) fn value_type(&self, ty: &TypeId) -> Result<ValueType, MirLoweringError> {
+        self.planner.value_type(
+            ty,
+            &self.instance.substitution,
+            self.current_debug_span
+                .unwrap_or(self.function.debug.source_span),
+        )
+    }
+}

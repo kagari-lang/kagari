@@ -1,5 +1,7 @@
+use crate::BytecodeArtifact;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -28,7 +30,7 @@ fn execute(source: &str) {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -227,11 +229,11 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
     use kagari_abi::scalar::BuiltinType;
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::ConstraintAbi;
+    use kagari_abi::types::GenericBoundAbi;
+    use kagari_abi::types::PublicAbiItem;
     use kagari_hir::builtin::surface::StandardTypeConstraint;
-    use kagari_ir::module::{
-        PublicAbiItem,
-        abi::{AbiType, ConstraintAbi, GenericBoundAbi},
-    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..10 {
@@ -334,10 +336,11 @@ fn main()->i32 { make(Maker {}).read() }
 
 #[test]
 fn complete_family_metadata_cannot_make_a_dynamic_interface() {
-    use kagari_ir::module::{
-        PublicAbiItem,
-        abi::{AbiType, AssociatedTypeAbi, AssociatedTypeFamilyAbi, GenericParameterAbi},
-    };
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::AssociatedTypeAbi;
+    use kagari_abi::types::AssociatedTypeFamilyAbi;
+    use kagari_abi::types::GenericParameterAbi;
+    use kagari_abi::types::PublicAbiItem;
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"), Default::default(), Default::default()).unwrap();
     let mut program = artifact.program.clone();

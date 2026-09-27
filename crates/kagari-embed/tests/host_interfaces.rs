@@ -1,3 +1,8 @@
+use crate::BytecodeArtifact;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::HostExposurePolicy;
+use crate::KagariEngine;
 use kagari_common::{
     host_interface::{
         HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
@@ -6,9 +11,6 @@ use kagari_common::{
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
-};
-use kagari_embed::{
-    BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
 };
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
@@ -189,7 +191,7 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
             .unwrap();
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let result = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -266,10 +268,11 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
 
 #[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
-    use kagari_ir::{
-        bytecode::{BytecodeInstruction, CallTarget, HostImportId},
-        module::{PublicAbiItem, abi::AbiType},
-    };
+    use kagari_abi::types::AbiType;
+    use kagari_abi::types::PublicAbiItem;
+    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::CallTarget;
+    use kagari_bytecode::HostImportId;
     let (_, artifact, _, _) = fixture();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
@@ -340,7 +343,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
             _ => unreachable!(),
         }
         assert!(
-            kagari_ir::bytecode::verify_program(&program).is_err(),
+            kagari_bytecode::verify_program(&program).is_err(),
             "accepted mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
@@ -542,7 +545,7 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
         .find(|host| host.symbol == "demo.Other")
         .unwrap();
     other.trait_implementations.clear();
-    assert!(kagari_ir::bytecode::verify_program(&program).is_err());
+    assert!(kagari_bytecode::verify_program(&program).is_err());
 }
 
 #[test]

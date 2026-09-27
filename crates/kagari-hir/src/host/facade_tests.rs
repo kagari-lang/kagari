@@ -32,7 +32,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
         "relay",
         "pub use pkg::facade::call; pub use pkg::facade::service;",
     );
-    let text = "use pkg::relay::call as invoke; use pkg::relay::service as api; use pkg::relay as relay; fn main() -> i32 { invoke(api::echo(relay::call(relay::service::echo(1)))) }";
+    let text = "use pkg::relay::call as invoke; use pkg::relay::service as api; use pkg::relay; fn main() -> i32 { invoke(api::echo(relay::call(relay::service::echo(1)))) }";
     let root = insert(&mut sources, "root", text);
     let mut db = AnalysisDatabase::default();
     let declaration = super::tests::declaration();

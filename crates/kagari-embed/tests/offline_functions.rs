@@ -1,12 +1,14 @@
+use crate::ArtifactOptions;
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::HostExposurePolicy;
+use crate::KagariEngine;
+use crate::LoadOptions;
 use kagari_common::{
     SourceFile,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
     },
-};
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
-    LoadOptions,
 };
 use kagari_runtime::{CapabilitySet, LanguageProfile, host::HostFunction, value::Value};
 use std::sync::{Arc, Mutex};
@@ -112,7 +114,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     }
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -173,7 +175,8 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         denied.host_policy.allowed_host_functions = vec!["call".into()];
         assert!(runtime.execute(&loaded, "main", &[], &denied).is_err());
         assert!(calls.lock().unwrap().is_empty());
-        let mut backend = jit.then(|| kagari_jit_cranelift::CraneliftBackend::for_host().unwrap());
+        let mut backend =
+            jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for _ in 0..2 {
             let report = if let Some(backend) = &mut backend {
                 runtime.execute_with_backend(&loaded, "main", &[], &context, backend)
@@ -212,8 +215,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .functions,
         vec![definition.clone()]
     );
-    let artifact =
-        kagari_ir::bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact = kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext {
         language_profile: profile,
         capabilities: CapabilitySet {

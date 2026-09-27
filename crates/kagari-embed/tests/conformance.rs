@@ -1,12 +1,16 @@
+use crate::ArtifactOptions;
+use crate::CompileOptions;
+use crate::EmbeddingError;
+use crate::ExecutionContext;
+use crate::KagariEngine;
+use crate::LoadOptions;
+use kagari_bytecode::ArtifactBuildOptions;
+use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::ArtifactFingerprint;
+use kagari_bytecode::ArtifactValidationError;
+use kagari_bytecode::DependencyFingerprint;
 use kagari_common::SourceFile;
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine, LoadOptions,
-};
-use kagari_ir::bytecode::{
-    ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError,
-    DependencyFingerprint,
-};
 use kagari_runtime::{ResourcePolicy, value::Value};
 
 fn exact_compatibility(

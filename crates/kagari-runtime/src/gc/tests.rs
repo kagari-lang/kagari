@@ -1,4 +1,4 @@
-use kagari_ir::module::abi::AbiType;
+use kagari_abi::types::AbiType;
 
 #[test]
 fn interface_roots_trace_data_and_retain_old_dependency_versions() {

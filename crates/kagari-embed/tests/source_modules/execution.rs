@@ -244,9 +244,11 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
 
 #[test]
 fn malformed_programs_are_rejected_before_any_member_is_published() {
-    use kagari_ir::bytecode::{
-        BytecodeInstruction, BytecodeModule, CallTarget, FunctionRef, ModuleRef,
-    };
+    use kagari_abi::ids::FunctionRef;
+    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::BytecodeModule;
+    use kagari_bytecode::CallTarget;
+    use kagari_bytecode::ModuleRef;
     let engine = KagariEngine::default();
     insert(
         &engine,

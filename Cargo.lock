@@ -298,18 +298,54 @@ dependencies = [
  "bincode",
  "kagari-common",
  "serde",
+ "smallvec",
+]
+
+[[package]]
+name = "kagari-bytecode"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kagari-abi",
+ "kagari-common",
+ "serde",
+ "smallvec",
+ "thiserror",
 ]
 
 [[package]]
 name = "kagari-cli"
 version = "0.1.0"
 dependencies = [
+ "kagari-codegen-cranelift",
  "kagari-common",
  "kagari-embed",
- "kagari-jit-cranelift",
  "kagari-runtime",
  "kagari-syntax",
  "kagari-vm",
+ "thiserror",
+]
+
+[[package]]
+name = "kagari-codegen"
+version = "0.1.0"
+dependencies = [
+ "kagari-abi",
+ "kagari-mir",
+]
+
+[[package]]
+name = "kagari-codegen-cranelift"
+version = "0.1.0"
+dependencies = [
+ "cranelift-codegen",
+ "cranelift-frontend",
+ "cranelift-jit",
+ "cranelift-module",
+ "cranelift-native",
+ "kagari-abi",
+ "kagari-codegen",
+ "kagari-mir",
  "thiserror",
 ]
 
@@ -323,14 +359,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari-compiler"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "kagari-abi",
+ "kagari-bytecode",
+ "kagari-common",
+ "kagari-hir",
+ "kagari-mir",
+ "kagari-syntax",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
 name = "kagari-embed"
 version = "0.1.0"
 dependencies = [
  "kagari-abi",
+ "kagari-bytecode",
+ "kagari-codegen",
+ "kagari-codegen-cranelift",
  "kagari-common",
+ "kagari-compiler",
  "kagari-hir",
- "kagari-ir",
- "kagari-jit-cranelift",
+ "kagari-mir",
  "kagari-runtime",
  "kagari-syntax",
  "kagari-vm",
@@ -350,31 +404,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kagari-ir"
+name = "kagari-mir"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "kagari-abi",
  "kagari-common",
- "kagari-hir",
- "kagari-syntax",
  "serde",
  "smallvec",
- "thiserror",
-]
-
-[[package]]
-name = "kagari-jit-cranelift"
-version = "0.1.0"
-dependencies = [
- "cranelift-codegen",
- "cranelift-frontend",
- "cranelift-jit",
- "cranelift-module",
- "cranelift-native",
- "kagari-abi",
- "kagari-ir",
- "kagari-runtime",
  "thiserror",
 ]
 
@@ -384,8 +420,10 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "kagari-abi",
+ "kagari-bytecode",
  "kagari-common",
- "kagari-ir",
+ "kagari-compiler",
+ "kagari-mir",
  "thiserror",
 ]
 
@@ -403,10 +441,12 @@ name = "kagari-vm"
 version = "0.1.0"
 dependencies = [
  "kagari-abi",
+ "kagari-bytecode",
+ "kagari-codegen-cranelift",
  "kagari-common",
+ "kagari-compiler",
  "kagari-hir",
- "kagari-ir",
- "kagari-jit-cranelift",
+ "kagari-mir",
  "kagari-runtime",
  "kagari-syntax",
 ]

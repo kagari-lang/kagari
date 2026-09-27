@@ -104,19 +104,19 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         .find(|module| module.identity.path == ["api"])
         .unwrap();
     let method = api.public_items.iter_mut().find_map(|item| match item {
-        kagari_ir::module::PublicAbiItem::Trait(interface) => interface.methods.first_mut(),
+        kagari_abi::types::PublicAbiItem::Trait(interface) => interface.methods.first_mut(),
         _ => None,
     });
     method.unwrap().return_type =
-        kagari_ir::module::abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
+        kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
     assert!(matches!(
-        kagari_ir::bytecode::verify_program(&wrong_contract),
-        Err(kagari_ir::bytecode::BytecodeVerificationError::InvalidInterfaceTable)
+        kagari_bytecode::verify_program(&wrong_contract),
+        Err(kagari_bytecode::BytecodeVerificationError::InvalidInterfaceTable)
     ));
     assert!(matches!(
-        kagari_ir::bytecode::KbcArtifact::from_program(wrong_contract, Default::default()),
-        Err(kagari_ir::bytecode::ArtifactValidationError::Bytecode(
-            kagari_ir::bytecode::BytecodeVerificationError::InvalidInterfaceTable
+        kagari_bytecode::KbcArtifact::from_program(wrong_contract, Default::default()),
+        Err(kagari_bytecode::ArtifactValidationError::Bytecode(
+            kagari_bytecode::BytecodeVerificationError::InvalidInterfaceTable
         ))
     ));
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -133,7 +133,7 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -185,7 +185,7 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -237,7 +237,7 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -445,7 +445,7 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -582,7 +582,7 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
         let mut runtime = engine.runtime(context.clone());
         let loaded = runtime.load_program(artifact, Default::default()).unwrap();
         let report = if jit {
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
         } else {
             runtime.execute(&loaded, "main", &[], &context)

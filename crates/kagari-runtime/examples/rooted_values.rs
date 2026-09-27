@@ -1,5 +1,6 @@
 //! Host retention and a repeatable baseline for nonmoving mark-sweep pauses.
-use kagari_runtime::{Runtime, value::Value};
+use crate::Runtime;
+use crate::value::Value;
 
 fn main() {
     const OBJECTS: usize = 10_000;

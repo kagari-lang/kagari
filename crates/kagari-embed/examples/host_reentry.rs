@@ -7,8 +7,10 @@ use std::{
     rc::Rc,
 };
 
+use crate::CompileOptions;
+use crate::ExecutionContext;
+use crate::KagariEngine;
 use kagari_common::{SourceFile, host_interface::standard_log};
-use kagari_embed::{CompileOptions, ExecutionContext, KagariEngine};
 use kagari_runtime::{
     ExecutionEvent, ExecutionFrame, ExecutionObserver, Runtime, RuntimeError,
     host::{HostError, HostFunction},

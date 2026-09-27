@@ -4,11 +4,13 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+use crate::Runtime;
+use crate::host::HostFunction;
+use crate::value::Value;
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter, HostPassingStyle,
     HostValueType,
 };
-use kagari_runtime::{Runtime, host::HostFunction, value::Value};
 
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
@@ -24,9 +26,10 @@ fn declaration() -> HostFunctionDeclaration {
 
 #[test]
 fn module_load_and_reload_require_matching_bindings_before_publication() {
-    use kagari_ir::bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeModule, KbcArtifact,
-    };
+    use kagari_bytecode::ArtifactBuildOptions;
+    use kagari_bytecode::ArtifactCompatibility;
+    use kagari_bytecode::BytecodeModule;
+    use kagari_bytecode::KbcArtifact;
     let mut runtime = Runtime::default();
     let required = declaration();
     let bytecode = BytecodeModule {
@@ -41,8 +44,8 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
         runtime
             .load_program(
                 "host",
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![bytecode.clone()]
                 }
             )
@@ -58,8 +61,8 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let loaded = runtime
         .load_program(
             "host",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![bytecode.clone()],
             },
         )
@@ -77,16 +80,16 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             .stage_reload_program(
                 &loaded,
                 "host",
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![mismatch.clone()]
                 }
             )
             .is_err()
     );
     let artifact = KbcArtifact::from_program(
-        kagari_ir::bytecode::BytecodeProgram {
-            root: kagari_ir::bytecode::ModuleRef::new(0),
+        kagari_bytecode::BytecodeProgram {
+            root: kagari_bytecode::ModuleRef::new(0),
             modules: vec![mismatch],
         },
         ArtifactBuildOptions::default(),
@@ -106,7 +109,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
 
 #[test]
 fn bound_slots_and_loaded_handles_reject_another_runtime() {
-    use kagari_ir::bytecode::BytecodeModule;
+    use kagari_bytecode::BytecodeModule;
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     let a = first
@@ -121,8 +124,8 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let a = first
         .load_program(
             "same",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -130,8 +133,8 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let b = second
         .load_program(
             "same",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -145,8 +148,8 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
             .stage_reload_program(
                 &a,
                 "same",
-                kagari_ir::bytecode::BytecodeProgram {
-                    root: kagari_ir::bytecode::ModuleRef::new(0),
+                kagari_bytecode::BytecodeProgram {
+                    root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()]
                 }
             )

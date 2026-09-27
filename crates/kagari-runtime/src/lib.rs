@@ -2,14 +2,14 @@ mod authority;
 mod loading;
 mod objects;
 use host::HostCallContext;
+use kagari_abi::ids::FunctionRef;
+use kagari_abi::types::AbiType;
+use kagari_abi::types::NominalAbiType;
+use kagari_bytecode::BinaryOp;
 use kagari_common::host_interface::HostPathDeclaration;
 pub use kagari_common::host_interface::{
     HostInterface, HostParameter, HostPassingStyle, HostTypeDeclaration, HostValueType,
 };
-use kagari_ir::bytecode::BinaryOp;
-use kagari_ir::bytecode::FunctionRef;
-use kagari_ir::module::abi::AbiType;
-use kagari_ir::module::abi::NominalAbiType;
 use reflection::ReflectionError;
 use session::SessionState;
 use std::cell::RefCell;
@@ -47,15 +47,9 @@ pub mod value;
 pub mod value_semantics;
 
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_ir::bytecode::BytecodeProgram;
+use kagari_bytecode::BytecodeProgram;
 
-pub use backend::{
-    BackendCompileError, BackendDiagnostic, BackendDiagnosticKind, BackendFunctionInput, BackendId,
-    BackendInvocationError, BackendTarget, CodegenBackend, ExecutableDebugInfo,
-    ExecutableDebugPoint, ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
-    ExecutableSafepointKind, ExecutableStackMap, ExecutableStackMapLocation,
-    ExecutableStackMapSlot, ExecutableStackValueKind, ExecutableTrap,
-};
+pub use backend::BackendInvocationError;
 pub use cache::{
     ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
     ReloadDependencySnapshot, ReloadInvalidation,

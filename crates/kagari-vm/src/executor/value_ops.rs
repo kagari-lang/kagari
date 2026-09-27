@@ -1,4 +1,6 @@
-use kagari_ir::bytecode::{BinaryOp, ConstantOperand, UnaryOp};
+use kagari_bytecode::BinaryOp;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::UnaryOp;
 use kagari_runtime::numeric;
 use kagari_runtime::value::Value;
 use kagari_runtime::value_semantics;

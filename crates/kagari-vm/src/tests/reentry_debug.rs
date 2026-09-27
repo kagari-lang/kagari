@@ -1,10 +1,12 @@
 use crate::{
     DebugPauseReason, DebugSession, SourceBreakpoint, Vm, tests::common::compile_test_bytecode,
 };
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::ModuleRef;
 use kagari_common::host_interface::standard_log;
-use kagari_ir::bytecode::{
-    BytecodeInstruction, BytecodeProgram, CallTarget, KbcArtifact, ModuleRef,
-};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, Runtime,
     RuntimeConfig, SecurityContext, host::HostFunction, value::Value,
@@ -100,7 +102,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 .unwrap();
             let mut vm = Vm::new(runtime);
             vm.attach_debug_session(debug).unwrap();
-            let mut backend = kagari_jit_cranelift::CraneliftBackend::for_host().unwrap();
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
             let report = if jit {
                 vm.execute_with_backend(&loaded, "main", &mut backend)
             } else {

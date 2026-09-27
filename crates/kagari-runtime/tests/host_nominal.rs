@@ -1,14 +1,24 @@
+use crate::CapabilitySet;
+use crate::HostExposurePolicy;
+use crate::HostObjectId;
+use crate::HostSchemaEpoch;
+use crate::HostTypeOwnership;
+use crate::HostTypeRegistration;
+use crate::LanguageProfile;
+use crate::PathAccess;
+use crate::Runtime;
+use crate::RuntimeConfig;
+use crate::RuntimeErrorKind;
+use crate::SecurityContext;
+use crate::TypeId;
+use crate::host::HostFunction;
+use crate::value::Value;
 use kagari_common::{
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
         HostVirtualSegmentDeclaration, host_type_identity,
     },
     identity::DefinitionId,
-};
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, HostObjectId, HostSchemaEpoch, HostTypeOwnership,
-    HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, TypeId, host::HostFunction, value::Value,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -103,7 +113,9 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
 
 #[test]
 fn nested_signature_types_must_be_bound_before_program_publication() {
-    use kagari_ir::bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+    use kagari_bytecode::BytecodeModule;
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::ModuleRef;
     let mut runtime = runtime();
     let declaration = function(
         HostValueType::Tuple(vec![HostValueType::Option(Box::new(
@@ -278,9 +290,9 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
-    use kagari_runtime::{
-        DynamicPathArguments, HostPathDescriptorRegistration, HostPathSegmentRegistration,
-    };
+    use crate::DynamicPathArguments;
+    use crate::HostPathDescriptorRegistration;
+    use crate::HostPathSegmentRegistration;
     let mut local = runtime();
     let mut foreign = runtime();
     let mut views = Vec::new();
@@ -334,10 +346,11 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
 }
 #[test]
 fn path_fields_are_derived_from_nominal_declarations() {
+    use crate::HostPathDescriptorRegistration;
+    use crate::HostPathSegment;
+    use crate::HostPathSegmentRegistration;
+    use crate::Visibility;
     use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
-    use kagari_runtime::{
-        HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration, Visibility,
-    };
     let mut runtime = runtime();
     let mut owner = HostTypeDeclaration::new("game.Player");
     owner.ownership = HostTypeOwnership::HostRoot;
@@ -437,10 +450,11 @@ fn path_fields_are_derived_from_nominal_declarations() {
 }
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
+    use crate::HostPathDescriptorRegistration;
+    use crate::HostPathSegmentRegistration;
+    use crate::TypeKind;
+    use crate::TypeRegistration;
     use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
-    use kagari_runtime::{
-        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
-    };
     let fingerprint = |padding: usize,
                        docs: &str,
                        writable: bool,
@@ -508,9 +522,10 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
 }
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
-    use kagari_runtime::{
-        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
-    };
+    use crate::HostPathDescriptorRegistration;
+    use crate::HostPathSegmentRegistration;
+    use crate::TypeKind;
+    use crate::TypeRegistration;
     let mut runtime = runtime();
     let mut owner = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
     owner.ownership = HostTypeOwnership::HostRoot;

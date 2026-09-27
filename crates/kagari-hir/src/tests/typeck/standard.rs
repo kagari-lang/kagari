@@ -217,7 +217,7 @@ fn sized(value: usize) -> usize { value }
 fn resolves_standard_module_imports_facade_exports_and_function_calls() {
     let lowered = common::lower_ok(
         r#"
-pub use std::math as math;
+pub use std::math;
 use std::map::LinkedHashMap::len as map_len;
 
 fn size(values: LinkedHashMap<String, i32>) -> usize {

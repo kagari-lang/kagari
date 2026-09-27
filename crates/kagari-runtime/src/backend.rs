@@ -1,242 +1,6 @@
 use crate::RuntimeError;
-use std::fmt;
-
-use kagari_ir::bytecode::{BytecodeFunction, DebugPointId, FunctionRef};
-
-use crate::{LoadedModule, Runtime, value::Value};
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BackendId(String);
-
-impl BackendId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for BackendId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BackendTarget {
-    pub triple: String,
-    pub pointer_width: u8,
-    pub features: Vec<String>,
-}
-
-impl BackendTarget {
-    pub fn new(triple: impl Into<String>, pointer_width: u8) -> Self {
-        Self {
-            triple: triple.into(),
-            pointer_width,
-            features: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BackendFunctionInput<'a> {
-    module: &'a LoadedModule,
-    function: FunctionRef,
-}
-
-impl<'a> BackendFunctionInput<'a> {
-    /// Select a function from an immutable, verified and linked program member.
-    pub fn new(module: &'a LoadedModule, function: FunctionRef) -> Option<Self> {
-        module.bytecode.functions.get(function.index())?;
-        Some(Self { module, function })
-    }
-    pub fn module(&self) -> &'a LoadedModule {
-        self.module
-    }
-    pub fn function(&self) -> &'a BytecodeFunction {
-        &self.module.bytecode.functions[self.function.index()]
-    }
-    pub fn function_ref(&self) -> FunctionRef {
-        self.function
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableEntryPoint {
-    Unresolved,
-    Symbol(String),
-    Native { symbol: String, address: usize },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableSafepoint {
-    pub instruction_offset: usize,
-    pub kind: ExecutableSafepointKind,
-    pub stack_map: ExecutableStackMap,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableSafepointKind {
-    RuntimeHelperCall { helper: String },
-    CallBoundary,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ExecutableStackMap {
-    pub live_slots: Vec<ExecutableStackMapSlot>,
-}
-
-impl ExecutableStackMap {
-    pub fn empty() -> Self {
-        Self {
-            live_slots: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableStackMapSlot {
-    pub location: ExecutableStackMapLocation,
-    pub value_kind: ExecutableStackValueKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableStackMapLocation {
-    Register(u32),
-    Local(u32),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExecutableStackValueKind {
-    GcManaged,
-    Interface,
-    HostHandle,
-    HostPathView,
-    Ephemeral,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableTrap {
-    pub instruction_offset: usize,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableFunctionArtifact {
-    pub backend: BackendId,
-    pub target: BackendTarget,
-    pub function: FunctionRef,
-    pub entry: ExecutableEntryPoint,
-    pub safepoints: Vec<ExecutableSafepoint>,
-    pub debug: ExecutableDebugInfo,
-    pub traps: Vec<ExecutableTrap>,
-}
-
-impl ExecutableFunctionArtifact {
-    pub fn new(backend: BackendId, target: BackendTarget, function: FunctionRef) -> Self {
-        Self {
-            backend,
-            target,
-            function,
-            entry: ExecutableEntryPoint::Unresolved,
-            safepoints: Vec::new(),
-            debug: ExecutableDebugInfo::default(),
-            traps: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ExecutableDebugInfo {
-    pub has_line_tables: bool,
-    pub has_source_spans: bool,
-    pub has_live_value_locations: bool,
-    pub has_safe_debug_callbacks: bool,
-    pub safe_debug_points: Vec<ExecutableDebugPoint>,
-}
-
-impl ExecutableDebugInfo {
-    pub fn missing_requirements_for_function(&self, function: &BytecodeFunction) -> Vec<String> {
-        let mut missing = Vec::new();
-        if !self.has_line_tables {
-            missing.push("line tables".to_owned());
-        }
-        if !self.has_source_spans {
-            missing.push("source span mapping".to_owned());
-        }
-        if !self.has_live_value_locations {
-            missing.push("live value locations".to_owned());
-        }
-        if !self.has_safe_debug_callbacks {
-            missing.push("safe debug point callbacks".to_owned());
-        }
-        for point in &function.metadata.debug.safe_debug_points {
-            if !self.safe_debug_points.iter().any(|candidate| {
-                candidate.instruction_offset == point.instruction_offset
-                    && candidate.debug_point == point.id
-            }) {
-                missing.push(format!(
-                    "safe debug point {} at instruction {}",
-                    point.id.index(),
-                    point.instruction_offset
-                ));
-            }
-        }
-        missing
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutableDebugPoint {
-    pub instruction_offset: usize,
-    pub debug_point: DebugPointId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BackendDiagnosticKind {
-    UnsupportedFunction,
-    InvalidInput,
-    InternalError,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendDiagnostic {
-    pub kind: BackendDiagnosticKind,
-    pub message: String,
-}
-
-impl BackendDiagnostic {
-    pub fn unsupported(message: impl Into<String>) -> Self {
-        Self {
-            kind: BackendDiagnosticKind::UnsupportedFunction,
-            message: message.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BackendCompileError {
-    pub diagnostics: Vec<BackendDiagnostic>,
-}
-
-impl BackendCompileError {
-    pub fn unsupported(message: impl Into<String>) -> Self {
-        Self {
-            diagnostics: vec![BackendDiagnostic::unsupported(message)],
-        }
-    }
-
-    pub fn is_unsupported(&self) -> bool {
-        !self.diagnostics.is_empty()
-            && self
-                .diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.kind == BackendDiagnosticKind::UnsupportedFunction)
-    }
-}
+use kagari_abi::native::ExecutableDebugInfo;
+use kagari_bytecode::BytecodeFunction;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{}", self.message())]
@@ -255,25 +19,34 @@ impl BackendInvocationError {
     }
 }
 
-pub trait CodegenBackend {
-    fn backend_id(&self) -> BackendId;
-
-    fn target(&self) -> BackendTarget;
-
-    fn compile_function(
-        &mut self,
-        input: BackendFunctionInput<'_>,
-    ) -> Result<ExecutableFunctionArtifact, BackendCompileError>;
-
-    fn invoke_function(
-        &self,
-        artifact: &ExecutableFunctionArtifact,
-        runtime: &Runtime,
-    ) -> Result<Value, BackendInvocationError> {
-        let _ = (artifact, runtime);
-        Err(BackendInvocationError::UnsupportedArtifact(format!(
-            "backend `{}` cannot invoke executable artifacts directly",
-            self.backend_id()
-        )))
+pub fn missing_debug_requirements(
+    debug: &ExecutableDebugInfo,
+    function: &BytecodeFunction,
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    if !debug.has_line_tables {
+        missing.push("line tables".to_owned());
     }
+    if !debug.has_source_spans {
+        missing.push("source span mapping".to_owned());
+    }
+    if !debug.has_live_value_locations {
+        missing.push("live value locations".to_owned());
+    }
+    if !debug.has_safe_debug_callbacks {
+        missing.push("safe debug point callbacks".to_owned());
+    }
+    for point in &function.metadata.debug.safe_debug_points {
+        if !debug.safe_debug_points.iter().any(|candidate| {
+            candidate.instruction_offset == point.instruction_offset
+                && candidate.debug_point == point.id
+        }) {
+            missing.push(format!(
+                "safe debug point {} at instruction {}",
+                point.id.index(),
+                point.instruction_offset
+            ));
+        }
+    }
+    missing
 }

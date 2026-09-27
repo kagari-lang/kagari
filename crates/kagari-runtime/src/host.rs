@@ -20,8 +20,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
+use kagari_bytecode::BinaryOp;
 use kagari_common::identity::DefinitionId;
-use kagari_ir::bytecode::BinaryOp;
 
 mod path_fingerprint;
 

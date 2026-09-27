@@ -229,7 +229,7 @@ fn wildcard_import_follows_a_public_module_alias() {
 #[test]
 fn wildcard_import_follows_a_public_standard_module_alias() {
     let engine = KagariEngine::default();
-    insert(&engine, "facade", "pub use std::math as math;");
+    insert(&engine, "facade", "pub use std::math;");
     let root = insert(
         &engine,
         "root",

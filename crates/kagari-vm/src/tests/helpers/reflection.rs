@@ -82,8 +82,8 @@ fn reflection_metadata_and_read_gates_are_separate() {
     let loaded = metadata_only
         .load_program(
             "reflect_read_denied.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![common::point_function_module(
                     "main",
                     vec![
@@ -142,8 +142,8 @@ fn reflection_read_and_write_gates_are_separate() {
     let loaded = read_only
         .load_program(
             "reflect_write_denied.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![common::point_function_module(
                     "main",
                     vec![
@@ -214,8 +214,8 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
     let loaded = runtime
         .load_program(
             "reflect_operation_limit.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![common::point_function_module(
                     "main",
                     vec![

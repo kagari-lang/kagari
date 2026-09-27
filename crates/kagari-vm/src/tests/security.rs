@@ -1,10 +1,10 @@
 use kagari_abi::representation::ValueType;
-use kagari_ir::bytecode::BytecodeInstruction;
-use kagari_ir::bytecode::CallTarget;
-use kagari_ir::bytecode::ConstantOperand;
-use kagari_ir::bytecode::Register;
-use kagari_ir::bytecode::RuntimeHelper;
-use kagari_ir::bytecode::StructId;
+use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::CallTarget;
+use kagari_bytecode::ConstantOperand;
+use kagari_bytecode::Register;
+use kagari_bytecode::RuntimeHelper;
+use kagari_bytecode::StructId;
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, ResourcePolicy,
     Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, host::HostFunction, value::Value,
@@ -61,8 +61,8 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
     let host_module = host_runtime
         .load_program(
             "security_host_denied.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     test_function_module(
                         "main",
@@ -70,7 +70,7 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
                                 callee: CallTarget::HostFunction(
-                                    kagari_ir::bytecode::HostImportId::new(0),
+                                    kagari_bytecode::HostImportId::new(0),
                                 ),
                                 args: vec![],
                             },
@@ -100,8 +100,8 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
     let reflection_module = reflection_runtime
         .load_program(
             "security_reflection_denied.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![test_function_module(
                     "main",
                     vec![
@@ -157,8 +157,8 @@ fn security_reflection_and_debugger_gates_remain_separate() {
     let reflection_module = metadata_only
         .load_program(
             "security_reflection_write_denied.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![super::common::point_function_module(
                     "main",
                     vec![
@@ -245,8 +245,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let instruction_module = instruction_limited
         .load_program(
             "security_instruction_limit.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode("fn main() -> i32 { 1 + 2 }")],
             },
         )
@@ -269,8 +269,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let allocation_module = allocation_limited
         .load_program(
             "security_allocation_limit.kgr",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![compile_test_bytecode(
                     "fn main() -> i32 { val values = [1, 2]; 0 }",
                 )],
@@ -319,8 +319,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let host_module = host_call_limited
         .load_program(
             "security_host_call_limit.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     super::common::point_function_module(
                         "main",
@@ -328,7 +328,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
                                 callee: CallTarget::HostFunction(
-                                    kagari_ir::bytecode::HostImportId::new(0),
+                                    kagari_bytecode::HostImportId::new(0),
                                 ),
                                 args: vec![],
                             },
@@ -375,8 +375,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let reflection_module = reflection_limited
         .load_program(
             "security_reflection_limit.kbc",
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![super::common::point_function_module(
                     "main",
                     vec![

@@ -1,11 +1,14 @@
+use crate::Runtime;
+use crate::module::StructLayoutRef;
+use crate::value::Value;
+use kagari_abi::layout::StructFieldLayout;
+use kagari_abi::layout::StructLayout;
+use kagari_abi::types::AbiType;
+use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::StructId;
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
 };
-use kagari_ir::{
-    bytecode::{BytecodeModule, StructId},
-    module::{StructFieldLayout, StructLayout, abi::AbiType},
-};
-use kagari_runtime::{Runtime, module::StructLayoutRef, value::Value};
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value(runtime: &mut Runtime) -> Value {
@@ -18,10 +21,13 @@ pub fn interface_value(runtime: &mut Runtime) -> Value {
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data: Value) -> Value {
-    use kagari_ir::{
-        bytecode::{BytecodeProgram, InterfaceTableRecord, ModuleRef},
-        module::{InterfaceTableAbi, PublicAbiItem, TraitAbi, abi::NominalAbiType},
-    };
+    use kagari_abi::types::InterfaceTableAbi;
+    use kagari_abi::types::NominalAbiType;
+    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::types::TraitAbi;
+    use kagari_bytecode::BytecodeProgram;
+    use kagari_bytecode::InterfaceTableRecord;
+    use kagari_bytecode::ModuleRef;
     let identity = ModuleIdentity::single_file("interface-fixture.kgr");
     let declaration = |kind, name: &str| DefinitionId {
         module: identity.clone(),
@@ -115,8 +121,8 @@ pub fn layout(
     let module = runtime
         .load_program(
             name,
-            kagari_ir::bytecode::BytecodeProgram {
-                root: kagari_ir::bytecode::ModuleRef::new(0),
+            kagari_bytecode::BytecodeProgram {
+                root: kagari_bytecode::ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     structures: vec![StructLayout {
                         arguments: Vec::new(),
