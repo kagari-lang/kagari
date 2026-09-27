@@ -1074,7 +1074,7 @@ is checked during constraint collection and solving.
 and indexing. It unwraps success or returns failure from the nearest function or
 closure. It applies only to the built-in Option and Result types; see the
 [standard-type contract](builtins.md#option-and-result) for type checking and
-explicit conversion rules. There is no exception-handler syntax.
+error conversion rules. There is no exception-handler syntax.
 
 ## Interpolated strings
 

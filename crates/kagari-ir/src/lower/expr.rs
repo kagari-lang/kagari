@@ -403,6 +403,26 @@ impl FunctionLowerer<'_, '_> {
                     }
                 ) {
                     let error = self.standard_enum_op(&ty, StandardEnumOp::Read(1), Some(value))?;
+                    let conversion = self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .call_resolution(expr_id)
+                        .ok_or(IrLoweringError::MissingBinding("propagation conversion"))?;
+                    let kagari_hir::typeck::CallTarget::TraitMethod { method, interface } =
+                        conversion.target
+                    else {
+                        return Err(IrLoweringError::MissingBinding("propagation From contract"));
+                    };
+                    let target = self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .protocol_receiver(expr_id)
+                        .cloned()
+                        .ok_or(IrLoweringError::MissingBinding("propagation error type"))?;
+                    let error =
+                        self.lower_applied_operator(interface, target, &method, &[error])?;
                     let dst = self.alloc_temp(ValueType::HeapObject);
                     self.emit(Instruction::MapResultError {
                         dst,

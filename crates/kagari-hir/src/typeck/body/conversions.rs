@@ -281,7 +281,7 @@ impl BodyChecker<'_> {
         );
     }
 
-    fn conversion_holds(
+    pub(super) fn conversion_holds(
         &self,
         interface: &NominalType,
         receiver: &TypeId,

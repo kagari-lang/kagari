@@ -233,12 +233,16 @@ impl BodyChecker<'_> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> TypeId {
+        let source_error = self.inference_variable(site, 2048);
         let context = match &self.expected_return {
             TypeId::StandardEnum { kind, args }
                 if *kind != surface::StandardEnum::Ordering && args.len() == kind.spec().arity =>
             {
                 let mut args = args.clone();
                 args[0] = expected.cloned().unwrap_or(TypeId::Unknown);
+                if *kind == surface::StandardEnum::Result {
+                    args[1] = source_error;
+                }
                 Some(TypeId::StandardEnum { kind: *kind, args })
             }
             _ => None,
@@ -287,8 +291,52 @@ impl BodyChecker<'_> {
         if self.expected_return == TypeId::Unknown && !self.closure_returns.is_empty() {
             self.expected_return = residual.clone();
         }
-        let compatible = matches!(&self.expected_return, TypeId::StandardEnum { kind: target, args: target_args }
-            if target == kind && target_args.len() == kind.spec().arity && (*kind == surface::StandardEnum::Option || !target_args[1].conflicts_with(&args[1])));
+        let compatible = match self.expected_return.clone() {
+            TypeId::StandardEnum {
+                kind: target,
+                args: target_args,
+            } if target == *kind && target_args.len() == kind.spec().arity => {
+                if *kind == surface::StandardEnum::Result {
+                    use crate::builtin::traits::StandardTrait;
+                    let source = args[1].clone();
+                    let target = target_args[1].clone();
+                    if self.solving {
+                        self.propagation_defaults
+                            .push((source.clone(), target.clone()));
+                        self.propagation_defaults
+                            .push((target.clone(), source.clone()));
+                    }
+                    let mut interface = StandardTrait::From.nominal();
+                    interface.arguments.push(source.clone());
+                    if source.is_unresolved() || target.is_unresolved() {
+                        true
+                    } else if self.conversion_holds(&interface, &target, env) {
+                        self.type_table.insert_protocol_receiver(site, target);
+                        self.type_table.insert_call(
+                            site,
+                            CallTarget::TraitMethod {
+                                method: StandardTrait::From.contract().methods[0].id.clone(),
+                                interface,
+                            },
+                            None,
+                        );
+                        true
+                    } else {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                                type_name: target.display_name(),
+                                trait_name: format!("From<{}>", source.display_name()),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(site)),
+                        );
+                        true
+                    }
+                } else {
+                    true
+                }
+            }
+            _ => false,
+        };
         if !compatible {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
@@ -300,7 +348,12 @@ impl BodyChecker<'_> {
             );
         }
         if let Some(returns) = self.closure_returns.last_mut() {
-            returns.push(residual);
+            // The early return carries the converted error, not the operand's error.
+            let mut returned = self.expected_return.clone();
+            if let TypeId::StandardEnum { args, .. } = &mut returned {
+                args[0] = TypeId::Unknown;
+            }
+            returns.push(returned);
         }
         args[0].clone()
     }

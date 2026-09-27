@@ -79,6 +79,7 @@ pub(crate) struct BodyChecker<'a> {
     body_inference: bool,
     explicit_arguments: HashMap<ExprId, Vec<TypeId>>,
     used_explicit_arguments: HashSet<ExprId>,
+    propagation_defaults: Vec<(TypeId, TypeId)>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -114,6 +115,7 @@ impl<'a> BodyChecker<'a> {
             body_inference: false,
             explicit_arguments: Default::default(),
             used_explicit_arguments: Default::default(),
+            propagation_defaults: Vec::new(),
         }
     }
 

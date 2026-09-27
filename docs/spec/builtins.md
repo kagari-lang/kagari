@@ -243,18 +243,30 @@ are diagnosed: give `val outcome: Result<i32, String> = Ok(42)` an annotation wh
 there is no surrounding expected type. Constructors are not first-class functions.
 
 The postfix `?` evaluates its operand once. `Some(v)` / `Ok(v)` produce `v`;
-`None` / `Err(e)` return the original failure value from the nearest function or
-closure. Option propagates only into Option; Result propagates only into Result
-with the same error type. Their success types may differ. The return context of
+`None` / `Err(e)` return failure from the nearest function or closure.
+Option propagates only into Option; Result propagates only into Result.
+An operand `Result<T, E>` requires an enclosing `Result<U, F>` with `F: From<E>`.
+Identical errors use the built-in identity conversion. Different errors call the
+selected standard `From` implementation once on Err; Ok never calls it.
+Their success types may differ. The return context of
 a closure is independent of its enclosing function. Postfix chaining such as
 `read()?.field` and `nested??` is supported.
 
 Use `ok_or(error)` or `ok_or_else(|| error)` to convert Option into Result,
-and `map_err(|error| converted)` to change error types before propagation.
+and `map_err(|error| converted)` for an explicit error mapping before propagation.
 `ok_or` evaluates its error argument eagerly; `ok_or_else` calls its closure
 only for None. `map`, `map_err` and `and_then` check callback signatures and call
 script closures only on the selected variant, using ordinary execution frames.
-There is no implicit error conversion, general `Try`/`FromResidual` protocol,
+The conversion uses one direct `From` implementation or generic bound. It does not
+search conversion chains or fall back to `TryFrom`, and does not add conversions
+to ordinary assignments, arguments or returns. Source errors are inferred before
+conversion selection; an unconstrained error uses the enclosing error as a
+fallback. An unconstrained closure error can likewise use the source error.
+An independently constrained error is never changed to make a conversion fit.
+Conversion runs in an ordinary script frame, sharing permissions and budget.
+Its effects are not rolled back if it traps; traps are not converted into Err.
+The outer failure retains the original Err metadata after its payload changes.
+There is no general `Try`/`FromResidual` protocol,
 `throw`/`try`/`catch` or built-in Error value in this version. New Err captures
 its source and stack; propagation and map_err preserve it. See
 [error reporting](error-reporting.md).
@@ -614,8 +626,9 @@ select the applied trait. `source.into()` and `source.try_into()` derive from th
 same destination implementation; explicit Into/TryInto impls are rejected.
 The target comes from the result annotation/return context or a unique generic
 bound. Ambiguous targets need an annotation. Generic bounds and Error projections
-use the same derivation as calls. Operands evaluate once; no implicit conversion,
-error conversion during `?` or exception handling is introduced. Error origin
+use the same derivation as calls. Operands evaluate once. Ordinary expressions do
+not insert conversions; Result propagation uses the forward From protocol as
+specified above. There is no exception handling. Error origin
 metadata follows [error reporting](error-reporting.md).
 
 Identity `From<T> for T` preserves ordinary value/reference semantics and cannot

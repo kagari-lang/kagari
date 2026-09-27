@@ -136,12 +136,33 @@ fn main()->Result<i32,String> {
 }
 
 #[test]
+fn from_conversion_keeps_the_original_error_stack_across_gc() {
+    run_failure(
+        r#"fn origin()->Result<i32, SourceError> {
+    Err(SourceError { message: "original" })
+}
+struct SourceError { val message: String }
+impl From<SourceError> for String {
+    fn from(error: SourceError) -> String { f"converted {error.message}" }
+}
+fn middle<T, E, F: From<E>>(value: Result<T, E>)->Result<T, F> { Ok(value?) }
+fn main()->Result<i32, String> { middle(origin()) }
+"#,
+        "origin",
+        2,
+        "converted original",
+    );
+}
+
+#[test]
 fn reconstructing_err_establishes_a_new_origin() {
     run_failure(
         r#"fn origin()->Result<i32,String>{Err("original")}
 fn main()->Result<i32,String>{
     match origin(){Ok(x)=>Ok(x),Err(e)=>Err(e)}
 }
+
+
 "#,
         "main",
         3,

@@ -2,7 +2,8 @@
 
 /// Infallible explicit conversion.
 ///
-/// Conversions are explicit; argument matching and `?` do not insert conversion calls.
+/// Calls and argument matching do not insert conversions. Result propagation with `?`
+/// uses this protocol to convert an error into the enclosing function's error type.
 /// Implement this protocol on the destination type. The corresponding reverse protocol is
 /// derived automatically.
 ///
@@ -18,6 +19,22 @@
 ///     std::debug::assert(count.value == 7, "converted");
 /// }
 /// ```
+/// Error propagation uses the same implementation:
+///
+/// ```kgr
+/// struct AppError { val code: i32 }
+/// impl From<i32> for AppError {
+///     fn from(code: i32) -> Self { AppError { code } }
+/// }
+/// fn read() -> Result<i32, i32> { Err(42) }
+/// fn load() -> Result<i32, AppError> { Ok(read()?) }
+/// fn main() {
+///     match load() {
+///         Err(error) => std::debug::assert_eq(error.code, 42, "converted error"),
+///         Ok(_) => std::debug::assert(false, "expected error"),
+///     };
+/// }
+/// ```
 pub trait From<Source> {
     /// Perform the explicit conversion.
     fn from(value: Source) -> Self;
@@ -25,8 +42,8 @@ pub trait From<Source> {
 
 /// Infallible explicit conversion.
 ///
-/// Conversions are explicit; argument matching and `?` do not insert conversion calls. This
-/// reverse protocol is derived from the destination type's forward implementation and
+/// Explicit `.into()` calls use this protocol. Result propagation selects the destination
+/// `From` implementation directly. This reverse protocol is derived from it and
 /// cannot be implemented independently.
 ///
 /// # Examples
@@ -48,7 +65,7 @@ pub trait Into<Target> {
 
 /// Fallible explicit conversion.
 ///
-/// Conversions are explicit; argument matching and `?` do not insert conversion calls.
+/// Fallible conversions are explicit; argument matching and `?` never call TryFrom.
 /// Implement this protocol on the destination type. The corresponding reverse protocol is
 /// derived automatically. Business rejection is represented by Err; traps and termination
 /// remain separate.
@@ -75,7 +92,7 @@ pub trait TryFrom<Source> {
 
 /// Fallible explicit conversion.
 ///
-/// Conversions are explicit; argument matching and `?` do not insert conversion calls. This
+/// Fallible conversions are explicit; argument matching and `?` never call TryFrom. This
 /// reverse protocol is derived from the destination type's forward implementation and
 /// cannot be implemented independently. Business rejection is represented by Err; traps and
 /// termination remain separate.

@@ -225,9 +225,20 @@ impl BodyChecker<'_> {
             *env = initial_env.clone();
             *self.type_table = initial_table.clone();
             self.diagnostics.truncate(diagnostic_start);
+            self.propagation_defaults.clear();
             self.infer_block_types_expected(block, env, expected);
             if self.solver.revision == revision {
                 if self.solver.apply_numeric_defaults() {
+                    continue;
+                }
+                // The enclosing error type is a fallback, never an equality
+                // constraint on an independently inferred source error.
+                for (source, target) in &self.propagation_defaults {
+                    if let TypeId::Inference(_) = self.solver.resolve(source) {
+                        let _ = self.solver.constrain(source, target, self.cancel);
+                    }
+                }
+                if self.solver.revision != revision {
                     continue;
                 }
                 converged = true;

@@ -8,6 +8,8 @@
 /// traps, cancellation, or resource exhaustion into business errors. Pattern matching
 /// handles both alternatives; `?` extracts `Ok` or returns the error early from a
 /// function with a compatible `Result` return type.
+/// For an error `E` and enclosing error `F`, propagation requires `F: From<E>`.
+/// The conversion runs only on Err and preserves its original diagnostic origin.
 ///
 /// Constructing `Err` records its original script location and stack. Forwarding it,
 /// including through `?` or `map_err`, preserves that origin. Constructing a new

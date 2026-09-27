@@ -135,11 +135,13 @@ RHS overload selection and resource cleanup after operator traps/budget exhausti
 - [x] B08: Iterator/Iterable contracts, custom for loops and native collection integration.
 - [x] B09: conformance, examples, resource cleanup and workspace validation.
 
-Each checkpoint uses a Conventional Commit. Conversions are explicit; reverse
+Each checkpoint uses a Conventional Commit. Conversion calls are explicit; reverse
 protocols are derived and cannot be implemented independently. Iteration preserves
 native structural-mutation guards; custom iterators own their consistency rules.
 General propagation, Clone and writable indexing remain separate. Error origins
 are completed in E01–E03 below.
+Result propagation now also uses From for error conversion; see the propagation
+checkpoint below for the current contract.
 
 B08 uses artifact format 59 and runtime ABI v59. Custom iterators and native
 iterators share protocol-based for lowering. Native iterators retain source guards,
@@ -495,3 +497,25 @@ malformed integer constants; tolerant analysis retains independently known types
 Formatting, workspace/all-targets clippy with warnings denied, and
 `git diff --check` passed. KBC/runtime ABI v77 rejects earlier products and carries
 u64/usize values without signed truncation.
+
+## Result propagation through From
+
+- [x] Select the canonical `F: From<E>` contract when `Result<T, E>?` returns through `Result<U, F>`.
+- [x] Lower conversion to the ordinary static call path only on Err; retain original failure metadata.
+- [x] Preserve identity conversion, Option behavior, generic bounds, closure inference and source-module linking.
+- [x] Document direct conversion, trap cleanup and the absence of conversion-chain searches or TryFrom fallback.
+
+`Try` and `FromResidual` remain deferred. Revisit their public protocol after Rust
+stabilizes it, using the stabilized signatures and semantics as the reference.
+This checkpoint does not add a custom propagation protocol, generic try_fold,
+exception syntax or an Error/cause trait. The executable
+[error conversion example](../examples/syntax/error-conversion.kgr) demonstrates
+the supported Result behavior.
+
+Validation: 1,236 workspace tests passed, including 40 standalone examples and
+159 executable API documentation blocks. Coverage includes source/artifact/JIT
+fallback, cross-module generic conversion, once-only evaluation, preserved error
+origins under GC, missing bounds, rejected TryFrom/chained conversions, and trap
+cleanup. Formatting, workspace/all-targets clippy with warnings denied, and
+`git diff --check` passed. This uses the existing v77 execution instructions and
+does not change the artifact layout.

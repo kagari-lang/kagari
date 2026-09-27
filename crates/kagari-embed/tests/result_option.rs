@@ -2,6 +2,82 @@ use kagari_common::SourceFile;
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine};
 use kagari_runtime::value::Value;
 
+#[test]
+fn propagation_requires_one_infallible_conversion_bound() {
+    for source in [
+        "fn forward<T,E,F>(value:Result<T,E>)->Result<T,F>{Ok(value?)} fn main(){}",
+        "struct E{} struct F{} impl TryFrom<E> for F {type Error=String;fn try_from(e:E)->Result<Self,String>{Ok(F{})}} fn main()->Result<i32,F>{val x:Result<i32,E>=Err(E{});Ok(x?)}",
+        "struct E{} struct Mid{} struct F{} impl From<E> for Mid {fn from(e:E)->Self{Mid{}}} impl From<Mid> for F {fn from(e:Mid)->Self{F{}}} fn main()->Result<i32,F>{val x:Result<i32,E>=Err(E{});Ok(x?)}",
+    ] {
+        let error = KagariEngine::default()
+            .compile_source(
+                SourceFile::new("missing-error-conversion.kgr", source),
+                Default::default(),
+            )
+            .unwrap_err();
+        assert!(
+            format!("{error:?}").contains("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
+fn traps_inside_error_conversion_release_resources() {
+    let source = r#"
+struct Source { var calls: i32 }
+struct Target {}
+impl From<Source> for Target {
+    fn from(error: Source) -> Self {
+        error.calls += 1;
+        std::debug::assert(false, "conversion failed");
+        Target {}
+    }
+}
+fn fail(error: Source) -> Result<i32, Target> {
+    val value: Result<i32, Source> = Err(error);
+    Ok(value?)
+}
+fn main() -> Result<i32, Target> { fail(Source { calls: 0 }) }
+fn after() -> i32 { 42 }
+"#;
+    let mut config = kagari_embed::EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let engine = KagariEngine::new(config);
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("conversion-trap.kgr", source),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+    assert!(
+        format!("{error:?}").contains("conversion failed"),
+        "{error:?}"
+    );
+    assert!(
+        error
+            .error_trace()
+            .unwrap()
+            .frames
+            .iter()
+            .any(|frame| frame.function_name.contains("from"))
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "after", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+}
+
 fn execute(source: &str) {
     let mut config = kagari_embed::EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
@@ -43,6 +119,49 @@ fn execute(source: &str) {
 }
 
 #[test]
+fn propagation_converts_only_errors_through_from_bounds() {
+    execute(
+        r#"
+struct SourceError { var reads: i32, var conversions: i32 }
+struct AppError { val cause: SourceError }
+impl From<SourceError> for AppError {
+    fn from(error: SourceError) -> Self {
+        error.conversions += 1;
+        AppError { cause: error }
+    }
+}
+fn read(error: SourceError, fail: bool) -> Result<i32, SourceError> {
+    error.reads += 1;
+    if fail { Err(error) } else { Ok(42) }
+}
+fn forward<T, E, F: From<E>>(value: Result<T, E>) -> Result<T, F> { Ok(value?) }
+fn inferred_success() -> Result<i32, AppError> { Ok(Ok(42)?) }
+fn direct(error: SourceError) -> Result<i32, AppError> {
+    val value: i32 = Err(error)?;
+    Ok(value)
+}
+fn main() -> i32 {
+    val error = SourceError { reads: 0, conversions: 0 };
+    val failure: Result<i32, AppError> = forward(read(error, true));
+    val success: Result<i32, AppError> = forward(read(error, false));
+    std::debug::assert_eq(error.reads, 2, "operand evaluated once");
+    std::debug::assert_eq(error.conversions, 1, "success bypasses conversion");
+    match failure {
+        Err(e) => std::debug::assert(e.cause === error, "original payload retained"),
+        Ok(_) => std::debug::assert(false, "expected failure"),
+    };
+    val callback: fn() -> Result<i32, AppError> = || { Ok(read(error, true)?) };
+    std::debug::assert(callback().is_err(), "closure return context");
+    std::debug::assert(direct(error).is_err(), "constructor source error inference");
+    std::debug::assert_eq(error.conversions, 3, "one conversion per failure");
+    std::debug::assert_eq(inferred_success().unwrap_or(0), 42, "unconstrained success fallback");
+    success.unwrap_or(0)
+}
+"#,
+    );
+}
+
+#[test]
 fn constructors_patterns_and_nested_payloads_execute() {
     execute(
         r#"
@@ -54,6 +173,8 @@ fn main()->i32 {
     val nested: Option<Result<i32, String>> = Option::Some(Result::Ok(a + b));
     match nested { Some(Ok(value)) => value, _ => 0, }
 }
+
+
 "#,
     );
 }
@@ -152,7 +273,7 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
         ),
         (
             "fn f()->Result<i32, String> { val x: Result<i32, i32> = Err(1); Ok(x?) }",
-            "KG_TYPE_RETURN_TYPE_MISMATCH",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
         (
             "fn f()->Option<i32> { Some(42?) }",

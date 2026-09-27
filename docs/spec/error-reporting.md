@@ -17,6 +17,7 @@ returned when another caller inspects it.
 | `?`, ordinary return, assignment, container storage | Preserve the original metadata |
 | `map`, `and_then` on Err | Preserve the original Err |
 | `map_err` on Err | Change the payload and preserve the original metadata |
+| `?` with a `From` error conversion | Convert the payload and preserve the original metadata |
 | `match r { Err(e) => Err(e), ... }` | Construct a new Err and capture a new origin |
 | `None`, propagation of None | No failure metadata |
 | `None.ok_or(e)` / `ok_or_else(...)` | Capture at the conversion site |
@@ -24,7 +25,9 @@ returned when another caller inspects it.
 
 Patterns expose only the payload. Equality, hashing and container key lookup ignore
 this metadata. Tuple/enum composition does not turn nested failures into top-level
-execution failures. There is no implicit error conversion in `?`.
+execution failures. `?` may change the payload through `From`; its preserved trace
+does not acquire conversion frames. If the conversion itself traps, that trap has
+its own execution stack, including the conversion call.
 
 ## Runtime and host boundaries
 

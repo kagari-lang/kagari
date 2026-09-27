@@ -148,7 +148,8 @@ impl<T> Iterator for Wrapper<T>{type Item=T;fn next(self)->Option<T>{if self.con
             r#"
 use pkg::model::Wrapper;
 fn total<I:Iterable<Item=i32>>(values:I)->i32{var n=0;for x in values{n+=x;}n}
-fn main()->i32 {val a:Wrapper<i32> = 42.into();total(a)}
+fn propagate()->Result<i32,Wrapper<i32>> {val x:Result<i32,i32> = Err(42);Ok(x?)}
+fn main()->i32 {val a:Wrapper<i32> = 42.into();std::debug::assert_eq(total(a),42,"explicit conversion");match propagate(){Err(w)=>total(w),Ok(x)=>x}}
 "#,
         ),
     ] {
