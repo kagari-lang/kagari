@@ -16,5 +16,5 @@ kagari-bytecode.workspace = true
 indexmap.workspace = true
 
 [dev-dependencies]
-kagari-compiler.workspace = true
+kagari-compiler = { workspace = true, features = ["source"] }
 kagari-mir.workspace = true

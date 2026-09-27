@@ -4,19 +4,24 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["source", "native"]
+source = ["dep:kagari-compiler", "kagari-compiler/source", "dep:kagari-hir", "dep:kagari-syntax", "dep:kagari-mir", "dep:smallvec"]
+native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
+
 [dependencies]
-kagari-codegen.workspace = true
-kagari-compiler.workspace = true
-kagari-mir.workspace = true
+kagari-codegen = { workspace = true, optional = true }
+kagari-compiler = { workspace = true, default-features = false, optional = true }
+kagari-mir = { workspace = true, optional = true }
 kagari-abi.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
-kagari-hir.workspace = true
+kagari-hir = { workspace = true, optional = true }
 kagari-bytecode.workspace = true
 kagari-runtime.workspace = true
-kagari-syntax.workspace = true
+kagari-syntax = { workspace = true, optional = true }
 kagari-vm.workspace = true
-smallvec.workspace = true
+smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
 kagari-codegen-cranelift.workspace = true

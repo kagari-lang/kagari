@@ -7,7 +7,8 @@ license.workspace = true
 [dependencies]
 thiserror.workspace = true
 kagari-common.workspace = true
-kagari-embed.workspace = true
+kagari-embed = { workspace = true, features = ["source"] }
+kagari-bytecode.workspace = true
 kagari-codegen-cranelift = { workspace = true, optional = true }
 kagari-syntax.workspace = true
 kagari-runtime.workspace = true
@@ -15,4 +16,4 @@ kagari-vm.workspace = true
 
 [features]
 default = []
-jit = ["dep:kagari-codegen-cranelift", "kagari-codegen-cranelift/jit"]
+jit = ["dep:kagari-codegen-cranelift", "kagari-codegen-cranelift/jit", "kagari-embed/native"]

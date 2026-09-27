@@ -25,11 +25,11 @@ license = "MIT OR Apache-2.0"
 kagari-codegen = { path = "crates/kagari-codegen" }
 kagari-abi = { path = "crates/kagari-abi" }
 kagari-common = { path = "crates/kagari-common" }
-kagari-embed = { path = "crates/kagari-embed" }
+kagari-embed = { path = "crates/kagari-embed", default-features = false }
 kagari-hir = { path = "crates/kagari-hir" }
 kagari-mir = { path = "crates/kagari-mir" }
 kagari-bytecode = { path = "crates/kagari-bytecode" }
-kagari-compiler = { path = "crates/kagari-compiler" }
+kagari-compiler = { path = "crates/kagari-compiler", default-features = false }
 kagari-codegen-cranelift = { path = "crates/kagari-codegen-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-syntax = { path = "crates/kagari-syntax" }

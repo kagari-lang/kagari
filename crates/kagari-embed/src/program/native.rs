@@ -15,8 +15,8 @@ use kagari_runtime::jit_abi::native_helper_symbols;
 use kagari_runtime::{BackendInvocationError, LoadedModule, RuntimeError};
 use kagari_vm::PreparedNativeEntry;
 
-use crate::KagariRuntime;
 use crate::program::PreparedProgram;
+use crate::runtime::KagariRuntime;
 
 const MAX_CACHED_FUNCTIONS: usize = 4096;
 

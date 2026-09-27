@@ -1,7 +1,9 @@
+use kagari_bytecode::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::host_interface;
 use kagari_embed::KagariRuntime;
+use kagari_embed::program::{PreparedProgram, ProgramPreparationError};
 use kagari_runtime::LoadedModule;
 use kagari_runtime::RuntimeError;
 use kagari_vm::ExecutionReport;
@@ -248,13 +250,11 @@ impl CliProfile {
         options
     }
 
-    fn load_options(self, module_name: Option<String>) -> LoadOptions {
-        let mut options = LoadOptions {
-            module_name,
-            ..LoadOptions::default()
-        };
-        options.compatibility.security_profile = Some(self.name().to_owned());
-        options
+    fn artifact_compatibility(self) -> ArtifactCompatibility {
+        ArtifactCompatibility {
+            security_profile: Some(self.name().to_owned()),
+            ..Default::default()
+        }
     }
 
     fn execution_context(self, jit: bool) -> ExecutionContext {
@@ -414,7 +414,9 @@ fn run_source(path: &Path, profile: CliProfile, jit: bool) -> Result<(), CliErro
     run_loaded_artifact(
         &engine,
         artifact,
-        profile.load_options(Some(path.display().to_string())),
+        LoadOptions {
+            module_name: Some(path.display().to_string()),
+        },
         profile,
         jit,
     )
@@ -432,7 +434,7 @@ fn run_artifact(path: &Path, profile: CliProfile, jit: bool) -> Result<(), CliEr
     run_loaded_artifact(
         &KagariEngine::default(),
         artifact,
-        profile.load_options(None),
+        LoadOptions::default(),
         profile,
         jit,
     )
@@ -446,14 +448,20 @@ fn run_loaded_artifact(
     jit: bool,
 ) -> Result<(), CliError> {
     let context = profile.execution_context(jit);
+    let program = PreparedProgram::from_artifact(
+        artifact,
+        &profile.artifact_compatibility(),
+        &context.cancellation,
+    )
+    .map_err(print_program_error)?;
     let mut runtime = engine.runtime(context.clone());
     register_default_host_functions(&mut runtime)
         .map_err(|error| CliError::message(1, error.to_string()))?;
     let loaded = runtime
-        .load_program(artifact, load_options)
+        .load_program(&program, load_options)
         .map_err(print_embedding_error)?;
 
-    let report = execute_entry(&mut runtime, &loaded, &context, jit)?;
+    let report = execute_entry(&mut runtime, &program, &loaded, &context, jit)?;
     if let Some(failure) = report.failure {
         return Err(CliError::message(1, format!("Result::Err: {failure}")));
     }
@@ -462,6 +470,7 @@ fn run_loaded_artifact(
 
 fn execute_entry(
     runtime: &mut KagariRuntime,
+    program: &PreparedProgram,
     loaded: &LoadedModule,
     context: &ExecutionContext,
     jit: bool,
@@ -471,25 +480,30 @@ fn execute_entry(
             .execute(loaded, "main", &[], context)
             .map_err(print_embedding_error);
     }
-    execute_entry_with_jit(runtime, loaded, context)
+    execute_entry_with_jit(runtime, program, loaded, context)
 }
 
 #[cfg(feature = "jit")]
 fn execute_entry_with_jit(
     runtime: &mut KagariRuntime,
+    program: &PreparedProgram,
     loaded: &LoadedModule,
     context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
     let mut backend = CraneliftBackend::for_host()
         .map_err(|error| CliError::message(1, format!("failed to initialize JIT: {error}")))?;
+    let prepared = runtime
+        .prepare_native(program, loaded, "main", &mut backend, &context.cancellation)
+        .map_err(|error| CliError::message(1, format!("native preparation failed: {error}")))?;
     runtime
-        .execute_with_backend(loaded, "main", &[], context, &mut backend)
+        .execute_prepared(loaded, "main", &[], context, &prepared)
         .map_err(print_embedding_error)
 }
 
 #[cfg(not(feature = "jit"))]
 fn execute_entry_with_jit(
     _runtime: &mut KagariRuntime,
+    _program: &PreparedProgram,
     _loaded: &LoadedModule,
     _context: &ExecutionContext,
 ) -> Result<ExecutionReport, CliError> {
@@ -544,6 +558,19 @@ fn print_embedding_diagnostics(diagnostics: &[EmbeddingDiagnostic]) {
             ),
             None => eprintln!("{}: {}", diagnostic.code, diagnostic.message),
         }
+    }
+}
+
+fn print_program_error(error: ProgramPreparationError) -> CliError {
+    match error {
+        ProgramPreparationError::Artifact(error) => {
+            print_embedding_error(EmbeddingError::ArtifactValidation { error })
+        }
+        ProgramPreparationError::Runtime(error) => {
+            print_embedding_error(EmbeddingError::Load { error })
+        }
+        ProgramPreparationError::Cancelled => print_embedding_error(EmbeddingError::Cancelled),
+        other => CliError::message(1, format!("program preparation failed: {other}")),
     }
 }
 

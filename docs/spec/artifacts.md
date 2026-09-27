@@ -26,6 +26,29 @@ Artifacts may be used by:
 - package distribution
 - cache directories
 
+## SDK Feature Boundary
+
+The SDK separates source compilation from native preparation. Its default feature
+set enables both `source` and `native`; hosts may disable defaults and select:
+
+| SDK features | Available preparation and execution | Production dependency boundary |
+| --- | --- | --- |
+| None | Validate/load/reload artifacts and interpret bytecode | No compiler, HIR, syntax, MIR, codegen or concrete backend |
+| `source` | Source analysis and artifact emission, plus bytecode execution | Compiler source/HIR/syntax/MIR enabled; no codegen required |
+| `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no HIR or syntax |
+| `source,native` | Both paths | Combination of the above |
+
+`PreparedProgram::from_artifact` always validates the envelope and bytecode. With
+`native` enabled it additionally checks portable MIR and canonical correspondence;
+without `native`, the MIR payload remains opaque and only its envelope bounds and
+integrity are interpreted. A source-only build can still emit portable MIR for a
+separate native-enabled consumer. Native backends are supplied by the host.
+
+Loading and reload accept shared prepared programs. Runtime instances, host
+bindings and installed native handles remain separate for each runtime. CLI source
+and artifact execution prepare before linking; its `jit` feature enables native
+SDK preparation and the concrete Cranelift dependency.
+
 ## Logical Layout
 
 An artifact contains:

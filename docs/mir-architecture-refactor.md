@@ -450,10 +450,10 @@ Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
 completes with the bounded public MIR passes checkpoint below. Source compilation,
 verified MIR analyses and frontend-free bytecode lowering pass their scoped checks.
 Runtime, VM and SDK libraries now build at their intended execution boundary.
-The workspace remains intentionally broken in legacy VM/backend tests, SDK/CLI
-native callers and the A04 backend implementation. Shared SDK preparation and native
-caching and prepared reload now build; resume A03 feature separation and caller
-migration. A05 final acceptance has not run and the overall refactor is not complete.
+The workspace remains intentionally broken in legacy VM/backend tests, SDK callers
+and the A04 backend implementation. Shared preparation, caching, prepared reload
+and source/native feature separation now build; normal CLI execution passes.
+Resume A03 remaining caller migration and legacy registry reconciliation. A05 final acceptance has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -470,7 +470,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | Runtime installation, VM prepared execution, portable MIR/v103 artifacts and shared SDK preparation/cache | 401 core tests + one seal doc test at prior checkpoint; ten SDK harness tests; scoped clippy, structure, fmt and diff pass | Source/native feature separation, legacy registry reconciliation and caller migration remain; Cranelift library carries 22 A04 errors |
+| A03 | Runtime installation, VM prepared execution, portable MIR/v103 artifacts and shared SDK preparation/cache | 401 core tests + one seal doc test at prior checkpoint; feature-mode consumers, ten SDK harness tests and five CLI tests; scoped clippy, structure, fmt and diff pass | Legacy registry reconciliation and remaining SDK/test/example caller migration remain; Cranelift library carries 22 A04 errors |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1710,6 +1710,73 @@ and migration of SDK/CLI/examples/tests to prepared load/reload/native execution
 Old callers still use artifact arguments and compatibility fields; migrate them
 directly, without compatibility adapters. The carried 22 Cranelift errors remain
 A04 work and were not rerun unchanged. A05 full acceptance is still pending.
+
+### A03 checkpoint: SDK feature isolation and CLI preparation (2026-09-28)
+
+Split SDK implementation ownership into engine/source services, runtime orchestration,
+execution context policy, error mapping and prepared programs. `lib.rs` now contains
+explicit public exports and result aliases. Source-specific state and methods are
+compiled only with `source`; portable MIR checking and the native cache/compiler
+integration are compiled only with `native`. The default feature set enables both.
+No default features gives artifact-only interpreter embedding. Native-only enables
+compiler core, MIR and codegen without HIR/syntax; source-only can emit portable
+MIR without requiring codegen. Concrete backends remain host-supplied production
+choices. Existing backend dev-dependencies/tests were not gated or suppressed.
+
+Workspace compiler/SDK dependency declarations now disable inherited default
+features. Each source consumer requests source explicitly, including runtime/VM
+compiler fixtures. The CLI requests SDK source support and enables native SDK plus
+Cranelift through `jit`. It now prepares artifacts before linking, passes the shared
+program into load, and uses native preparation followed by prepared execution when
+JIT is requested. Artifact compatibility retains the selected security profile and
+existing error codes. Preparation errors are non-exhaustive so consumers handle
+Cargo feature unification without assuming their own feature flags describe all
+SDK variants. The combined CLI/SDK build validates that case.
+
+Added a 2788-byte current-format artifact fixture emitted from a fixed logical
+source URI and its accompanying source/regen instructions. Feature-boundary tests
+consume the same bytes without compiling source, verify opaque-versus-decoded MIR
+behavior, check canonical source emission when available, and execute a native ABI
+fixture from decoded MIR without frontend dependencies. The static native fixture
+is not evidence that A04 Cranelift translation is working.
+
+Validation:
+
+- SDK library check/clippy with `--no-default-features`, with `--features source`,
+  with `--features native`, and with `--features source,native`, each clippy using
+  `-- -D warnings`: pass. `cargo clippy -p kagari-cli -p kagari-embed --lib --bins --
+  -D warnings` also passes with unified SDK features.
+- `cargo test -p kagari-cli`: five tests pass, including source/artifact execution,
+  selected security-profile metadata and original error-site reporting after source
+  edits. CLI all-target clippy passes. The JIT path is migrated but remains blocked
+  by the recorded A04 backend library errors.
+- Ten existing SDK preparation/export/reload tests still pass in the previously
+  documented Cargo harness. Its all-target clippy also passes.
+- A second ignored consumer manifest at `target/a03-feature-harness/Cargo.toml`
+  selects SDK with `default-features = false`, forwards its own source/native flags,
+  depends only on ABI/bytecode/common/runtime/VM plus optional codegen/MIR for native,
+  and points its test target at tracked `tests/artifact_features.rs`. It uses
+  `[profile.dev] opt-level = 1`, the copied workspace lockfile and the normal target
+  directory. `cargo test --offline --manifest-path target/a03-feature-harness/Cargo.toml
+  --target-dir target` passes two bytecode-only tests; adding `--features native`
+  passes three, `--features source` passes three, and `--features source,native`
+  passes four. All four configurations pass all-target clippy with `-D warnings`.
+- Normal dependency trees from both SDK and the consumer prove bytecode-only has
+  no compiler/HIR/syntax/MIR/codegen/backend, and native-only has no HIR/syntax.
+  Commands: `cargo tree -p kagari-embed --no-default-features --edges normal --prefix
+  none`, optionally adding `--features native`; repeat with the consumer manifest.
+  These are production graph claims, not claims about source-driven dev fixtures.
+- Structure: 507 Rust files, zero violations/exceptions; formatting and diff checks
+  pass. Reviewed module ownership, explicit facade exports, scoped imports, feature
+  unification, preparation-before-effects and unchanged moved policy/error logic.
+  Logs: `target/a03-features-*.log`, `target/a03-feature-harness-*-clippy.log`.
+
+A03 remains open for remaining SDK/tests/examples caller migration and reconciliation
+of the descriptor-only legacy JIT registry with actual installed handles. Ordinary
+SDK test commands still encounter the concrete backend dev-dependency; the existing
+22 A04 errors were not rerun unchanged. Full workspace checks and the complete A05
+behavior matrix remain mandatory. No capability or test case was removed to claim
+these focused checks as final acceptance.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

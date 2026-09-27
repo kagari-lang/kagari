@@ -1,0 +1,330 @@
+//! Source analysis and artifact emission are optional SDK capabilities.
+use crate::engine::KagariEngine;
+use crate::error::{CompilationPhase, EmbeddingDiagnostic, EmbeddingError};
+use crate::{BytecodeArtifact, CompileResult};
+use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
+use kagari_common::{
+    SourceFile,
+    cancellation::CancellationToken,
+    host_interface::{HostInterface, HostInterfaceError},
+    identity::{DefinitionId, FileId, ModuleIdentity},
+    source_database::{SourceLayer, SourceSnapshot},
+};
+use kagari_compiler::{
+    MirLoweringOptions,
+    bytecode::lower_program_to_bytecode,
+    source::program::{SourceProgramError, lower_program_to_mir},
+};
+use kagari_hir::{
+    LanguageFeatureProfile,
+    analysis::{AnalysisSnapshot, DeclarationSnapshot, FunctionAnalysis, SignatureSnapshot},
+    host::HostDeclarations,
+    imports::ModuleOrderError,
+    program::{CheckedProgram, ProgramCheckError},
+    typeck::ConstLimits,
+};
+use kagari_mir::{
+    codec::{MirCodecError, encode_program},
+    program::ProgramErrorKind,
+};
+use kagari_runtime::LanguageProfile;
+use kagari_syntax::parser::ParseLimits;
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct CheckedModule {
+    pub source_name: String,
+    program: CheckedProgram,
+}
+
+impl CheckedModule {
+    pub fn module_identity(&self) -> &ModuleIdentity {
+        self.program.root().lowered.source.module_identity()
+    }
+    pub fn program(&self) -> &CheckedProgram {
+        &self.program
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CompileOptions {
+    pub language_profile: LanguageProfile,
+}
+
+fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFeatureProfile {
+    LanguageFeatureProfile {
+        allow_reflection: profile.allow_reflection,
+        allow_reflection_write: profile.allow_reflection_write,
+        allow_interface_values: profile.allow_interface_values,
+        allow_host_calls: profile.allow_host_calls,
+        allow_path_mutation: profile.allow_path_mutation,
+        allow_module_loading: profile.allow_module_loading,
+        allow_jit: profile.allow_jit,
+        allow_eval: profile.allow_eval,
+        allow_async: profile.allow_async,
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ArtifactOptions {
+    pub build: ArtifactBuildOptions,
+    pub lowering: MirLoweringOptions,
+    /// Controls native input generated from the same verified MIR as bytecode.
+    /// Supersedes any opaque payload in `build.portable_mir`.
+    pub native_input: NativeInputExport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NativeInputExport {
+    #[default]
+    PortableMir,
+    /// This artifact cannot be compiled natively without fresh compiler input.
+    BytecodeOnly,
+}
+
+impl KagariEngine {
+    pub fn set_const_limits(&self, limits: ConstLimits) {
+        self.analysis.borrow_mut().set_const_limits(limits);
+    }
+
+    pub fn set_parse_limits(&self, limits: ParseLimits) {
+        self.analysis.borrow_mut().set_parse_limits(limits);
+    }
+
+    pub fn set_max_semantic_diagnostics(&self, limit: usize) {
+        self.analysis
+            .borrow_mut()
+            .set_max_semantic_diagnostics(limit);
+    }
+
+    pub fn set_host_interface(&self, interface: HostInterface) -> Result<(), HostInterfaceError> {
+        let declarations = HostDeclarations::new(interface)?;
+        self.analysis
+            .borrow_mut()
+            .set_host_declarations(declarations);
+        Ok(())
+    }
+    pub fn compile_source(
+        &self,
+        source: SourceFile,
+        options: CompileOptions,
+    ) -> CompileResult<CheckedModule> {
+        let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
+        self.compile_snapshot(
+            self.source_snapshot(),
+            id,
+            options,
+            &CancellationToken::default(),
+        )
+    }
+
+    pub fn set_source(
+        &self,
+        name: &str,
+        text: String,
+        layer: SourceLayer,
+    ) -> CompileResult<FileId> {
+        self.sources
+            .borrow_mut()
+            .set(name, text, layer)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn load_source(&self, path: &str) -> CompileResult<FileId> {
+        self.sources
+            .borrow_mut()
+            .load_file(path)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn bind_module(&self, name: &str, module: ModuleIdentity) -> CompileResult<FileId> {
+        self.sources
+            .borrow_mut()
+            .bind_module(name, module)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn close_overlay(&self, name: &str) -> CompileResult<()> {
+        self.sources
+            .borrow_mut()
+            .close_overlay(name)
+            .map_err(|message| EmbeddingError::Source { message })
+    }
+
+    pub fn source_snapshot(&self) -> SourceSnapshot {
+        self.sources.borrow().snapshot()
+    }
+
+    pub fn analyze(
+        &self,
+        source: SourceSnapshot,
+        profile: LanguageProfile,
+        cancel: &CancellationToken,
+    ) -> CompileResult<AnalysisSnapshot> {
+        self.analysis
+            .borrow_mut()
+            .snapshot(
+                source,
+                language_feature_profile_from_runtime(profile),
+                cancel,
+            )
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    /// Parse and collect module declarations without resolving or checking bodies.
+    pub fn declarations(
+        &self,
+        source: SourceSnapshot,
+        cancel: &CancellationToken,
+    ) -> CompileResult<DeclarationSnapshot> {
+        self.analysis
+            .borrow_mut()
+            .declarations(source, cancel)
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    /// Check declaration signatures without resolving or checking function bodies.
+    pub fn signatures(
+        &self,
+        source: SourceSnapshot,
+        cancel: &CancellationToken,
+    ) -> CompileResult<SignatureSnapshot> {
+        self.analysis
+            .borrow_mut()
+            .signatures(source, cancel)
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    /// Query one function body and module-constant prerequisites by declaration identity.
+    pub fn body(
+        &self,
+        source: SourceSnapshot,
+        function: &DefinitionId,
+        cancel: &CancellationToken,
+    ) -> CompileResult<Option<Arc<FunctionAnalysis>>> {
+        self.analysis
+            .borrow_mut()
+            .body(source, function, cancel)
+            .map_err(|_| EmbeddingError::Cancelled)
+    }
+
+    pub fn compile_snapshot(
+        &self,
+        source: SourceSnapshot,
+        file: FileId,
+        options: CompileOptions,
+        cancel: &CancellationToken,
+    ) -> CompileResult<CheckedModule> {
+        let snapshot = self.analyze(source, options.language_profile, cancel)?;
+        let analysis = snapshot.file(file).ok_or_else(|| EmbeddingError::Source {
+            message: "file is absent from this source snapshot".into(),
+        })?;
+        let source = analysis.source();
+
+        let program = snapshot
+            .check_program(file, cancel)
+            .map_err(|error| match error {
+                ProgramCheckError::Cancelled => EmbeddingError::Cancelled,
+                ProgramCheckError::MissingFile(file) => EmbeddingError::Source {
+                    message: format!("missing source file {file:?}"),
+                },
+                ProgramCheckError::Diagnostics(records) => EmbeddingError::Diagnostics {
+                    diagnostics: records
+                        .into_iter()
+                        .map(|record| {
+                            EmbeddingDiagnostic::from_diagnostic(
+                                record.diagnostic,
+                                snapshot.file(record.file).expect("checked source").source(),
+                            )
+                        })
+                        .collect(),
+                },
+                ProgramCheckError::Graph(error) => {
+                    let failed = match error {
+                        ModuleOrderError::Cancelled => return EmbeddingError::Cancelled,
+                        ModuleOrderError::InvalidImports(module) => vec![module],
+                        ModuleOrderError::Missing(module) => {
+                            return EmbeddingError::Source {
+                                message: format!("missing source module {module}"),
+                            };
+                        }
+                    };
+                    let mut diagnostics = Vec::new();
+                    for module in failed {
+                        let node = snapshot
+                            .module_graph()
+                            .node(&module)
+                            .expect("failed graph node");
+                        let file = snapshot.file(node.file).expect("graph source");
+                        diagnostics.extend(node.imports.diagnostics.iter().cloned().map(
+                            |diagnostic| {
+                                EmbeddingDiagnostic::from_diagnostic(diagnostic, file.source())
+                            },
+                        ));
+                    }
+                    EmbeddingError::Diagnostics { diagnostics }
+                }
+            })?;
+        Ok(CheckedModule {
+            source_name: source.name().to_owned(),
+            program,
+        })
+    }
+
+    pub fn emit_bytecode(
+        &self,
+        checked: &CheckedModule,
+        options: ArtifactOptions,
+    ) -> CompileResult<BytecodeArtifact> {
+        let ir =
+            lower_program_to_mir(&checked.program, &options.lowering).map_err(
+                |error| match error {
+                    SourceProgramError::Lowering { module, error } => {
+                        let source = &checked
+                            .program
+                            .modules()
+                            .iter()
+                            .find(|item| item.lowered.source.module_identity() == module.as_ref())
+                            .expect("lowered program source")
+                            .lowered
+                            .source;
+                        EmbeddingError::ir_lowering(error, source)
+                    }
+                    SourceProgramError::Verification(error) => match error.kind {
+                        ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
+                        kind => EmbeddingError::Compilation {
+                            phase: CompilationPhase::MirLowering,
+                            message: format!("{}: {kind:?}", error.module),
+                        },
+                    },
+                },
+            )?;
+        let program = lower_program_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
+        let mut build = options.build;
+        build.portable_mir = match options.native_input {
+            NativeInputExport::PortableMir => Some(PortableMir {
+                bytes: encode_program(&ir, &options.lowering.cancel).map_err(
+                    |error| match error {
+                        MirCodecError::Cancelled => EmbeddingError::Cancelled,
+                        error => EmbeddingError::Compilation {
+                            phase: CompilationPhase::ArtifactEncoding,
+                            message: error.to_string(),
+                        },
+                    },
+                )?,
+            }),
+            NativeInputExport::BytecodeOnly => None,
+        };
+        KbcArtifact::from_program(program, build).map_err(EmbeddingError::artifact_validation)
+    }
+
+    pub fn compile_to_artifact(
+        &self,
+        source: SourceFile,
+        compile_options: CompileOptions,
+        artifact_options: ArtifactOptions,
+    ) -> CompileResult<BytecodeArtifact> {
+        let checked = self.compile_source(source, compile_options)?;
+        self.emit_bytecode(&checked, artifact_options)
+    }
+}
