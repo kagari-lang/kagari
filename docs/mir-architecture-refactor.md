@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00 prerequisite pending; no implementation phase is complete.
+Status: A00 complete; A01 extraction is next.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -402,17 +402,16 @@ must not be the sole record needed to resume the goal.
 
 ## Progress Ledger
 
-- [ ] A00 — Existing structure cleanup and passing CI prerequisite.
+- [x] A00 — Existing structure cleanup and passing CI prerequisite.
 - [ ] A01 — Contracts and crate ownership.
 - [ ] A02 — MIR, analyses and compiler lowering.
 - [ ] A03 — Runtime, artifacts and embedding.
 - [ ] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
-Current state: A00 source cleanup is in progress. Common, syntax and Cranelift
-imports and module surfaces pass the structural audit. Eight oversized test suites
-have been separated by behavior with their function bodies preserved. No MIR/crate migration
-has started. A01 remains gated on passing every A00 workspace gate.
+Current state: A00 is complete. All local commands used by both CI jobs pass on
+the final cleanup checkpoint, with no structural exceptions or carried errors.
+A01 can now start; no MIR/crate migration was included in A00.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -426,7 +425,7 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | `ec0bf1a` foundation imports; `2cf5fb3` test modules; `957b691` enum dispatch; `ed10ba2` explicit paths; parent/local imports cleaned | Checker: 32 tests pass; full audit: exit 1, 11 remaining findings, no exceptions; workspace clippy and 71 runtime unit tests pass at facade checkpoint; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
+| A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
@@ -570,6 +569,44 @@ Validation: workspace clippy with all targets and denied warnings passes;
 `cargo test -p kagari-runtime --lib` passes 71 tests; fmt and diff checks pass.
 The strict structure audit reports only 11 effective-LOC findings, with no
 exceptions. Full A00 workspace and optional-feature acceptance is still pending.
+
+### A00 checkpoint: production responsibility splits (2026-09-28)
+
+Checkpoint commit subject: `refactor: separate semantic and execution responsibilities`.
+The remaining oversized HIR, IR and runtime modules are separated with ordinary
+Rust child modules. HIR body checking separates calls, places, patterns, methods,
+constructors, host access and statements; declaration validation separates constant
+initializers from trait surfaces. IR lowering separates calls, patterns and aggregate
+construction, bytecode debug metadata and operation verification. Artifact resource
+limits have one focused owner. Runtime separates loading/publication, authority,
+object construction, array/map/set operations, host registration/borrows and standard
+string/math implementations. Inline runtime, artifact and ABI tests have dedicated
+modules. No execution contract, crate edge or public API is changed in this checkpoint.
+
+Private helpers remain bounded to their original owner module; pre-existing
+restricted visibility retains the same effective scope after relocation. Review
+accounted for all 802 affected function bodies: only repaired scope paths, explicit
+imports and rustfmt trailing-comma changes differ. No fixture strings or assertions
+were weakened. Large exhaustive dispatch matches remain in focused handlers; A02
+owns the lowering redesign and must review call policy as MIR contracts change.
+This is architectural follow-up, not an exception to the passing structure rules.
+
+Validation on the final cleanup source revision (this checkpoint):
+
+- `uv run --locked scripts/check_structure.py --self-test`: 32 pass.
+- `uv run --locked scripts/check_structure.py`: 432 files, zero violations and
+  zero exceptions.
+- `cargo fmt --all -- --check`: pass.
+- `cargo clippy --workspace --all-targets -- -D warnings`: pass.
+- `cargo test --workspace`: 1,315 tests pass, including doc tests.
+- `git diff --check`: pass; no function-local production imports remain.
+
+These are the commands used by both hosted CI jobs, executed locally on the
+configured O1 profiles with the default target and parallelism. The warm incremental
+cache/toolchain are unchanged from the recorded environment. Hosted CI status was
+not queried for these local commits; no remote success is claimed. A00 has no
+carried build/test/structure errors. The commit subject and `Architecture-Step: A00`
+trailer identify this validated cleanup revision without a self-referential hash.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
