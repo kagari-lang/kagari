@@ -1,4 +1,5 @@
 use super::*;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layouts() {
@@ -22,7 +23,12 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, "main", &[], &context)
@@ -63,7 +69,12 @@ fn main() -> i32 {
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, "main", &[], &context)
@@ -131,10 +142,24 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -183,10 +208,24 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -235,10 +274,24 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -443,10 +496,24 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -533,7 +600,11 @@ fn dependency_generic_instances_follow_transitive_method_calls() {
     );
     let artifact = compile(&engine, root, CompileOptions::default());
     let mut runtime = engine.runtime(Default::default());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let report = runtime
         .execute(&loaded, "main", &[], &ExecutionContext::default())
         .unwrap();
@@ -580,10 +651,24 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }

@@ -1,7 +1,8 @@
-use crate::BytecodeArtifact;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -30,10 +31,24 @@ fn execute(source: &str) {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -324,7 +339,11 @@ fn adapter_traps_budgets_and_changed_sources_leave_runtime_usable() {
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     for entry in [
         "trap",
         "structural",
@@ -411,7 +430,11 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
             Ok(Value::Unit)
         }))
         .unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let value = runtime
         .execute(&loaded, "make", &[], &context)
         .unwrap()
@@ -444,7 +467,11 @@ fn native_iter_allocation_is_independent_of_source_length() {
         )
         .unwrap();
     let mut runtime = engine.runtime(Default::default());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let rt = runtime.runtime();
     let array = rt.gc().alloc_array(vec![Value::I32(7); 10_000]).unwrap();
     let root = rt.root_value(Value::Array(array)).unwrap();

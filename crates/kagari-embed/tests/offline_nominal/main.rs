@@ -1,8 +1,3 @@
-use crate::ArtifactOptions;
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::HostExposurePolicy;
-use crate::KagariEngine;
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
@@ -14,6 +9,12 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
+use kagari_embed::ArtifactOptions;
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::HostExposurePolicy;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
@@ -245,10 +246,24 @@ fn assert_source_index_path(field_prefix: bool) {
                     }),
             )
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }

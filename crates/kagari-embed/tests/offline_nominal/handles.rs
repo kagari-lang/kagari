@@ -1,4 +1,5 @@
 use super::*;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
@@ -147,7 +148,15 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             .unwrap();
         assert!(
             runtime
-                .load_program(artifact.clone(), Default::default())
+                .load_program(
+                    &PreparedProgram::from_artifact(
+                        artifact.clone(),
+                        &Default::default(),
+                        &Default::default()
+                    )
+                    .unwrap(),
+                    Default::default()
+                )
                 .is_err()
         );
         assert!(trace.borrow().is_empty());
@@ -184,7 +193,12 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 .unwrap(),
             )
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let mut denied = context.clone();
         denied.jit_policy = kagari_embed::JitPolicy::Disabled;
         denied.capabilities.fs_write = false;
@@ -196,7 +210,16 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for expected in [42, 44] {
             let result = if let Some(backend) = &mut backend {
-                runtime.execute_with_backend(&loaded, "main", &[], &context, backend)
+                let prepared = runtime
+                    .prepare_native(
+                        &loaded_program,
+                        &loaded,
+                        "main",
+                        backend,
+                        &context.cancellation,
+                    )
+                    .unwrap();
+                runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, "main", &[], &context)
             }
@@ -309,11 +332,25 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
                 },
             ))
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert!(trace.borrow().is_empty());
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -345,7 +382,15 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
     let mut runtime = engine.runtime(Default::default());
     assert!(
         runtime
-            .load_program(artifact.clone(), Default::default())
+            .load_program(
+                &PreparedProgram::from_artifact(
+                    artifact.clone(),
+                    &Default::default(),
+                    &Default::default()
+                )
+                .unwrap(),
+                Default::default()
+            )
             .is_err()
     );
     runtime
@@ -357,8 +402,11 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
                 .collect(),
         )
         .unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+            .unwrap();
     let loaded = runtime
-        .load_program(artifact.clone(), Default::default())
+        .load_program(&loaded_program, Default::default())
         .unwrap();
     assert_eq!(
         runtime

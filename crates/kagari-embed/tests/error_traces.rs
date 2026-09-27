@@ -1,7 +1,8 @@
-use crate::BytecodeArtifact;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
@@ -10,7 +11,11 @@ fn interpreter_traps_capture_frames_and_original_source_locations() {
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     let trace = error.error_trace().unwrap();
     assert_eq!(
@@ -52,12 +57,27 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
+        let loaded_program = PreparedProgram::from_artifact(
+            artifact.clone(),
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         let loaded = runtime
-            .load_program(artifact.clone(), Default::default())
+            .load_program(&loaded_program, Default::default())
             .unwrap();
         let error = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -94,10 +114,24 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -223,7 +257,11 @@ fn main()->Result<i32,String>{recur(160)}
         .unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
     let trace = report.failure.unwrap().trace;
     assert_eq!(
@@ -254,7 +292,12 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
             .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert!(
             runtime
                 .execute(&loaded, "main", &[], &context)
@@ -281,12 +324,21 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     let second = compile("fn main()->Result<i32,String> {\n\n    Err(\"new\")\n}");
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let old = runtime.load_program(first, Default::default()).unwrap();
+    let old_program =
+        PreparedProgram::from_artifact(first, &Default::default(), &Default::default()).unwrap();
+    let old = runtime
+        .load_program(&old_program, Default::default())
+        .unwrap();
     let report = runtime.execute(&old, "main", &[], &context).unwrap();
     let root = runtime.runtime().root_value(report.return_value).unwrap();
     let failure = report.failure.unwrap();
     let new = runtime
-        .reload_program(&old, second, Default::default())
+        .reload_program(
+            &old,
+            &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
         .unwrap();
     let new_report = runtime
         .execute(&new, "main", &[], &context)
@@ -337,12 +389,13 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(
-            artifact,
+            &loaded_program,
             kagari_embed::LoadOptions {
                 module_name: Some("unrelated-load-alias".into()),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -376,7 +429,11 @@ fn budget_exhaustion_keeps_the_failing_frame_and_releases_resources() {
     let mut context = ExecutionContext::default();
     context.resources.max_instruction_steps = Some(25);
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
     assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
     assert_eq!(
@@ -465,7 +522,11 @@ fn imported_error_frames_keep_their_own_source_locations() {
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     let trace = runtime
         .execute(&loaded, "main", &[], &context)
         .unwrap()

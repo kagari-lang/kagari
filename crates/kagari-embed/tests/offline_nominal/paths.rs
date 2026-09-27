@@ -1,4 +1,5 @@
 use super::*;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
@@ -101,7 +102,15 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             .unwrap();
         assert!(
             runtime
-                .load_program(artifact.clone(), Default::default())
+                .load_program(
+                    &PreparedProgram::from_artifact(
+                        artifact.clone(),
+                        &Default::default(),
+                        &Default::default()
+                    )
+                    .unwrap(),
+                    Default::default()
+                )
                 .is_err()
         );
         assert!(trace.borrow().is_empty());
@@ -118,7 +127,12 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 }),
             )
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let mut denied = context.clone();
         denied.capabilities.fs_read = false;
         denied.jit_policy = kagari_embed::JitPolicy::Disabled;
@@ -127,7 +141,16 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         trace.borrow_mut().clear();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -330,10 +353,24 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                     }),
             )
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -526,11 +563,28 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                             }),
                     )
                     .unwrap();
-                let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+                let loaded_program = PreparedProgram::from_artifact(
+                    artifact,
+                    &Default::default(),
+                    &Default::default(),
+                )
+                .unwrap();
+                let loaded = runtime
+                    .load_program(&loaded_program, Default::default())
+                    .unwrap();
                 let result = if jit {
                     let mut backend =
                         kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-                    runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+                    let prepared = runtime
+                        .prepare_native(
+                            &loaded_program,
+                            &loaded,
+                            "main",
+                            &mut backend,
+                            &context.cancellation,
+                        )
+                        .unwrap();
+                    runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
                 } else {
                     runtime.execute(&loaded, "main", &[], &context)
                 };

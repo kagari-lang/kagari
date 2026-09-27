@@ -1,9 +1,10 @@
-use crate::ArtifactOptions;
-use crate::BytecodeArtifact;
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::ArtifactOptions;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::value::Value;
 
 fn compile(source: &str) -> Result<BytecodeArtifact, kagari_embed::EmbeddingError> {
@@ -30,12 +31,24 @@ fn execute(artifact: BytecodeArtifact) {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = KagariEngine::default().runtime(context.clone());
-        let program = runtime.load_program(artifact, Default::default()).unwrap();
+        let program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime.load_program(&program, Default::default()).unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&program, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
-            runtime.execute(&program, "main", &[], &context)
+            runtime.execute(&loaded, "main", &[], &context)
         }
         .unwrap();
         assert_eq!(result.return_value, Value::I32(42));
@@ -134,7 +147,12 @@ fn main() -> i32 { read(Number { value: 20 }) + direct(Number { value: 22 }) }
             artifact.clone()
         };
         let mut runtime = KagariEngine::default().runtime(context.clone());
-        let program = runtime.load_program(artifact, Default::default()).unwrap();
+        let program_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let program = runtime
+            .load_program(&program_program, Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&program, "main", &[], &context)
@@ -182,7 +200,11 @@ fn main() -> i32 {
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = KagariEngine::default().runtime(context.clone());
-    let program = runtime.load_program(artifact, Default::default()).unwrap();
+    let program_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let program = runtime
+        .load_program(&program_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&program, "main", &[], &context)
@@ -207,7 +229,11 @@ fn main() -> i32 { parent(boxed(Holder { value: 42 })).read() }
     let artifact = compile(source).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = KagariEngine::default().runtime(context.clone());
-    let program = runtime.load_program(artifact, Default::default()).unwrap();
+    let program_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let program = runtime
+        .load_program(&program_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&program, "main", &[], &context)

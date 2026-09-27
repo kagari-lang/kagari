@@ -1,15 +1,16 @@
-use crate::ArtifactOptions;
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::HostExposurePolicy;
-use crate::KagariEngine;
-use crate::LoadOptions;
 use kagari_common::{
     SourceFile,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
     },
 };
+use kagari_embed::ArtifactOptions;
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::HostExposurePolicy;
+use kagari_embed::KagariEngine;
+use kagari_embed::LoadOptions;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::{CapabilitySet, LanguageProfile, host::HostFunction, value::Value};
 use std::sync::{Arc, Mutex};
 
@@ -148,13 +149,29 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             .unwrap();
         assert!(
             incompatible
-                .load_program(artifact.clone(), LoadOptions::default())
+                .load_program(
+                    &PreparedProgram::from_artifact(
+                        artifact.clone(),
+                        &Default::default(),
+                        &Default::default()
+                    )
+                    .unwrap(),
+                    LoadOptions::default()
+                )
                 .is_err()
         );
         let mut runtime = engine.runtime(context.clone());
         assert!(
             runtime
-                .load_program(artifact.clone(), LoadOptions::default())
+                .load_program(
+                    &PreparedProgram::from_artifact(
+                        artifact.clone(),
+                        &Default::default(),
+                        &Default::default()
+                    )
+                    .unwrap(),
+                    LoadOptions::default()
+                )
                 .is_err()
         );
         runtime
@@ -166,8 +183,11 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 Ok(Value::I32(value + 1))
             }))
             .unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
         let loaded = runtime
-            .load_program(artifact, LoadOptions::default())
+            .load_program(&loaded_program, LoadOptions::default())
             .unwrap();
         assert!(calls.lock().unwrap().is_empty());
         let mut denied = context.clone();
@@ -179,7 +199,16 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             jit.then(|| kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap());
         for _ in 0..2 {
             let report = if let Some(backend) = &mut backend {
-                runtime.execute_with_backend(&loaded, "main", &[], &context, backend)
+                let prepared = runtime
+                    .prepare_native(
+                        &loaded_program,
+                        &loaded,
+                        "main",
+                        backend,
+                        &context.cancellation,
+                    )
+                    .unwrap();
+                runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
             } else {
                 runtime.execute(&loaded, "main", &[], &context)
             }
@@ -233,7 +262,15 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let mut runtime = engine.runtime(context.clone());
     assert!(
         runtime
-            .load_program(artifact.clone(), LoadOptions::default())
+            .load_program(
+                &PreparedProgram::from_artifact(
+                    artifact.clone(),
+                    &Default::default(),
+                    &Default::default()
+                )
+                .unwrap(),
+                LoadOptions::default()
+            )
             .is_err()
     );
     runtime
@@ -245,8 +282,10 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             Ok(Value::I32(value + 1))
         }))
         .unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
-        .load_program(artifact, LoadOptions::default())
+        .load_program(&loaded_program, LoadOptions::default())
         .unwrap();
     assert!(calls.lock().unwrap().is_empty());
     assert_eq!(

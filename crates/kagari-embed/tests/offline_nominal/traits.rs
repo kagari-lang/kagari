@@ -1,4 +1,5 @@
 use super::*;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn artifact_host_trait_table_requires_callback_before_publication() {
@@ -70,7 +71,15 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
         .unwrap();
     assert!(
         runtime
-            .load_program(encoded.clone(), Default::default())
+            .load_program(
+                &PreparedProgram::from_artifact(
+                    encoded.clone(),
+                    &Default::default(),
+                    &Default::default()
+                )
+                .unwrap(),
+                Default::default()
+            )
             .is_err()
     );
     runtime
@@ -78,7 +87,13 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
             HostFunction::method(&counter, &method.id, |_, _| Ok(Value::I32(42))).unwrap(),
         )
         .unwrap();
-    runtime.load_program(encoded, Default::default()).unwrap();
+    runtime
+        .load_program(
+            &PreparedProgram::from_artifact(encoded, &Default::default(), &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -369,10 +384,24 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                 .unwrap(),
             )
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }

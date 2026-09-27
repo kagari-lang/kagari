@@ -1,7 +1,8 @@
-use crate::BytecodeArtifact;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -30,10 +31,24 @@ fn execute(source: &str) {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -194,7 +209,12 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
             .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
         assert!(
             format!("{error:?}").contains("overflow"),

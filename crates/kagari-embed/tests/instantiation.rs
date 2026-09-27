@@ -1,7 +1,8 @@
-use crate::ArtifactOptions;
-use crate::EmbeddingError;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::ArtifactOptions;
+use kagari_embed::EmbeddingError;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {
@@ -309,10 +310,24 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }

@@ -1,7 +1,8 @@
-use crate::BytecodeArtifact;
-use crate::ExecutionContext;
-use crate::KagariEngine;
 use kagari_common::SourceFile;
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::ExecutionContext;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
@@ -31,10 +32,24 @@ fn execute(source: &str) {
             kagari_embed::JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -299,7 +314,12 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
         let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, "main", &[], &context)
@@ -400,7 +420,11 @@ fn main()->i32 {Number{value:42}+1}
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     for entry in ["fail_add", "fail_index", "exhaust"] {
         let mut options = context.clone();
         if entry == "exhaust" {

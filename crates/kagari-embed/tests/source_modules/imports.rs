@@ -1,4 +1,5 @@
 use super::*;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn public_source_glob_reexports_members_through_artifacts() {
@@ -17,7 +18,12 @@ fn public_source_glob_reexports_members_through_artifacts() {
     ] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, "main", &[], &context)
@@ -39,7 +45,11 @@ fn parent_module_can_execute_pub_super_child_function() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -69,7 +79,12 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
     ] {
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         assert_eq!(
             runtime
                 .execute(&loaded, "main", &[], &context)
@@ -120,7 +135,11 @@ fn parent_module_can_call_pub_super_inherent_method() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -147,7 +166,11 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -188,7 +211,11 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -216,7 +243,11 @@ fn wildcard_import_follows_a_public_module_alias() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -238,7 +269,11 @@ fn wildcard_import_follows_a_public_standard_module_alias() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -275,7 +310,11 @@ fn declared_external_child_module_resolves_qualified_calls() {
     let artifact = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)

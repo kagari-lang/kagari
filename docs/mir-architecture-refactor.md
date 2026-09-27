@@ -1819,6 +1819,43 @@ JIT registry. The normal SDK test build remains blocked by the previously record
 is scoped validation, not workspace acceptance. A04/A05 and final full-workspace
 checks remain outstanding.
 
+### A03 checkpoint: mixed SDK interpreter/native callers (2026-09-28)
+
+Migrated all 46 remaining SDK `execute_with_backend` call sites to explicit
+`prepare_native` followed by `execute_prepared`. Each call uses the exact shared
+prepared program used for loading. Compilation failures are asserted separately
+from script failures, so an expected runtime trap cannot accidentally accept a
+compiler error. Existing source/encoded/interpreter/native case loops, return
+values, host traces, cleanup checks and reload assertions remain present.
+
+The remaining SDK integration imports now name the SDK crate. Source-module and
+offline-host suites prepare before linking, retain runtime-specific missing or
+incompatible binding checks, and pass prepared candidates to reload. Malformed
+program tests reject at preparation before publication. Raw runtime loading tests
+continue to exercise the runtime's bytecode API directly. No compatibility API,
+feature gate, test suppression or replacement backend was introduced.
+
+Validation:
+
+- `cargo check -p kagari-embed --tests` attempted; blocked before the SDK targets by
+  the same 22 `kagari-codegen-cranelift` library errors owned by A04 (obsolete
+  runtime/bytecode imports, removed backend methods, missing unsafe trait contract,
+  and bytecode-shaped access to MIR). Log: `target/a03-mixed-sdk-check.log`.
+  These migrated suites are not yet typechecked or executed; A04/A05 must run them
+  once the real backend builds. No new passing behavioral result is claimed here.
+- Structure checker: 507 Rust files, zero violations/exceptions. Formatting and
+  diff checks pass. Reviewed all removed lines: changes are SDK imports, preparation
+  and call wiring, the malformed-input boundary, and the now-redundant load option
+  update. Behavioral assertions were preserved. Search finds no remaining
+  `execute_with_backend` or erroneous `use crate::` SDK integration imports.
+  Logs: `target/a03-mixed-sdk-structure.log`, `target/a03-mixed-sdk-diff.log`.
+
+A03 caller migration is wired; legacy descriptor-only registry reconciliation
+remains. The registry has no VM/SDK production consumer: only its own runtime API
+and unit tests still use it. Next reconcile that public cache/invalidation surface
+with actual installed native handles and their existing code/version retention
+coverage. A04 backend implementation and A05 full acceptance remain outstanding.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

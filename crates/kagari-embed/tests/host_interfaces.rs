@@ -1,8 +1,3 @@
-use crate::BytecodeArtifact;
-use crate::CompileOptions;
-use crate::ExecutionContext;
-use crate::HostExposurePolicy;
-use crate::KagariEngine;
 use kagari_common::{
     host_interface::{
         HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
@@ -12,6 +7,12 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
+use kagari_embed::BytecodeArtifact;
+use kagari_embed::CompileOptions;
+use kagari_embed::ExecutionContext;
+use kagari_embed::HostExposurePolicy;
+use kagari_embed::KagariEngine;
+use kagari_embed::program::PreparedProgram;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
@@ -189,10 +190,24 @@ fn host_associated_types_and_dynamic_interfaces_share_the_host_call_boundary() {
                 .unwrap(),
             )
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let result = if jit {
             let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            runtime.execute_with_backend(&loaded, "main", &[], &context, &mut backend)
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    "main",
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
         }
@@ -256,7 +271,11 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
                 .unwrap(),
         )
         .unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -614,7 +633,11 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
                 .unwrap(),
         )
         .unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)
@@ -787,7 +810,11 @@ fn interface_method_results_validate_nested_host_roots() {
             .unwrap(),
         )
         .unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(
         runtime
             .execute(&loaded, "main", &[], &context)

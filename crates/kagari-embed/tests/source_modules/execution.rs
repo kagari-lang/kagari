@@ -1,4 +1,5 @@
 use super::*;
+use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
@@ -49,7 +50,12 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
                 |_, args| Ok(args[0].clone()),
             ))
             .unwrap();
-        let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
         let report = runtime.execute(&loaded, "main", &[], &context).unwrap();
         assert_eq!(report.return_value, Value::I32(42));
         let trace = report.trace.unwrap();
@@ -99,7 +105,15 @@ fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
     let mut runtime = engine.runtime(context.clone());
     assert!(
         runtime
-            .load_program(artifact.clone(), Default::default())
+            .load_program(
+                &PreparedProgram::from_artifact(
+                    artifact.clone(),
+                    &Default::default(),
+                    &Default::default()
+                )
+                .unwrap(),
+                Default::default()
+            )
             .is_err()
     );
     assert_eq!(runtime.runtime().modules().loaded_count(), 0);
@@ -114,7 +128,11 @@ fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
             },
         ))
         .unwrap();
-    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let loaded_program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let loaded = runtime
+        .load_program(&loaded_program, Default::default())
+        .unwrap();
     assert_eq!(loaded.epoch.0, 1);
     assert!(
         runtime
@@ -143,19 +161,21 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
     }
     for encoded in [false, true] {
         let prepare = |artifact: &BytecodeArtifact| {
-            if encoded {
+            let artifact = if encoded {
                 BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
             } else {
                 artifact.clone()
-            }
+            };
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap()
         };
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let active = runtime
-            .load_program(prepare(&artifacts[0]), Default::default())
+            .load_program(&prepare(&artifacts[0]), Default::default())
             .unwrap();
         let error = runtime
-            .reload_program(&active, prepare(&artifacts[1]), Default::default())
+            .reload_program(&active, &prepare(&artifacts[1]), Default::default())
             .unwrap_err();
         assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
         assert_eq!(
@@ -167,7 +187,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
         );
         // Rejection leaves the baseline active, so a valid reload can still publish.
         runtime
-            .reload_program(&active, prepare(&artifacts[0]), Default::default())
+            .reload_program(&active, &prepare(&artifacts[0]), Default::default())
             .unwrap();
     }
 }
@@ -187,7 +207,11 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     let second = compile(&engine, root, Default::default());
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let old = runtime.load_program(first, Default::default()).unwrap();
+    let old_program =
+        PreparedProgram::from_artifact(first, &Default::default(), &Default::default()).unwrap();
+    let old = runtime
+        .load_program(&old_program, Default::default())
+        .unwrap();
     let dependency = old.members().next().unwrap();
     assert!(
         runtime
@@ -196,7 +220,16 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
             .retain_epoch(dependency.key(), ModuleEpochRetention::ActiveCall)
     );
     let new = runtime
-        .reload_program(&old, second.clone(), Default::default())
+        .reload_program(
+            &old,
+            &PreparedProgram::from_artifact(
+                second.clone(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap(),
+            Default::default(),
+        )
         .unwrap();
     assert!(
         runtime
@@ -216,7 +249,12 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     }
     assert!(
         runtime
-            .reload_program(&old, second, Default::default())
+            .reload_program(
+                &old,
+                &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
+                    .unwrap(),
+                Default::default()
+            )
             .is_err()
     );
     assert!(
@@ -318,12 +356,19 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         corrupted.program = bad;
         let encoded = corrupted.to_bytes().unwrap();
         let decoded = BytecodeArtifact::from_bytes(&encoded).unwrap();
-        assert!(runtime.load_program(decoded, Default::default()).is_err());
+        assert!(
+            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
+                .is_err()
+        );
         assert_eq!(runtime.runtime().modules().loaded_count(), 0);
     }
     assert_eq!(
         runtime
-            .load_program(artifact, Default::default())
+            .load_program(
+                &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                    .unwrap(),
+                Default::default()
+            )
             .unwrap()
             .epoch
             .0,
