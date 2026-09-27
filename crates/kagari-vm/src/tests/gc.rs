@@ -1,4 +1,7 @@
+use crate::PreparedNativeEntry;
+use crate::tests::native_fixtures;
 use crate::{Vm, tests::common::compile_test_bytecode};
+use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::ModuleRef;
 use kagari_runtime::{
@@ -56,12 +59,8 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             let loaded = runtime.load_program("gc.kgr", program).unwrap();
             let mut vm = Vm::new(runtime);
             let report = if jit {
-                vm.execute_with_backend(
-                    &loaded,
-                    "main",
-                    &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
-                )
-                .unwrap()
+                vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
+                    .unwrap()
             } else {
                 vm.execute(&loaded, "main").unwrap()
             };
@@ -166,7 +165,7 @@ fn malformed_closure_function_is_rejected_before_execution() {
         })
         .expect("compiled closure");
     if let kagari_bytecode::BytecodeInstruction::MakeClosure { function, .. } = instruction {
-        *function = kagari_bytecode::FunctionRef::new(999);
+        *function = FunctionRef::new(999);
     }
     let mut runtime = runtime(None);
     assert!(
@@ -233,14 +232,10 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
             },
         )
         .unwrap();
+    let native =
+        PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
     let mut vm = Vm::new(runtime);
-    let report = vm
-        .execute_with_backend(
-            &loaded,
-            "main",
-            &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
-        )
-        .unwrap();
+    let report = vm.execute_prepared(&loaded, "main", &native).unwrap();
     assert_eq!(
         report.jit.unwrap().status,
         crate::JitExecutionStatus::Native

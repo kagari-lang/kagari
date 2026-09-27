@@ -1,4 +1,7 @@
 use super::*;
+use crate::PreparedNativeEntry;
+use crate::tests::native_fixtures;
+use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
 
 #[test]
 fn executes_runtime_host_helper_call() {
@@ -123,12 +126,9 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     },
                 )
                 .unwrap();
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-            let native = kagari_runtime::CodegenBackend::compile_function(
-                &mut backend,
-                kagari_runtime::BackendFunctionInput::new(&scalar, FunctionRef::new(0)).unwrap(),
-            )
-            .unwrap();
+            let prepared = native_fixtures::unsupported();
+            let native = native_fixtures::install_i32::<42>(&runtime, &scalar, false);
+            let scalar_entry = PreparedNativeEntry::Native(native.clone());
             let program = BytecodeProgram {
                 root: ModuleRef::new(0),
                 modules: vec![path_module(
@@ -166,8 +166,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let loaded = runtime.load_program("fault.kgr", program).unwrap();
             let mut vm = Vm::new(runtime);
             let error = if jit {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
-                    .unwrap_err()
+                vm.execute_prepared(&loaded, "main", &prepared).unwrap_err()
             } else {
                 vm.execute(&loaded, "main").unwrap_err()
             };
@@ -188,20 +187,18 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let before = vm.runtime().resources().counters();
             for error in [
                 vm.execute(&scalar, "main").unwrap_err(),
-                vm.execute_with_backend(&scalar, "main", &mut backend)
+                vm.execute_prepared(&scalar, "main", &scalar_entry)
                     .unwrap_err(),
             ] {
                 assert!(
                     matches!(error, crate::VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
                 );
             }
-            assert!(
-                matches!(backend.invoke_compiled_scalar(&native, vm.runtime()),
-                Err(kagari_runtime::BackendInvocationError::RuntimeFailure(ref error)) if error.kind() == RuntimeErrorKind::EngineFault)
-            );
+            assert!(matches!(vm.runtime().invoke_native_function(&native),
+                Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(ref error), .. }) if error.kind() == RuntimeErrorKind::EngineFault));
             assert_eq!(
                 unsafe { kagari_runtime::jit_abi::jit_consume_instruction_step(vm.runtime(), 0) },
-                kagari_runtime::jit_abi::JIT_STATUS_ENGINE_FAULT
+                kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT
             );
             assert_eq!(vm.runtime().resources().counters(), before);
         }
@@ -313,9 +310,9 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .begin_execution(&loaded, runtime.execution_options())
                 .unwrap();
             let mut vm = Vm::new(runtime);
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let prepared = native_fixtures::unsupported();
             let report = if jit {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
+                vm.execute_prepared(&loaded, "main", &prepared)
             } else {
                 vm.execute(&loaded, "main")
             }
@@ -590,9 +587,8 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             runtime.set_security_context(security);
             let mut vm = Vm::new(runtime);
             let value = if jit {
-                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-                vm.execute_with_backend(&loaded, "main", &mut backend)
-                    .unwrap()
+                let prepared = native_fixtures::unsupported();
+                vm.execute_prepared(&loaded, "main", &prepared).unwrap()
             } else {
                 vm.execute(&loaded, "main").unwrap()
             };

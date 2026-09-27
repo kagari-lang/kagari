@@ -1,3 +1,4 @@
+use crate::tests::native_fixtures;
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
     RuntimeErrorKind, SecurityContext, value::StructValueField, value::Value,
@@ -81,8 +82,8 @@ fn missing_entry_is_rejected_before_execution() {
         let mut vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
-                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-                vm.execute_with_backend(&loaded, "missing", &mut backend)
+                let prepared = native_fixtures::unsupported();
+                vm.execute_prepared(&loaded, "missing", &prepared)
                     .unwrap_err()
             } else {
                 vm.execute(&loaded, "missing").unwrap_err()
@@ -130,8 +131,8 @@ fn ambiguous_entry_is_rejected_on_all_load_routes() {
         let mut vm = Vm::new(runtime);
         for jit in [false, true] {
             let error = if jit {
-                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-                vm.execute_with_backend(&loaded, "first", &mut backend)
+                let prepared = native_fixtures::unsupported();
+                vm.execute_prepared(&loaded, "first", &prepared)
                     .unwrap_err()
             } else {
                 vm.execute(&loaded, "first").unwrap_err()

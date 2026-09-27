@@ -1,3 +1,4 @@
+use crate::tests::native_fixtures;
 use crate::{
     DebugPauseReason, DebugSession, SourceBreakpoint, Vm, tests::common::compile_test_bytecode,
 };
@@ -102,9 +103,9 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 .unwrap();
             let mut vm = Vm::new(runtime);
             vm.attach_debug_session(debug).unwrap();
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let prepared = native_fixtures::unsupported();
             let report = if jit {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
+                vm.execute_prepared(&loaded, "main", &prepared)
             } else {
                 vm.execute(&loaded, "main")
             }

@@ -1,14 +1,12 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
 use kagari_common::collection::CollectionAccess;
-use std::{
-    cell::Cell,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use kagari_bytecode::ArtifactBuildOptions;
 use kagari_bytecode::ArtifactCompatibility;
 use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::native_input::PortableMir;
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_compiler::bytecode::lower_program_to_bytecode;
 use kagari_compiler::source::program::lower_program_to_mir;
@@ -19,35 +17,8 @@ use kagari_runtime::{
     value::Value,
 };
 
-use crate::{Vm, VmError};
-
-struct RecordingBackend {
-    inner: CraneliftBackend,
-    invocations: Cell<usize>,
-}
-impl kagari_runtime::CodegenBackend for RecordingBackend {
-    fn backend_id(&self) -> kagari_runtime::BackendId {
-        self.inner.backend_id()
-    }
-    fn target(&self) -> kagari_runtime::BackendTarget {
-        self.inner.target()
-    }
-    fn compile_function(
-        &mut self,
-        input: kagari_runtime::BackendFunctionInput<'_>,
-    ) -> Result<kagari_runtime::ExecutableFunctionArtifact, kagari_runtime::BackendCompileError>
-    {
-        self.inner.compile_function(input)
-    }
-    fn invoke_function(
-        &self,
-        artifact: &kagari_runtime::ExecutableFunctionArtifact,
-        runtime: &Runtime,
-    ) -> Result<Value, kagari_runtime::BackendInvocationError> {
-        self.invocations.set(self.invocations.get() + 1);
-        self.inner.invoke_function(artifact, runtime)
-    }
-}
+use crate::{KagariRuntime, program::PreparedProgram};
+use kagari_vm::{ExecutionReport, JitExecutionStatus, PreparedNativeEntry, VmError};
 
 #[derive(Clone, Copy, Debug)]
 enum Route {
@@ -161,7 +132,7 @@ impl<'a> Case<'a> {
     }
 }
 
-fn compile(case: &Case<'_>, route: Route) -> Option<kagari_bytecode::BytecodeProgram> {
+fn compile(case: &Case<'_>, route: Route) -> Option<PreparedProgram> {
     let profile = LanguageFeatureProfile {
         allow_host_calls: true,
         allow_reflection: case.reflection,
@@ -230,31 +201,39 @@ fn compile(case: &Case<'_>, route: Route) -> Option<kagari_bytecode::BytecodePro
         return None;
     }
     let checked = checked.unwrap_or_else(|error| panic!("{} ({route:?}): {error:?}", case.name));
-    let compiled =
-        lower_program_to_bytecode(&lower_program_to_mir(&checked, &Default::default()).unwrap())
-            .unwrap();
-    let module = match route {
-        Route::Source | Route::Jit => compiled,
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let compiled = lower_program_to_bytecode(&mir).unwrap();
+    let artifact = KbcArtifact::from_program(
+        compiled,
+        ArtifactBuildOptions {
+            portable_mir: Some(PortableMir {
+                bytes: kagari_mir::codec::encode_program(&mir, &Default::default()).unwrap(),
+            }),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let artifact = match route {
+        Route::Source | Route::Jit => artifact,
         Route::Artifact | Route::ArtifactJit => {
-            let bytes = KbcArtifact::from_program(compiled, ArtifactBuildOptions::default())
-                .unwrap()
-                .to_bytes()
-                .unwrap();
-            let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
-            decoded
-                .validate_for_loader(&ArtifactCompatibility::default())
-                .unwrap();
-            decoded.program
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         }
     };
-    Some(module)
+    Some(
+        PreparedProgram::from_artifact(
+            artifact,
+            &ArtifactCompatibility::default(),
+            &Default::default(),
+        )
+        .unwrap(),
+    )
 }
 
 fn assert_outcome(
     case: &Case<'_>,
     route: Route,
     attempt: usize,
-    outcome: Result<crate::ExecutionReport, VmError>,
+    outcome: Result<ExecutionReport, VmError>,
 ) {
     match (&case.expected, outcome.as_ref().map_err(VmError::cause)) {
         (Expected::Value(expected), Ok(report)) => assert_eq!(
@@ -283,14 +262,39 @@ fn assert_outcome(
 }
 
 fn execute_route(
-    vm: &mut Vm,
+    runtime: &mut KagariRuntime,
+    program: &PreparedProgram,
     loaded: &kagari_runtime::LoadedModule,
+    case: &Case<'_>,
     route: Route,
-    backend: &mut RecordingBackend,
-) -> Result<crate::ExecutionReport, VmError> {
+    backend: &mut CraneliftBackend,
+) -> Result<ExecutionReport, VmError> {
     match route {
-        Route::Jit | Route::ArtifactJit => vm.execute_with_backend(loaded, "main", backend),
-        _ => vm.execute(loaded, "main"),
+        Route::Jit | Route::ArtifactJit => {
+            let prepared = runtime
+                .prepare_native(program, loaded, "main", backend, &Default::default())
+                .unwrap();
+            if case.require_native {
+                assert!(
+                    matches!(prepared, PreparedNativeEntry::Native(_)),
+                    "{} ({route:?}) must enter native code: {prepared:?}",
+                    case.name
+                );
+            }
+            // Retain the VM's exact error variants in this compiler/SDK contract
+            // matrix. Native preparation uses the public SDK's trusted handoff.
+            let outcome = runtime.vm.execute_prepared(loaded, "main", &prepared);
+            if case.require_native
+                && let Ok(report) = &outcome
+            {
+                assert_eq!(
+                    report.jit.as_ref().unwrap().status,
+                    JitExecutionStatus::Native
+                );
+            }
+            outcome
+        }
+        _ => runtime.vm.execute(loaded, "main"),
     }
 }
 
@@ -387,7 +391,9 @@ fn run(case: &Case<'_>, route: Route) {
             .unwrap();
         rooted
     });
-    let loaded = runtime.load_program(case.name, module).unwrap();
+    let loaded = runtime
+        .load_verified_program(case.name, module.bytecode().clone())
+        .unwrap();
     let iteration = case.iterating.then(|| {
         runtime
             .gc()
@@ -404,22 +410,11 @@ fn run(case: &Case<'_>, route: Route) {
         options.cancellation = cancellation;
         runtime.begin_execution(&loaded, options).unwrap()
     });
-    let mut vm = Vm::new(runtime);
-    let mut backend = RecordingBackend {
-        inner: CraneliftBackend::for_host().unwrap(),
-        invocations: Cell::new(0),
-    };
+    let mut vm = KagariRuntime::new(runtime, Default::default());
+    let mut backend = CraneliftBackend::for_host().unwrap();
     for attempt in 0..case.repeat {
-        let outcome = execute_route(&mut vm, &loaded, route, &mut backend);
+        let outcome = execute_route(&mut vm, &module, &loaded, case, route, &mut backend);
         assert_outcome(case, route, attempt, outcome);
-    }
-    if matches!(route, Route::Jit | Route::ArtifactJit) && case.require_native {
-        assert_eq!(
-            backend.invocations.get(),
-            case.repeat,
-            "{} must actually invoke native code",
-            case.name
-        );
     }
     if let Some(candidate) = case.published_reload {
         let program = compile(candidate, route).expect("published candidate must compile");
@@ -429,9 +424,11 @@ fn run(case: &Case<'_>, route: Route) {
             .unwrap();
         let stale = vm
             .runtime_mut()
-            .stage_reload_program(&loaded, case.name, program.clone())
+            .stage_reload_verified_program(&loaded, case.name, program.bytecode().clone())
             .unwrap();
-        let current = vm.reload_program(&loaded, case.name, program).unwrap();
+        let current = vm
+            .reload_program(&loaded, &program, Default::default())
+            .unwrap();
         assert_eq!(
             vm.runtime().modules().latest(case.name).unwrap().key(),
             current.key()
@@ -442,14 +439,14 @@ fn run(case: &Case<'_>, route: Route) {
             case,
             route,
             case.repeat,
-            execute_route(&mut vm, &loaded, route, &mut backend),
+            execute_route(&mut vm, &module, &loaded, case, route, &mut backend),
         );
         drop(outer);
         assert_outcome(
             candidate,
             route,
             0,
-            execute_route(&mut vm, &current, route, &mut backend),
+            execute_route(&mut vm, &program, &current, candidate, route, &mut backend),
         );
         let before = vm.runtime().resources().counters().loaded_modules;
         let stale_members = stale.module().members().count();
@@ -469,7 +466,7 @@ fn run(case: &Case<'_>, route: Route) {
             candidate,
             route,
             1,
-            execute_route(&mut vm, &current, route, &mut backend),
+            execute_route(&mut vm, &program, &current, candidate, route, &mut backend),
         );
     }
     assert_eq!(
@@ -880,6 +877,8 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("reject-compound-val", "fn main() -> i32 { val n = 1; n += 1; n }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("reject-val-tuple-write", "fn main() -> i32 { val t = (1, 2); t[0] += 1; t[0] }", Expected::Diagnostic("KG_TYPE_INVALID_ASSIGNMENT_TARGET")),
         Case::new("reject-compound-bool", "fn main() -> bool { var n = true; n += false; n }", Expected::Diagnostic("KG_TYPE_BINARY_OPERAND_TYPE_MISMATCH")),
+        Case::new("native-scalar-arithmetic", "fn main() -> i32 { -(6 * 7) }", Expected::Value(Value::I32(-42))).native(),
+        Case::new("native-scalar-comparison", "fn main() -> bool { !!(40 + 2 == 42) }", Expected::Value(Value::Bool(true))).native(),
         Case::new("min-literal", "fn main() -> i32 { -2147483648 }", Expected::Value(Value::I32(i32::MIN))).native(),
         Case::new("const-min-literal", "const MIN: i32 = -2147483648; fn main() -> i32 { MIN }", Expected::Value(Value::I32(i32::MIN))).native(),
         Case::new("negate-min-literal", "fn main() -> i32 { -(-2147483648) }", Expected::ScriptTrap("integer overflow")).native(),

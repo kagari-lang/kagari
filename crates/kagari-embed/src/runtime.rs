@@ -157,3 +157,6 @@ pub struct LoadOptions {
 pub struct ReloadOptions {
     pub module_name: Option<String>,
 }
+
+#[cfg(all(test, feature = "source", feature = "native"))]
+mod language_contract;

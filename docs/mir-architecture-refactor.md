@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A03 complete; A04 Cranelift migration is in progress; workspace test build is broken.
+Status: A00-A04 complete; workspace test build restored; A05 final integration and baseline remain.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -443,7 +443,7 @@ must not be the sole record needed to resume the goal.
 - [x] A01 — Contracts and crate ownership.
 - [x] A02 — MIR, analyses and compiler lowering.
 - [x] A03 — Runtime, artifacts and embedding.
-- [ ] A04 — Existing Cranelift backend migration.
+- [x] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
 Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
@@ -451,11 +451,11 @@ completed with the bounded public MIR passes. A03 completes with the native
 registry reconciliation checkpoint below. Source compilation, verified MIR analyses,
 frontend-free bytecode lowering, runtime/VM prepared execution, portable artifacts,
 shared SDK preparation/reload and feature isolation have scoped passing evidence.
-SDK callers and the Cranelift production backend now compile; real native tests
-and the full SDK suite pass. The workspace test build remains broken in legacy
-VM native fixtures. Resume A04 migration of those fixtures to their intended
-SDK/backend/VM owners and complete native acceptance coverage. A05 final acceptance has not
-run, and the overall refactor is not complete.
+A04 completes the verified MIR Cranelift backend and fixture migration. The workspace
+test build now succeeds; SDK/VM tests, genuine native/fallback cases, reload/code
+ownership and native GC checks pass. A05 owns the final workspace gates, production
+feature/behavior audit, documentation and reproducible baseline measurements.
+The overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -473,7 +473,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
 | A03 | Complete with native registry reconciliation; runtime/VM prepared execution, portable MIR/v103 artifacts, SDK features/cache/reload and migrated callers | 196 runtime tests + one doc test, eight VM prepared tests, ten SDK preparation tests, five CLI tests and four feature-mode consumers at exit; earlier 55 source SDK tests and seven examples; scoped clippy, structure, fmt and diff pass | A04 owns 22 Cranelift library errors and native fixtures; mixed SDK suites await the real backend; A05 full acceptance remains |
-| A04 | Verified MIR-to-CLIF scalar emission, explicit links and owned code memory | Seven backend tests; 407 SDK tests plus two new real-native tests; native runtime/VM/CLI tests; scoped clippy and structure pass | VM lib-test check has 32 obsolete native fixture errors; A04 owns fixture migration and remaining native acceptance |
+| A04 | Complete: verified MIR-to-CLIF emission, explicit links, owned pages and migrated compiler/VM fixtures | Seven backend tests; 532 SDK/VM tests plus strengthened three-test real-native suite; workspace test build, scoped clippy, structure/fmt/diff pass | Carried VM fixture errors resolved; A05 final gates/audit/baseline remain |
 | A05 | Not started | Not run | None recorded |
 
 ### A00 checkpoint: foundation imports (2026-09-27)
@@ -1981,6 +1981,57 @@ Validation:
 The previous 22 Cranelift library errors are resolved. A04 remains open for legacy
 VM fixture migration and its full genuine-native/fallback matrix; A05 workspace
 checks, final architecture documentation and baseline measurements are still due.
+
+### A04 exit: prepared VM fixtures and genuine native contract routes (2026-09-28)
+
+Moved the complete source/artifact/native language-contract matrix from VM tests
+into the SDK runtime's test module. It retains exact VM error kinds, host calls
+and committed effects, mutable heap observations, cancellation, logical budgets,
+cleanup and stale/pinned reload assertions. Each artifact route round-trips both
+bytecode and portable MIR through `PreparedProgram`; native routes use the public
+SDK preparation service and real Cranelift products. Required-native cases assert
+an installed native entry before execution and Native status on success. The
+former scalar bytecode compilation equivalence cases now use equivalent source/MIR
+expressions in this matrix, preserving arithmetic/boolean expectations.
+
+VM policy/fallback matrices now accept explicit `PreparedNativeEntry::Unsupported`
+fixtures instead of importing a compiler. Native GC, cancellation, fault quarantine,
+reporting and debug-policy tests install static C-ABI code that asserts its exact
+two-instruction constant function before installation and calls runtime helpers
+at both logical points. These fixtures test runtime/VM behavior, not compiler
+coverage. Removed obsolete fake backend invocation returning 11 for bytecode that
+returns 7; actual native fixtures return 7 and charge both instructions. Debug
+metadata alone does not authorize bypassing an attached observer: both missing
+and claimed-complete metadata paths assert pre-entry interpreter fallback.
+
+The SDK real-Cranelift suite now explicitly checks unsupported locals, remainder
+and closures before any script instruction. A real native reload test retains
+old/new values 42/43 through publication, an active old session and backend/program
+drop, checks both Native reports, and proves runtime GC safepoints collect dead
+objects without leaking frames/roots. Existing SDK preparation tests retain the
+compile-count-zero policy/cancellation checks formerly located in VM fixtures.
+No compiler/backend dependency or compatibility entrypoint was added to VM.
+
+Validation:
+
+- `cargo test -p kagari-vm -p kagari-embed`: 532 tests pass, including all 114 VM
+  unit tests, eight prepared-execution tests and the migrated contract matrix.
+  The subsequently extended `cargo test -p kagari-embed --test cranelift_preparation`
+  passes all three tests (including reload/GC and the three unsupported cases).
+- `cargo test --workspace --no-run`: succeeds; all previously carried test-build
+  errors are resolved. This is compilation evidence, not the A05 workspace run.
+- `cargo clippy -p kagari-vm -p kagari-embed --all-targets -- -D warnings`: passes;
+  the subsequently extended Cranelift SDK target also passes clippy separately.
+- Structure: 512 Rust files, zero findings/exceptions. `cargo fmt --all -- --check`
+  and `git diff --check` pass. Manual review confirms all new compiler-independent
+  fixtures are test-only, no production imports/visibility were widened, and the
+  contract suite remains below the effective LOC limit.
+- Logs: `target/a04-vm-sdk-tests.log`, `target/a04-real-native-reload.log`,
+  `target/a04-workspace-build.log`, `target/a04-fixture-{clippy,structure}.log`.
+
+A04's native/fallback phase exit is satisfied. No known build failure remains;
+A05 must still run every final gate and finish documentation, the feature/behavior
+matrix, architectural audit and measurements before goal completion.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

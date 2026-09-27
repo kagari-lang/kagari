@@ -1,3 +1,4 @@
+use crate::tests::native_fixtures;
 use crate::{DebugSession, JitExecutionStatus, SourceBreakpoint, Vm};
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::KbcArtifact;
@@ -73,11 +74,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                 let loaded = runtime.load_program("root", program.clone()).unwrap();
                 let mut vm = Vm::new(runtime);
                 let report = if jit {
-                    vm.execute_with_backend(
-                        &loaded,
-                        "main",
-                        &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
-                    )
+                    vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
                 } else {
                     vm.execute(&loaded, "main")
                 };

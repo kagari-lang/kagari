@@ -10,10 +10,11 @@ After A00 passes, A01–A04 checkpoints may fail compilation/tests when errors a
 follow-up owners are recorded. Use Conventional Commits with `Architecture-Step: Axx`;
 the final integration phase must restore all required checks and behavior.
 
-A00–A03 are complete at their documented phase boundaries. A04 now migrates the
-existing Cranelift subset and native fixtures to verified MIR. The backend and
-SDK suites now pass; legacy VM native fixtures still prevent workspace test builds. See the active plan's ledger for scoped
-validation and the remaining A05 acceptance requirements.
+A00–A04 are complete at their documented phase boundaries. Cranelift consumes
+verified MIR, compiler/VM fixtures use the intended preparation boundary, and the
+workspace test build is restored. SDK/VM and genuine native/fallback tests pass.
+A05 now owns final workspace checks, the architecture and feature audit,
+documentation and baseline measurements. See the active plan's ledger for evidence.
 
 [Foundation refactor](foundation-refactor.md) records the completed R01–R18 track.
 Its semantic contracts, as amended by later specifications, continue to govern

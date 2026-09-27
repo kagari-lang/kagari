@@ -1,3 +1,4 @@
+use crate::tests::native_fixtures;
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::KbcArtifact;
@@ -55,12 +56,8 @@ fn standard_mutation_resource_failures_match_across_execution_routes() {
                     let loaded = runtime.load_program("mutation.kgr", program).unwrap();
                     let mut vm = Vm::new(runtime);
                     let error = if jit {
-                        vm.execute_with_backend(
-                            &loaded,
-                            "main",
-                            &mut kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap(),
-                        )
-                        .unwrap_err()
+                        vm.execute_prepared(&loaded, "main", &native_fixtures::unsupported())
+                            .unwrap_err()
                     } else {
                         vm.execute(&loaded, "main").unwrap_err()
                     };

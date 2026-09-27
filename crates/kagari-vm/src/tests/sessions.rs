@@ -1,8 +1,10 @@
+use crate::tests::native_fixtures;
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::KbcArtifact;
 use kagari_bytecode::ModuleRef;
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
+use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
     RuntimeErrorKind, SecurityContext, host::HostFunction, value::Value,
@@ -127,9 +129,9 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 )
                 .unwrap();
             let mut vm = Vm::new(runtime);
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let prepared = native_fixtures::unsupported();
             let report = if jit {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
+                vm.execute_prepared(&loaded, "main", &prepared)
             } else {
                 vm.execute(&loaded, "main")
             }
@@ -213,9 +215,9 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 }
                 let scope = runtime.begin_execution(&loaded, options).unwrap();
                 let mut vm = Vm::new(runtime);
-                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+                let prepared = native_fixtures::unsupported();
                 let error = if jit {
-                    vm.execute_with_backend(&loaded, "main", &mut backend)
+                    vm.execute_prepared(&loaded, "main", &prepared)
                 } else {
                     vm.execute(&loaded, "main")
                 }
@@ -416,17 +418,8 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
 
 #[test]
 fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
-    use kagari_codegen::BackendFunctionInput;
-    use kagari_codegen::CodegenBackend;
-    use kagari_runtime::BackendInvocationError;
     let mut runtime = runtime(None);
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
-    let function = module
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
-        .unwrap()
-        .id;
     let loaded = runtime
         .load_program(
             "native-cancel.kgr",
@@ -436,23 +429,18 @@ fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
             },
         )
         .unwrap();
-    let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
-    let artifact = backend
-        .compile_function(BackendFunctionInput::new(&loaded, function).unwrap())
-        .unwrap();
+    let native = native_fixtures::install_i32::<42>(&runtime, &loaded, false);
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
     options.cancellation = token.clone();
     let session = runtime.begin_execution(&loaded, options).unwrap();
     token.cancel();
-    assert!(
-        matches!(backend.invoke_compiled_scalar(&artifact, &runtime),
-        Err(BackendInvocationError::RuntimeFailure(error)) if error.kind() == RuntimeErrorKind::Cancelled)
-    );
+    assert!(matches!(runtime.invoke_native_function(&native),
+        Err(NativeInvocationFailure { error: BackendInvocationError::RuntimeFailure(error), .. }) if error.kind() == RuntimeErrorKind::Cancelled));
     assert_eq!(session.counters().instruction_steps, 0);
     drop(session);
     assert_eq!(
-        backend.invoke_compiled_scalar(&artifact, &runtime).unwrap(),
+        runtime.invoke_native_function(&native).unwrap(),
         Value::I32(42)
     );
 }
@@ -493,10 +481,9 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             options.cancellation = token;
             let session = runtime.begin_execution(&loaded, options).unwrap();
             let mut vm = Vm::new(runtime);
-            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let prepared = native_fixtures::unsupported();
             let error = if jit {
-                vm.execute_with_backend(&loaded, "main", &mut backend)
-                    .unwrap_err()
+                vm.execute_prepared(&loaded, "main", &prepared).unwrap_err()
             } else {
                 vm.execute(&loaded, "main").unwrap_err()
             };
