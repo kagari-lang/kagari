@@ -12,6 +12,7 @@ use crate::module::VerifiedProgram;
 use crate::reload::ReloadValidationError;
 use crate::reload::validate_reload_artifact_candidate;
 use crate::reload::validate_reload_candidate;
+use crate::reload::validate_verified_reload_candidate;
 use kagari_bytecode as bytecode;
 use kagari_bytecode::ArtifactCompatibility;
 use kagari_bytecode::ArtifactFingerprint;
@@ -77,9 +78,12 @@ impl Runtime {
         let name = name.into();
         bytecode::validate_program_resource_limits(&bytecode)
             .map_err(ReloadValidationError::Artifact)?;
-        let dependencies = ReloadDependencySnapshot::from_program(&bytecode);
-        let candidate = self.prepare_reload(active, name, bytecode, dependencies)?;
-        self.stage_prepared_reload(candidate)
+        self.validate_loaded_module(active)
+            .map_err(ReloadValidationError::Runtime)?;
+        let latest = self.modules.latest(&active.name);
+        validate_reload_candidate(active, &name, &bytecode, latest.as_ref())?;
+        let program = VerifiedProgram::new(bytecode).map_err(ReloadValidationError::Runtime)?;
+        self.stage_reload_verified_program(active, name, program)
     }
 
     pub fn stage_reload_artifact(
@@ -100,8 +104,20 @@ impl Runtime {
             compatibility,
             latest.as_ref(),
         )?;
-        let dependencies = ReloadDependencySnapshot::from_artifact(&artifact);
-        let candidate = self.prepare_reload(active, name, artifact.program, dependencies)?;
+        let program =
+            VerifiedProgram::new(artifact.program).map_err(ReloadValidationError::Runtime)?;
+        self.stage_reload_verified_program(active, name, program)
+    }
+
+    /// Stage shared verified code without changing its immutable program identity.
+    /// Host bindings, candidate state, permissions and publication remain runtime-local.
+    pub fn stage_reload_verified_program(
+        &mut self,
+        active: &LoadedModule,
+        name: impl Into<String>,
+        program: VerifiedProgram,
+    ) -> Result<StagedReload, ReloadValidationError> {
+        let candidate = self.prepare_reload(active, name.into(), program)?;
         self.stage_prepared_reload(candidate)
     }
 
@@ -109,15 +125,14 @@ impl Runtime {
         &self,
         baseline: &LoadedModule,
         name: String,
-        bytecode: BytecodeProgram,
-        dependencies: ReloadDependencySnapshot,
+        program: VerifiedProgram,
     ) -> Result<PreparedReload, ReloadValidationError> {
         self.validate_loaded_module(baseline)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&baseline.name);
-        validate_reload_candidate(baseline, &name, &bytecode, latest.as_ref())?;
-        let bindings = bytecode
-            .modules
+        validate_verified_reload_candidate(baseline, &name, &program, latest.as_ref())?;
+        let bindings = program
+            .modules()
             .iter()
             .map(|module| self.host.link_module(module, &self.types))
             .collect::<Result<Vec<_>, _>>()
@@ -125,9 +140,8 @@ impl Runtime {
         Ok(PreparedReload {
             baseline: baseline.clone(),
             name,
-            bytecode,
+            program,
             bindings,
-            dependencies,
         })
     }
 
@@ -138,15 +152,14 @@ impl Runtime {
         let PreparedReload {
             baseline,
             name,
-            bytecode,
+            program,
             bindings,
-            dependencies,
         } = candidate;
         self.validate_loaded_module(&baseline)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&baseline.name);
-        validate_reload_candidate(&baseline, &name, &bytecode, latest.as_ref())?;
-        for (module, prepared) in bytecode.modules.iter().zip(&bindings) {
+        validate_verified_reload_candidate(&baseline, &name, &program, latest.as_ref())?;
+        for (module, prepared) in program.modules().iter().zip(&bindings) {
             let current = self
                 .host
                 .link_module(module, &self.types)
@@ -165,13 +178,12 @@ impl Runtime {
             .map_err(ReloadValidationError::Runtime)?;
         let program = self
             .modules
-            .stage_program(name, epoch, bytecode, self.host.owner(), bindings)
+            .stage_verified_program(name, epoch, program, self.host.owner(), bindings)
             .map_err(ReloadValidationError::Runtime)?;
         Ok(StagedReload {
             initialization_error: Default::default(),
             baseline,
             program,
-            dependencies,
         })
     }
 
@@ -186,7 +198,6 @@ impl Runtime {
             initialization_error: _,
             baseline,
             program,
-            dependencies,
         } = candidate;
         self.validate_loaded_module(&baseline)
             .map_err(ReloadValidationError::Runtime)?;
@@ -240,6 +251,7 @@ impl Runtime {
                 ));
             }
         }
+        let dependencies = program.module().verified_program().dependencies().clone();
         let module = program.publish();
         self.invalidate_execution_artifacts_for_reload(&module, dependencies);
         Ok(module)

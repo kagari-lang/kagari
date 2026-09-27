@@ -49,7 +49,6 @@ pub mod value;
 pub mod value_semantics;
 
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_bytecode::BytecodeProgram;
 
 pub use backend::BackendInvocationError;
 pub use backend::native::{InstalledNativeFunction, NativeInvocationFailure};
@@ -109,9 +108,8 @@ use value::Value;
 struct PreparedReload {
     baseline: LoadedModule,
     name: String,
-    bytecode: BytecodeProgram,
+    program: VerifiedProgram,
     bindings: Vec<module::LinkedHostBindings>,
-    dependencies: ReloadDependencySnapshot,
 }
 
 /// Installed candidate whose entry has not been activated.
@@ -120,7 +118,6 @@ pub struct StagedReload {
     initialization_error: RefCell<Option<RuntimeError>>,
     baseline: LoadedModule,
     program: module::StagedProgram,
-    dependencies: ReloadDependencySnapshot,
 }
 
 impl StagedReload {

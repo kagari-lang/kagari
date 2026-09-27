@@ -351,3 +351,97 @@ fn policy_rejection_and_pre_cancelled_requests_do_not_compile() {
     ));
     assert_eq!(backend.calls, 0);
 }
+
+#[test]
+fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
+    let engine = KagariEngine::default();
+    let old_program = prepare(&engine, NativeInputExport::PortableMir);
+    let candidate = prepare(&engine, NativeInputExport::PortableMir);
+    let context = context();
+    let mut runtime = engine.runtime(context.clone());
+    let old = runtime
+        .load_program(&old_program, Default::default())
+        .unwrap();
+    let mut backend = Backend::default();
+    let old_native = runtime
+        .prepare_native(
+            &old_program,
+            &old,
+            "main",
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    let mut other_runtime = engine.runtime(context.clone());
+    let other = other_runtime
+        .load_program(&candidate, Default::default())
+        .unwrap();
+    let other_native = other_runtime
+        .prepare_native(
+            &candidate,
+            &other,
+            "main",
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(backend.calls, 2);
+    let published = runtime
+        .reload_program(&old, &candidate, Default::default())
+        .unwrap();
+    assert!(
+        candidate
+            .bytecode()
+            .same_version(published.verified_program())
+    );
+    assert!(
+        !old_program
+            .bytecode()
+            .same_version(published.verified_program())
+    );
+    let new_native = runtime
+        .prepare_native(
+            &candidate,
+            &published,
+            "main",
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(backend.calls, 2);
+    assert!(matches!(
+        runtime.prepare_native(
+            &old_program,
+            &published,
+            "main",
+            &mut backend,
+            &Default::default()
+        ),
+        Err(NativePreparationError::WrongVersion)
+    ));
+    assert!(
+        runtime
+            .execute_prepared(&published, "main", &[], &context, &old_native)
+            .is_err()
+    );
+    for (module, native) in [(&old, &old_native), (&published, &new_native)] {
+        assert_eq!(
+            runtime
+                .execute_prepared(module, "main", &[], &context, native)
+                .unwrap()
+                .jit
+                .unwrap()
+                .status,
+            JitExecutionStatus::Native
+        );
+    }
+    assert_eq!(
+        other_runtime
+            .execute_prepared(&other, "main", &[], &context, &other_native)
+            .unwrap()
+            .jit
+            .unwrap()
+            .status,
+        JitExecutionStatus::Native
+    );
+}

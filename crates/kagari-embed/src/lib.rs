@@ -1,7 +1,6 @@
 use kagari_bytecode::ArtifactBuildOptions;
 pub mod program;
 use crate::program::PreparedProgram;
-use kagari_bytecode::ArtifactCompatibility;
 use kagari_bytecode::ArtifactValidationError;
 use kagari_bytecode::BytecodeInstruction;
 use kagari_bytecode::BytecodeModule;
@@ -53,7 +52,6 @@ use kagari_runtime::SecurityContext;
 use kagari_runtime::TypeId;
 use kagari_runtime::host::HostFunction;
 use kagari_runtime::value::Value;
-use kagari_vm::ReloadError;
 use kagari_vm::{ExecutionReport, PreparedNativeEntry, Vm, VmError};
 use smallvec::SmallVec;
 use std::cell::RefCell;
@@ -416,15 +414,19 @@ impl KagariRuntime {
     pub fn reload_program(
         &mut self,
         previous: &LoadedModule,
-        artifact: BytecodeArtifact,
+        program: &PreparedProgram,
         options: ReloadOptions,
     ) -> ReloadResult<LoadedModule> {
         let module_name = options.module_name.unwrap_or_else(|| previous.name.clone());
+        let candidate = self
+            .vm
+            .runtime_mut()
+            .stage_reload_verified_program(previous, module_name, program.bytecode().clone())
+            .map_err(EmbeddingError::reload_validation)?;
         self.vm
-            .reload_artifact(previous, module_name, artifact, &options.compatibility)
-            .map_err(|error| match error {
-                ReloadError::Validation(error) => EmbeddingError::reload_validation(error),
-            })
+            .runtime_mut()
+            .publish_staged_reload(candidate)
+            .map_err(EmbeddingError::reload_validation)
     }
 
     pub fn execute(
@@ -544,7 +546,6 @@ pub struct LoadOptions {
 #[derive(Debug, Clone, Default)]
 pub struct ReloadOptions {
     pub module_name: Option<String>,
-    pub compatibility: ArtifactCompatibility,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

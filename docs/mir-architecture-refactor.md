@@ -452,7 +452,7 @@ verified MIR analyses and frontend-free bytecode lowering pass their scoped chec
 Runtime, VM and SDK libraries now build at their intended execution boundary.
 The workspace remains intentionally broken in legacy VM/backend tests, SDK/CLI
 native callers and the A04 backend implementation. Shared SDK preparation and native
-caching now build; resume A03 reload preparation, feature separation and caller
+caching and prepared reload now build; resume A03 feature separation and caller
 migration. A05 final acceptance has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
@@ -470,7 +470,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | Runtime installation, VM prepared execution, portable MIR/v103 artifacts and shared SDK preparation/cache | 401 core tests + one seal doc test; eight SDK harness tests; scoped clippy, structure, fmt and diff pass | Reload preparation, source/native feature separation, legacy registry reconciliation and caller migration remain; Cranelift library carries 22 A04 errors |
+| A03 | Runtime installation, VM prepared execution, portable MIR/v103 artifacts and shared SDK preparation/cache | 401 core tests + one seal doc test at prior checkpoint; ten SDK harness tests; scoped clippy, structure, fmt and diff pass | Source/native feature separation, legacy registry reconciliation and caller migration remain; Cranelift library carries 22 A04 errors |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1659,6 +1659,57 @@ A03 remains open. Continue prepared reload/publication so fresh versions keep th
 same shared cache contract, then source/native feature isolation and direct caller
 migration. Do not restore compilation inside VM or trust arbitrary safe backend
 products. A04 actual machine-code migration and A05 full gates are still required.
+
+### A03 checkpoint: preserve prepared versions across reload (2026-09-28)
+
+Runtime reload preparation/staging now carries the immutable `VerifiedProgram`
+through publication instead of rebuilding a seal from raw bytecode. Added
+`stage_reload_verified_program` for shared checked input; raw bytecode and artifact
+entrypoints still validate their untrusted inputs before entering that same path.
+Reload target checks and ABI/path/dependency-closure checks share focused handlers,
+so verified input skips repeated bytecode validation without skipping runtime
+ownership, active-version, host-binding, admission or publication checks.
+
+Removed the obsolete internal raw `ModuleStore::stage_program` path and updated
+storage fixtures to construct checked programs explicitly. Removed separately
+stored dependency snapshots from prepared/staged reload state. Publication derives
+its invalidation snapshot from the pinned program before changing the active entry.
+Candidate cleanup and restricted candidate-session validation remain unchanged.
+
+SDK reload now accepts `&PreparedProgram`, matching initial load. Artifact
+compatibility is checked during preparation; `ReloadOptions` only selects a module
+name. Publication keeps the exact shared version identity, allowing another
+runtime's cached compilation product to be installed without recompiling. Old
+installed functions retain their old program and cannot run as the new version.
+Updated the activation specification to distinguish shared compilation products
+from runtime-owned mutable state and installation handles.
+
+Validation:
+
+- `cargo test -p kagari-runtime`: 195 tests and one seal doc test pass, including
+  existing reload ABI, stale publication, resource failure, host binding, candidate
+  cleanup and invalidation cases. Storage fixtures now use verified input without
+  removing behavioral assertions.
+- `cargo test -p kagari-vm --test prepared_execution`: eight tests pass, including
+  optimized/unoptimized execution and logical budget parity.
+- The previously documented SDK Cargo harness now passes ten tests. Added cases
+  prove candidate code cached in another runtime is reused after reload, old native
+  entries remain callable only with their old versions, and ABI/stale rejections
+  preserve the active entry and both versions' interpreter results. A test's first
+  source-name lookup was corrected to use the published runtime name, and its
+  rejection assertions now check specific reload error codes.
+- Runtime all-target clippy, SDK library clippy and SDK harness all-target clippy
+  with `-D warnings`: pass. Structure: 501 Rust files, zero violations/exceptions;
+  formatting and diff checks pass. Reviewed seal ownership, validation ordering,
+  shared contract checks, snapshot timing, imports and raw staging removal.
+- Logs: `target/a03-reload-runtime-all.log`, `target/a03-reload-vm-tests.log`,
+  `target/a03-reload-sdk-tests.log` and `target/a03-reload-*-clippy.log`.
+
+A03 remains open for feature isolation, legacy descriptor registry reconciliation,
+and migration of SDK/CLI/examples/tests to prepared load/reload/native execution.
+Old callers still use artifact arguments and compatibility fields; migrate them
+directly, without compatibility adapters. The carried 22 Cranelift errors remain
+A04 work and were not rerun unchanged. A05 full acceptance is still pending.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

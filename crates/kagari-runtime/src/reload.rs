@@ -15,7 +15,7 @@ use kagari_bytecode::verify_program;
 
 use crate::{
     error::RuntimeError,
-    module::{LoadedModule, ModuleId},
+    module::{LoadedModule, ModuleId, VerifiedProgram},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -87,6 +87,34 @@ pub fn validate_reload_candidate(
     candidate: &BytecodeProgram,
     active_latest: Option<&LoadedModule>,
 ) -> Result<(), ReloadValidationError> {
+    validate_reload_target(active, candidate_name, active_latest)?;
+    validate_load_candidate(candidate)?;
+    validate_reload_contracts(
+        active,
+        &candidate.modules[candidate.root.index()],
+        candidate.modules.iter(),
+    )
+}
+
+pub(crate) fn validate_verified_reload_candidate(
+    active: &LoadedModule,
+    candidate_name: &str,
+    candidate: &VerifiedProgram,
+    active_latest: Option<&LoadedModule>,
+) -> Result<(), ReloadValidationError> {
+    validate_reload_target(active, candidate_name, active_latest)?;
+    validate_reload_contracts(
+        active,
+        &candidate.modules()[candidate.root().index()],
+        candidate.modules().iter().map(|module| module.as_ref()),
+    )
+}
+
+fn validate_reload_target(
+    active: &LoadedModule,
+    candidate_name: &str,
+    active_latest: Option<&LoadedModule>,
+) -> Result<(), ReloadValidationError> {
     if candidate_name != active.name {
         return Err(ReloadValidationError::ModuleIdentityMismatch {
             expected: active.name.clone(),
@@ -114,8 +142,14 @@ pub fn validate_reload_candidate(
         });
     }
 
-    validate_load_candidate(candidate)?;
-    let root = &candidate.modules[candidate.root.index()];
+    Ok(())
+}
+
+fn validate_reload_contracts<'a>(
+    active: &LoadedModule,
+    root: &BytecodeModule,
+    modules: impl ExactSizeIterator<Item = &'a BytecodeModule>,
+) -> Result<(), ReloadValidationError> {
     if active.bytecode.identity != root.identity {
         return Err(ReloadValidationError::ModuleIdentityMismatch {
             expected: active.bytecode.identity.to_string(),
@@ -126,10 +160,10 @@ pub fn validate_reload_candidate(
         .members()
         .map(|module| (module.bytecode.identity.clone(), module))
         .collect::<BTreeMap<_, _>>();
-    if current.len() != candidate.modules.len() {
+    if current.len() != modules.len() {
         return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
     }
-    for module in &candidate.modules {
+    for module in modules {
         let previous = current
             .get(&module.identity)
             .ok_or(ReloadValidationError::PublicAbiFingerprintMismatch)?;

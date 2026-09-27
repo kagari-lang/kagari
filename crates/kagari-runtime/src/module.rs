@@ -451,23 +451,6 @@ impl ModuleStore {
             .flat_map(|instance| instance.module_slots.iter().cloned())
             .collect()
     }
-    pub(crate) fn stage_program(
-        &self,
-        name: impl Into<String>,
-        epoch: ModuleEpoch,
-        bytecode: BytecodeProgram,
-        registry_owner: HostRegistryId,
-        host_bindings: Vec<LinkedHostBindings>,
-    ) -> Result<StagedProgram, RuntimeError> {
-        self.stage_verified_program(
-            name,
-            epoch,
-            VerifiedProgram::from_verified(bytecode),
-            registry_owner,
-            host_bindings,
-        )
-    }
-
     pub(crate) fn stage_verified_program(
         &self,
         name: impl Into<String>,
@@ -760,13 +743,14 @@ mod tests {
             root.identity.path.push("root".into());
             root.dependencies.push(ModuleRef::new(0));
             store
-                .stage_program(
+                .stage_verified_program(
                     "game.player",
                     ModuleEpoch(epoch),
-                    BytecodeProgram {
+                    VerifiedProgram::new(BytecodeProgram {
                         root: ModuleRef::new(1),
                         modules: vec![dependency, root],
-                    },
+                    })
+                    .unwrap(),
                     crate::host::HostRegistryId::default(),
                     vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
                 )
@@ -834,13 +818,14 @@ mod tests {
         }));
         let store = ModuleStore::new(resources.clone());
         let stage = |epoch| {
-            store.stage_program(
+            store.stage_verified_program(
                 "candidate",
                 ModuleEpoch(epoch),
-                BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
@@ -867,39 +852,42 @@ mod tests {
     fn assigns_stable_module_ids_across_epochs() {
         let store = ModuleStore::default();
         let first = store
-            .stage_program(
+            .stage_verified_program(
                 "game.player",
                 ModuleEpoch(1),
-                kagari_bytecode::BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
             .publish();
         let second = store
-            .stage_program(
+            .stage_verified_program(
                 "game.player",
                 ModuleEpoch(2),
-                kagari_bytecode::BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
             .publish();
         let other = store
-            .stage_program(
+            .stage_verified_program(
                 "game.world",
                 ModuleEpoch(1),
-                kagari_bytecode::BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
@@ -918,13 +906,14 @@ mod tests {
     fn snapshot_during_mutable_instance_borrow_does_not_panic() {
         let store = ModuleStore::default();
         let module = store
-            .stage_program(
+            .stage_verified_program(
                 "game.snapshot",
                 ModuleEpoch(1),
-                kagari_bytecode::BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
@@ -940,26 +929,28 @@ mod tests {
     fn keeps_latest_and_retained_old_epochs_reachable() {
         let store = ModuleStore::default();
         let first = store
-            .stage_program(
+            .stage_verified_program(
                 "game.player",
                 ModuleEpoch(1),
-                kagari_bytecode::BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )
             .unwrap()
             .publish();
         let second = store
-            .stage_program(
+            .stage_verified_program(
                 "game.player",
                 ModuleEpoch(2),
-                kagari_bytecode::BytecodeProgram {
+                VerifiedProgram::new(BytecodeProgram {
                     root: kagari_bytecode::ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
-                },
+                })
+                .unwrap(),
                 crate::host::HostRegistryId::default(),
                 vec![LinkedHostBindings::default()],
             )

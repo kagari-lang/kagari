@@ -13,6 +13,7 @@ use kagari_bytecode::ArtifactCompatibility;
 use kagari_bytecode::BytecodeFunction;
 use kagari_bytecode::BytecodeInstruction;
 use kagari_bytecode::BytecodeModule;
+use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::ConstantOperand;
 use kagari_bytecode::DependencyFingerprint;
 use kagari_bytecode::FunctionMetadata;
@@ -440,8 +441,7 @@ fn staged_reload_failure_and_stale_publication_preserve_the_active_entry() {
             .prepare_reload(
                 &baseline,
                 "reloadable".into(),
-                artifact.program.clone(),
-                ReloadDependencySnapshot::from_artifact(&artifact),
+                VerifiedProgram::new(artifact.program.clone()).unwrap(),
             )
             .unwrap();
         runtime.stage_prepared_reload(prepared).unwrap()
@@ -498,8 +498,7 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
             .prepare_reload(
                 &baseline,
                 "reloadable".into(),
-                artifact.program.clone(),
-                ReloadDependencySnapshot::from_artifact(&artifact),
+                VerifiedProgram::new(artifact.program.clone()).unwrap(),
             )
             .unwrap()
     };
