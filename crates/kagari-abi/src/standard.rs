@@ -1,6 +1,8 @@
 pub mod application;
 pub(crate) mod contracts;
 pub mod declarations;
+pub mod implementation;
+pub mod intrinsic;
 pub(crate) mod native;
 mod resolve;
 pub mod surface;

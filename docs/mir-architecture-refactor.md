@@ -915,6 +915,59 @@ and associated bounds. Preserve ownership, uniqueness, cancellation and proof
 limits. The previous MIR compilation errors are resolved; MIR analysis seals and
 concrete source lowering remain A02 work. A03-A05 acceptance remains outstanding.
 
+### A01 checkpoint: portable standard implementation proofs (2026-09-28)
+
+Added portable matching for engine-owned standard implementation descriptors.
+Receiver matching binds only declared parameters, retains invariant element types
+and permits readonly storage only for declared readonly capabilities. Applied
+matching also binds trait-only parameters, rechecks repeated occurrences and
+compares requested associated outputs. Matching and proving remain separate:
+instantiated declaration bounds are returned as explicit portable obligations.
+This retains Eq/Hash requirements on collection keys and nested FromIterator
+requirements on Option/Result payloads rather than accepting a matching shape as
+a complete proof.
+
+Portable intrinsic rules now describe numeric and callable/operator outputs,
+parsing and checked conversion errors, reverse conversion obligations, generated
+collection/iteration contracts and Iterator's identity Iterable obligation.
+Associated-output lookup uses applied trait inputs, including parameters absent
+from the receiver. Reverse conversion preserves the canonical Error identity;
+identity Iterable validates its Iter binding and carries the requested Item into
+the required Iterator contract. Bounded type operations and cancellation precede
+artifact-supplied type comparisons and expansion.
+
+Native interface capability validation now consumes these descriptor/operation
+contracts, replacing its separate hardcoded storage/output matrix. Its documented
+local responsibility remains dispatch shape and outputs; the existing linked
+validator still owns nominal key proofs against the dependency closure. No HIR
+dependency or partial linked-proof success was introduced.
+
+Validation:
+
+- `cargo test -p kagari-abi -p kagari-hir -p kagari-mir`: 32 ABI and 353 HIR unit
+  tests plus both MIR seal doctests pass. After tightening parsing-output arity
+  and adding trait-only/repeated-parameter cases, `cargo test -p kagari-abi` passes
+  all 33 tests. The seven added cases cover generated implementations, declared
+  bounds, associated-output corruption, readonly access, RangeFull's trait-only
+  parameter, conflicting Result error inputs, operators/callables, reversed
+  conversions, lifted collection obligations and identity iteration/cancellation.
+- Targeted ABI/HIR/MIR all-target clippy passes with warnings denied; final ABI
+  clippy also passes after the last changes. Structure check covers 464 Rust
+  files, zero findings/exceptions. Production imports, ownership, public helper
+  boundaries and bounded matching were reviewed. Formatting and diff checks pass.
+  Test inventory retains every prior case and contains 1,340 test functions.
+- The previous workspace failure remains carried: bytecode's HIR-based linked
+  catalog (31 library/test-target errors, A01) and the old Cranelift implementation
+  (20 library / 44 test-target errors, A04). These consumers were not changed in
+  this checkpoint, so the unchanged workspace failure was not repeated. Full
+  workspace tests/clippy remain unverified.
+
+A01 remains open. The next unit must consume these explicit intrinsic obligations
+in the complete portable linked catalog, including script and host matching,
+nominal override ownership, uniqueness, enum structural defaults, associated
+family normalization and generic assumptions. Intrinsic matching alone does not
+complete linked validation. A02-A05 work and final acceptance remain outstanding.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

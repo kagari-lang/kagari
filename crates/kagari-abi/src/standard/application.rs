@@ -1,9 +1,9 @@
 //! Bind generated standard declarations to known executable operand types.
-use crate::standard::declarations::ApiType;
+use crate::standard::declarations::{ApiBound, ApiType};
 use crate::standard::resolve::Arguments;
 use crate::standard::traits::StandardTrait;
-use crate::types::AbiType;
 use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError};
+use crate::types::{AbiType, NominalAbiType};
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
 use std::collections::BTreeSet;
@@ -116,6 +116,27 @@ impl StandardArguments {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn bind_receiver(
+        &mut self,
+        receiver: &AbiType,
+        cancel: &CancellationToken,
+    ) -> Result<(), TypeTransformError> {
+        self.values
+            .insert("Self", TypeSubstitution::default().apply(receiver, cancel)?);
+        Ok(())
+    }
+
+    pub(crate) fn resolve_bound(
+        &self,
+        template: &ApiBound,
+        cancel: &CancellationToken,
+    ) -> Result<NominalAbiType, TypeTransformError> {
+        let resolved = template
+            .resolve(&self.values)
+            .ok_or(TypeTransformError::InvalidContract)?;
+        TypeSubstitution::default().apply_nominal(&resolved, cancel)
     }
 
     pub fn resolve(

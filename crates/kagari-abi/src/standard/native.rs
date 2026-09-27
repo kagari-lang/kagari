@@ -1,12 +1,13 @@
 //! Concrete capabilities implemented by the engine's native storage families.
-use crate::scalar::BuiltinType;
+use crate::standard::surface::STANDARD_IMPLEMENTATIONS;
 use crate::standard::traits::StandardTrait;
+use crate::standard::{implementation, intrinsic};
 use crate::types::{AbiType, NominalAbiType};
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::{DefinitionId, associated_type_id};
-use kagari_common::range::RangeKind;
-use std::collections::BTreeMap;
+use kagari_common::cancellation::CancellationToken;
 
+/// Match native dispatch capability and associated outputs. The linked verifier
+/// separately proves collection key bounds against the complete implementation
+/// catalog; local capability matching cannot resolve nominal Eq/Hash overrides.
 pub(crate) fn interface_applies(interface: &NominalAbiType, receiver: &AbiType) -> bool {
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
@@ -14,87 +15,35 @@ pub(crate) fn interface_applies(interface: &NominalAbiType, receiver: &AbiType) 
     if !kind.dynamic() || matches!(receiver, AbiType::Trait(_)) {
         return false;
     }
-    if kind == StandardTrait::Iterable {
-        return interface.arguments.is_empty()
-            && iteration_outputs(&interface.declaration, receiver).is_some_and(|outputs| {
-                interface
-                    .associated_types
-                    .iter()
-                    .all(|(member, ty)| outputs.get(member) == Some(ty))
-            });
-    }
+    let cancel = CancellationToken::default();
     if kind == StandardTrait::Index {
-        let AbiType::Array(element, _) = receiver else {
+        return intrinsic::requirements(interface, receiver, &cancel)
+            .is_ok_and(|requirements| requirements == Some(vec![]));
+    }
+    if kind == StandardTrait::Iterable && matches!(receiver, AbiType::Iter(_)) {
+        let Some(iterator) = intrinsic::identity_iterator(interface, receiver) else {
             return false;
         };
-        return matches!(interface.arguments.as_slice(), [AbiType::Builtin(index)] if index.integer_layout().is_some())
-            && interface.associated_types.iter().all(|(member, ty)| {
-                *member == associated_type_id(&interface.declaration, "Output")
-                    && ty == element.as_ref()
-            });
+        return intrinsic::requirements(&iterator, receiver, &cancel)
+            .is_ok_and(|requirements| requirements == Some(vec![]));
     }
-    if !interface.associated_types.is_empty() {
-        return false;
-    }
-    match (kind, receiver, interface.arguments.as_slice()) {
-        (
-            StandardTrait::List | StandardTrait::MutableList,
-            AbiType::Array(element, access),
-            [item],
-        ) => {
-            element.as_ref() == item
-                && (kind == StandardTrait::List || *access == CollectionAccess::Mutable)
-        }
-        (StandardTrait::Set | StandardTrait::MutableSet, AbiType::Set(element, access), [item]) => {
-            element.as_ref() == item
-                && (kind == StandardTrait::Set || *access == CollectionAccess::Mutable)
-        }
-        (
-            StandardTrait::Map | StandardTrait::MutableMap,
-            AbiType::Map { key, value, access },
-            [k, v],
-        ) => {
-            key.as_ref() == k
-                && value.as_ref() == v
-                && (kind == StandardTrait::Map || *access == CollectionAccess::Mutable)
-        }
-        _ => false,
-    }
-}
-
-fn iteration_outputs(
-    owner: &DefinitionId,
-    receiver: &AbiType,
-) -> Option<BTreeMap<DefinitionId, AbiType>> {
-    let item = match receiver {
-        AbiType::Array(item, _)
-        | AbiType::Set(item, _)
-        | AbiType::Iter(item)
-        | AbiType::Range(item, RangeKind::Exclusive | RangeKind::Inclusive | RangeKind::From) => {
-            item.as_ref().clone()
-        }
-        AbiType::Map { key, value, .. } => {
-            AbiType::Tuple(vec![key.as_ref().clone(), value.as_ref().clone()])
-        }
-        AbiType::Builtin(BuiltinType::String) => receiver.clone(),
-        _ => return None,
-    };
-    Some(
-        [
-            (associated_type_id(owner, "Item"), item.clone()),
-            (
-                associated_type_id(owner, "Iter"),
-                AbiType::Iter(Box::new(item)),
-            ),
-        ]
-        .into(),
-    )
+    STANDARD_IMPLEMENTATIONS
+        .iter()
+        .filter(|declaration| declaration.interface == kind.name())
+        .any(|declaration| {
+            implementation::match_application(declaration, interface, receiver, &cancel)
+                .is_ok_and(|bindings| bindings.is_some())
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scalar::BuiltinType;
     use crate::standard::traits;
+    use kagari_common::collection::CollectionAccess;
+    use kagari_common::identity::associated_type_id;
+    use std::collections::BTreeMap;
 
     fn applied(kind: StandardTrait, arguments: Vec<AbiType>) -> NominalAbiType {
         NominalAbiType {
@@ -130,7 +79,18 @@ mod tests {
         let item = AbiType::Builtin(BuiltinType::String);
         let storage = AbiType::Array(Box::new(item.clone()), CollectionAccess::ReadOnly);
         let mut iterable = applied(StandardTrait::Iterable, vec![]);
-        iterable.associated_types = iteration_outputs(&iterable.declaration, &storage).unwrap();
+        for name in ["Item", "Iter"] {
+            let member = associated_type_id(&iterable.declaration, name);
+            let value = intrinsic::associated_output(
+                &iterable,
+                &storage,
+                &member,
+                &CancellationToken::default(),
+            )
+            .unwrap()
+            .unwrap();
+            iterable.associated_types.insert(member, value);
+        }
         assert!(interface_applies(&iterable, &storage));
         iterable.associated_types.insert(
             associated_type_id(&iterable.declaration, "Item"),
