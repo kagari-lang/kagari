@@ -201,6 +201,36 @@ impl<'a> Parser<'a> {
         loop {
             self.bump_trivia();
             match self.current_kind() {
+                Some(TokenKind::ColonColon)
+                    if self.nth_nontrivia_kind(1) == Some(TokenKind::Lt) =>
+                {
+                    self.bump();
+                    self.bump_trivia();
+                    let mut cursor = self.cursor();
+                    let mut depth = 0usize;
+                    while let Some(kind) = self.nth_nontrivia_kind_from(&mut cursor) {
+                        match kind {
+                            TokenKind::Lt => depth += 1,
+                            TokenKind::Gt => {
+                                depth = depth.saturating_sub(1);
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            TokenKind::Eq if depth == 1 => {
+                                self.error_here(DiagnosticKind::ExpectedType);
+                                break;
+                            }
+                            TokenKind::Eof => break,
+                            _ => {}
+                        }
+                    }
+                    self.parse_generic_arg_list();
+                    self.bump_trivia();
+                    self.parse_call_suffix();
+                    self.start_node_at(checkpoint, SyntaxKind::CallExpr);
+                    self.finish_node();
+                }
                 Some(TokenKind::LParen) => {
                     self.parse_call_suffix();
                     self.start_node_at(checkpoint, SyntaxKind::CallExpr);

@@ -46,6 +46,7 @@ pub enum ExprKind {
     Call {
         callee: ExprId,
         args: ExprBuffer,
+        type_args: Option<super::TypeBuffer>,
     },
     Field {
         receiver: ExprId,

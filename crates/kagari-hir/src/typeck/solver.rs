@@ -8,12 +8,21 @@ use crate::{hir::ExprId, types::TypeId};
 #[derive(Default)]
 pub(super) struct Solver {
     variables: HashMap<(ExprId, usize), u32>,
+    holes: HashMap<crate::hir::TypeRefId, u32>,
     bindings: Vec<Option<TypeId>>,
     numeric: HashMap<u32, crate::types::BuiltinType>,
     pub revision: usize,
 }
 
 impl Solver {
+    pub fn annotation_hole(&mut self, site: crate::hir::TypeRefId) -> TypeId {
+        let next = self.bindings.len() as u32;
+        let id = *self.holes.entry(site).or_insert_with(|| {
+            self.bindings.push(None);
+            next
+        });
+        self.resolve(&TypeId::Inference(id))
+    }
     pub fn numeric_variable(
         &mut self,
         site: ExprId,

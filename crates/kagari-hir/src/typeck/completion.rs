@@ -322,7 +322,7 @@ impl<'a> Completion<'a> {
                             ExprKind::Range { start, end, .. } => {
                                 Box::new([Node::Expr(*start), Node::Expr(*end)].into_iter())
                             }
-                            ExprKind::Call { callee, args } => Box::new(
+                            ExprKind::Call { callee, args, .. } => Box::new(
                                 std::iter::once(Node::Expr(*callee))
                                     .chain(args.iter().copied().map(Node::Expr)),
                             ),

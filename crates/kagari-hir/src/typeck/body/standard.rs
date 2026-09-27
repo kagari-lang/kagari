@@ -54,7 +54,7 @@ impl BodyChecker<'_> {
     ) -> Option<TypeId> {
         let (callee, args) = match &self.lowered.module.expr(site).kind {
             ExprKind::Name { .. } => (site, Vec::new()),
-            ExprKind::Call { callee, args } => (*callee, args.to_vec()),
+            ExprKind::Call { callee, args, .. } => (*callee, args.to_vec()),
             _ => return None,
         };
         let Some(ResolvedName::StandardVariant(variant)) = self.names.expr_resolution(callee)
@@ -86,6 +86,24 @@ impl BodyChecker<'_> {
                 .collect(),
         };
         let arity = usize::from(variant.payload().is_some());
+        if let Some(arguments) = self.explicit_arguments.get(&callee) {
+            self.used_explicit_arguments.insert(callee);
+            if arguments.len() != types.len() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                        type_name: format!(
+                            "expected {} type arguments, found {}",
+                            types.len(),
+                            arguments.len()
+                        ),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+            }
+            for (ty, explicit) in types.iter_mut().zip(arguments) {
+                *ty = explicit.clone();
+            }
+        }
         if site != callee && arity == 0 {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidCallTarget {

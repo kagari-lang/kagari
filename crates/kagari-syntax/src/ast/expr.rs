@@ -281,6 +281,9 @@ impl RangeExpr {
 }
 
 impl CallExpr {
+    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+        support::child(self.syntax())
+    }
     pub fn callee(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }

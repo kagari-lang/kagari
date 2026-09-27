@@ -1,0 +1,35 @@
+struct Marker<T> {
+    val value: i32
+}
+
+fn consume<T>(marker: Marker<T>, seed: T) -> i32 {
+    marker.value
+}
+
+fn identity<T>(value: T) -> T {
+    value
+}
+
+fn main() -> i32 {
+    // Later uses determine the element type without changing evaluation order.
+    val values = [];
+    values.push(consume(Marker { value: 20 }, true));
+    values.push(22);
+
+    // Local holes and explicit call arguments share the same body constraints.
+    val readonly: Array<_> = values;
+    val collected = readonly.iter().collect::<Array<i32>>();
+    val checked: Result<Array<i32>, String> = collected.iter().map(|x| Ok(x)).collect();
+    std::debug::assert(checked.is_ok(), "expected result constrains callback");
+
+    // Suffixes select primitive types; unsuffixed literals use context first.
+    val byte: u8 = 255;
+    val minimum = -128i8;
+    val maximum = 18446744073709551615u64;
+    val precision: f32 = 1.25;
+    std::debug::assert_eq(byte, 0xff_u8, "integer suffix");
+    std::debug::assert_eq(minimum, -128i8, "signed minimum");
+    std::debug::assert(maximum > 0u64, "full unsigned range");
+    std::debug::assert_eq(precision, 1.25f32, "float context");
+    identity::<_>(collected.iter().sum::<i32>())
+}

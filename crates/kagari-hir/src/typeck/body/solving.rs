@@ -1,6 +1,135 @@
 use super::*;
 
 impl BodyChecker<'_> {
+    pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {
+        if env.exprs.contains_key(&site) {
+            return;
+        }
+        let ExprKind::Call {
+            callee,
+            type_args: Some(types),
+            ..
+        } = &self.lowered.module.expr(site).kind
+        else {
+            return;
+        };
+        let callee = *callee;
+        let mut arguments = Vec::new();
+        for ty in types {
+            self.prepare_annotation_holes(*ty);
+            let resolved = resolve_type_in(
+                &self.lowered.module,
+                *ty,
+                TypeContext {
+                    declarations: self.declarations,
+                    generics: &env.generics,
+                    self_type: None,
+                    implementation: None,
+                },
+                self.type_table,
+                self.cancel,
+            );
+            if !self.solving && resolved.is_unresolved() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                        type_name: display_type(&self.lowered.module, *ty),
+                    })
+                    .with_span(self.lowered.source_map.type_span(*ty)),
+                );
+            }
+            arguments.push(self.aggregates.normalize_type(&resolved));
+        }
+        self.explicit_arguments.insert(callee, arguments);
+        self.used_explicit_arguments.remove(&callee);
+    }
+
+    pub(super) fn seed_explicit_arguments(
+        &mut self,
+        site: ExprId,
+        parameters: &[crate::types::GenericParameterType],
+        substitution: &mut crate::types::TypeSubstitution,
+    ) {
+        let Some(arguments) = self.explicit_arguments.get(&site) else {
+            return;
+        };
+        self.used_explicit_arguments.insert(site);
+        if arguments.is_empty() || arguments.len() != parameters.len() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                    type_name: format!(
+                        "expected {} type arguments, found {}",
+                        parameters.len(),
+                        arguments.len()
+                    ),
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
+        }
+        substitution.extend(parameters.iter().cloned().zip(arguments.iter().cloned()));
+    }
+
+    pub(super) fn check_call_type_arguments_used(&mut self, site: ExprId) {
+        let ExprKind::Call {
+            callee,
+            type_args: Some(_),
+            ..
+        } = &self.lowered.module.expr(site).kind
+        else {
+            return;
+        };
+        if !self.used_explicit_arguments.contains(callee) {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                    type_name: "this call does not accept explicit type arguments".into(),
+                })
+                .with_span(self.lowered.source_map.expr_span(site)),
+            );
+        }
+    }
+
+    pub(super) fn prepare_annotation_holes(&mut self, ty: crate::hir::TypeRefId) {
+        use crate::hir::TypeKind;
+        let mut pending = vec![ty];
+        while let Some(ty) = pending.pop() {
+            if self.cancel.check().is_err() {
+                return;
+            }
+            match &self.lowered.module.type_ref(ty).kind {
+                TypeKind::Named(name) if name == "_" => {
+                    let inferred = self.solver.annotation_hole(ty);
+                    self.type_table.inference_holes.insert(
+                        ty,
+                        if self.solving {
+                            inferred
+                        } else {
+                            inferred.diagnose_unknowns()
+                        },
+                    );
+                }
+                TypeKind::Generic { args, bindings, .. } => {
+                    pending.extend(args);
+                    pending.extend(bindings.iter().map(|(_, ty)| ty));
+                }
+                TypeKind::Tuple(items) => pending.extend(items),
+                TypeKind::Array(item) => pending.push(*item),
+                TypeKind::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(*result);
+                }
+                TypeKind::Projection {
+                    arguments,
+                    receiver,
+                    trait_ref,
+                    ..
+                } => {
+                    pending.extend(arguments);
+                    pending.extend([*receiver, *trait_ref]);
+                }
+                TypeKind::Named(_) => {}
+            }
+        }
+    }
+
     pub(super) fn constrain_declared_bound(
         &mut self,
         actual: &TypeId,
@@ -116,7 +245,9 @@ impl BodyChecker<'_> {
                     limit: MAX_ROUNDS,
                 }));
         }
-        self.infer_block_types_expected(block, env, expected)
+        let result = self.infer_block_types_expected(block, env, expected);
+        self.type_table.inference_holes.clear();
+        result
     }
 
     pub(super) fn inference_variable(&mut self, site: ExprId, slot: usize) -> TypeId {

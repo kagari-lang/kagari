@@ -140,6 +140,16 @@ pub(super) fn resolve_type_in(
     table: &mut TypeTable,
     cancel: &CancellationToken,
 ) -> TypeId {
+    if let Some(inferred) = table.inference_holes.get(&ty).cloned() {
+        table.insert_type_ref(
+            ty,
+            ResolvedTypeRef {
+                ty: inferred.clone(),
+                target: None,
+            },
+        );
+        return inferred;
+    }
     if cancel.check().is_err() || !table.resolving_types.insert(ty) {
         return TypeId::Error;
     }

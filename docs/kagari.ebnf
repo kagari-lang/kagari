@@ -261,7 +261,7 @@ postfix_op          ::= call_suffix
                       | index_suffix
                       | propagation_suffix ;
 
-call_suffix         ::= "(" arg_list? ")" ;
+call_suffix         ::= ("::" generic_args)? "(" arg_list? ")" ;
 
 arg_list            ::= expr ("," expr)* (",")? ;
 

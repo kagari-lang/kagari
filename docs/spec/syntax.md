@@ -436,6 +436,21 @@ For tooling, failed inference preserves known members and nominal identities;
 only unresolved positions become error types after the diagnostic. Such results
 remain unavailable to code generation.
 
+Local annotations may contain `_`, including nested forms such as `Array<_>`
+and `fn(_) -> _`. Each hole is a distinct body-local variable and must resolve
+before code generation. Declaration signatures, fields and associated type
+definitions remain explicit and do not accept inference holes.
+
+Calls accept positional type arguments after `::`, for example
+`identity::<i32>(42)`, `Ok::<i32, String>(42)` and
+`values.iter().collect::<Array<i32>>()`. A method lists its own type parameters;
+parameters fixed by its receiver are not repeated. All parameters must be listed
+when the list is present; `_` requests inference for an individual position.
+Explicit arguments are constraints, not conversions: incompatible arguments or
+expected results are rejected. Empty lists, wrong arity, unknown types and type
+arguments on nongeneric callables are errors. Associated type equality bindings
+are accepted inside a type argument, but not as named call arguments.
+
 Expected result types also constrain intermediate iterator values and callback
 results through declared trait implementations. For example,
 `val values: Result<Array<i32>, String> = [Ok(42)].iter().collect();`
@@ -757,7 +772,7 @@ postfix_op      ::= call_suffix
                   | field_suffix
                   | index_suffix ;
 
-call_suffix     ::= "(" arg_list? ")" ;
+call_suffix     ::= ("::" generic_args)? "(" arg_list? ")" ;
 
 arg_list        ::= arg ("," arg)* (",")? ;
 
@@ -1047,6 +1062,11 @@ never accepted for code generation. Wide sibling lists do not accumulate depth.
 This check complements the recursive-entry budget, which stops recursive descent
 before nodes finish. Both are required; downstream traversals over externally
 constructed HIR and generic expansion retain their own resource obligations.
+
+Body type checking limits recursive expression inference to 32 active entries
+and constraint solving to 128 rounds. Exceeding either limit reports a structured
+compile-limit diagnostic; it never publishes unchecked code. Analysis cancellation
+is checked during constraint collection and solving.
 
 ## Option/Result propagation
 

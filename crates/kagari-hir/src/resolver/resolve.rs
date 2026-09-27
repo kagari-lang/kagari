@@ -200,7 +200,7 @@ impl<'a> BodyResolver<'a> {
                 self.resolve_expr(*lhs);
                 self.resolve_expr(*rhs);
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, args, .. } => {
                 self.resolve_expr(*callee);
                 for arg in args {
                     self.resolve_expr(*arg);

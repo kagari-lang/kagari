@@ -95,7 +95,7 @@ multiplicative_expr	covered	examples/syntax/expressions.kgr	-
 unary_expr	covered	examples/syntax/expressions.kgr	-
 postfix_expr	covered	examples/syntax/expressions.kgr	-
 postfix_op	covered	examples/syntax/expressions.kgr	-
-call_suffix	covered	examples/syntax/expressions.kgr	-
+call_suffix	covered	examples/syntax/type-inference.kgr	-
 arg_list	covered	examples/syntax/expressions.kgr	-
 field_suffix	covered	examples/syntax/expressions.kgr	-
 index_suffix	covered	examples/syntax/data-model.kgr	-

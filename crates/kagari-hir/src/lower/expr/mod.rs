@@ -162,6 +162,9 @@ impl Lowerer {
                 inclusive: range.inclusive(),
             },
             ast::Expr::CallExpr(call) => ExprKind::Call {
+                type_args: call
+                    .generic_args()
+                    .map(|args| args.args().map(|ty| self.lower_type(&ty)).collect()),
                 callee: call
                     .callee()
                     .map(|expr| self.lower_expr(&expr))

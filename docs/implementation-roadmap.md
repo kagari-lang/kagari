@@ -473,7 +473,7 @@ earlier products.
 - [x] T03: solve calls, constructors, branches and closures independently of source order.
 - [x] T04: propagate constraints through iterator chains and associated types.
 - [x] T05: numeric suffixes, contextual numeric inference, checked ranges and f64 fallback.
-- [ ] T06: local type placeholders and explicit function/method type arguments.
+- [x] T06: local type placeholders and explicit function/method type arguments.
 - [ ] T07: diagnostics, source/artifact/backend acceptance, examples and final validation.
 
 Inference is bounded by a function body; declaration signatures remain explicit.

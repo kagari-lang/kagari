@@ -38,6 +38,7 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | `if val` and `while val` binding conditions | [binding-conditions.kgr](syntax/binding-conditions.kgr) | `42` |
 | Tool metadata attributes on items, fields and methods | [attributes.kgr](syntax/attributes.kgr) | `42` |
 | `|` alternatives, shared bindings, inclusive and exclusive range patterns, constant bounds | [pattern-alternatives.kgr](syntax/pattern-alternatives.kgr) | `42` |
+| Body inference, local placeholders, explicit call type arguments and numeric suffixes | [type-inference.kgr](syntax/type-inference.kgr) | `42` |
 | Generic function `where` bound and trait call | [where-bounds.kgr](syntax/where-bounds.kgr) | `42` |
 | Lexical closures, mutable captures, nested closures, function types and higher-order calls | [closures.kgr](syntax/closures.kgr) | `42` |
 | Aliased module import | [import-alias.kgr](syntax/import-alias.kgr) | `42` |

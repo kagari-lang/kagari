@@ -200,3 +200,56 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
         );
     }
 }
+
+#[test]
+fn explicit_type_arguments_and_local_placeholders_execute() {
+    execute(
+        r#"
+        fn identity<T>(value: T) -> T { value }
+        trait Transform {
+            fn transform<T>(self, value: T) -> T;
+        }
+        struct Worker {}
+        impl Transform for Worker {
+            fn transform<T>(self, value: T) -> T { value }
+        }
+        fn main() -> i32 {
+            val values: Array<_> = [20, 22];
+            val copy = values.iter().collect::<Array<i32>>();
+            val mapped = Some(42).map::<i64>(|x| 42i64);
+            std::debug::assert_eq(mapped, Some(42i64), "native method arguments");
+            val success = Ok::<i32, String>(42);
+            std::debug::assert(success.is_ok(), "constructor arguments");
+            val answer = identity::<_>(copy[0]) + Worker {}.transform::<i32>(copy[1]);
+            identity::<i32>(answer)
+        }
+    "#,
+    );
+}
+
+#[test]
+fn invalid_explicit_arguments_and_unresolved_holes_are_rejected() {
+    for source in [
+        "fn identity<T>(x: T) -> T { x } fn main() { identity::<i32>(true); }",
+        "fn identity<T>(x: T) -> T { x } fn main() { identity::<i32, bool>(1); }",
+        "fn identity<T>(x: T) -> T { x } fn main() { identity::<>(1); }",
+        "fn identity<T>(x: T) -> T { x } fn main() { identity::<Missing>(1); }",
+        "fn identity<T>(x: T) -> T { x } fn main() { identity::<T = i32>(1); }",
+        "fn main() { val f = |x: i32| x; f::<i32>(1); }",
+        "fn main() { val values: Array<_> = []; }",
+        "fn main(x: _) {}",
+        "struct Bad { val field: _ } fn main() {}",
+        "fn main() { val x: i64 = Some(1).map::<i32>(|x| x).unwrap(); }",
+        "fn main() { val x: Result<bool, String> = Ok::<i32, String>(1); }",
+    ] {
+        assert!(
+            KagariEngine::default()
+                .compile_source(
+                    SourceFile::new("invalid-inference.kgr", source),
+                    Default::default()
+                )
+                .is_err(),
+            "unexpectedly accepted: {source}"
+        );
+    }
+}

@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 38] = [
+    let cases: [(&str, &str, Value); 39] = [
+        (
+            "examples/syntax/type-inference.kgr",
+            include_str!("../../../examples/syntax/type-inference.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/iterator-extensions.kgr",
             include_str!("../../../examples/syntax/iterator-extensions.kgr"),

@@ -95,7 +95,8 @@ compare_expr	1	*	(("<" | "<=" | ">" | ">=") additive_expr)
 additive_expr	1	*	(("+" | "-") multiplicative_expr)
 multiplicative_expr	1	*	(("*" | "/" | "%") unary_expr)
 postfix_expr	1	*	postfix_op
-call_suffix	1	?	arg_list
+call_suffix	1	?	("::" generic_args)
+call_suffix	2	?	arg_list
 arg_list	1	*	("," expr)
 arg_list	2	?	(",")
 tuple_expr	1	?	expr_list

@@ -77,6 +77,8 @@ pub(crate) struct BodyChecker<'a> {
     solver: super::solver::Solver,
     solving: bool,
     body_inference: bool,
+    explicit_arguments: HashMap<ExprId, Vec<TypeId>>,
+    used_explicit_arguments: HashSet<ExprId>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -110,6 +112,8 @@ impl<'a> BodyChecker<'a> {
             solver: Default::default(),
             solving: false,
             body_inference: false,
+            explicit_arguments: Default::default(),
+            used_explicit_arguments: Default::default(),
         }
     }
 
@@ -152,6 +156,7 @@ impl<'a> BodyChecker<'a> {
                 ..
             } => {
                 let annotation = ty.map(|ty| {
+                    self.prepare_annotation_holes(ty);
                     let resolved = resolve_type_in(
                         &self.lowered.module,
                         ty,
@@ -687,8 +692,10 @@ impl<'a> BodyChecker<'a> {
         }
         self.inference_depth += 1;
         let expected = self.expression_context(expr_id, expected);
+        self.prepare_call_type_arguments(expr_id, env);
         let result = self.infer_expr_type_expected_inner(expr_id, env, expected.as_ref());
         let result = self.constrain_expression(expr_id, result, expected.as_ref());
+        self.check_call_type_arguments_used(expr_id);
         env.exprs.insert(expr_id, result.clone());
         self.type_table.insert_expr(expr_id, result.clone());
         self.inference_depth -= 1;
@@ -857,7 +864,7 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Binary { lhs, op, rhs } => {
                 self.infer_binary_operator(expr_id, lhs, op, rhs, env, expected)
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, args, .. } => {
                 if let Some(ty) = self.infer_conversion_call(expr_id, *callee, args, env, expected)
                 {
                     ty
@@ -919,6 +926,7 @@ impl<'a> BodyChecker<'a> {
                 let mut param_types = Vec::with_capacity(params.len());
                 for (index, param) in params.iter().enumerate() {
                     let ty = if let Some(annotation) = param.ty {
+                        self.prepare_annotation_holes(annotation);
                         resolve_type_in(
                             &self.lowered.module,
                             annotation,
@@ -1814,6 +1822,37 @@ impl<'a> BodyChecker<'a> {
             .enumerate()
             .map(|(i, name)| (*name, self.inference_variable(call_expr, 256 + i)))
             .collect();
+        if let Some(explicit) = self.explicit_arguments.get(&callee) {
+            self.used_explicit_arguments.insert(callee);
+            let mut receiver_bindings: Arguments = spec
+                .type_params
+                .iter()
+                .map(|name| (*name, TypeId::Unknown))
+                .collect();
+            if let Some(receiver) = &receiver_ty {
+                api.params[0].ty.infer(receiver, &mut receiver_bindings);
+            }
+            let parameters = spec
+                .type_params
+                .iter()
+                .filter(|name| matches!(receiver_bindings[**name], TypeId::Unknown))
+                .collect::<Vec<_>>();
+            if explicit.is_empty() || explicit.len() != parameters.len() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                        type_name: format!(
+                            "expected {} type arguments, found {}",
+                            parameters.len(),
+                            explicit.len()
+                        ),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+            }
+            for (name, ty) in parameters.into_iter().zip(explicit) {
+                bindings.insert(*name, ty.clone());
+            }
+        }
         if let Some(context) = context {
             let _ = self
                 .solver
@@ -2227,6 +2266,13 @@ impl<'a> BodyChecker<'a> {
             );
             return Some(TypeId::Error);
         }
+        let explicit_parameters = function
+            .generic_params
+            .iter()
+            .filter(|parameter| !substitution.contains_key(*parameter))
+            .cloned()
+            .collect::<Vec<_>>();
+        self.seed_explicit_arguments(callee, &explicit_parameters, &mut substitution);
         if let Some(expected) = expected
             && super::inference::infer(
                 &function.return_type,
@@ -2628,6 +2674,7 @@ impl<'a> BodyChecker<'a> {
         let self_ty = receiver_ty;
         substitution.insert_receiver(self_owner.clone(), self_ty.clone());
         let method_generics = &method.generic_params[trait_contract.generic_params.len()..];
+        self.seed_explicit_arguments(callee, method_generics, &mut substitution);
         let return_pattern = method
             .return_type
             .with_self(self_owner, &self_ty)
@@ -2778,6 +2825,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn resolve_constructor_type(&mut self, ty: crate::hir::TypeRefId, env: &BodyTypeEnv) -> TypeId {
+        self.prepare_annotation_holes(ty);
         let resolved = resolve_type_in(
             &self.lowered.module,
             ty,
@@ -2873,6 +2921,7 @@ impl<'a> BodyChecker<'a> {
                     .zip(nominal.arguments.iter().cloned()),
             );
         }
+        self.seed_explicit_arguments(callee, &generic_params, &mut substitution);
         let actual = self.infer_generic_args(
             args,
             variant
@@ -3033,6 +3082,7 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         let mut substitution = crate::types::TypeSubstitution::default();
+        self.seed_explicit_arguments(callee, &function.generic_params, &mut substitution);
         if let Some(expected) = expected
             && super::inference::infer(
                 &function.return_type,

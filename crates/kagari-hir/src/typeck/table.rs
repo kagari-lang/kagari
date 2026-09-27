@@ -87,6 +87,8 @@ pub struct ResolvedIteration {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TypeTable {
+    /// Temporary body-local placeholders; removed before publishing facts.
+    pub(super) inference_holes: HashMap<crate::hir::TypeRefId, TypeId>,
     iterations: HashMap<ExprId, ResolvedIteration>,
     protocol_receivers: HashMap<ExprId, TypeId>,
     standard_constructors: HashMap<ExprId, crate::builtin::surface::StandardVariant>,
