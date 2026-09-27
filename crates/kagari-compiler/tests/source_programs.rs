@@ -566,3 +566,125 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
         Err(ProgramCheckError::Cancelled)
     ));
 }
+
+#[test]
+fn portable_default_method_origins_remain_with_the_definition_module() {
+    use kagari_common::{SourceFile, line_index::PositionEncoding};
+    let mut db = SourceDatabase::default();
+    let model = "pub trait Read { fn read(self) -> i32;\n fn again(self) -> i32 { self.read() }\n}";
+    insert(&mut db, "model", model);
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::model::Read; struct Holder { val value: i32 } impl Read for Holder { fn read(self) -> i32 { self.value } } fn main() -> i32 { val x: Read = Holder { value: 7 }; x.again() }",
+    );
+    let checked = checked(&db, root);
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let root_module = ir
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["root"])
+        .unwrap();
+    let inherited = root_module
+        .functions
+        .iter()
+        .find(|function| function.instance.declaration.path.last().unwrap().name == "again")
+        .unwrap();
+    assert_eq!(inherited.instance.declaration.module.path, ["root"]);
+    assert_eq!(
+        inherited.debug.source_module.as_ref().unwrap().path,
+        ["model"]
+    );
+    assert_eq!(inherited.debug.source.as_ref().unwrap().uri, "mem://model");
+    drop(checked);
+    drop(db);
+    let bytecode = lower_program_to_bytecode(&ir).unwrap();
+    let root_module = bytecode
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["root"])
+        .unwrap();
+    let debug = &root_module.functions[inherited.id.index()].metadata.debug;
+    assert_eq!(
+        bytecode.modules[debug.source_module.unwrap().index()]
+            .identity
+            .path,
+        ["model"]
+    );
+    assert_eq!(debug.source_uri.as_deref(), Some("mem://model"));
+    let source = SourceFile::new("mem://model", model);
+    for entry in &debug.line_table {
+        let position = source
+            .position(entry.source_offset, PositionEncoding::Utf8)
+            .unwrap();
+        assert_eq!(
+            (entry.line, entry.column),
+            (
+                Some(position.line as u32 + 1),
+                Some(position.character as u32 + 1)
+            )
+        );
+    }
+}
+
+#[test]
+fn portable_inline_module_origins_keep_physical_offsets() {
+    use kagari_common::{SourceFile, line_index::PositionEncoding};
+    let text = "// 中文😀\r\nmod child {\r\n pub fn value() -> i32 { 42 }\r\n}\r\nuse self::child::value; fn main() -> i32 { value() }";
+    let mut db = SourceDatabase::default();
+    let root = insert(&mut db, "root", text);
+    let checked = checked(&db, root);
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let child = ir
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["root", "child"])
+        .unwrap();
+    let function = &child.functions[0];
+    let origin = function.debug.source.as_ref().unwrap();
+    assert_eq!(origin.uri, "mem://root");
+    assert_eq!(
+        function.debug.source_module.as_ref().unwrap().path,
+        ["root", "child"]
+    );
+    let source = SourceFile::new("mem://root", text);
+    for span in function.source_spans() {
+        let expected = source.position(span.start, PositionEncoding::Utf8).unwrap();
+        let actual = origin.position(span.start).unwrap();
+        assert_eq!(
+            (actual.line, actual.column),
+            (
+                Some(expected.line as u32 + 1),
+                Some(expected.character as u32 + 1)
+            )
+        );
+    }
+    let value = text.find("42").unwrap();
+    assert!(
+        function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instruction_spans)
+            .any(|span| span.start == value)
+    );
+    drop(checked);
+    drop(db);
+    let bytecode = lower_program_to_bytecode(&ir).unwrap();
+    let child = bytecode
+        .modules
+        .iter()
+        .find(|module| module.identity.path == ["root", "child"])
+        .unwrap();
+    assert_eq!(
+        child.functions[0].metadata.debug.source_uri.as_deref(),
+        Some("mem://root")
+    );
+    assert!(
+        child.functions[0]
+            .metadata
+            .debug
+            .line_table
+            .iter()
+            .any(|entry| entry.source_offset == value && entry.line == Some(3))
+    );
+}

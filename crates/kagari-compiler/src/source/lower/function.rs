@@ -18,7 +18,7 @@ use std::iter;
 use crate::source::lower::MirLoweringError;
 use crate::source::lower::state::FunctionLowerer;
 use kagari_hir::resolver::ResolvedName;
-use kagari_mir::function::MirCapturedBindingDebugInfo;
+use kagari_mir::debug::MirCapturedBindingDebugInfo;
 use kagari_mir::function::MirFunction;
 use kagari_mir::function::MirParameter;
 use kagari_mir::instruction::Terminator;
@@ -102,7 +102,7 @@ pub(crate) fn lower_callable<'a>(
     })?;
     lowerer.set_terminator(Terminator::Return(Some(result)));
     lowerer.planner.check()?;
-    Ok(lowerer.finish())
+    lowerer.finish()
 }
 
 pub(crate) fn lower_iterator<'a>(
@@ -162,7 +162,7 @@ pub(crate) fn lower_iterator<'a>(
         lowerer.lower_iterator_step(&body, &args)
     })?;
     lowerer.planner.check()?;
-    Ok(lowerer.finish())
+    lowerer.finish()
 }
 
 pub(crate) fn lower_protocol<'a>(
@@ -226,7 +226,7 @@ pub(crate) fn lower_protocol<'a>(
     let value = lowerer.lower_protocol_body(protocol, &receiver, &args, 0)?;
     lowerer.set_terminator(Terminator::Return(Some(value)));
     lowerer.planner.check()?;
-    Ok(lowerer.finish())
+    lowerer.finish()
 }
 
 pub(crate) fn lower_function<'a>(
@@ -253,7 +253,7 @@ pub(crate) fn lower_function<'a>(
     }
 
     lowerer.planner.check()?;
-    Ok(lowerer.finish())
+    lowerer.finish()
 }
 
 pub(crate) fn lower_closure<'a>(
@@ -410,7 +410,7 @@ pub(crate) fn lower_closure<'a>(
         lowerer.set_terminator(Terminator::Return(Some(value)));
     }
     lowerer.planner.check()?;
-    Ok(lowerer.finish())
+    lowerer.finish()
 }
 
 pub(crate) fn lower_native_method<'a>(
@@ -488,5 +488,5 @@ pub(crate) fn lower_native_method<'a>(
     let value = lowerer.lower_applied_operator(interface, receiver, &method, &args)?;
     lowerer.set_terminator(Terminator::Return(Some(value)));
     lowerer.planner.check()?;
-    Ok(lowerer.finish())
+    lowerer.finish()
 }

@@ -1,4 +1,5 @@
 use crate::source::lower::MirLoweringError;
+use crate::source::lower::debug::capture_origin;
 use crate::source::lower::instances::Instance;
 use crate::source::lower::instances::InstancePlanner;
 use crate::source::types::lower_type;
@@ -16,12 +17,12 @@ use kagari_hir::{AnalyzedModule, hir};
 
 use kagari_abi::effects::EffectSet;
 use kagari_abi::representation::ValueType;
+use kagari_mir::debug::MirFunctionDebugMetadata;
+use kagari_mir::debug::MirLexicalScope;
+use kagari_mir::debug::MirLocalDebugInfo;
 use kagari_mir::function::BasicBlock;
 use kagari_mir::function::MirFunction;
-use kagari_mir::function::MirFunctionDebugMetadata;
-use kagari_mir::function::MirLexicalScope;
 use kagari_mir::function::MirLocal;
-use kagari_mir::function::MirLocalDebugInfo;
 use kagari_mir::function::MirParameter;
 use kagari_mir::function::MirTemp;
 use kagari_mir::function::ParameterBuffer;
@@ -90,7 +91,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             entry,
             effects: EffectSet::default(),
             debug: MirFunctionDebugMetadata {
-                source: Some(analyzed.lowered.source.clone()),
+                source: None,
                 source_module: Some(analyzed.lowered.source.module_identity().clone()),
                 source_span: analyzed.lowered.source_map.function_span(hir_function.id),
                 locals: Vec::new(),
@@ -198,9 +199,14 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         Ok(lower_type(&concrete))
     }
 
-    pub(crate) fn finish(mut self) -> MirFunction {
+    pub(crate) fn finish(mut self) -> Result<MirFunction, MirLoweringError> {
         self.function.effects = self.effects;
-        self.function
+        self.function.debug.source = Some(capture_origin(
+            &self.function,
+            &self.analyzed.lowered.source,
+            &self.planner.options.cancel,
+        )?);
+        Ok(self.function)
     }
 
     pub(crate) fn new_block(&mut self) -> BlockId {

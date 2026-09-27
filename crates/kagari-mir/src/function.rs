@@ -3,12 +3,11 @@ use kagari_abi::layout::StructLayout;
 use kagari_abi::slots::SemanticSlots;
 use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_abi::types::NominalAbiType;
-use kagari_common::SourceFile;
 use kagari_common::Span;
 use kagari_common::host_interface::HostTypeDeclaration;
 use kagari_common::identity::ModuleIdentity;
-use std::sync::Arc;
 
+use crate::debug::MirFunctionDebugMetadata;
 use crate::ids::BlockId;
 use crate::ids::InstanceId;
 use crate::ids::LocalId;
@@ -118,38 +117,6 @@ pub struct BasicBlock {
     pub terminator_scope: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct MirFunctionDebugMetadata {
-    pub source: Option<Arc<SourceFile>>,
-    pub source_module: Option<ModuleIdentity>,
-    pub source_span: Span,
-    pub locals: MirLocalDebugBuffer,
-    pub captured_bindings: CapturedBindingDebugBuffer,
-    pub lexical_scopes: Vec<MirLexicalScope>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MirLexicalScope {
-    pub parent: Option<usize>,
-    pub local: Option<LocalId>,
-}
-
-#[derive(Debug, Clone)]
-pub struct MirLocalDebugInfo {
-    pub local: LocalId,
-    pub name: String,
-    pub span: Span,
-    pub ty: ValueType,
-    pub is_parameter: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct MirCapturedBindingDebugInfo {
-    pub name: String,
-    pub span: Span,
-    pub ty: ValueType,
-}
-
 pub type FunctionBuffer = Vec<MirFunction>;
 pub type ParameterBuffer = Vec<MirParameter>;
 pub type LocalBuffer = Vec<MirLocal>;
@@ -157,5 +124,3 @@ pub type ModuleSlotBuffer = Vec<MirModuleSlot>;
 pub type TempBuffer = Vec<MirTemp>;
 pub type BlockBuffer = Vec<BasicBlock>;
 pub type SourceSpanBuffer = Vec<Span>;
-pub type MirLocalDebugBuffer = Vec<MirLocalDebugInfo>;
-pub type CapturedBindingDebugBuffer = Vec<MirCapturedBindingDebugInfo>;

@@ -467,7 +467,7 @@ does not authorize starting the MIR refactor with failing gates.
 | --- | --- | --- | --- |
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
-| A02 | `0cb6570` concrete source instance handoff; sealed liveness/root/debug availability and safepoint facts | 140 targeted tests and 2 seal doc tests; source/core clippy, structure, fmt and diff checks pass | Explicit logical budgets, portable origins and bounded public passes remain; A03/A04 own VM/native integration |
+| A02 | `0cb6570` concrete source handoff; `c5ecb17` sealed analyses; portable debug origins | 146 targeted tests and 2 seal doc tests; source/core clippy, structure, fmt and diff checks pass | Explicit logical budgets and bounded public passes remain; A03/A04 own artifact/VM/native integration |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
@@ -1163,6 +1163,58 @@ claimed by this checkpoint. The previously recorded VM errors (A03), Cranelift
 errors (A04), feature/artifact integration and A05 acceptance remain outstanding;
 unchanged downstream failures were not rerun. The workspace is still broken at
 those integration boundaries.
+
+### A02 checkpoint: portable debug origins (2026-09-28)
+
+Checkpoint subject: `refactor(mir)!: replace source files with portable origins`.
+
+MIR no longer retains `SourceFile`, source text, line indexes or process-local file
+handles. Its debug owner now contains a serializable `SourceOrigin` with URI,
+source byte length and sorted positions for referenced span endpoints. Source
+lowering captures one-based UTF-8 line/column coordinates before releasing the
+frontend. Normal functions, closures, protocol/callable/iterator adapters and host
+interface forwarding functions use the same capture routine. Function/local/capture
+ranges and instruction/terminator origins remain attached to the MIR; synthetic
+zero-width origins are recorded explicitly. Position capture is cancellable.
+
+MIR verification bounds origin-table storage and checks ordered unique offsets,
+coordinate consistency, zero-origin coordinates, span order, source bounds and
+position coverage. Arithmetic rejects extreme offsets without overflow. An offset
+without a line position (such as the LF byte in CRLF) retains absent coordinates.
+MIR without a source origin retains its spans but does not invent a source URI or
+line table coordinates. Bytecode debug lowering consumes the stored coordinates;
+no execution/backend component needs source text to reconstruct these facts.
+
+This breaks the raw MIR debug API: `MirFunctionDebugMetadata.source` is now
+`Option<SourceOrigin>`, and debug record ownership moved from `function` to `debug`.
+All consumers import the actual owner; the existing explicit crate-root facade
+remains explicit, with no forwarding module or compatibility model. The executable
+artifact format is unchanged here; A03 still owns the verified-MIR artifact section
+and canonical bytecode/MIR correspondence.
+
+Validation (default Cargo target/parallelism and configured O1 profiles):
+
+- `cargo test -p kagari-mir -p kagari-compiler -p kagari-codegen`: 146 tests pass
+  (135 compiler unit, ten program integration, one MIR budget), plus two seal doc
+  tests. Six new tests prove source-file release via a weak reference, origin codec
+  round trips, exact Unicode/CRLF coordinate preservation, malformed origin/range
+  rejection, absent-origin behavior, capture cancellation, inherited default-body
+  definition origins and inline-module physical offsets. No tests were removed.
+- Source-enabled all-target clippy for MIR/compiler/codegen and frontend-free
+  compiler all-target clippy with `-D warnings`: pass. The latter uses
+  `cargo clippy -p kagari-compiler --no-default-features --all-targets -- -D warnings`.
+- `uv run --locked scripts/check_structure.py`: 480 Rust files, zero findings and
+  zero exceptions. Reviewed debug ownership, explicit imports, origin validation,
+  serialization boundaries and source retention. Formatting and diff checks pass.
+  Logs are under `target/a02-origins-*.log`.
+
+A02 remains open. Continue with explicit logical budget charges that preserve the
+existing interpreter's failure points, then bounded public constant/branch
+simplification and dead pure-operation cleanup with re-verification/re-analysis.
+Do not conflate the completed origin/analysis contracts with completed budget or
+optimization semantics. The existing A03 VM and A04 Cranelift integration errors
+remain unchanged and were not rerun. Artifact/feature reconnection and A05's full
+behavior matrix and workspace gates remain outstanding.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

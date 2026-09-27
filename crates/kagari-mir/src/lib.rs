@@ -1,15 +1,19 @@
 //! Concrete control-flow representation and verified execution facts.
 pub mod analysis;
+pub mod debug;
 pub mod function;
 pub mod ids;
 pub mod instruction;
 pub mod program;
 mod verify;
+pub use debug::{
+    CapturedBindingDebugBuffer, MirCapturedBindingDebugInfo, MirFunctionDebugMetadata,
+    MirLocalDebugBuffer, MirLocalDebugInfo,
+};
 pub use function::{
-    BasicBlock, BlockBuffer, CapturedBindingDebugBuffer, FunctionBuffer, LocalBuffer,
-    MirCapturedBindingDebugInfo, MirFunction, MirFunctionDebugMetadata, MirLocal,
-    MirLocalDebugBuffer, MirLocalDebugInfo, MirModule, MirModuleSlot, MirParameter, MirTemp,
-    ModuleSlotBuffer, ParameterBuffer, SourceSpanBuffer, TempBuffer,
+    BasicBlock, BlockBuffer, FunctionBuffer, LocalBuffer, MirFunction, MirLocal, MirModule,
+    MirModuleSlot, MirParameter, MirTemp, ModuleSlotBuffer, ParameterBuffer, SourceSpanBuffer,
+    TempBuffer,
 };
 pub use ids::{BlockId, LocalId, ModuleSlotId, TempId};
 pub use instruction::{

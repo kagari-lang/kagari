@@ -19,6 +19,7 @@ use kagari_abi::effects::EffectSet;
 use kagari_abi::representation::ValueType;
 
 mod analysis;
+mod debug;
 mod flow;
 mod layout;
 mod operation;
@@ -378,6 +379,7 @@ fn verify_function(
             return Err(context.error(MirVerificationErrorKind::InvalidDebugMetadata));
         }
     }
+    debug::verify(function, context)?;
     let mut effects = EffectSet::default();
     let mut count = 0usize;
     for (index, block) in function.blocks.iter().enumerate() {

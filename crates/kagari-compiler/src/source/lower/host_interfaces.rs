@@ -2,6 +2,7 @@
 use crate::source::types::{lower_nominal_type, lower_type};
 
 use crate::source::lower::MirLoweringError;
+use crate::source::lower::debug::capture_origin;
 use crate::source::lower::instances::InstancePlanner;
 use kagari_abi::slots::SemanticSlots;
 use kagari_abi::types::AbiType;
@@ -14,12 +15,12 @@ use kagari_abi::types::PublicAbiItem;
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_hir::AnalyzedModule;
 use kagari_hir::types::TypeId;
+use kagari_mir::debug::MirFunctionDebugMetadata;
+use kagari_mir::debug::MirLexicalScope;
+use kagari_mir::debug::MirLocalDebugInfo;
 use kagari_mir::function::BasicBlock;
 use kagari_mir::function::MirFunction;
-use kagari_mir::function::MirFunctionDebugMetadata;
-use kagari_mir::function::MirLexicalScope;
 use kagari_mir::function::MirLocal;
-use kagari_mir::function::MirLocalDebugInfo;
 use kagari_mir::function::MirParameter;
 use kagari_mir::function::MirTemp;
 use kagari_mir::ids::BlockId;
@@ -132,7 +133,7 @@ pub(super) fn collect(
                 planner.charge_instruction(span);
             }
             planner.check()?;
-            functions.push(MirFunction {
+            let mut function = MirFunction {
                 semantic: SemanticSlots {
                     params: params
                         .iter()
@@ -185,7 +186,7 @@ pub(super) fn collect(
                 entry: BlockId::new(0),
                 effects,
                 debug: MirFunctionDebugMetadata {
-                    source: Some(module.lowered.source.clone()),
+                    source: None,
                     source_module: Some(module.lowered.source.module_identity().clone()),
                     source_span: span,
                     locals: params
@@ -205,7 +206,13 @@ pub(super) fn collect(
                         local: None,
                     }],
                 },
-            });
+            };
+            function.debug.source = Some(capture_origin(
+                &function,
+                &module.lowered.source,
+                &planner.options.cancel,
+            )?);
+            functions.push(function);
         }
         abi.public_items
             .push(PublicAbiItem::InterfaceTable(Box::new(InterfaceTableAbi {

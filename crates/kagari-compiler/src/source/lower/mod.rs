@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::slice;
 mod abi;
+mod debug;
 mod expr;
 mod function;
 mod host;

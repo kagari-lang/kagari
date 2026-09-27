@@ -11,7 +11,6 @@ use kagari_bytecode::ModuleRef;
 use kagari_bytecode::SafeDebugPoint;
 use kagari_bytecode::SafeDebugPointKind;
 use kagari_common::Span;
-use kagari_common::line_index::PositionEncoding;
 use kagari_mir::analysis::{FunctionAnalysis, PointAnalysis};
 use kagari_mir::function::MirFunction;
 use kagari_mir::{BlockId, Instruction, Terminator};
@@ -39,12 +38,12 @@ pub(super) fn collect_debug_metadata(
                 .debug
                 .source
                 .as_ref()
-                .and_then(|source| source.position(span.start, PositionEncoding::Utf8));
+                .and_then(|source| source.position(span.start));
             LineTableEntry {
                 instruction_offset,
                 source_offset: span.start,
-                line: position.and_then(|p| u32::try_from(p.line + 1).ok()),
-                column: position.and_then(|p| u32::try_from(p.character + 1).ok()),
+                line: position.and_then(|p| p.line),
+                column: position.and_then(|p| p.column),
             }
         })
         .collect::<Vec<_>>();
@@ -106,7 +105,7 @@ pub(super) fn collect_debug_metadata(
             .debug
             .source
             .as_ref()
-            .map(|source| source.name().to_owned()),
+            .map(|source| source.uri.clone()),
         source_module,
         function_span: function.debug.source_span,
         source_spans,
