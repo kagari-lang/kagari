@@ -486,3 +486,22 @@ fn collecting_results_preserves_original_error_stack() {
         "negative",
     );
 }
+
+#[test]
+fn transpose_and_flatten_preserve_original_error_stacks() {
+    for body in [
+        "Some(origin()).transpose()",
+        "val outer: Result<Result<i32,String>,String> = Ok(origin()); outer.flatten().map(|x|Some(x))",
+        "val outer: Result<Result<i32,String>,String> = origin().map(|x|Ok(x)); outer.flatten().map(|x|Some(x))",
+        "origin().map(|x|Some(x)).transpose().unwrap_or_else(||Ok(0)).map(|x|Some(x))",
+    ] {
+        run_failure(
+            &format!(
+                "fn origin()->Result<i32,String> {{\n    Err(\"original\")\n}}\nfn main()->Result<Option<i32>,String> {{{body}}}"
+            ),
+            "origin",
+            2,
+            "original",
+        );
+    }
+}

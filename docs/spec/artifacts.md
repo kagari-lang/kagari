@@ -642,3 +642,10 @@ rejected. Iterator positions are committed only after result allocation succeeds
 KBC/runtime ABI v89 adds replacement, repetition, casing and boundary queries.
 String-iterator constructors encode byte/scalar-index modes and their exact item
 types, retaining validation before execution. Previous products are rejected.
+
+## Enum combinations (v90)
+
+KBC/runtime ABI v90 adds source-declared Option/Result combinations. They lower
+into verified control flow, standard enum operations and ordinary closure calls;
+unlowered bindings are rejected. Forwarded errors use the trace-preserving
+MapResultError operation. Previous artifacts are rejected without migration.

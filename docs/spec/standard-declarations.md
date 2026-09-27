@@ -154,3 +154,16 @@ input stays empty for any count. ASCII casing only changes ASCII letters. Unicod
 casing uses context-sensitive, locale-independent Unicode mappings and may change
 length. `bytes` yields u8 values; `char_indices` yields (byte offset, one-scalar
 String). `is_char_boundary` accepts the start/end and rejects out-of-range offsets.
+
+## Option and Result combinations
+
+`unwrap_or_else`, `or_else`, and `map_or_else` invoke only the selected callback,
+once. `map_or` evaluates its fallback eagerly like ordinary arguments. Predicates
+run only on the requested variant. Option filter retains the original shared
+payload when accepted; zip combines two present payloads without deep copying.
+`flatten` removes one layer; Result flatten requires the same error type on both
+layers. `transpose` exchanges Option and Result. Forwarded Err values preserve
+the original trace through flatten and transpose; errors returned by recovery
+callbacks retain their own origins. `ok`/`err` discard the opposite variant and
+project the payload into Option (which has no error-trace metadata). All callbacks
+execute on ordinary VM frames with session budgets, roots and trap cleanup.

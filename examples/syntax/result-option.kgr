@@ -15,6 +15,9 @@ fn optional(present: bool) -> Option<i32> {
 }
 
 fn main() -> i32 {
+    std::debug::assert(Some(Some(42)).flatten() == Some(42), "flatten");
+    val absent: Option<i32> = None;
+    std::debug::assert(absent.unwrap_or_else(|| 42) == 42, "lazy fallback");
     val failed = compute(false).map_err(|message| message.concat(" in compute"));
     val successful = compute(true);
     val missing = optional(false);

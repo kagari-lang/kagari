@@ -33,6 +33,30 @@ impl FunctionLowerer<'_, '_> {
         use crate::module::instruction::StandardEnumOp;
         use kagari_hir::builtin::surface::{StandardEnum, StandardIntrinsic::*};
         use kagari_hir::types::TypeId;
+        if matches!(
+            intrinsic,
+            OptionUnwrapOrElse
+                | OptionOrElse
+                | OptionMapOr
+                | OptionMapOrElse
+                | OptionFilter
+                | OptionIsSomeAnd
+                | OptionZip
+                | OptionFlatten
+                | OptionTranspose
+                | ResultUnwrapOrElse
+                | ResultOrElse
+                | ResultMapOr
+                | ResultMapOrElse
+                | ResultOk
+                | ResultErr
+                | ResultIsOkAnd
+                | ResultIsErrAnd
+                | ResultFlatten
+                | ResultTranspose
+        ) {
+            return self.lower_enum_extension(site, intrinsic, input, args);
+        }
         let TypeId::StandardEnum {
             kind,
             args: input_args,

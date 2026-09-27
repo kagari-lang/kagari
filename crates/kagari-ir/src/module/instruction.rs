@@ -586,6 +586,25 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | StringRfind
                 | StringStripPrefix
                 | StringStripSuffix
+                | OptionUnwrapOrElse
+                | OptionOrElse
+                | OptionMapOr
+                | OptionMapOrElse
+                | OptionFilter
+                | OptionIsSomeAnd
+                | OptionZip
+                | OptionFlatten
+                | OptionTranspose
+                | ResultUnwrapOrElse
+                | ResultOrElse
+                | ResultMapOr
+                | ResultMapOrElse
+                | ResultOk
+                | ResultErr
+                | ResultIsOkAnd
+                | ResultIsErrAnd
+                | ResultFlatten
+                | ResultTranspose
                 | OptionMap
                 | OptionAndThen
                 | OptionOkOr

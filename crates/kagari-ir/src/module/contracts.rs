@@ -495,6 +495,15 @@ pub(crate) fn verify_intrinsic(
             expect_arg_ty(args, 2, ValueType::U64, "standard intrinsic index")?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
+        OptionUnwrapOrElse | OptionOrElse | OptionMapOr | OptionMapOrElse | OptionFilter
+        | OptionIsSomeAnd | OptionZip | OptionFlatten | OptionTranspose | ResultUnwrapOrElse
+        | ResultOrElse | ResultMapOr | ResultMapOrElse | ResultOk | ResultErr | ResultIsOkAnd
+        | ResultIsErrAnd | ResultFlatten | ResultTranspose => {
+            return Err(ContractError::Intrinsic {
+                intrinsic,
+                reason: "enum combinator requires lowering",
+            });
+        }
         OptionIsSome | OptionIsNone | ResultIsOk | ResultIsErr => {
             expect_arg_ty(
                 args,

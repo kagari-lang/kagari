@@ -214,6 +214,12 @@ pub fn invoke_with_callbacks(
         StringSplitOnce | StringRsplitOnce => string_split_once(gc, intrinsic, args),
         StringTrim | StringTrimStart | StringTrimEnd | StringFind | StringRfind
         | StringStripPrefix | StringStripSuffix => string_query(gc, intrinsic, args),
+        OptionUnwrapOrElse | OptionOrElse | OptionMapOr | OptionMapOrElse | OptionFilter
+        | OptionIsSomeAnd | OptionZip | OptionFlatten | OptionTranspose | ResultUnwrapOrElse
+        | ResultOrElse | ResultMapOr | ResultMapOrElse | ResultOk | ResultErr | ResultIsOkAnd
+        | ResultIsErrAnd | ResultFlatten | ResultTranspose => {
+            Err(BuiltinError::new("enum combinators require frame lowering"))
+        }
         OptionIsSome => option_is_some(gc, args),
         OptionIsNone => option_is_none(gc, args),
         OptionUnwrapOr => option_unwrap_or(gc, args),

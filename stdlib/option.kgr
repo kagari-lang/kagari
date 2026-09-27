@@ -35,6 +35,104 @@ pub enum Option<T> {
 }
 
 impl<T> Option<T> {
+    /// Call fallback only when absent.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).unwrap_or_else(|| 9) == 7, "unwrap_or_else");
+    /// ```
+    #[intrinsic(OptionUnwrapOrElse)]
+    pub fn unwrap_or_else(self, fallback: fn() -> T) -> T;
+
+    /// Call fallback only when absent.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).or_else(|| Some(9)) == Some(7), "or_else");
+    /// ```
+    #[intrinsic(OptionOrElse)]
+    pub fn or_else(self, fallback: fn() -> Option<T>) -> Option<T>;
+
+    /// Transform a present value or return the eagerly evaluated fallback.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).map_or(0, |x| x + 1) == 8, "map_or");
+    /// ```
+    #[intrinsic(OptionMapOr)]
+    pub fn map_or<U>(self, fallback: U, transform: fn(T) -> U) -> U;
+
+    /// Call exactly the selected fallback or transformation.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).map_or_else(|| 0, |x| x + 1) == 8, "map_or_else");
+    /// ```
+    #[intrinsic(OptionMapOrElse)]
+    pub fn map_or_else<U>(self, fallback: fn() -> U, transform: fn(T) -> U) -> U;
+
+    /// Retain a present value only if the predicate returns true.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).filter(|x| x > 5) == Some(7), "filter");
+    /// ```
+    #[intrinsic(OptionFilter)]
+    pub fn filter(self, predicate: fn(T) -> bool) -> Option<T>;
+
+    /// Test a present value; absence returns false without calling the predicate.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).is_some_and(|x| x > 5), "is_some_and");
+    /// ```
+    #[intrinsic(OptionIsSomeAnd)]
+    pub fn is_some_and(self, predicate: fn(T) -> bool) -> bool;
+
+    /// Combine two present values, otherwise return None.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(7).zip(Some("x")) == Some((7, "x")), "zip");
+    /// ```
+    #[intrinsic(OptionZip)]
+    pub fn zip<U>(self, other: Option<U>) -> Option<(T, U)>;
+
     /// Test whether a value is present.
     ///
     /// Arguments are evaluated from left to right. Payload objects retain their identity;
@@ -186,4 +284,37 @@ impl<T, C: FromIterator<T>> FromIterator<Option<T>> for Option<C> {
     /// ```
     #[intrinsic(OptionFromIterator)]
     fn from_iter<I: Iterable<Item = Option<T>>>(source: I) -> Self;
+}
+
+impl<T> Option<Option<T>> {
+    /// Remove one layer of optional nesting.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert(Some(Some(7)).flatten() == Some(7), "flatten");
+    /// ```
+    #[intrinsic(OptionFlatten)]
+    pub fn flatten(self) -> Option<T>;
+}
+
+impl<T, E> Option<Result<T, E>> {
+    /// Exchange the Option and Result layers, preserving an existing error origin.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Option<Result<i32, String>> = Some(Ok(7));
+    /// std::debug::assert(v.transpose() == Ok(Some(7)), "transpose");
+    /// ```
+    #[intrinsic(OptionTranspose)]
+    pub fn transpose(self) -> Result<Option<T>, E>;
 }

@@ -44,6 +44,127 @@ pub enum Result<T, E> {
 }
 
 impl<T, E> Result<T, E> {
+    /// Transform the error only when this is Err.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Err("x");
+    /// std::debug::assert(v.unwrap_or_else(|e| 7) == 7, "fallback");
+    /// ```
+    #[intrinsic(ResultUnwrapOrElse)]
+    pub fn unwrap_or_else(self, fallback: fn(E) -> T) -> T;
+
+    /// Recover from Err with another Result.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Err("x");
+    /// val r: Result<i32, i32> = v.or_else(|e| Ok(7));
+    /// std::debug::assert(r == Ok(7), "recovery");
+    /// ```
+    #[intrinsic(ResultOrElse)]
+    pub fn or_else<F>(self, fallback: fn(E) -> Result<T, F>) -> Result<T, F>;
+
+    /// Transform Ok or return the eagerly evaluated fallback.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Ok(7);
+    /// std::debug::assert(v.map_or(0, |x| x + 1) == 8, "map");
+    /// ```
+    #[intrinsic(ResultMapOr)]
+    pub fn map_or<U>(self, fallback: U, transform: fn(T) -> U) -> U;
+
+    /// Call exactly the selected error or success transformation.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Ok(7);
+    /// std::debug::assert(v.map_or_else(|e| 0, |x| x + 1) == 8, "map");
+    /// ```
+    #[intrinsic(ResultMapOrElse)]
+    pub fn map_or_else<U>(self, fallback: fn(E) -> U, transform: fn(T) -> U) -> U;
+
+    /// Return the success as Some, discarding an error.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Ok(7);
+    /// std::debug::assert(v.ok() == Some(7), "success");
+    /// ```
+    #[intrinsic(ResultOk)]
+    pub fn ok(self) -> Option<T>;
+
+    /// Return the error as Some, discarding a success.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Err("x");
+    /// std::debug::assert(v.err() == Some("x"), "error");
+    /// ```
+    #[intrinsic(ResultErr)]
+    pub fn err(self) -> Option<E>;
+
+    /// Test Ok; Err returns false without calling the predicate.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Ok(7);
+    /// std::debug::assert(v.is_ok_and(|x| x > 5), "predicate");
+    /// ```
+    #[intrinsic(ResultIsOkAnd)]
+    pub fn is_ok_and(self, predicate: fn(T) -> bool) -> bool;
+
+    /// Test Err; Ok returns false without calling the predicate.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<i32, String> = Err("x");
+    /// std::debug::assert(v.is_err_and(|e| e == "x"), "predicate");
+    /// ```
+    #[intrinsic(ResultIsErrAnd)]
+    pub fn is_err_and(self, predicate: fn(E) -> bool) -> bool;
+
     /// Test whether the result is successful.
     ///
     /// Arguments are evaluated from left to right. Payload objects retain their identity;
@@ -200,4 +321,38 @@ impl<T, E, C: FromIterator<T>> FromIterator<Result<T, E>> for Result<C, E> {
     /// ```
     #[intrinsic(ResultFromIterator)]
     fn from_iter<I: Iterable<Item = Result<T, E>>>(source: I) -> Self;
+}
+
+impl<T, E> Result<Result<T, E>, E> {
+    /// Remove one layer of Result nesting while preserving the selected error origin.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<Result<i32, String>, String> = Ok(Ok(7));
+    /// std::debug::assert(v.flatten() == Ok(7), "flatten");
+    /// ```
+    #[intrinsic(ResultFlatten)]
+    pub fn flatten(self) -> Result<T, E>;
+}
+
+impl<T, E> Result<Option<T>, E> {
+    /// Exchange Result and Option layers while preserving an existing error origin.
+    ///
+    /// Arguments evaluate from left to right. Only the selected callback runs, once.
+    /// Payload references remain shared; this operation does not clone object graphs.
+    /// Callback failures propagate through ordinary execution cleanup.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val v: Result<Option<i32>, String> = Ok(Some(7));
+    /// std::debug::assert(v.transpose() == Some(Ok(7)), "transpose");
+    /// ```
+    #[intrinsic(ResultTranspose)]
+    pub fn transpose(self) -> Option<Result<T, E>>;
 }

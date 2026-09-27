@@ -1,5 +1,6 @@
 mod adapters;
 mod collections;
+mod enum_extensions;
 mod equality;
 mod iterators;
 mod keys;
@@ -2095,7 +2096,26 @@ impl FunctionLowerer<'_, '_> {
                         }
                         if matches!(
                             intrinsic,
-                            OptionMap
+                            OptionUnwrapOrElse
+                                | OptionOrElse
+                                | OptionMapOr
+                                | OptionMapOrElse
+                                | OptionFilter
+                                | OptionIsSomeAnd
+                                | OptionZip
+                                | OptionFlatten
+                                | OptionTranspose
+                                | ResultUnwrapOrElse
+                                | ResultOrElse
+                                | ResultMapOr
+                                | ResultMapOrElse
+                                | ResultOk
+                                | ResultErr
+                                | ResultIsOkAnd
+                                | ResultIsErrAnd
+                                | ResultFlatten
+                                | ResultTranspose
+                                | OptionMap
                                 | OptionAndThen
                                 | OptionOkOr
                                 | OptionOkOrElse
