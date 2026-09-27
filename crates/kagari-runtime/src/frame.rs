@@ -289,6 +289,7 @@ pub struct ExecutionFrame {
     return_dst: Option<Register>,
     interface_method: Option<RootedInterfaceMethod>,
     iterations: Vec<CollectionIteration>,
+    mutations: Vec<(Value, CollectionIteration)>,
     key_lookups: Vec<(Value, CollectionIteration)>,
 }
 
@@ -343,10 +344,36 @@ impl ExecutionFrame {
             return_dst,
             interface_method,
             iterations: Vec::new(),
+            mutations: Vec::new(),
             key_lookups: Vec::new(),
         })
     }
 
+    pub fn begin_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
+        self.mutations.try_reserve(1).map_err(|_| {
+            RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "mutation guard allocation",
+            )
+        })?;
+        self.mutations
+            .push((value.clone(), self.heap.begin_collection_mutation(value)?));
+        Ok(())
+    }
+    pub fn end_collection_mutation(&mut self, value: &Value) -> Result<(), RuntimeError> {
+        if !self
+            .mutations
+            .last()
+            .is_some_and(|(target, _)| target == value)
+        {
+            return Err(RuntimeError::new(
+                crate::RuntimeErrorKind::ScriptTrap,
+                "mutation guard mismatch",
+            ));
+        }
+        self.mutations.pop();
+        Ok(())
+    }
     pub fn begin_key_lookup(&mut self, value: &Value) -> Result<(), RuntimeError> {
         self.key_lookups
             .push((value.clone(), self.heap.begin_key_lookup(value)?));

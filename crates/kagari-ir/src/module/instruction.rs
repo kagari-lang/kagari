@@ -537,6 +537,10 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayCopyFromStorage
             | ArrayCopyWithin
             | ArrayCopyWithinBounds
+            | CollectionMutationBegin
+            | CollectionMutationEnd
+            | MapGetOrInsertWith
+            | MapUpdate
             | MapInsert
             | MapRemove
             | MapClear

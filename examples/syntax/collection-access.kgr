@@ -16,6 +16,8 @@ fn main() -> i32 {
     val mr: Map<String, i32> = m;
     std::debug::assert(mr.get("a") == Some(2), "duplicate");
     m.insert("b", 3);
+    std::debug::assert(m.get_or_insert_with("a", || 9) == 2, "lazy existing value");
+    m.update("a", |old| old.unwrap_or(0) + 1);
     std::debug::assert(mr.contains_key("b"), "map view");
     val entries = m.entries();
     m.insert("c", 4);

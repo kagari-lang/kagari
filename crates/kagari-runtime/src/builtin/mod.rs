@@ -205,6 +205,9 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         ValueHash => "std::hash::Hash::hash",
         ValueDebug => "std::fmt::Debug::debug",
         ValueDisplay => "std::fmt::Display::display",
+        MapGetOrInsertWith => "std::map::LinkedHashMap::get_or_insert_with",
+        MapUpdate => "std::map::LinkedHashMap::update",
+        CollectionMutationBegin | CollectionMutationEnd => "collection mutation guard",
         KeyLookupBegin | KeyCandidates | KeyMapGet | KeyMapInsert | KeyMapRemove
         | KeySetContains | KeySetInsert | KeySetRemove => "internal key operation",
     }

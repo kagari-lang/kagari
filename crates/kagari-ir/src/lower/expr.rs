@@ -5,6 +5,7 @@ mod equality;
 mod iterators;
 mod keys;
 mod list_queries;
+mod map_updates;
 mod operators;
 mod set_queries;
 mod standard;
@@ -1933,6 +1934,27 @@ impl FunctionLowerer<'_, '_> {
                         ))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                        if matches!(
+                            intrinsic,
+                            StandardIntrinsic::MapGetOrInsertWith | StandardIntrinsic::MapUpdate
+                        ) {
+                            let base = call
+                                .receiver
+                                .or_else(|| args.first().copied())
+                                .ok_or(IrLoweringError::MissingBinding("map receiver"))?;
+                            let receiver = self
+                                .analyzed
+                                .typed
+                                .type_table
+                                .expr_type(base)
+                                .ok_or(IrLoweringError::MissingExprType(base))?;
+                            let receiver = self
+                                .planner
+                                .arguments(&[receiver], &self.instance.substitution, span)?
+                                .remove(0);
+                            return self.lower_map_update(intrinsic, &receiver, &lowered);
+                        }
+
                         if intrinsic == StandardIntrinsic::StringParse {
                             use kagari_hir::{builtin::traits::StandardTrait, types::TypeId};
                             let output = self

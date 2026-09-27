@@ -739,7 +739,8 @@ pub(super) fn verify(
                             }
                             if matches!(
                                 intrinsic,
-                                S::ArrayReserve
+                                S::CollectionMutationBegin
+                                    | S::ArrayReserve
                                     | S::MapReserve
                                     | S::SetReserve
                                     | S::ArraySwap

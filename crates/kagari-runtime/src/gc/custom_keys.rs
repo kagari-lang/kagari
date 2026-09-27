@@ -67,6 +67,7 @@ impl GcHeap {
     }
 
     pub(crate) fn ensure_key_mutable(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
+        self.ensure_callback_mutable(id)?;
         if self.key_lookups.borrow().contains_key(&id) {
             Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,

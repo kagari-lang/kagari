@@ -13,6 +13,7 @@ mod array_ops;
 mod capacity;
 mod custom_keys;
 mod iter;
+mod mutations;
 mod string_iter;
 
 use crate::error::{RuntimeError, RuntimeErrorKind};
@@ -242,6 +243,7 @@ pub struct GcHeap {
     resources: Rc<crate::resource::ResourceState>,
     next_collection: Cell<usize>,
     iterations: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
+    mutations: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     key_lookups: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     next_key_token: Cell<i64>,
 }
@@ -272,6 +274,7 @@ impl GcHeap {
             owner,
             config,
             iterations: Default::default(),
+            mutations: Default::default(),
             key_lookups: Default::default(),
             next_key_token: Cell::new(0),
             objects: RefCell::new(Vec::new()),
@@ -790,6 +793,7 @@ impl GcHeap {
     /// Prepare all shallow copies before replacing any target slot.
     pub fn array_fill(&self, id: HeapObjectId, value: Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.ensure_callback_mutable(id)?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
@@ -815,6 +819,7 @@ impl GcHeap {
         source: HeapObjectId,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.ensure_callback_mutable(target)?;
         let length = self.array_len(target).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array target")
         })?;
@@ -847,6 +852,7 @@ impl GcHeap {
     ) -> Result<(), RuntimeError> {
         use std::ops::Bound;
         self.ensure_execution_allowed()?;
+        self.ensure_callback_mutable(target)?;
         let invalid = || {
             RuntimeError::new(
                 RuntimeErrorKind::IndexOutOfBounds,
@@ -911,6 +917,7 @@ impl GcHeap {
         prepared: Vec<Value>,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.ensure_callback_mutable(target)?;
         self.with_array_mut(target, |values| {
             debug_assert_eq!(values.len(), prepared.len());
             *values = prepared;
@@ -925,6 +932,7 @@ impl GcHeap {
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        self.ensure_callback_mutable(id)?;
         if !self.valid_payload(&value) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,

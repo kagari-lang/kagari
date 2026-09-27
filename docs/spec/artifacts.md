@@ -688,3 +688,12 @@ KBC/runtime ABI v96 removes concrete-only set algebra intrinsics. Set relations
 and algebra lower through Iterable and Set member identities, including custom
 storage and read-only views. Result construction uses the selected Eq/Hash
 protocol. Old artifacts are rejected before execution.
+
+## Guarded collection callbacks (v97)
+
+KBC/runtime ABI v97 adds frame-owned collection mutation guards and MutableMap
+update members. Native callback writes, including value replacement, are rejected
+through all aliases until preparation completes. Guards root their target and
+release on frame cleanup. Source-only Map combinators cannot appear as executable
+intrinsics. Custom MutableMap implementations must provide the same documented
+failure guarantee. Earlier artifacts are rejected rather than adapted.

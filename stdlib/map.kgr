@@ -32,6 +32,52 @@
 pub type LinkedHashMap<K, V>;
 
 impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
+    /// Use the existing value, or call the factory once and insert its result.
+    ///
+    /// Returns a shallow value, not a writable entry handle. Referenced objects
+    /// remain shared. During the callback, target container writes through any
+    /// alias trap; reads and changes to separate payload objects are allowed.
+    /// All validation and allocation precede committing the single target entry.
+    /// Failed callbacks preserve entries; completed external effects remain.
+    /// Custom storage implementations must uphold the same mutation contract.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, key protocol and resource failures. Missing-key
+    /// insertion during guarded iteration traps without committing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m: MutableMap<String, i32> = LinkedHashMap::new();
+    /// std::debug::assert(m.get_or_insert_with("answer", || 42) == 42, "get_or_insert_with");
+    /// ```
+    #[intrinsic(MapGetOrInsertWith)]
+    pub fn get_or_insert_with(self, key: K, factory: fn() -> V) -> V;
+
+    /// Call transform once with the current value and commit the returned value.
+    ///
+    /// Returns a shallow value, not a writable entry handle. Referenced objects
+    /// remain shared. During the callback, target container writes through any
+    /// alias trap; reads and changes to separate payload objects are allowed.
+    /// All validation and allocation precede committing the single target entry.
+    /// Failed callbacks preserve entries; completed external effects remain.
+    /// Custom storage implementations must uphold the same mutation contract.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, key protocol and resource failures. Missing-key
+    /// insertion during guarded iteration traps without committing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m: MutableMap<String, i32> = LinkedHashMap::new();
+    /// std::debug::assert(m.update("answer", |old| old.unwrap_or(40) + 2) == 42, "update");
+    /// ```
+    #[intrinsic(MapUpdate)]
+    pub fn update(self, key: K, transform: fn(Option<V>) -> V) -> V;
+
     /// Return the number of entries.
     ///
     /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
@@ -437,6 +483,50 @@ pub trait Map<K, V>: Iterable<Item = (K, V), Iter = Iter<(K, V)>> {
 /// std::debug::assert_eq(view.remove("answer"), Some(42), "removed");
 /// ```
 pub trait MutableMap<K, V>: Map<K, V> {
+    /// Use the existing value, or call the factory once and insert its result.
+    ///
+    /// Returns a shallow value, not a writable entry handle. Referenced objects
+    /// remain shared. During the callback, target container writes through any
+    /// alias trap; reads and changes to separate payload objects are allowed.
+    /// All validation and allocation precede committing the single target entry.
+    /// Failed callbacks preserve entries; completed external effects remain.
+    /// Custom storage implementations must uphold the same mutation contract.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, key protocol and resource failures. Missing-key
+    /// insertion during guarded iteration traps without committing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m: MutableMap<String, i32> = LinkedHashMap::new();
+    /// std::debug::assert(m.get_or_insert_with("answer", || 42) == 42, "get_or_insert_with");
+    /// ```
+    fn get_or_insert_with(self, key: K, factory: fn() -> V) -> V;
+
+    /// Call transform once with the current value and commit the returned value.
+    ///
+    /// Returns a shallow value, not a writable entry handle. Referenced objects
+    /// remain shared. During the callback, target container writes through any
+    /// alias trap; reads and changes to separate payload objects are allowed.
+    /// All validation and allocation precede committing the single target entry.
+    /// Failed callbacks preserve entries; completed external effects remain.
+    /// Custom storage implementations must uphold the same mutation contract.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, key protocol and resource failures. Missing-key
+    /// insertion during guarded iteration traps without committing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m: MutableMap<String, i32> = LinkedHashMap::new();
+    /// std::debug::assert(m.update("answer", |old| old.unwrap_or(40) + 2) == 42, "update");
+    /// ```
+    fn update(self, key: K, transform: fn(Option<V>) -> V) -> V;
+
     /// Associates a key with a value, replacing an existing value.
     fn insert(self, key: K, value: V) -> ();
     /// Removes and returns the value for a key, or `None`.
@@ -463,6 +553,52 @@ impl<K: Eq + Hash, V> Map<K, V> for LinkedHashMap<K, V> {
 
 /// Provides the MutableMap capability for the native storage class.
 impl<K: Eq + Hash, V> MutableMap<K, V> for LinkedHashMap<K, V> {
+    /// Use the existing value, or call the factory once and insert its result.
+    ///
+    /// Returns a shallow value, not a writable entry handle. Referenced objects
+    /// remain shared. During the callback, target container writes through any
+    /// alias trap; reads and changes to separate payload objects are allowed.
+    /// All validation and allocation precede committing the single target entry.
+    /// Failed callbacks preserve entries; completed external effects remain.
+    /// Custom storage implementations must uphold the same mutation contract.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, key protocol and resource failures. Missing-key
+    /// insertion during guarded iteration traps without committing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m: MutableMap<String, i32> = LinkedHashMap::new();
+    /// std::debug::assert(m.get_or_insert_with("answer", || 42) == 42, "get_or_insert_with");
+    /// ```
+    #[intrinsic(MapGetOrInsertWith)]
+    fn get_or_insert_with(self, key: K, factory: fn() -> V) -> V;
+
+    /// Call transform once with the current value and commit the returned value.
+    ///
+    /// Returns a shallow value, not a writable entry handle. Referenced objects
+    /// remain shared. During the callback, target container writes through any
+    /// alias trap; reads and changes to separate payload objects are allowed.
+    /// All validation and allocation precede committing the single target entry.
+    /// Failed callbacks preserve entries; completed external effects remain.
+    /// Custom storage implementations must uphold the same mutation contract.
+    ///
+    /// # Panics
+    ///
+    /// Propagates callback, key protocol and resource failures. Missing-key
+    /// insertion during guarded iteration traps without committing an entry.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val m: MutableMap<String, i32> = LinkedHashMap::new();
+    /// std::debug::assert(m.update("answer", |old| old.unwrap_or(40) + 2) == 42, "update");
+    /// ```
+    #[intrinsic(MapUpdate)]
+    fn update(self, key: K, transform: fn(Option<V>) -> V) -> V;
+
     /// Associates a key with a value, replacing an existing value.
     #[intrinsic(MapInsert)]
     fn insert(self, key: K, value: V) -> ();

@@ -530,6 +530,20 @@ impl<'a> Executor<'a> {
         args: Vec<Value>,
     ) -> Result<(), VmError> {
         use kagari_ir::bytecode::StandardIntrinsic::*;
+        if matches!(intrinsic, CollectionMutationBegin | CollectionMutationEnd) {
+            let value = args
+                .first()
+                .ok_or(VmError::TypeMismatch("mutation target"))?;
+            if intrinsic == CollectionMutationBegin {
+                self.current_frame_mut()?.begin_collection_mutation(value)?;
+            } else {
+                self.current_frame_mut()?.end_collection_mutation(value)?;
+            }
+            if let Some(dst) = dst {
+                self.current_frame_mut()?.write_register(dst, Value::Unit)?;
+            }
+            return Ok(());
+        }
         if intrinsic == KeyLookupBegin {
             self.current_frame_mut()?.begin_key_lookup(
                 args.first()

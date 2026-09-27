@@ -627,7 +627,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] C03: List reordering, truncation, prepared extension and swap removal.
 - [x] C04: Concrete collection capacity construction and reservation.
 - [x] C05: Set relationships and symmetric difference over readonly interfaces.
-- [ ] C06: Guarded Map get_or_insert_with and update operations.
+- [x] C06: Guarded Map get_or_insert_with and update operations.
 - [ ] C07: Prepared retain, stable sorting and adjacent deduplication.
 - [ ] C08: Lazy snapshot windows/chunks and immediate range removal.
 
@@ -688,3 +688,8 @@ C05 validation: readonly/native/custom Set operands, generic unbounded relations
 empty/self operations and insertion ordering pass through source, serialized
 artifacts and JIT fallback with collection threshold one. Existing collection
 interface and standard trait tests pass. KBC/runtime ABI is v96.
+
+C06 validation: lazy Map insertion and updates work through concrete storage and
+MutableMap, including custom colliding keys, scalar results and shared objects.
+Callback traps and alias writes preserve entries, keep completed external effects,
+and release frame guards and roots. Source/artifact/JIT fallback tests pass.

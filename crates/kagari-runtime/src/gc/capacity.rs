@@ -16,6 +16,12 @@ impl GcHeap {
     }
     pub fn reserve_collection(&self, value: &Value, additional: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
+        match value {
+            Value::Array(id) | Value::Map(id) | Value::Set(id) => {
+                self.ensure_callback_mutable(*id)?
+            }
+            _ => return Err(invalid()),
+        }
         let (length, capacity, units) = match value {
             Value::Array(id) => self.with_array(*id, |v| (v.len(), v.capacity(), 1)),
             Value::Map(id) => self.with_map(*id, |v| (v.len(), v.capacity(), 2)),

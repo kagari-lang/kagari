@@ -239,6 +239,17 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
         use StandardIntrinsic::*;
+        if matches!(name, "get_or_insert_with" | "update") {
+            return self.lower_map_update(
+                if name == "update" {
+                    MapUpdate
+                } else {
+                    MapGetOrInsertWith
+                },
+                ty,
+                args,
+            );
+        }
         if name == "iter" {
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::Iter {

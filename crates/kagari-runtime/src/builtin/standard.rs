@@ -53,6 +53,9 @@ pub fn invoke_with_callbacks(
         Integer(operation, ty) => {
             crate::numeric::integer_method(gc, operation, ty, args).map_err(Into::into)
         }
+        CollectionMutationBegin | CollectionMutationEnd | MapGetOrInsertWith | MapUpdate => Err(
+            BuiltinError::new("collection operation requires static lowering"),
+        ),
         KeyLookupBegin => Err(BuiltinError::new("key lookup requires an execution frame")),
         KeyCandidates => {
             let [collection, Value::I64(hash)] = args else {
