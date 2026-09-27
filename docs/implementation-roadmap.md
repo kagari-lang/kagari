@@ -469,7 +469,7 @@ earlier products.
 ## Body inference and numeric literals
 
 - [x] T01: body-local inference variables, structural unification, occurs checks and cancellation.
-- [ ] T02: infer local bindings and empty containers from subsequent uses.
+- [x] T02: infer local bindings and empty containers from subsequent uses.
 - [ ] T03: solve calls, constructors, branches and closures independently of source order.
 - [ ] T04: propagate constraints through iterator chains and associated types.
 - [ ] T05: numeric suffixes, contextual numeric inference, checked ranges and f64 fallback.

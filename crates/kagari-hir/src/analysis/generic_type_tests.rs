@@ -4,6 +4,10 @@ use super::*;
 fn body_constraints_use_later_arguments_and_local_uses() {
     for body in [
         "val xs = []; xs.push(42);",
+        "val xs = MutableArray::new(); xs.push(42);",
+        "val xs = MutableSet::new(); xs.insert(42);",
+        "val xs = MutableMap::new(); xs.insert(1, true);",
+        "var xs = []; xs = [42];",
         "consume(Marker { value: 7 }, 1);",
         "val callback = |x| x + 1; callback(41);",
         "apply(|x| x + 1, 41);",

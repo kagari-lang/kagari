@@ -1796,13 +1796,22 @@ impl<'a> BodyChecker<'a> {
         let mut bindings: Arguments = spec
             .type_params
             .iter()
-            .map(|name| (*name, TypeId::Unknown))
+            .enumerate()
+            .map(|(i, name)| (*name, self.inference_variable(call_expr, 256 + i)))
             .collect();
         if let Some(context) = context {
+            let _ = self
+                .solver
+                .constrain(&api.result.instantiate(&bindings), context, self.cancel);
             api.result.infer(context, &mut bindings);
         }
         if let Some(receiver) = receiver_ty {
             self.check_standard_parameter(spec, &api.params[0].ty, &receiver, env, callee);
+            let _ = self.solver.constrain(
+                &api.params[0].ty.instantiate(&bindings),
+                &receiver,
+                self.cancel,
+            );
             api.params[0].ty.infer(&receiver, &mut bindings);
             let expected = api.params[0].ty.instantiate(&bindings);
             if expected.conflicts_with(&receiver) && !receiver.can_weaken_to(&expected) {
@@ -1834,6 +1843,9 @@ impl<'a> BodyChecker<'a> {
                     self.emit_arg_mismatch(name, parameter.name, &expected, &actual, *argument);
                 }
             }
+        }
+        for ty in bindings.values_mut() {
+            *ty = self.solver.resolve(ty);
         }
         self.type_table.insert_type_arguments(
             call_expr,
@@ -3954,6 +3966,9 @@ impl<'a> BodyChecker<'a> {
             }) else {
                 continue;
             };
+            if *field_completes {
+                let _ = self.solver.constrain(&expected, value_ty, self.cancel);
+            }
             if *field_completes && expected.conflicts_with(value_ty) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {

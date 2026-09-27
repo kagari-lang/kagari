@@ -174,6 +174,13 @@ inputs need sufficient context, such as an explicit result annotation:
 val empty: Map<String, i32> = Map::from([]);
 ```
 
+Later uses within the same function body also supply context. For example,
+`val values = []; values.push(42);` infers `MutableArray<i32>`, and
+`val values = MutableMap::new(); values.insert("answer", 42);` infers
+`MutableMap<String, i32>`. Aliases share the same inference constraints. An empty
+container with no constraining use is rejected instead of defaulting its element
+type to unit. These constraints do not grant writable access to a read-only view.
+
 Each call allocates a fresh collection, including empty inputs. Factories never
 return the input container itself, and do not retain its entry slots. In
 particular, `Array::from(writable)` is a shallow snapshot of the element slots;
