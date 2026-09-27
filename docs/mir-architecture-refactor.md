@@ -449,9 +449,10 @@ must not be the sole record needed to resume the goal.
 Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
 completes with the bounded public MIR passes checkpoint below. Source compilation,
 verified MIR analyses and frontend-free bytecode lowering pass their scoped checks.
-The workspace remains intentionally broken at the recorded A03 VM and A04 native
-backend boundaries; the runtime suite is restored by the A03 checkpoint below.
-Resume A03 integration; A05 final acceptance
+Runtime, VM and SDK libraries now build at their intended execution boundary.
+The workspace remains intentionally broken in legacy VM/backend tests, SDK/CLI
+native callers and the A04 backend implementation. Resume A03 native preparation,
+artifact correspondence and feature integration; A05 final acceptance
 has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
@@ -469,7 +470,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | `279e6d6` runtime fixture ownership; runtime native installation/invocation with retained code and dependency versions | 415 focused tests plus one seal doc test; scoped all-target clippy, structure, fmt and diff pass | Shared version/target/options code cache, artifact MIR preparation/correspondence, SDK feature separation and VM integration remain |
+| A03 | `279e6d6` runtime fixtures; `51f00ec` native installation/invocation; VM/SDK prepared execution boundary | 415 runtime/compiler/ABI tests plus one seal doc test at prior checkpoint; eight new VM tests, VM/SDK library clippy, structure, fmt and diff pass | Shared version/target/options cache, SDK compilation preparation, artifact MIR correspondence, feature separation and old backend test/caller migration remain |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1432,6 +1433,64 @@ finish portable MIR artifacts/canonical correspondence and source/native feature
 separation. The descriptor-only legacy registry must be reconciled with installed
 handles in that integration. The previously recorded VM and Cranelift build errors
 remain; they were not rerun unchanged. A05 final gates are still outstanding.
+
+### A03 checkpoint: VM execution without backend compilation (2026-09-28)
+
+Replaced VM-owned `execute_with_backend` with `execute_prepared`. Its
+`PreparedNativeEntry` contains either a runtime-installed native handle or an
+explicit unsupported-input decision. The VM no longer imports codegen types,
+compiles functions, registers unowned executable descriptors or calls backend
+invocation methods. It validates function and execution-version identity before
+invocation, preserves permission/debugger fallback before entry, and propagates
+post-entry failures with the runtime-captured trace. Execution reports carry an
+executable descriptor rather than a legacy runtime registry ID; fallback reasons
+are text, while compiler diagnostics remain outside the VM contract.
+
+The SDK now accepts the same prepared entry at its execution boundary and retains
+its context, authority and argument validation. Fixed its source error mapping to
+consume `SourceProgramError`, distinguishing source lowering diagnostics from
+portable program verification. These are breaking caller changes; no old-name
+forwarders or compilation-through-bytecode adapter was introduced. SDK compilation
+preparation from verified MIR/artifacts is still an explicit next step, so this
+checkpoint does not claim an end-to-end native SDK path.
+
+Removed the VM's concrete backend dev-dependency. The existing mixed compiler/native
+unit fixtures remain tracked and currently fail; their real backend cases must move
+to SDK/backend integration tests during A03/A04, while VM tests use prepared runtime
+handles. This is an intermediate build failure, not a feature gate disabling tests.
+
+Validation:
+
+- `cargo check -p kagari-vm --lib` and `cargo check -p kagari-embed --lib`: pass,
+  resolving the prior five VM library errors and the newly exposed five SDK errors.
+- `cargo test -p kagari-vm --test prepared_execution`: eight tests pass. Coverage
+  includes native versus interpreter reporting, no restart after native traps,
+  permission changes, debugger fallback, function/version mismatch rejection and
+  old-version invocation. Static native fixtures validate the execution boundary;
+  A04 remains responsible for actual machine-code compilation.
+- One integration test compares optimized and unoptimized VM execution for five
+  scalar/branch/trap/loop programs at each budget from 0 through 39: 200 paired
+  runs preserve results, trap classes/messages, failure offsets/spans, resource
+  counters and root cleanup. This supplies the deferred A02 execution-parity
+  evidence without introducing an alternate interpreter.
+- `cargo clippy -p kagari-vm --lib --test prepared_execution -- -D warnings` and
+  `cargo clippy -p kagari-embed --lib -- -D warnings`: pass. VM normal dependency
+  inspection contains only runtime, bytecode, ABI and common, with no frontend,
+  MIR, codegen or concrete backend. Structure checks 492 Rust files with zero
+  violations/exceptions; formatting and diff checks pass.
+- `cargo test -p kagari-vm --lib`: fails with 32 initial name-resolution errors in
+  old fixtures importing codegen/Cranelift and removed runtime backend facades.
+  They also retain old `execute_with_backend` calls that must migrate. A03 owns
+  preparation/caller migration and A04 owns real-backend coverage; no existing
+  assertions or test cases were removed. SDK tests and CLI native execution still
+  name the old method and require the preparation API before they can build.
+  Logs: `target/a03-vm-*.log` and `target/a03-embed-*.log`.
+
+Next complete the shared native cache and SDK preparation from canonical checked
+MIR, portable artifact encoding/validation/correspondence, and feature isolation.
+Keep preparation before user effects and uphold the runtime installation safety
+contract for registered backends. Then migrate callers/tests to that complete path;
+do not recreate the removed VM compilation entrypoint. A03-A05 remain unfinished.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

@@ -2,7 +2,6 @@ use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::BytecodeVerificationError;
 use kagari_bytecode::CallTarget;
 use kagari_bytecode::ModuleSlot;
-use kagari_codegen::BackendDiagnostic;
 use kagari_runtime::BackendInvocationError;
 use kagari_runtime::ErrorTrace;
 use kagari_runtime::RuntimeError;
@@ -31,7 +30,6 @@ pub enum VmError {
     ReflectionError(ReflectionError),
     RuntimeError(RuntimeError),
     BytecodeVerification(BytecodeVerificationError),
-    JitBackend(Vec<BackendDiagnostic>),
     JitInvocation(BackendInvocationError),
     Trap(&'static str),
     TypeMismatch(&'static str),

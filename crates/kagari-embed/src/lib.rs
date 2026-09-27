@@ -6,7 +6,6 @@ use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::CallTarget;
 use kagari_bytecode::KbcArtifact;
 use kagari_bytecode::RuntimeHelper;
-use kagari_codegen::CodegenBackend;
 use kagari_common::host_interface::HostInterface;
 use kagari_common::host_interface::HostInterfaceError;
 use kagari_common::identity::ModuleIdentity;
@@ -19,7 +18,7 @@ use kagari_compiler::MirLoweringError;
 use kagari_compiler::MirLoweringOptions;
 use kagari_compiler::bytecode::BytecodeLoweringError;
 use kagari_compiler::bytecode::lower_program_to_bytecode;
-use kagari_compiler::source::program::lower_program_to_mir;
+use kagari_compiler::source::program::{SourceProgramError, lower_program_to_mir};
 use kagari_hir::host::HostDeclarations;
 use kagari_hir::imports::ModuleOrderError;
 use kagari_hir::{
@@ -51,7 +50,7 @@ use kagari_runtime::TypeId;
 use kagari_runtime::host::HostFunction;
 use kagari_runtime::value::Value;
 use kagari_vm::ReloadError;
-use kagari_vm::{ExecutionReport, Vm, VmError};
+use kagari_vm::{ExecutionReport, PreparedNativeEntry, Vm, VmError};
 use smallvec::SmallVec;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -294,24 +293,29 @@ impl KagariEngine {
         checked: &CheckedModule,
         options: ArtifactOptions,
     ) -> CompileResult<BytecodeArtifact> {
-        let ir = lower_program_to_mir(&checked.program, &options.lowering).map_err(|error| {
-            let source = &checked
-                .program
-                .modules()
-                .iter()
-                .find(|module| module.lowered.source.module_identity() == error.module.as_ref())
-                .expect("lowered program source")
-                .lowered
-                .source;
-            match error.kind {
-                ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
-                ProgramErrorKind::Lowering(error) => EmbeddingError::ir_lowering(error, source),
-                error => EmbeddingError::Compilation {
-                    phase: CompilationPhase::MirLowering,
-                    message: format!("{error:?}"),
+        let ir =
+            lower_program_to_mir(&checked.program, &options.lowering).map_err(
+                |error| match error {
+                    SourceProgramError::Lowering { module, error } => {
+                        let source = &checked
+                            .program
+                            .modules()
+                            .iter()
+                            .find(|item| item.lowered.source.module_identity() == module.as_ref())
+                            .expect("lowered program source")
+                            .lowered
+                            .source;
+                        EmbeddingError::ir_lowering(error, source)
+                    }
+                    SourceProgramError::Verification(error) => match error.kind {
+                        ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
+                        kind => EmbeddingError::Compilation {
+                            phase: CompilationPhase::MirLowering,
+                            message: format!("{}: {kind:?}", error.module),
+                        },
+                    },
                 },
-            }
-        })?;
+            )?;
         let program = lower_program_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
         KbcArtifact::from_program(program, options.build)
             .map_err(EmbeddingError::artifact_validation)
@@ -435,13 +439,13 @@ impl KagariRuntime {
         self.vm.execute(module, entry).map_err(EmbeddingError::vm)
     }
 
-    pub fn execute_with_backend<B: CodegenBackend>(
+    pub fn execute_prepared(
         &mut self,
         module: &LoadedModule,
         entry: &str,
         args: &[Value],
         context: &ExecutionContext,
-        backend: &mut B,
+        prepared: &PreparedNativeEntry,
     ) -> RunResult<ExecutionReport> {
         if !args.is_empty() {
             return Err(EmbeddingError::runtime(
@@ -461,7 +465,7 @@ impl KagariRuntime {
             .begin_execution(module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
-            .execute_with_backend(module, entry, backend)
+            .execute_prepared(module, entry, prepared)
             .map_err(EmbeddingError::vm)
     }
 }
@@ -912,7 +916,6 @@ impl EmbeddingError {
             | VmError::InvalidModuleSlot(_)
             | VmError::UnsupportedCallTarget(_)
             | VmError::UnsupportedInstruction(_) => RuntimeFailureKind::BytecodeVerification,
-            VmError::JitBackend(_) => RuntimeFailureKind::UnsupportedExecution,
             VmError::JitInvocation(_) => RuntimeFailureKind::EngineInvariant,
             VmError::MissingFunction(_)
             | VmError::MissingField(_)

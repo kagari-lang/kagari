@@ -443,7 +443,6 @@ version = "0.1.0"
 dependencies = [
  "kagari-abi",
  "kagari-bytecode",
- "kagari-codegen-cranelift",
  "kagari-common",
  "kagari-compiler",
  "kagari-hir",

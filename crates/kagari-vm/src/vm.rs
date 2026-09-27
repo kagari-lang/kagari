@@ -1,21 +1,15 @@
+pub mod native;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::native::BackendId;
 use kagari_abi::native::ExecutableFunctionArtifact;
 use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::BytecodeFunction;
 use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::KbcArtifact;
-use kagari_codegen::BackendDiagnostic;
-use kagari_codegen::BackendFunctionInput;
-use kagari_codegen::CodegenBackend;
 use kagari_common::identity::DefinitionId;
-use kagari_runtime::BackendInvocationError;
-use kagari_runtime::ExecutionArtifactId;
 use kagari_runtime::ExecutionSession;
 use kagari_runtime::ExecutionTrace;
 use kagari_runtime::LoadedModule;
-use kagari_runtime::ReloadDependencySnapshot;
 use kagari_runtime::ReloadValidationError;
 use kagari_runtime::ResultFailure;
 use kagari_runtime::Runtime;
@@ -58,8 +52,8 @@ pub struct JitExecutionReport {
     pub backend: BackendId,
     pub function: FunctionRef,
     pub status: JitExecutionStatus,
-    pub artifact: Option<ExecutionArtifactId>,
-    pub diagnostics: Vec<BackendDiagnostic>,
+    pub artifact: Option<ExecutableFunctionArtifact>,
+    pub diagnostics: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,170 +197,6 @@ impl Vm {
             .map_err(VmError::RuntimeError)?;
         Executor::new_interface(&self.runtime, resolved, &args)?.run()
     }
-
-    pub fn execute_with_backend<B: CodegenBackend>(
-        &mut self,
-        module: &LoadedModule,
-        entry: &str,
-        backend: &mut B,
-    ) -> Result<ExecutionReport, VmError> {
-        let _session = self.begin_execution(module)?;
-        self.runtime
-            .validate_loaded_module(module)
-            .map_err(VmError::RuntimeError)?;
-        let entry_name = entry.to_owned();
-        let entry = find_function_ref(&module.bytecode, &entry_name)?;
-
-        match self.try_execute_jit_entry(module, entry, backend)? {
-            JitEntryResult::Native { value, report } => Ok(ExecutionReport {
-                module_name: module.name.clone(),
-                epoch: module.epoch.0,
-                entry: entry_name,
-                failure: self.runtime.result_failure(&value),
-                return_value: value,
-                jit: Some(report),
-                trace: _session.trace(),
-            }),
-            JitEntryResult::Fallback(report) => {
-                let return_value = self.execute_interpreter_entry(module, entry)?;
-                Ok(ExecutionReport {
-                    module_name: module.name.clone(),
-                    epoch: module.epoch.0,
-                    entry: entry_name,
-                    failure: self.runtime.result_failure(&return_value),
-                    return_value,
-                    jit: Some(report),
-                    trace: _session.trace(),
-                })
-            }
-        }
-    }
-
-    fn try_execute_jit_entry<B: CodegenBackend>(
-        &self,
-        module: &LoadedModule,
-        entry: FunctionRef,
-        backend: &mut B,
-    ) -> Result<JitEntryResult, VmError> {
-        let backend_id = backend.backend_id();
-        let function = module
-            .bytecode
-            .functions
-            .get(entry.index())
-            .ok_or(VmError::InvalidFunctionRef(entry))?;
-        if let Err(error) = self.runtime.validate_jit_boundary() {
-            return Ok(JitEntryResult::Fallback(JitExecutionReport {
-                backend: backend_id,
-                function: entry,
-                status: JitExecutionStatus::InterpreterFallback,
-                artifact: None,
-                diagnostics: vec![BackendDiagnostic::unsupported(format!(
-                    "JIT disabled by runtime policy: {error}"
-                ))],
-            }));
-        }
-        let dependencies = ReloadDependencySnapshot::from_bytecode(&module.bytecode);
-        let artifact = match backend
-            .compile_function(BackendFunctionInput::new(module, entry).expect("resolved entry"))
-        {
-            Ok(artifact) => artifact,
-            Err(error) if error.is_unsupported() => {
-                return Ok(JitEntryResult::Fallback(JitExecutionReport {
-                    backend: backend_id,
-                    function: entry,
-                    status: JitExecutionStatus::InterpreterFallback,
-                    artifact: None,
-                    diagnostics: error.diagnostics,
-                }));
-            }
-            Err(error) => return Err(VmError::JitBackend(error.diagnostics)),
-        };
-        if let Some(report) = self.debug_fallback_report(&artifact, function, &backend_id) {
-            return Ok(JitEntryResult::Fallback(report));
-        }
-        let artifact_id = self
-            .runtime
-            .register_executable_function_artifact(module.key(), dependencies, artifact.clone())
-            .ok_or_else(|| {
-                VmError::JitBackend(vec![BackendDiagnostic {
-                    kind: kagari_runtime::BackendDiagnosticKind::InternalError,
-                    message: format!(
-                        "JIT artifact for `{}` could not be registered",
-                        function.name
-                    ),
-                }])
-            })?;
-        let stack = self.runtime.enter_execution_stack(module)?;
-        stack.push(module.slot(), entry, &[], None)?;
-        match backend.invoke_function(&artifact, &self.runtime) {
-            Ok(value) => Ok(JitEntryResult::Native {
-                value,
-                report: JitExecutionReport {
-                    backend: backend_id,
-                    function: entry,
-                    status: JitExecutionStatus::Native,
-                    artifact: Some(artifact_id),
-                    diagnostics: Vec::new(),
-                },
-            }),
-            Err(BackendInvocationError::UnsupportedArtifact(message)) => {
-                Ok(JitEntryResult::Fallback(JitExecutionReport {
-                    backend: backend_id,
-                    function: entry,
-                    status: JitExecutionStatus::InterpreterFallback,
-                    artifact: Some(artifact_id),
-                    diagnostics: vec![BackendDiagnostic::unsupported(message)],
-                }))
-            }
-            Err(BackendInvocationError::RuntimeFailure(error)) => {
-                Err(VmError::RuntimeError(error).with_trace(self.runtime.capture_error_trace()))
-            }
-            Err(error) => {
-                Err(VmError::JitInvocation(error).with_trace(self.runtime.capture_error_trace()))
-            }
-        }
-    }
-
-    fn debug_fallback_report(
-        &self,
-        artifact: &ExecutableFunctionArtifact,
-        function: &BytecodeFunction,
-        backend_id: &BackendId,
-    ) -> Option<JitExecutionReport> {
-        self.debug_session.as_ref()?;
-        let missing = artifact.debug.missing_requirements_for_function(function);
-        if missing.is_empty() {
-            return None;
-        }
-        Some(JitExecutionReport {
-            backend: backend_id.clone(),
-            function: function.id,
-            status: JitExecutionStatus::InterpreterFallback,
-            artifact: None,
-            diagnostics: vec![BackendDiagnostic::unsupported(format!(
-                "JIT fallback while debugging `{}`: missing {}",
-                function.name,
-                missing.join(", ")
-            ))],
-        })
-    }
-
-    fn execute_interpreter_entry(
-        &mut self,
-        module: &LoadedModule,
-        entry: FunctionRef,
-    ) -> Result<Value, VmError> {
-        let mut executor = Executor::new(&self.runtime, module, entry, &[])?;
-        executor.run()
-    }
-}
-
-enum JitEntryResult {
-    Native {
-        value: Value,
-        report: JitExecutionReport,
-    },
-    Fallback(JitExecutionReport),
 }
 
 fn find_function_ref(module: &BytecodeModule, name: &str) -> Result<FunctionRef, VmError> {

@@ -15,6 +15,7 @@ pub use debug_protocol::{
 };
 pub use error::VmError;
 pub use reentry::reenter;
+pub use vm::native::PreparedNativeEntry;
 pub use vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, ReloadError, Vm};
 
 #[cfg(test)]
