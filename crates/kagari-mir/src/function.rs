@@ -6,6 +6,7 @@ use kagari_abi::types::NominalAbiType;
 use kagari_common::Span;
 use kagari_common::host_interface::HostTypeDeclaration;
 use kagari_common::identity::ModuleIdentity;
+use serde::{Deserialize, Serialize};
 
 use crate::debug::MirFunctionDebugMetadata;
 use crate::ids::BlockId;
@@ -20,32 +21,43 @@ use kagari_abi::representation::ValueType;
 use kagari_abi::types::ModuleAbi;
 use std::iter;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirModule {
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub host_types: Vec<HostTypeDeclaration>,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub dependencies: Vec<ModuleIdentity>,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub structures: Vec<StructLayout>,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub enumerations: Vec<EnumLayout>,
     pub identity: ModuleIdentity,
     pub source_name: String,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub module_slots: ModuleSlotBuffer,
     pub abi: ModuleAbi,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::functions")]
     pub functions: FunctionBuffer,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirFunction {
     pub semantic: SemanticSlots,
     pub id: InstanceId,
     pub instance: ConcreteFunctionIdentity,
     pub name: String,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub params: ParameterBuffer,
     pub return_type: ValueType,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub locals: LocalBuffer,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub temps: TempBuffer,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub blocks: BlockBuffer,
     pub entry: BlockId,
     pub effects: EffectSet,
@@ -93,25 +105,25 @@ impl MirModule {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirParameter {
     pub name: String,
     pub ty: ValueType,
     pub local: LocalId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirLocal {
     pub name: String,
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirTemp {
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirModuleSlot {
     pub id: ModuleSlotId,
     pub name: String,
@@ -119,10 +131,13 @@ pub struct MirModuleSlot {
     pub mutable: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BasicBlock {
+    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
     pub instructions: InstructionBuffer,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
     pub instruction_spans: SourceSpanBuffer,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
     pub instruction_scopes: Vec<usize>,
     pub terminator: Option<Terminator>,
     pub terminator_span: Option<Span>,

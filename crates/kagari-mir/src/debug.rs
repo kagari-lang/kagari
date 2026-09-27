@@ -13,6 +13,7 @@ pub struct SourceOrigin {
     pub byte_len: usize,
     /// Strictly increasing offsets. Missing coordinates preserve source offsets
     /// that have no line position (for example, the LF byte of a CRLF pair).
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub positions: Vec<SourcePosition>,
 }
 
@@ -33,23 +34,26 @@ pub struct SourcePosition {
     pub column: Option<u32>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MirFunctionDebugMetadata {
     pub source: Option<SourceOrigin>,
     pub source_module: Option<ModuleIdentity>,
     pub source_span: Span,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub locals: MirLocalDebugBuffer,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub captured_bindings: CapturedBindingDebugBuffer,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub lexical_scopes: Vec<MirLexicalScope>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirLexicalScope {
     pub parent: Option<usize>,
     pub local: Option<LocalId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirLocalDebugInfo {
     pub local: LocalId,
     pub name: String,
@@ -58,7 +62,7 @@ pub struct MirLocalDebugInfo {
     pub is_parameter: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirCapturedBindingDebugInfo {
     pub name: String,
     pub span: Span,

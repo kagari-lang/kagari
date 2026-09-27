@@ -12,7 +12,8 @@ use crate::{Instruction, MirFunction};
 const MAX_ANALYSIS_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ANALYSIS_WORK: usize = 100_000_000;
 
-/// One budget for the entire module, including forward and backward fixed points.
+/// One budget for the entire verification request, including all program modules
+/// and their forward and backward fixed points.
 /// Account for retained facts and scratch matrices before allocating them.
 #[derive(Default)]
 pub(super) struct Budget {

@@ -452,7 +452,7 @@ verified MIR analyses and frontend-free bytecode lowering pass their scoped chec
 Runtime, VM and SDK libraries now build at their intended execution boundary.
 The workspace remains intentionally broken in legacy VM/backend tests, SDK/CLI
 native callers and the A04 backend implementation. Resume A03 native preparation,
-artifact correspondence and feature integration; A05 final acceptance
+artifact envelope integration, shared caching and feature integration; A05 final acceptance
 has not run and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
@@ -470,7 +470,7 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | `279e6d6` runtime fixtures; `51f00ec` native installation/invocation; VM/SDK prepared execution boundary | 415 runtime/compiler/ABI tests plus one seal doc test at prior checkpoint; eight new VM tests, VM/SDK library clippy, structure, fmt and diff pass | Shared version/target/options cache, SDK compilation preparation, artifact MIR correspondence, feature separation and old backend test/caller migration remain |
+| A03 | `279e6d6` runtime fixtures; `51f00ec` native installation/invocation; VM/SDK prepared execution boundary | 415 runtime/compiler/ABI tests plus one seal doc test at prior checkpoint; eight new VM tests, VM/SDK library clippy, structure, fmt and diff pass | Portable codec and canonical correspondence now pass focused checks; shared version/target/options cache, SDK preparation, artifact envelope, feature separation and caller migration remain |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
 
@@ -1491,6 +1491,54 @@ MIR, portable artifact encoding/validation/correspondence, and feature isolation
 Keep preparation before user effects and uphold the runtime installation safety
 contract for registered backends. Then migrate callers/tests to that complete path;
 do not recreate the removed VM compilation entrypoint. A03-A05 remain unfinished.
+
+### A03 checkpoint: portable MIR and canonical native input (2026-09-28)
+
+Added the versioned `KMIR` v1 codec in MIR. It serializes raw concrete program facts
+and portable origins, never verification seals or analysis results. Decoding checks
+format/runtime/helper versions, total bytes, collection counts, graph links and
+MIR semantics, then rebuilds analyses. Cancellation is checked during IO and
+verification. Encoder preflight includes bounded wire decoding so valid in-memory
+seals with oversized collections cannot publish unreadable bytes. Analysis state
+and work budgets now cover the complete program, preventing modules from each
+resetting the verifier's allocation allowance.
+
+Added frontend-free compiler `verify_native_input`: validate supplied bytecode,
+decode/reverify MIR, lower through the canonical bytecode path, and compare the
+complete canonical program encoding. Independent valid payloads or matching hashes
+are insufficient. This validates identities, layouts, imports, origins, logical
+charges and floating-point bit patterns before native preparation can proceed.
+Compiler bincode support is available without its source feature; its production
+core graph still contains only MIR, bytecode, ABI and common Kagari dependencies.
+
+A NaN round-trip reproduction exposed constant-table equality using floating-point
+numeric equality. Constant pooling and validation now use representation equality
+for f32/f64, retaining NaN payloads and distinguishing signed zero. Script numeric
+equality is unchanged. No bytecode wire layout or ABI version changes in this
+checkpoint. The new MIR codec is not yet embedded in `.kbc`; envelope integration
+and SDK consumption follow next.
+
+Validation:
+
+- `cargo test -p kagari-compiler -p kagari-bytecode -p kagari-mir -p kagari-abi`:
+  230 tests and two compile-fail seal doc tests pass. Codec coverage includes
+  multi-module generic interfaces, Unicode/CRLF origins without retained source,
+  stable canonical bytes, float identity, invalid control flow, impossible counts,
+  old schema/ABI versions, truncation/trailing data, cancellation, shared analysis
+  limits and independently valid but mismatched native input.
+- `cargo test -p kagari-vm --test prepared_execution`: eight tests pass, including
+  the 200 paired optimized/unoptimized budget scenarios.
+- All-target clippy for the four core crates and separately for compiler with
+  `--no-default-features`, each with `-D warnings`: pass. Structure: 495 Rust files,
+  zero violations/exceptions. Formatting and diff checks pass. Reviewed raw-schema
+  bounds, seal privacy, analysis budget ownership, imports and float identity use.
+- Logs: `target/a03-codec-tests.log`, `target/a03-codec-vm-tests.log`,
+  `target/a03-codec-clippy.log`, `target/a03-codec-core-clippy.log`.
+
+A03 remains open. Existing VM/backend unit fixtures, SDK/CLI native callers and
+Cranelift migration errors remain carried under A03/A04; unchanged failures were
+not rerun. Continue opaque MIR artifact envelopes, SDK preparation/shared caches,
+backend trust registration and feature isolation. A05 final acceptance is pending.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

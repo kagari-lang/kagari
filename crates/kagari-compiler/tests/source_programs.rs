@@ -21,6 +21,7 @@ use kagari_hir::{
 };
 use kagari_mir::CallTarget;
 use kagari_mir::Instruction;
+use kagari_mir::codec::{decode_program, encode_program};
 use kagari_mir::program::ProgramErrorKind;
 use kagari_mir::program::verify_program;
 
@@ -64,6 +65,13 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
     );
     let checked = checked(&db, root);
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let wire = encode_program(&ir, &Default::default()).unwrap();
+    let decoded = decode_program(&wire, &Default::default()).unwrap();
+    assert_eq!(wire, encode_program(&decoded, &Default::default()).unwrap());
+    assert_eq!(
+        bincode::serialize(&lower_program_to_bytecode(&ir).unwrap()).unwrap(),
+        bincode::serialize(&lower_program_to_bytecode(&decoded).unwrap()).unwrap(),
+    );
     let model = ir
         .modules()
         .iter()

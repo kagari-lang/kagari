@@ -127,7 +127,7 @@ impl PathId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstantOperand {
     Unit,
     Bool(bool),
@@ -137,6 +137,24 @@ pub enum ConstantOperand {
     F32(f32),
     F64(f64),
     Str(String),
+}
+
+// Constant-table identity is representation equality, not script equality:
+// retain NaN payloads and distinguish signed zero during pooling and validation.
+impl PartialEq for ConstantOperand {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Unit, Self::Unit) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::I32(a), Self::I32(b)) => a == b,
+            (Self::I64(a), Self::I64(b)) => a == b,
+            (Self::U64(a), Self::U64(b)) => a == b,
+            (Self::F32(a), Self::F32(b)) => a.to_bits() == b.to_bits(),
+            (Self::F64(a), Self::F64(b)) => a.to_bits() == b.to_bits(),
+            (Self::Str(a), Self::Str(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,0 +1,302 @@
+use bincode::{DefaultOptions, Options};
+use kagari_abi::representation::ValueType;
+use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use kagari_common::cancellation::CancellationToken;
+use kagari_common::identity::ModuleIdentity;
+use kagari_mir::codec::{
+    MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program,
+};
+use kagari_mir::program::{ProgramErrorKind, VerifiedMirProgram, verify_program};
+use kagari_mir::{
+    BlockId, Constant, Instruction, MirModule, MirTemp, MirVerificationErrorKind, Terminator,
+    verify_mir,
+};
+use std::sync::Arc;
+
+use crate::bytecode::lower_program_to_bytecode;
+use crate::lower_to_mir;
+use crate::native_input::{NativeInputError, verify_native_input};
+use crate::tests::common;
+
+fn program(source: &str) -> VerifiedMirProgram {
+    let checked = common::analyze_ok(source);
+    let module = lower_to_mir(&checked, &Default::default()).unwrap();
+    verify_program(
+        module.identity.clone(),
+        vec![module.into_unverified()],
+        &Default::default(),
+    )
+    .unwrap()
+}
+fn forged(root: &ModuleIdentity, modules: &[MirModule]) -> Vec<u8> {
+    DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian()
+        .serialize(&(
+            MIR_MAGIC,
+            MIR_FORMAT_VERSION,
+            KAGARI_RUNTIME_ABI_VERSION,
+            KAGARI_RUNTIME_HELPER_ABI_VERSION,
+            root,
+            modules,
+        ))
+        .unwrap()
+}
+fn assert_same_bytecode(before: &VerifiedMirProgram, after: &VerifiedMirProgram) {
+    assert_eq!(
+        bincode::serialize(&lower_program_to_bytecode(before).unwrap()).unwrap(),
+        bincode::serialize(&lower_program_to_bytecode(after).unwrap()).unwrap()
+    );
+}
+
+#[test]
+fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
+    for source in [
+        "fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }",
+        "fn main() -> u64 { 18446744073709551615u64 }",
+        "fn main() -> f64 { -0.0 }",
+        "fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }",
+        "fn main() -> i32 { val a = [1, 2]; a[0] }",
+    ] {
+        let original = program(source);
+        let bytes = encode_program(&original, &Default::default()).unwrap();
+        let decoded = decode_program(&bytes, &Default::default()).unwrap();
+        assert_eq!(
+            bytes,
+            encode_program(&decoded, &Default::default()).unwrap()
+        );
+        assert_same_bytecode(&original, &decoded);
+        for (a, b) in original.modules().iter().zip(decoded.modules()) {
+            for function in &a.functions {
+                let facts = b.analysis(function.id).unwrap();
+                assert_eq!(facts.block(function.entry).unwrap().start_offset(), 0);
+                assert_eq!(
+                    function.debug.source,
+                    b.functions[function.id.index()].debug.source
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn codec_retains_unicode_origins_without_retaining_source_objects() {
+    let checked = common::analyze_ok("fn main() -> i32 {\r\n val text = \"雪😀\"; 7\r\n }");
+    let weak = Arc::downgrade(&checked.lowered.source);
+    let module = lower_to_mir(&checked, &Default::default()).unwrap();
+    let original = verify_program(
+        module.identity.clone(),
+        vec![module.into_unverified()],
+        &Default::default(),
+    )
+    .unwrap();
+    let bytes = encode_program(&original, &Default::default()).unwrap();
+    drop(checked);
+    assert!(weak.upgrade().is_none());
+    let decoded = decode_program(&bytes, &Default::default()).unwrap();
+    assert_same_bytecode(&original, &decoded);
+}
+
+#[test]
+fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
+    let original = program("fn main() {}");
+    let root = original.root().clone();
+    let mut raw = original.into_unverified();
+    raw[0].functions[0].blocks[0].terminator = Some(Terminator::Jump(BlockId::new(999)));
+    assert!(matches!(
+        decode_program(&forged(&root, &raw), &Default::default()),
+        Err(MirCodecError::Verification(_))
+    ));
+}
+
+#[test]
+fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
+    let original = program("fn main() {}");
+    let bytes = encode_program(&original, &Default::default()).unwrap();
+    let mut previous = bytes.clone();
+    previous[4..6].copy_from_slice(&0u16.to_le_bytes());
+    assert!(matches!(
+        decode_program(&previous, &Default::default()),
+        Err(MirCodecError::Version)
+    ));
+    for (runtime, helper) in [
+        ("obsolete-runtime", KAGARI_RUNTIME_HELPER_ABI_VERSION),
+        (KAGARI_RUNTIME_ABI_VERSION, "obsolete-helper"),
+    ] {
+        let header = DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(&(MIR_MAGIC, MIR_FORMAT_VERSION, runtime, helper))
+            .unwrap();
+        assert!(matches!(
+            decode_program(&header, &Default::default()),
+            Err(MirCodecError::Version)
+        ));
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(matches!(
+        decode_program(&trailing, &Default::default()),
+        Err(MirCodecError::Encoding(_))
+    ));
+    for length in 0..bytes.len() {
+        assert!(decode_program(&bytes[..length], &Default::default()).is_err());
+    }
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        decode_program(&bytes, &cancel),
+        Err(MirCodecError::Cancelled)
+    ));
+    assert!(matches!(
+        encode_program(&original, &cancel),
+        Err(MirCodecError::Cancelled)
+    ));
+}
+
+#[test]
+fn codec_rejects_impossible_module_counts_before_element_decoding() {
+    let root = ModuleIdentity::single_file("wire");
+    let mut prefix = DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian()
+        .serialize(&(
+            MIR_MAGIC,
+            MIR_FORMAT_VERSION,
+            KAGARI_RUNTIME_ABI_VERSION,
+            KAGARI_RUNTIME_HELPER_ABI_VERSION,
+            root,
+        ))
+        .unwrap();
+    prefix.extend_from_slice(&u64::MAX.to_le_bytes());
+    let error = decode_program(&prefix, &Default::default()).unwrap_err();
+    assert!(
+        matches!(error, MirCodecError::Encoding(ref message) if message.contains("module count limit exceeded"))
+    );
+}
+
+#[test]
+fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
+    let mut template = program("fn main() {}").into_unverified().remove(0);
+    let function = &mut template.functions[0];
+    function.temps = vec![
+        MirTemp {
+            ty: ValueType::Unit
+        };
+        32_768
+    ];
+    let block = &mut function.blocks[0];
+    block.instructions = vec![Instruction::BudgetCheckpoint; 256];
+    block.instruction_spans = vec![Default::default(); 256];
+    block.instruction_scopes = vec![0; 256];
+    block.terminator = Some(Terminator::Return(None));
+    verify_mir(template.clone(), &Default::default()).unwrap();
+    let mut modules = (0..24)
+        .map(|index| {
+            let mut module = template.clone();
+            module.identity = ModuleIdentity::single_file(format!("member{index}"));
+            module.functions[0].instance.declaration.module = module.identity.clone();
+            module
+        })
+        .collect::<Vec<_>>();
+    modules[0].dependencies = modules
+        .iter()
+        .skip(1)
+        .map(|module| module.identity.clone())
+        .collect();
+    let error =
+        decode_program(&forged(&modules[0].identity, &modules), &Default::default()).unwrap_err();
+    assert!(
+        matches!(error, MirCodecError::Verification(error) if matches!(error.kind,
+            ProgramErrorKind::Verification(ref error) if matches!(error.kind,
+                MirVerificationErrorKind::Limit { resource: "MIR analysis state bytes", .. }
+            )
+        ))
+    );
+}
+
+#[test]
+fn native_preparation_requires_canonical_semantics_not_independent_valid_payloads() {
+    let original = program("fn main() -> i32 { 42 }");
+    let other = program("fn main() -> i32 { 43 }");
+    let wire = encode_program(&original, &Default::default()).unwrap();
+    let bytecode = lower_program_to_bytecode(&original).unwrap();
+    let prepared = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
+    assert_same_bytecode(&original, &prepared);
+    let different_bytecode = lower_program_to_bytecode(&other).unwrap();
+    // Both programs are independently valid and have identical function signatures.
+    assert!(matches!(
+        verify_native_input(&wire, &different_bytecode, &Default::default()),
+        Err(NativeInputError::Mismatch)
+    ));
+    let mut forged = bytecode.clone();
+    forged.modules[0].functions[0].instructions.clear();
+    assert!(matches!(
+        verify_native_input(&wire, &forged, &Default::default()),
+        Err(NativeInputError::Bytecode(_))
+    ));
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        verify_native_input(&wire, &bytecode, &cancel),
+        Err(NativeInputError::Cancelled)
+    ));
+}
+
+#[test]
+fn codec_preserves_float_bits_and_constant_pool_identity() {
+    for (ty, pairs) in [
+        (
+            "f32",
+            [
+                (0x7fc04242, 0x7fc04243),
+                (0, 0x80000000),
+                (0x7fc04242, 0x7fc04242),
+            ],
+        ),
+        (
+            "f64",
+            [
+                (0x7ff8000000004242, 0x7ff8000000004243),
+                (0, 0x8000000000000000),
+                (0x7ff8000000004242, 0x7ff8000000004242),
+            ],
+        ),
+    ] {
+        for (first, second) in pairs {
+            let original = program(&format!(
+                "fn main() -> {ty} {{ val a: {ty} = 0.0; val b: {ty} = 1.0; a + b }}"
+            ));
+            let root = original.root().clone();
+            let mut modules = original.into_unverified();
+            let mut bits = [first, second].into_iter();
+            for instruction in &mut modules[0].functions[0].blocks[0].instructions {
+                match instruction {
+                    Instruction::LoadConst {
+                        constant: Constant::F32(value),
+                        ..
+                    } => {
+                        *value = f32::from_bits(bits.next().unwrap() as u32);
+                    }
+                    Instruction::LoadConst {
+                        constant: Constant::F64(value),
+                        ..
+                    } => {
+                        *value = f64::from_bits(bits.next().unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            assert!(bits.next().is_none());
+            let original = verify_program(root, modules, &Default::default()).unwrap();
+            let wire = encode_program(&original, &Default::default()).unwrap();
+            let bytecode = lower_program_to_bytecode(&original).unwrap();
+            assert_eq!(
+                bytecode.modules[0].constants.len(),
+                if first == second { 1 } else { 2 }
+            );
+            let decoded = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
+            assert_same_bytecode(&original, &decoded);
+        }
+    }
+}

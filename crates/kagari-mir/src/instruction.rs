@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 mod operands;
 use kagari_abi::effects::{EffectSet, standard_intrinsic_effects};
 use kagari_abi::numeric::NumericConversion;
@@ -18,19 +19,19 @@ use crate::ids::ModuleSlotId;
 use crate::ids::TempId;
 use kagari_abi::representation::ValueType;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirValue {
     pub temp: TempId,
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct AggregateFieldRef {
     pub owner: NominalAbiType,
     pub slot: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathRef {
     pub declaration: Option<HostPathDeclaration>,
     pub contract_fingerprint: u64,
@@ -40,7 +41,7 @@ pub struct PathRef {
     pub debug_name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Instruction {
     /// Preserve a logical charge and its origin after removing a pure operation.
     BudgetCheckpoint,
@@ -111,6 +112,7 @@ pub enum Instruction {
     Call {
         dst: Option<MirValue>,
         callee: CallTarget,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         args: ValueBuffer,
     },
     BeginIteration {
@@ -119,6 +121,7 @@ pub enum Instruction {
     EndIteration,
     MakeTuple {
         dst: MirValue,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,
     },
     RangeBound {
@@ -141,11 +144,13 @@ pub enum Instruction {
     },
     MakeArray {
         dst: MirValue,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,
     },
     MakeClosure {
         dst: MirValue,
         function: InstanceId,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         captures: ValueBuffer,
     },
     MakeCell {
@@ -170,17 +175,20 @@ pub enum Instruction {
         dst: MirValue,
         value: MirValue,
         implementation: DefinitionId,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
         arguments: Vec<AbiType>,
     },
     MakeStruct {
         dst: MirValue,
         structure: NominalAbiType,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         fields: StructFieldInitBuffer,
     },
     MakeEnum {
         dst: MirValue,
         enumeration: NominalAbiType,
         variant: usize,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         fields: ValueBuffer,
     },
     TestEnumVariant {
@@ -220,11 +228,13 @@ pub enum Instruction {
         dst: MirValue,
         root_or_view: MirValue,
         path: PathRef,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         dynamic_args: ValueBuffer,
     },
     SetPath {
         root_or_view: MirValue,
         path: PathRef,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         dynamic_args: ValueBuffer,
         value: MirValue,
     },
@@ -232,6 +242,7 @@ pub enum Instruction {
         dst: Option<MirValue>,
         root_or_view: MirValue,
         path: PathRef,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         dynamic_args: ValueBuffer,
         op: BinaryOp,
         value: MirValue,
@@ -240,11 +251,12 @@ pub enum Instruction {
         dst: MirValue,
         root_or_view: MirValue,
         path: PathRef,
+        #[serde(deserialize_with = "crate::codec::small_operands")]
         dynamic_args: ValueBuffer,
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Terminator {
     Return(Option<MirValue>),
     Jump(BlockId),
@@ -256,7 +268,7 @@ pub enum Terminator {
     Unreachable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CallTarget {
     SourceFunction(Box<SourceFunctionContract>),
     Function(InstanceId),
@@ -265,6 +277,7 @@ pub enum CallTarget {
     Value(MirValue),
     Closure {
         value: MirValue,
+        #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
         params: Vec<ValueType>,
         return_type: ValueType,
     },
@@ -272,7 +285,7 @@ pub enum CallTarget {
     RuntimeHelper(RuntimeHelper),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceCallContract {
     pub interface: NominalAbiType,
     pub method_slot: u32,
@@ -419,7 +432,7 @@ impl RuntimeHelper {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RuntimeHelper {
     ReflectTypeOf,
     ReflectGetField(String),
@@ -428,7 +441,7 @@ pub enum RuntimeHelper {
     DynamicCall,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Constant {
     Unit,
     Bool(bool),
@@ -440,7 +453,7 @@ pub enum Constant {
     Str(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructFieldInit {
     pub slot: usize,
     pub value: MirValue,
@@ -451,10 +464,12 @@ pub type ValueBuffer = SmallVec<[MirValue; 4]>;
 pub type StructFieldInitBuffer = SmallVec<[StructFieldInit; 4]>;
 
 /// Unlinked declaration contract. It cannot be encoded as an executable call.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceFunctionContract {
     pub declaration: DefinitionId,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub arguments: Vec<AbiType>,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
 }

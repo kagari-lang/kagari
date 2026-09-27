@@ -6,7 +6,7 @@ license.workspace = true
 
 [features]
 default = ["source"]
-source = ["dep:kagari-hir", "dep:kagari-syntax", "dep:bincode"]
+source = ["dep:kagari-hir", "dep:kagari-syntax"]
 
 [dependencies]
 kagari-abi.workspace = true
@@ -17,7 +17,7 @@ smallvec.workspace = true
 thiserror.workspace = true
 kagari-hir = { workspace = true, optional = true }
 kagari-syntax = { workspace = true, optional = true }
-bincode = { workspace = true, optional = true }
+bincode.workspace = true
 
 [[test]]
 name = "source_programs"

@@ -20,7 +20,7 @@ use crate::MirModule;
 use crate::MirVerificationError;
 use crate::VerifiedMirModule;
 use crate::ids::InstanceId;
-use crate::verify_mir;
+use crate::verify::{VerificationBudget, verify_with_budget};
 use kagari_abi::types::ConcreteFunctionIdentity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +98,7 @@ pub fn verify_program(
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
     }
+    let mut budget = VerificationBudget::default();
     for (index, module) in raw.into_iter().enumerate() {
         cancel
             .check()
@@ -110,7 +111,7 @@ pub fn verify_program(
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
         let identity = module.identity.clone();
-        let module = verify_mir(module, cancel)
+        let module = verify_with_budget(module, cancel, &mut budget)
             .map_err(|cause| error(&identity, ProgramErrorKind::Verification(cause)))?;
         for layout in &module.structures {
             cancel

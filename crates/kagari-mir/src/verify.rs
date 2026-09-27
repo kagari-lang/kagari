@@ -152,6 +152,18 @@ pub fn verify_mir(
     module: MirModule,
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirModule, MirVerificationError> {
+    verify_with_budget(module, cancel, &mut VerificationBudget::default())
+}
+
+/// Program verification shares this budget across every retained module seal.
+#[derive(Default)]
+pub(crate) struct VerificationBudget(Budget);
+
+pub(crate) fn verify_with_budget(
+    module: MirModule,
+    cancel: &CancellationToken,
+    budget: &mut VerificationBudget,
+) -> Result<VerifiedMirModule, MirVerificationError> {
     let context = Context {
         function: None,
         block: None,
@@ -218,7 +230,6 @@ pub fn verify_mir(
         }
     }
     let mut analyses = Vec::new();
-    let mut budget = Budget::default();
     for function in &module.functions {
         analyses.push(verify_function(
             &module,
@@ -228,7 +239,7 @@ pub fn verify_mir(
                 span: Some(function.debug.source_span),
                 ..context
             },
-            &mut budget,
+            &mut budget.0,
         )?);
     }
     Ok(VerifiedMirModule { module, analyses })
