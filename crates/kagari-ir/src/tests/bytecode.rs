@@ -3110,3 +3110,40 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
         assert!(verify_module(&module).is_err(), "{value}");
     }
 }
+
+#[test]
+fn string_iterator_rejects_forged_constructor_contracts() {
+    use crate::module::{
+        abi::{AbiType, BuiltinType},
+        instruction::{IterOp, StringIterKind},
+    };
+    let module =
+        common::bytecode_ok("fn main() { val parts = \"a,b\".split(\",\"); parts.next(); }");
+    verify_module(&module).unwrap();
+    for mutation in 0..3 {
+        let mut invalid = module.clone();
+        let instruction = invalid
+            .functions
+            .iter_mut()
+            .flat_map(|f| &mut f.instructions)
+            .find(|i| {
+                matches!(
+                    i,
+                    BytecodeInstruction::Iter {
+                        op: IterOp::String(_),
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let BytecodeInstruction::Iter { ty, op, value, .. } = instruction else {
+            unreachable!()
+        };
+        match mutation {
+            0 => *ty = AbiType::Tuple(vec![AbiType::Builtin(BuiltinType::String)]),
+            1 => *op = IterOp::String(StringIterKind::SplitN),
+            _ => *value = None,
+        }
+        assert!(verify_module(&invalid).is_err(), "mutation {mutation}");
+    }
+}

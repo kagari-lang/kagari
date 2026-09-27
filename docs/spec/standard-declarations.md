@@ -136,3 +136,13 @@ for an empty pattern. Trimming uses Unicode White_Space; start/end variants reta
 whitespace on the opposite end. No operation normalizes Unicode or mutates its
 receiver. Returned strings own their contents; optional results are ordinary
 GC-rooted Option values.
+
+String splitting returns lazy, fused `Iter<String>` values. `split` retains empty
+fields and matches non-overlapping string separators. The empty separator yields
+both empty edge fields and one field per Unicode scalar. `splitn(n, separator)`
+yields at most n fields, with the unsplit remainder in the last field; zero yields
+none. `split_once`/`rsplit_once` exclude the first/last matching separator and return
+None if absent. `split_whitespace` coalesces Unicode whitespace without empty
+fields. `lines` recognizes LF and CRLF, retains lone CR and omits an extra field
+after a final terminator. Empty input has no lines. Traversals retain their source
+and version; each step prepares its result before advancing the shared cursor.

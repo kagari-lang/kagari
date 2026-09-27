@@ -250,6 +250,13 @@ pub enum StandardIntrinsic {
     StringStartsWith,
     StringEndsWith,
     StringSlice,
+    StringSplit,
+    StringSplitN,
+    StringSplitOnce,
+    StringRsplitOnce,
+    StringSplitWhitespace,
+    StringLines,
+
     StringTrim,
     StringTrimStart,
     StringTrimEnd,

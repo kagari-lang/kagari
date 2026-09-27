@@ -25,6 +25,84 @@
 pub type String;
 
 impl String {
+    /// Lazily split around non-overlapping string separators.
+    ///
+    /// Retains empty fields, including a trailing field. An empty separator yields an empty field at each end and one field per Unicode scalar.
+    /// Returned strings own their contents. Iterators stop permanently after None.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("a,b,".split(",").collect::<ArrayList<String>>().join("|") == "a|b|", "split");
+    /// ```
+    #[intrinsic(StringSplit)]
+    pub fn split(self, separator: String) -> Iter<String>;
+
+    /// Lazily split into at most count fields.
+    ///
+    /// Zero yields no fields. One yields the complete string. The last field contains the unsplit remainder.
+    /// Returned strings own their contents. Iterators stop permanently after None.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("a,b,c".splitn(2usize, ",").collect::<ArrayList<String>>().join("|") == "a|b,c", "splitn");
+    /// ```
+    #[intrinsic(StringSplitN)]
+    pub fn splitn(self, count: usize, separator: String) -> Iter<String>;
+
+    /// Split at the first matching separator.
+    ///
+    /// The separator is excluded. An empty separator splits at the start. Returns None when absent.
+    /// Returned strings own their contents. Iterators stop permanently after None.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("a=b=c".split_once("=") == Some(("a", "b=c")), "split_once");
+    /// ```
+    #[intrinsic(StringSplitOnce)]
+    pub fn split_once(self, separator: String) -> Option<(String, String)>;
+
+    /// Split at the last matching separator.
+    ///
+    /// The separator is excluded. An empty separator splits at the end. Returns None when absent.
+    /// Returned strings own their contents. Iterators stop permanently after None.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("a=b=c".rsplit_once("=") == Some(("a=b", "c")), "rsplit_once");
+    /// ```
+    #[intrinsic(StringRsplitOnce)]
+    pub fn rsplit_once(self, separator: String) -> Option<(String, String)>;
+
+    /// Lazily split on Unicode whitespace.
+    ///
+    /// Adjacent whitespace is coalesced. Leading and trailing whitespace produce no empty fields. Empty input produces no fields.
+    /// Returned strings own their contents. Iterators stop permanently after None.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("  a　b  ".split_whitespace().collect::<ArrayList<String>>().join("|") == "a|b", "split_whitespace");
+    /// ```
+    #[intrinsic(StringSplitWhitespace)]
+    pub fn split_whitespace(self) -> Iter<String>;
+
+    /// Lazily iterate lines without line terminators.
+    ///
+    /// Recognizes LF and CRLF. A lone CR is retained. A final terminator does not create an extra line; empty input yields none.
+    /// Returned strings own their contents. Iterators stop permanently after None.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert("a".lines().next() == Some("a"), "lines");
+    /// ```
+    #[intrinsic(StringLines)]
+    pub fn lines(self) -> Iter<String>;
+
     /// Remove leading and trailing Unicode whitespace.
     ///
     /// Uses the Unicode White_Space property, not only ASCII spaces. Interior whitespace is preserved.

@@ -11,6 +11,7 @@ use std::{
 use indexmap::IndexMap;
 mod custom_keys;
 mod iter;
+mod string_iter;
 
 use crate::error::{RuntimeError, RuntimeErrorKind};
 use crate::value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value};

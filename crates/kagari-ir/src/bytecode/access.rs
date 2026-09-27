@@ -463,6 +463,10 @@ pub(super) fn verify(
                         return Err(invalid());
                     }
                     let item = match ty {
+                        AbiType::Tuple(_) if matches!(op, IterOp::String(_)) => {
+                            Some(AbiType::Builtin(B::String))
+                        }
+                        AbiType::Builtin(B::String) => Some(AbiType::Builtin(B::String)),
                         AbiType::Tuple(_) if *op == IterOp::FromClosure => {
                             IterOp::closure_item(ty).cloned()
                         }
@@ -479,7 +483,9 @@ pub(super) fn verify(
                         (
                             *dst,
                             Fact::typed(match op {
-                                IterOp::New | IterOp::FromClosure => AbiType::Iter(Box::new(item)),
+                                IterOp::New | IterOp::FromClosure | IterOp::String(_) => {
+                                    AbiType::Iter(Box::new(item))
+                                }
                                 IterOp::Next => AbiType::StandardEnum {
                                     kind: surface::StandardEnum::Option,
                                     args: vec![item],

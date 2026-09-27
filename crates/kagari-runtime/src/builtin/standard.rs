@@ -193,6 +193,10 @@ pub fn invoke_with_callbacks(
         StringStartsWith => string_starts_with(args),
         StringEndsWith => string_ends_with(args),
         StringSlice => string_slice(gc, args),
+        StringSplit | StringSplitN | StringSplitWhitespace | StringLines => Err(BuiltinError::new(
+            "string traversal requires iterator lowering",
+        )),
+        StringSplitOnce | StringRsplitOnce => string_split_once(gc, intrinsic, args),
         StringTrim | StringTrimStart | StringTrimEnd | StringFind | StringRfind
         | StringStripPrefix | StringStripSuffix => string_query(gc, intrinsic, args),
         OptionIsSome => option_is_some(gc, args),
@@ -584,6 +588,28 @@ fn set_difference(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .filter(|value| gc.set_contains(rhs, value) == Some(false))
         .collect();
     set_value(gc, values)
+}
+
+fn string_split_once(
+    gc: &GcHeap,
+    intrinsic: StandardIntrinsic,
+    args: &[Value],
+) -> Result<Value, BuiltinError> {
+    let [Value::Str(text), Value::Str(separator)] = args else {
+        return Err(BuiltinError::new("split_once requires two strings"));
+    };
+    let split = if intrinsic == StandardIntrinsic::StringSplitOnce {
+        text.split_once(separator.as_str())
+    } else {
+        text.rsplit_once(separator.as_str())
+    };
+    match split {
+        Some((left, right)) => option_some(
+            gc,
+            Value::Tuple(vec![copy_string(left)?, copy_string(right)?]),
+        ),
+        None => option_none(gc),
+    }
 }
 
 fn string_query(

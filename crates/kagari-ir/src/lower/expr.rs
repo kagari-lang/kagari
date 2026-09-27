@@ -1930,6 +1930,32 @@ impl FunctionLowerer<'_, '_> {
                         ))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                        use crate::module::instruction::{IterOp, StringIterKind};
+                        let string_iteration = match intrinsic {
+                            StandardIntrinsic::StringSplit => Some(StringIterKind::Split),
+                            StandardIntrinsic::StringSplitN => Some(StringIterKind::SplitN),
+                            StandardIntrinsic::StringSplitWhitespace => {
+                                Some(StringIterKind::Whitespace)
+                            }
+                            StandardIntrinsic::StringLines => Some(StringIterKind::Lines),
+                            _ => None,
+                        };
+                        if let Some(kind) = string_iteration {
+                            let source = self.alloc_temp(ValueType::HeapObject);
+                            self.emit(Instruction::MakeTuple {
+                                dst: source,
+                                elements: lowered,
+                            });
+                            let dst = self.alloc_temp(ValueType::HeapObject);
+                            self.emit(Instruction::Iter {
+                                dst,
+                                value: Some(source),
+                                ty: kind.source_type(),
+                                op: IterOp::String(kind),
+                            });
+                            return Ok(dst);
+                        }
+
                         if matches!(
                             intrinsic,
                             StandardIntrinsic::MapKeys

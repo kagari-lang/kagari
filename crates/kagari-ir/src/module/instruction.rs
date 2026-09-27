@@ -564,6 +564,12 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | SetDifference
                 | ArrayJoin
                 | StringSlice
+                | StringSplit
+                | StringSplitN
+                | StringSplitOnce
+                | StringRsplitOnce
+                | StringSplitWhitespace
+                | StringLines
                 | StringTrim
                 | StringTrimStart
                 | StringTrimEnd
@@ -718,6 +724,7 @@ impl StandardEnumOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IterOp {
     New,
+    String(StringIterKind),
     FromClosure,
     Next,
     Close,
@@ -734,6 +741,12 @@ impl IterOp {
             return None;
         }
         let input = match self {
+            Self::String(kind) => {
+                if !kind.valid_source(ty) {
+                    return None;
+                }
+                ValueType::HeapObject
+            }
             Self::FromClosure => {
                 Self::closure_item(ty)?;
                 ValueType::HeapObject
@@ -839,4 +852,27 @@ pub fn range_bound_valid(range: &super::abi::AbiType, bound: &super::abi::AbiTyp
         && super::abi::verify::concrete_type_valid(bound, &Default::default())
         && args.len() == 1
         && (*kind == kagari_common::range::RangeKind::Full || args[0] == **item)
+}
+
+/// Native string traversal has a typed tuple of constructor arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringIterKind {
+    Split,
+    SplitN,
+    Whitespace,
+    Lines,
+}
+impl StringIterKind {
+    pub fn source_type(self) -> super::abi::AbiType {
+        use super::abi::{AbiType, BuiltinType};
+        let string = AbiType::Builtin(BuiltinType::String);
+        AbiType::Tuple(match self {
+            Self::Split => vec![string.clone(), string],
+            Self::SplitN => vec![string.clone(), AbiType::Builtin(BuiltinType::USize), string],
+            Self::Whitespace | Self::Lines => vec![string],
+        })
+    }
+    pub fn valid_source(self, ty: &super::abi::AbiType) -> bool {
+        *ty == self.source_type()
+    }
 }

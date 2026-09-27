@@ -9,6 +9,7 @@ pub(super) struct NativeIter {
     pub(super) source: Value,
     pub(super) item_type: AbiType,
     position: u128,
+    string: Option<super::string_iter::StringTraversal>,
     revision: u64,
     pub(super) guard: Option<CollectionIteration>,
     pub(super) loops: Rc<Cell<usize>>,
@@ -42,6 +43,7 @@ impl GcHeap {
             source: source.clone(),
             item_type,
             position: 0,
+            string: None,
             revision: 0,
             guard: None,
             loops: Rc::new(Cell::new(0)),
@@ -169,6 +171,7 @@ impl GcHeap {
             source: source.clone(),
             item_type,
             position: 0,
+            string: None,
             revision,
             guard,
             loops: Rc::new(Cell::new(0)),
@@ -179,6 +182,38 @@ impl GcHeap {
         session.iter_guards.borrow_mut().insert(id);
         Ok(Value::GcHandle(id))
     }
+    pub(crate) fn new_string_iter(
+        &self,
+        source: &Value,
+        ty: &AbiType,
+        kind: kagari_ir::module::instruction::StringIterKind,
+        owner: &crate::LoadedModule,
+        retention: crate::module::RetainedRuntimeProgram,
+    ) -> Result<Value, RuntimeError> {
+        if !kind.valid_source(ty) {
+            return Err(invalid());
+        }
+        let Value::Tuple(fields) = source else {
+            return Err(invalid());
+        };
+        let traversal = super::string_iter::StringTraversal::new(kind, fields)?;
+        let value = self.new_iter(
+            &fields[0],
+            &AbiType::Builtin(BuiltinType::String),
+            owner,
+            retention,
+        )?;
+        let Value::GcHandle(id) = value else {
+            return Err(invalid());
+        };
+        let mut objects = self.objects.borrow_mut();
+        let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
+            return Err(invalid());
+        };
+        iter.string = Some(traversal);
+        Ok(value)
+    }
+
     pub(crate) fn advance_iter(
         &self,
         value: &Value,
@@ -197,7 +232,7 @@ impl GcHeap {
         if op != IterOp::Next {
             return Err(invalid());
         }
-        let (needs_guard, payload, next_position, owner) = {
+        let (needs_guard, payload, next_position, string_cursor, owner) = {
             let objects = self.objects.borrow();
             let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, *id) else {
                 return Err(invalid());
@@ -207,43 +242,56 @@ impl GcHeap {
             {
                 return Err(invalid());
             }
-            let (payload, advance) = match &iter.source {
-                Value::Range(range) => (range.at(iter.position)?, 1),
-                Value::Array(id) => (self.array_get(*id, iter.position as usize), 1),
-                Value::Set(id) => (
-                    self.with_set(*id, |values| {
-                        values
-                            .get_index(iter.position as usize)
-                            .map(|(key, _)| key.to_value())
-                    })
-                    .ok_or_else(invalid)?,
-                    1,
-                ),
-                Value::Map(id) => (
-                    self.with_map(*id, |entries| {
-                        entries
-                            .get_index(iter.position as usize)
-                            .map(|(key, value)| Value::Tuple(vec![key.to_value(), value.clone()]))
-                    })
-                    .ok_or_else(invalid)?,
-                    1,
-                ),
-                Value::Str(text) => match text
-                    .get(iter.position as usize..)
-                    .and_then(|tail| tail.chars().next())
-                {
-                    Some(character) => (
-                        Some(Value::Str(character.to_string())),
-                        character.len_utf8() as u128,
+            let mut string_cursor = None;
+            let (payload, advance) = if let Some(traversal) = &iter.string {
+                let Value::Str(text) = &iter.source else {
+                    return Err(invalid());
+                };
+                let (value, cursor) = traversal.preview(text)?;
+                string_cursor = Some(cursor);
+                (value, 0)
+            } else {
+                match &iter.source {
+                    Value::Range(range) => (range.at(iter.position)?, 1),
+                    Value::Array(id) => (self.array_get(*id, iter.position as usize), 1),
+                    Value::Set(id) => (
+                        self.with_set(*id, |values| {
+                            values
+                                .get_index(iter.position as usize)
+                                .map(|(key, _)| key.to_value())
+                        })
+                        .ok_or_else(invalid)?,
+                        1,
                     ),
-                    None => (None, 0),
-                },
-                _ => return Err(invalid()),
+                    Value::Map(id) => (
+                        self.with_map(*id, |entries| {
+                            entries
+                                .get_index(iter.position as usize)
+                                .map(|(key, value)| {
+                                    Value::Tuple(vec![key.to_value(), value.clone()])
+                                })
+                        })
+                        .ok_or_else(invalid)?,
+                        1,
+                    ),
+                    Value::Str(text) => match text
+                        .get(iter.position as usize..)
+                        .and_then(|tail| tail.chars().next())
+                    {
+                        Some(character) => (
+                            Some(Value::Str(character.to_string())),
+                            character.len_utf8() as u128,
+                        ),
+                        None => (None, 0),
+                    },
+                    _ => return Err(invalid()),
+                }
             };
             (
                 iter.guard.is_none() && iter.loops.get() == 0,
                 payload,
                 iter.position.checked_add(advance).ok_or_else(invalid)?,
+                string_cursor,
                 iter.owner.clone(),
             )
         };
@@ -282,6 +330,9 @@ impl GcHeap {
         let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, *id) else {
             return Err(invalid());
         };
+        if let (Some(traversal), Some(cursor)) = (&mut iter.string, string_cursor) {
+            traversal.cursor = cursor;
+        }
         if payload.is_some() {
             iter.position = next_position;
             if needs_guard {

@@ -618,7 +618,7 @@ transfer APIs or compatibility aliases. Each checkpoint updates declarations,
 runtime/lowering contracts, documentation and executable acceptance cases.
 
 - [x] S01: Unicode trimming, substring search and prefix/suffix stripping.
-- [ ] S02: Lazy string splitting, bounded splitting, lines and whitespace.
+- [x] S02: Lazy string splitting, bounded splitting, lines and whitespace.
 - [ ] S03: Replacement, repetition, case conversion and byte/boundary iteration.
 - [ ] S04: Lazy Option/Result combinators, flattening and transposition.
 - [ ] S05: FromStr, typed parsing and integer radix parsing.
@@ -643,3 +643,8 @@ generalized Try/FromResidual remain separate follow-up work.
 S01 validation: source, serialized-artifact and JIT-fallback acceptance passed
 with collection threshold one; definition navigation resolves the documented SDK
 member. KBC/runtime ABI v87 rejects previous formats.
+
+S02 validation: lazy split/line acceptance passed on source, encoded artifacts and
+JIT fallback with frequent collection. Constructor-forgery checks reject invalid
+argument shapes, modes and missing operands. Targeted clippy and diff checks pass;
+KBC/runtime ABI is v88.

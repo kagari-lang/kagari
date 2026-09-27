@@ -676,12 +676,15 @@ impl Runtime {
             op,
             kagari_ir::module::instruction::IterOp::New
                 | kagari_ir::module::instruction::IterOp::FromClosure
+                | kagari_ir::module::instruction::IterOp::String(_)
         ) {
             let retention = self
                 .modules
                 .retain_runtime_program(owner)
                 .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
-            if op == kagari_ir::module::instruction::IterOp::FromClosure {
+            if let kagari_ir::module::instruction::IterOp::String(kind) = op {
+                self.gc.new_string_iter(value, ty, kind, owner, retention)
+            } else if op == kagari_ir::module::instruction::IterOp::FromClosure {
                 self.gc.new_script_iter(value, ty, owner, retention)
             } else {
                 self.gc.new_iter(value, ty, owner, retention)

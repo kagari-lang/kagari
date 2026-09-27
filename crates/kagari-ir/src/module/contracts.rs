@@ -311,7 +311,15 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayCopyFromSlice | ArrayCopyWithin | ArrayListFromFn | MapKeys | MapValues
+        StringSplit
+        | StringSplitN
+        | StringSplitWhitespace
+        | StringLines
+        | ArrayCopyFromSlice
+        | ArrayCopyWithin
+        | ArrayListFromFn
+        | MapKeys
+        | MapValues
         | MapEntries => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
@@ -434,7 +442,8 @@ pub(crate) fn verify_intrinsic(
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
             verify_call_dst(dst, ValueType::Str)?;
         }
-        StringFind | StringRfind | StringStripPrefix | StringStripSuffix => {
+        StringFind | StringRfind | StringStripPrefix | StringStripSuffix | StringSplitOnce
+        | StringRsplitOnce => {
             expect_arg_ty(args, 0, ValueType::Str, "string receiver")?;
             expect_arg_ty(args, 1, ValueType::Str, "string pattern")?;
             verify_call_dst(dst, ValueType::HeapObject)?;

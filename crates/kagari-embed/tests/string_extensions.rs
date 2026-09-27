@@ -73,3 +73,43 @@ fn main() -> i32 {
 "#,
     );
 }
+
+#[test]
+fn lazy_splitting_and_line_boundaries() {
+    execute(
+        r#"
+fn main() -> i32 {
+    val parts = "a,b,".split(",");
+    std::debug::assert(parts.next() == Some("a"), "first");
+    std::debug::assert(parts.next() == Some("b"), "second");
+    std::debug::assert(parts.next() == Some(""), "trailing");
+    std::debug::assert(parts.next() == None, "exhausted");
+    std::debug::assert(parts.next() == None, "fused");
+    std::debug::assert("é😀".split("").join("|") == "|é|😀|", "scalar boundaries");
+    std::debug::assert("".split("").count() == 2usize, "empty delimiter and input");
+    std::debug::assert("".split(",").next() == Some(""), "empty field");
+    std::debug::assert("a,,b".split(",").join("|") == "a||b", "interior empty");
+    std::debug::assert("ababa".split("aba").join("|") == "|ba", "nonoverlapping");
+    std::debug::assert("a,b,c".splitn(0usize, ",").next() == None, "zero limit");
+    std::debug::assert("a,b,c".splitn(1usize, ",").next() == Some("a,b,c"), "one limit");
+    std::debug::assert("a,b,c".splitn(2usize, ",").join("|") == "a|b,c", "remainder");
+    std::debug::assert("é😀".splitn(2usize, "").join("|") == "|é😀", "empty bounded");
+    std::debug::assert("é😀".splitn(3usize, "").join("|") == "|é|😀", "scalar bounded");
+    std::debug::assert(" a　b\t\nc ".split_whitespace().join("|") == "a|b|c", "whitespace");
+    std::debug::assert("　 \t\n".split_whitespace().count() == 0usize, "only whitespace");
+    std::debug::assert("".lines().count() == 0usize, "no lines");
+    std::debug::assert("a\r\nb\nc\r".lines().join("|") == "a|b|c\r", "line endings");
+    std::debug::assert("a\n\n".lines().join("|") == "a|", "last newline");
+    std::debug::assert("\r\n".lines().next() == Some(""), "empty CRLF line");
+    std::debug::assert("a=b=c".split_once("=") == Some(("a", "b=c")), "first delimiter");
+    std::debug::assert("a=b=c".rsplit_once("=") == Some(("a=b", "c")), "last delimiter");
+    std::debug::assert("abc".split_once("") == Some(("", "abc")), "empty first");
+    std::debug::assert("abc".rsplit_once("") == Some(("abc", "")), "empty last");
+    std::debug::assert("abc".split_once("=") == None, "absent first");
+    std::debug::assert("abc".rsplit_once("=") == None, "absent last");
+    std::debug::assert("one two three".split_whitespace().take(2usize).join("+") == "one+two", "pipeline");
+    42
+}
+"#,
+    );
+}

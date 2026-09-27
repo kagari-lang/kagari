@@ -629,3 +629,10 @@ defaults using vacant bindings. Version 85 products are rejected before executio
 KBC/runtime ABI v87 adds Unicode trimming, byte-offset search and prefix/suffix
 stripping. Operand and destination representations are checked before execution.
 Earlier artifacts are rejected without migration.
+
+## Lazy string traversal (v88)
+
+KBC/runtime ABI v88 adds typed string-iterator constructors and split-once
+intrinsics. Constructors validate the argument tuple (including usize limits)
+and produce Iter<String>. Unlowered source bindings and previous artifacts are
+rejected. Iterator positions are committed only after result allocation succeeds.
