@@ -1,7 +1,9 @@
+use crate::ast::item::visibility_of;
 use crate::{
-    ast::{macros::ast_node, support, traits::AstNode, ty::TypeRef},
+    ast::{ast_node, support, traits::AstNode, ty::TypeRef},
     kind::SyntaxKind,
 };
+use rowan::NodeOrToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Writeability {
@@ -41,7 +43,7 @@ impl Name {
         self.syntax()
             .children_with_tokens()
             .find_map(|element| match element {
-                rowan::NodeOrToken::Token(token)
+                NodeOrToken::Token(token)
                     if matches!(
                         token.kind(),
                         SyntaxKind::Ident
@@ -198,7 +200,7 @@ impl FieldList {
 
 impl Field {
     pub fn visibility(&self) -> super::Visibility {
-        super::item::visibility_of(self.syntax())
+        visibility_of(self.syntax())
     }
 
     pub fn writeability(&self) -> Option<Writeability> {

@@ -1,7 +1,7 @@
 use crate::{
     ast::{
+        ast_node,
         expr::{BlockExpr, Expr},
-        macros::ast_node,
         misc::{
             FieldList, GenericParamList, Name, ParamList, Path, TraitBoundList, TraitRef,
             VariantList, WhereClause,
@@ -13,6 +13,7 @@ use crate::{
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
+use rowan::NodeOrToken;
 
 ast_node!(SourceFile, SourceFile);
 ast_node!(Attribute, Attribute);
@@ -50,7 +51,7 @@ impl AssociatedType {
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
-    pub fn bounds(&self) -> Option<super::misc::TraitBoundList> {
+    pub fn bounds(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
 }
@@ -231,11 +232,11 @@ impl UseTree {
         self.syntax()
             .children_with_tokens()
             .find_map(|element| match element {
-                rowan::NodeOrToken::Token(token) if token.kind() == SyntaxKind::AsKw => {
+                NodeOrToken::Token(token) if token.kind() == SyntaxKind::AsKw => {
                     after_as = true;
                     None
                 }
-                rowan::NodeOrToken::Node(node) if after_as => Name::cast(node),
+                NodeOrToken::Node(node) if after_as => Name::cast(node),
                 _ => None,
             })
     }

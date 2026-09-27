@@ -1,7 +1,7 @@
 use crate::{
     ast::{
+        ast_node,
         expr::{BlockExpr, Expr, Pattern},
-        macros::ast_node,
         misc::{Name, Writeability},
         support,
         traits::AstNode,

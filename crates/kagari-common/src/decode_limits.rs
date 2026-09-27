@@ -1,7 +1,8 @@
 //! Shared sequence preflight for portable identity and host declaration data.
+use serde::de::Error as DecodeError;
 use serde::{
     Deserialize, Deserializer,
-    de::{self, SeqAccess, Visitor},
+    de::{SeqAccess, Visitor},
 };
 use std::{fmt, marker::PhantomData};
 
@@ -26,7 +27,7 @@ where
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut sequence: A) -> Result<Self::Value, A::Error> {
             if sequence.size_hint().is_some_and(|count| count > self.limit) {
-                return Err(de::Error::custom(format!(
+                return Err(DecodeError::custom(format!(
                     "{} count limit exceeded",
                     self.label
                 )));
@@ -34,7 +35,7 @@ where
             let mut elements = Vec::new();
             while let Some(element) = sequence.next_element()? {
                 if elements.len() >= self.limit {
-                    return Err(de::Error::custom(format!(
+                    return Err(DecodeError::custom(format!(
                         "{} count limit exceeded",
                         self.label
                     )));

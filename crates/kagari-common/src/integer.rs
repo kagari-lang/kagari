@@ -1,4 +1,5 @@
 //! Fixed-width integer operations shared by constant evaluation and execution.
+use crate::arithmetic::ArithmeticError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,29 +35,31 @@ pub fn integer_operation(
     bits: u32,
     signed: bool,
 ) -> Result<i128, &'static str> {
-    use IntegerOp::*;
     if !matches!(bits, 8 | 16 | 32 | 64) {
         return Err("invalid integer width");
     }
-    if matches!(op, Shl | Shr) && (rhs < 0 || rhs >= i128::from(bits)) {
+    if matches!(op, IntegerOp::Shl | IntegerOp::Shr) && (rhs < 0 || rhs >= i128::from(bits)) {
         return Err("integer shift out of range");
     }
     let result = match op {
-        CheckedAdd | CheckedSub | CheckedMul | CheckedDiv | CheckedRem => {
+        IntegerOp::CheckedAdd
+        | IntegerOp::CheckedSub
+        | IntegerOp::CheckedMul
+        | IntegerOp::CheckedDiv
+        | IntegerOp::CheckedRem => {
             let method = match op {
-                CheckedAdd => IntegerMethod::CheckedAdd,
-                CheckedSub => IntegerMethod::CheckedSub,
-                CheckedMul => IntegerMethod::CheckedMul,
-                CheckedDiv => IntegerMethod::CheckedDiv,
-                CheckedRem => IntegerMethod::CheckedRem,
+                IntegerOp::CheckedAdd => IntegerMethod::CheckedAdd,
+                IntegerOp::CheckedSub => IntegerMethod::CheckedSub,
+                IntegerOp::CheckedMul => IntegerMethod::CheckedMul,
+                IntegerOp::CheckedDiv => IntegerMethod::CheckedDiv,
+                IntegerOp::CheckedRem => IntegerMethod::CheckedRem,
                 _ => unreachable!(),
             };
             let (value, overflow) = arithmetic_method(method, lhs, rhs, bits, signed);
             return if overflow {
-                use crate::arithmetic::ArithmeticError;
                 Err(match (op, rhs) {
-                    (CheckedDiv, 0) => ArithmeticError::DivisionByZero,
-                    (CheckedRem, 0) => ArithmeticError::RemainderByZero,
+                    (IntegerOp::CheckedDiv, 0) => ArithmeticError::DivisionByZero,
+                    (IntegerOp::CheckedRem, 0) => ArithmeticError::RemainderByZero,
                     _ => ArithmeticError::Overflow,
                 }
                 .message())
@@ -64,12 +67,12 @@ pub fn integer_operation(
                 Ok(value)
             };
         }
-        BitAnd => lhs & rhs,
-        BitOr => lhs | rhs,
-        BitXor => lhs ^ rhs,
-        BitNot => !lhs,
-        Shl => lhs << rhs as u32,
-        Shr => lhs >> rhs as u32,
+        IntegerOp::BitAnd => lhs & rhs,
+        IntegerOp::BitOr => lhs | rhs,
+        IntegerOp::BitXor => lhs ^ rhs,
+        IntegerOp::BitNot => !lhs,
+        IntegerOp::Shl => lhs << rhs as u32,
+        IntegerOp::Shr => lhs >> rhs as u32,
     };
     Ok(wrap(result, bits, signed))
 }
@@ -134,12 +137,11 @@ pub fn arithmetic_method(
     bits: u32,
     signed: bool,
 ) -> (i128, bool) {
-    use IntegerMethod::*;
     let (minimum, maximum) = bounds(bits, signed);
-    if matches!(op, RotateLeft | RotateRight) {
+    if matches!(op, IntegerMethod::RotateLeft | IntegerMethod::RotateRight) {
         let shift = (rhs % i128::from(bits)) as u32;
         let value = wrap(lhs, bits, false);
-        let result = if op == RotateLeft {
+        let result = if op == IntegerMethod::RotateLeft {
             (value << shift) | (value >> (bits - shift))
         } else {
             (value >> shift) | (value << (bits - shift))
@@ -147,22 +149,35 @@ pub fn arithmetic_method(
         return (wrap(result, bits, signed), false);
     }
     let exact = match op {
-        WrappingAdd | CheckedAdd | OverflowingAdd | SaturatingAdd | WrappingAddSigned => {
-            lhs.checked_add(rhs)
-        }
-        WrappingSub | CheckedSub | OverflowingSub | SaturatingSub => lhs.checked_sub(rhs),
-        WrappingMul | CheckedMul | OverflowingMul | SaturatingMul => lhs.checked_mul(rhs),
-        CheckedDiv => lhs.checked_div(rhs),
-        CheckedRem if signed && lhs == minimum && rhs == -1 => None,
-        CheckedRem => lhs.checked_rem(rhs),
-        RotateLeft | RotateRight => unreachable!(),
+        IntegerMethod::WrappingAdd
+        | IntegerMethod::CheckedAdd
+        | IntegerMethod::OverflowingAdd
+        | IntegerMethod::SaturatingAdd
+        | IntegerMethod::WrappingAddSigned => lhs.checked_add(rhs),
+        IntegerMethod::WrappingSub
+        | IntegerMethod::CheckedSub
+        | IntegerMethod::OverflowingSub
+        | IntegerMethod::SaturatingSub => lhs.checked_sub(rhs),
+        IntegerMethod::WrappingMul
+        | IntegerMethod::CheckedMul
+        | IntegerMethod::OverflowingMul
+        | IntegerMethod::SaturatingMul => lhs.checked_mul(rhs),
+        IntegerMethod::CheckedDiv => lhs.checked_div(rhs),
+        IntegerMethod::CheckedRem if signed && lhs == minimum && rhs == -1 => None,
+        IntegerMethod::CheckedRem => lhs.checked_rem(rhs),
+        IntegerMethod::RotateLeft | IntegerMethod::RotateRight => unreachable!(),
     };
     let overflow = exact.is_none_or(|v| v < minimum || v > maximum);
     let wrapped = exact.unwrap_or_else(|| match op {
-        WrappingMul | OverflowingMul | SaturatingMul => lhs.wrapping_mul(rhs),
+        IntegerMethod::WrappingMul
+        | IntegerMethod::OverflowingMul
+        | IntegerMethod::SaturatingMul => lhs.wrapping_mul(rhs),
         _ => 0,
     });
-    if matches!(op, SaturatingAdd | SaturatingSub | SaturatingMul) {
+    if matches!(
+        op,
+        IntegerMethod::SaturatingAdd | IntegerMethod::SaturatingSub | IntegerMethod::SaturatingMul
+    ) {
         // Only unsigned 64-bit multiplication can overflow the i128 intermediate.
         return (exact.unwrap_or(maximum).clamp(minimum, maximum), overflow);
     }

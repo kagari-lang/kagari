@@ -1,4 +1,5 @@
 //! Bound portable host declaration sequences before reading their elements.
+use crate::decode_limits::bounded_vec;
 use serde::{Deserialize, Deserializer};
 
 pub(super) const MAX_DECLARATIONS: usize = 1_000_000;
@@ -9,7 +10,7 @@ where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    crate::decode_limits::bounded_vec(deserializer, MAX_DECLARATIONS, "host declaration")
+    bounded_vec(deserializer, MAX_DECLARATIONS, "host declaration")
 }
 
 pub(super) fn members<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
@@ -17,16 +18,16 @@ where
     D: Deserializer<'de>,
     T: Deserialize<'de>,
 {
-    crate::decode_limits::bounded_vec(deserializer, MAX_MEMBERS, "host member")
+    bounded_vec(deserializer, MAX_MEMBERS, "host member")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::{
+    use super::*;
+    use crate::host_interface::{
         HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostInterfaceError,
         HostPathDeclaration, HostTypeDeclaration, MAGIC, PathAccess, VERSION,
     };
-    use super::*;
     use bincode::Options;
 
     #[derive(Debug, Deserialize)]
@@ -59,7 +60,11 @@ mod tests {
         );
 
         let owner = HostTypeDeclaration::new("demo.Player");
-        let field = HostFieldDeclaration::new(&owner.id, "score", super::super::HostValueType::I32);
+        let field = HostFieldDeclaration::new(
+            &owner.id,
+            "score",
+            crate::host_interface::HostValueType::I32,
+        );
         let path = HostPathDeclaration {
             root: owner.id,
             segments: vec![
@@ -75,7 +80,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(interface.validate(), Err(HostInterfaceError::TooLarge));
-        let bytes = super::super::codec()
+        let bytes = crate::host_interface::codec()
             .serialize(&(
                 MAGIC,
                 VERSION,
@@ -92,8 +97,11 @@ mod tests {
 
     #[test]
     fn in_memory_host_identity_path_is_bounded_before_encoding() {
-        let mut function =
-            HostFunctionDeclaration::new("demo.read", Vec::new(), super::super::HostValueType::I32);
+        let mut function = HostFunctionDeclaration::new(
+            "demo.read",
+            Vec::new(),
+            crate::host_interface::HostValueType::I32,
+        );
         function.id.module.path =
             vec!["part".into(); crate::identity::MAX_IDENTITY_PATH_SEGMENTS + 1];
         assert_eq!(function.validate(), Err(HostInterfaceError::TooLarge));

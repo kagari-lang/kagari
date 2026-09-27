@@ -1,4 +1,6 @@
+use crate::identity::{FileSpan, ModuleIdentity};
 use std::{collections::BTreeMap, sync::Arc};
+use std::{env, fs};
 
 use crate::{
     SourceFile,
@@ -14,7 +16,7 @@ pub enum SourceLayer {
 #[derive(Debug, Clone)]
 struct Document {
     id: FileId,
-    module: crate::identity::ModuleIdentity,
+    module: ModuleIdentity,
     base: Option<String>,
     overlay: Option<String>,
 }
@@ -36,12 +38,12 @@ impl SourceSnapshot {
         self.files.values()
     }
 
-    pub fn module(&self, identity: &crate::identity::ModuleIdentity) -> Option<&Arc<SourceFile>> {
+    pub fn module(&self, identity: &ModuleIdentity) -> Option<&Arc<SourceFile>> {
         self.files
             .values()
             .find(|file| file.module_identity() == identity)
     }
-    pub fn contains(&self, span: crate::identity::FileSpan) -> bool {
+    pub fn contains(&self, span: FileSpan) -> bool {
         self.file(span.file)
             .is_some_and(|file| file.revision() == span.revision && file.span(span.range).is_some())
     }
@@ -57,7 +59,7 @@ pub struct SourceDatabase {
 impl Default for SourceDatabase {
     fn default() -> Self {
         Self::new(
-            std::env::current_dir()
+            env::current_dir()
                 .expect("working directory unavailable")
                 .to_string_lossy()
                 .as_ref(),
@@ -95,7 +97,7 @@ impl SourceDatabase {
         if name.contains("://") {
             return Err("virtual sources must be supplied by the host".into());
         }
-        let text = std::fs::read_to_string(&name).map_err(|error| format!("{name}: {error}"))?;
+        let text = fs::read_to_string(&name).map_err(|error| format!("{name}: {error}"))?;
         self.set(&name, text, SourceLayer::Base)
     }
 
@@ -106,9 +108,10 @@ impl SourceDatabase {
     pub fn set(&mut self, name: &str, text: String, layer: SourceLayer) -> Result<FileId, String> {
         let name = self.source_name(name)?;
         if !self.documents.contains_key(&name)
-            && self.documents.values().any(|document| {
-                document.module == crate::identity::ModuleIdentity::single_file(name.clone())
-            })
+            && self
+                .documents
+                .values()
+                .any(|document| document.module == ModuleIdentity::single_file(name.clone()))
         {
             return Err("source module identity is already bound to another source".into());
         }
@@ -117,7 +120,7 @@ impl SourceDatabase {
             .entry(name.clone())
             .or_insert_with(|| Document {
                 id: FileId::fresh(),
-                module: crate::identity::ModuleIdentity::single_file(name.clone()),
+                module: ModuleIdentity::single_file(name.clone()),
                 base: None,
                 overlay: None,
             });
@@ -140,11 +143,7 @@ impl SourceDatabase {
     }
 
     /// Bind a logical package/module before analysis. An overlay shares this binding.
-    pub fn bind_module(
-        &mut self,
-        name: &str,
-        module: crate::identity::ModuleIdentity,
-    ) -> Result<FileId, String> {
+    pub fn bind_module(&mut self, name: &str, module: ModuleIdentity) -> Result<FileId, String> {
         let name = self.source_name(name)?;
         if module.package.0.is_empty()
             || module.path.is_empty()
@@ -252,7 +251,7 @@ pub fn normalize_source_name(name: &str) -> Result<String, String> {
                 let digits = input
                     .get(cursor + 1..cursor + 3)
                     .ok_or("invalid URI escape")?;
-                let digits = std::str::from_utf8(digits).map_err(|_| "invalid URI escape")?;
+                let digits = str::from_utf8(digits).map_err(|_| "invalid URI escape")?;
                 bytes.push(u8::from_str_radix(digits, 16).map_err(|_| "invalid URI escape")?);
                 cursor += 3;
             } else {

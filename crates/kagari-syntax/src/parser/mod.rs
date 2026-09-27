@@ -7,7 +7,7 @@ use rowan::GreenNode;
 
 use crate::{
     BoxedDiagnosticBuffer, DiagnosticBuffer,
-    ast::{self, AstNode},
+    ast::{AstNode, SourceFile as AstSourceFile},
     lexer::lex_with_cancellation,
     syntax_node::syntax_node_from_green,
 };
@@ -42,8 +42,8 @@ pub struct Parse {
 }
 
 impl Parse {
-    pub fn syntax(&self) -> ast::SourceFile {
-        ast::SourceFile::cast(syntax_node_from_green(self.green.clone()))
+    pub fn syntax(&self) -> AstSourceFile {
+        AstSourceFile::cast(syntax_node_from_green(self.green.clone()))
             .expect("parser must always produce a source file node")
     }
 
@@ -96,7 +96,7 @@ fn parse_with_mode(
     Ok(Parse { green, diagnostics })
 }
 
-pub fn parse_module(source: &SourceFile) -> Result<ast::SourceFile, BoxedDiagnosticBuffer> {
+pub fn parse_module(source: &SourceFile) -> Result<AstSourceFile, BoxedDiagnosticBuffer> {
     let parse = parse(source);
     if !parse.diagnostics.is_empty() {
         return Err(Box::new(parse.diagnostics));

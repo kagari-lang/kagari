@@ -1,5 +1,6 @@
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::{Diagnostic, DiagnosticKind};
+use rowan::Checkpoint as GreenCheckpoint;
 use rowan::{GreenNode, GreenNodeBuilder, Language};
 use smallvec::SmallVec;
 
@@ -12,7 +13,7 @@ use crate::{
 
 #[derive(Clone, Copy)]
 pub(crate) struct Checkpoint {
-    green: rowan::Checkpoint,
+    green: GreenCheckpoint,
     child: usize,
 }
 

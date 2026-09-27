@@ -1,9 +1,10 @@
 use crate::ast::{
-    macros::ast_node,
+    ast_node,
     misc::{GenericArgList, Name, Path},
     support,
     traits::AstNode,
 };
+use crate::{ast::misc::TraitRef, kind::SyntaxKind};
 
 ast_node!(TypeRef, TypeRef);
 ast_node!(TupleType, TupleType);
@@ -18,7 +19,7 @@ impl QualifiedType {
     pub fn receiver(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
-    pub fn trait_ref(&self) -> Option<super::misc::TraitRef> {
+    pub fn trait_ref(&self) -> Option<TraitRef> {
         support::child(self.syntax())
     }
     pub fn member(&self) -> Option<Name> {
@@ -69,7 +70,7 @@ impl FunctionType {
     pub fn params(&self) -> impl Iterator<Item = TypeRef> {
         self.syntax()
             .children()
-            .filter(|node| node.kind() == crate::kind::SyntaxKind::TypeList)
+            .filter(|node| node.kind() == SyntaxKind::TypeList)
             .flat_map(|list| {
                 list.children()
                     .filter_map(TypeRef::cast)

@@ -1,3 +1,10 @@
+use cranelift_codegen::settings::Flags;
+use cranelift_module::ModuleError;
+use cranelift_native::builder as native_builder;
+use kagari_runtime::{
+    ExecutableTrap, RuntimeError, RuntimeErrorKind,
+    jit_abi::{JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INVALID_HEAP_REFERENCE},
+};
 use std::{fmt, mem, sync::Arc};
 
 use cranelift_codegen::{
@@ -101,45 +108,38 @@ impl CraneliftBackend {
         let mut result = JitValue::default();
         let status = unsafe { function(runtime as *const Runtime, &mut result) };
         match status {
-            kagari_runtime::jit_abi::JIT_STATUS_CANCELLED => {
-                return Err(BackendInvocationError::RuntimeFailure(
-                    kagari_runtime::RuntimeError::new(
-                        kagari_runtime::RuntimeErrorKind::Cancelled,
-                        "execution cancelled",
-                    ),
-                ));
+            JIT_STATUS_CANCELLED => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::Cancelled,
+                    "execution cancelled",
+                )));
             }
-            kagari_runtime::jit_abi::JIT_STATUS_ENGINE_FAULT => {
-                return Err(BackendInvocationError::RuntimeFailure(
-                    kagari_runtime::RuntimeError::new(
-                        kagari_runtime::RuntimeErrorKind::EngineFault,
-                        "runtime is quarantined after a commit fault",
-                    ),
-                ));
+            JIT_STATUS_ENGINE_FAULT => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::EngineFault,
+                    "runtime is quarantined after a commit fault",
+                )));
             }
-            kagari_runtime::jit_abi::JIT_STATUS_INVALID_HEAP_REFERENCE => {
-                return Err(BackendInvocationError::RuntimeFailure(
-                    kagari_runtime::RuntimeError::new(
-                        kagari_runtime::RuntimeErrorKind::ScriptTrap,
-                        "invalid heap reference at safepoint",
-                    ),
-                ));
+            JIT_STATUS_INVALID_HEAP_REFERENCE => {
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "invalid heap reference at safepoint",
+                )));
             }
             JIT_STATUS_OK => {}
             JIT_STATUS_RESOURCE_LIMIT => {
                 return Err(BackendInvocationError::RuntimeFailure(
-                    runtime.resources().termination().unwrap_or_else(|| {
-                        kagari_runtime::RuntimeError::resource_limit("instruction steps")
-                    }),
+                    runtime
+                        .resources()
+                        .termination()
+                        .unwrap_or_else(|| RuntimeError::resource_limit("instruction steps")),
                 ));
             }
             JIT_STATUS_INTEGER_OVERFLOW => {
-                return Err(BackendInvocationError::RuntimeFailure(
-                    kagari_runtime::RuntimeError::new(
-                        kagari_runtime::RuntimeErrorKind::ScriptTrap,
-                        "integer overflow",
-                    ),
-                ));
+                return Err(BackendInvocationError::RuntimeFailure(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "integer overflow",
+                )));
             }
             JIT_STATUS_INVALID_RUNTIME => {
                 return Err(BackendInvocationError::InternalError(
@@ -196,7 +196,7 @@ impl CraneliftBackend {
                     }
                 )
             })
-            .map(|(instruction_offset, _)| kagari_runtime::ExecutableTrap {
+            .map(|(instruction_offset, _)| ExecutableTrap {
                 instruction_offset,
                 reason: "integer overflow".into(),
             })
@@ -369,7 +369,7 @@ impl CraneliftBackendError {
         &self.message
     }
 
-    fn from_module_error(error: cranelift_module::ModuleError) -> Self {
+    fn from_module_error(error: ModuleError) -> Self {
         Self {
             message: error.to_string(),
         }
@@ -394,8 +394,8 @@ fn host_isa() -> Result<Arc<dyn TargetIsa>, CraneliftBackendError> {
         .map_err(|error| CraneliftBackendError {
             message: error.to_string(),
         })?;
-    let flags = settings::Flags::new(flag_builder);
-    cranelift_native::builder()
+    let flags = Flags::new(flag_builder);
+    native_builder()
         .map_err(|error| CraneliftBackendError {
             message: error.to_string(),
         })?
@@ -813,7 +813,7 @@ mod tests {
             .expect_err("resource helper failure should be visible to the ABI caller");
 
         assert!(
-            matches!(error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded)
+            matches!(error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded)
         );
         assert!(error.message().contains("instruction steps"));
         assert_eq!(runtime.resources().counters().instruction_steps, 1);

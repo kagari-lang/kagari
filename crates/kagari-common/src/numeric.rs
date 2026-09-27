@@ -1,4 +1,5 @@
 //! Numeric casts shared by compile-time and runtime evaluation.
+use crate::integer;
 #[derive(Debug, Clone, Copy)]
 pub enum Number {
     Integer(i128),
@@ -13,31 +14,30 @@ pub enum NumberType {
 }
 
 pub fn cast(value: Number, target: NumberType) -> Number {
-    use Number::*;
     match target {
         NumberType::Integer { bits, signed } => {
             let value = match value {
-                Integer(value) => crate::integer::wrap(value, bits, signed),
-                F32(value) => {
-                    let (min, max) = crate::integer::bounds(bits, signed);
+                Number::Integer(value) => integer::wrap(value, bits, signed),
+                Number::F32(value) => {
+                    let (min, max) = integer::bounds(bits, signed);
                     (value as i128).clamp(min, max)
                 }
-                F64(value) => {
-                    let (min, max) = crate::integer::bounds(bits, signed);
+                Number::F64(value) => {
+                    let (min, max) = integer::bounds(bits, signed);
                     (value as i128).clamp(min, max)
                 }
             };
-            Integer(value)
+            Number::Integer(value)
         }
-        NumberType::F32 => F32(match value {
-            Integer(v) => v as f32,
-            F32(v) => v,
-            F64(v) => v as f32,
+        NumberType::F32 => Number::F32(match value {
+            Number::Integer(v) => v as f32,
+            Number::F32(v) => v,
+            Number::F64(v) => v as f32,
         }),
-        NumberType::F64 => F64(match value {
-            Integer(v) => v as f64,
-            F32(v) => f64::from(v),
-            F64(v) => v,
+        NumberType::F64 => Number::F64(match value {
+            Number::Integer(v) => v as f64,
+            Number::F32(v) => f64::from(v),
+            Number::F64(v) => v,
         }),
     }
 }

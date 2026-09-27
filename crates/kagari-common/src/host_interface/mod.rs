@@ -1,6 +1,11 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
+use bincode::DefaultOptions;
 use bincode::Options;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeSet, HashSet},
+    iter,
+};
 
 use crate::{
     capability::CapabilitySet,
@@ -228,7 +233,7 @@ fn validate_signature(
     if params.len() > decode_limits::MAX_MEMBERS {
         return Err(HostInterfaceError::TooLarge);
     }
-    let mut names = std::collections::HashSet::new();
+    let mut names = HashSet::new();
     for param in params {
         if param.name.is_empty() || !names.insert(&param.name) {
             return Err(HostInterfaceError::InvalidDeclaration);
@@ -241,11 +246,7 @@ fn validate_signature(
             return Err(HostInterfaceError::InvalidDeclaration);
         }
     }
-    for ty in params
-        .iter()
-        .map(|p| &p.ty)
-        .chain(std::iter::once(return_type))
-    {
+    for ty in params.iter().map(|p| &p.ty).chain(iter::once(return_type)) {
         ty.validate()?;
     }
     Ok(())
@@ -289,19 +290,15 @@ impl HostInterface {
         {
             return Err(HostInterfaceError::TooLarge);
         }
-        let mut ids = std::collections::HashSet::new();
-        let mut symbols = std::collections::HashSet::new();
+        let mut ids = HashSet::new();
+        let mut symbols = HashSet::new();
         for ty in &self.types {
             ty.validate()?;
             if !ids.insert(&ty.id) || !symbols.insert(&ty.symbol) {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
         }
-        let type_ids = self
-            .types
-            .iter()
-            .map(|ty| &ty.id)
-            .collect::<std::collections::HashSet<_>>();
+        let type_ids = self.types.iter().map(|ty| &ty.id).collect::<HashSet<_>>();
         for function in &self.functions {
             function.validate()?;
             if let Some(owner) = function.method_owner() {
@@ -324,7 +321,7 @@ impl HostInterface {
                 .params
                 .iter()
                 .map(|param| &param.ty)
-                .chain(std::iter::once(&function.return_type))
+                .chain(iter::once(&function.return_type))
             {
                 if ty
                     .nominal_references()
@@ -346,7 +343,7 @@ impl HostInterface {
                 }
             }
         }
-        let mut paths = std::collections::BTreeSet::new();
+        let mut paths = BTreeSet::new();
         for path in &self.paths {
             self.resolve_path(path)?;
             if !paths.insert(
@@ -420,7 +417,7 @@ pub enum HostInterfaceError {
 }
 
 fn codec() -> impl Options {
-    bincode::DefaultOptions::new()
+    DefaultOptions::new()
         .with_fixint_encoding()
         .with_little_endian()
         .reject_trailing_bytes()

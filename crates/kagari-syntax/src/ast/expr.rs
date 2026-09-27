@@ -1,6 +1,7 @@
+use crate::ast::ty::TypeRef;
 use crate::{
     ast::{
-        macros::ast_node,
+        ast_node,
         misc::{Name, Path},
         stmt::Stmt,
         support,
@@ -9,6 +10,7 @@ use crate::{
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
+use rowan::NodeOrToken;
 
 ast_node!(BlockExpr, BlockExpr);
 ast_node!(PathExpr, PathExpr);
@@ -157,8 +159,8 @@ impl BlockExpr {
 }
 
 impl PathExpr {
-    pub fn qualified_type(&self) -> Option<super::TypeRef> {
-        self.syntax().children().find_map(super::TypeRef::cast)
+    pub fn qualified_type(&self) -> Option<TypeRef> {
+        self.syntax().children().find_map(TypeRef::cast)
     }
     pub fn generic_args(&self) -> Option<super::GenericArgList> {
         support::child(self.syntax())
@@ -221,7 +223,7 @@ impl PrefixExpr {
         self.syntax()
             .children_with_tokens()
             .find_map(|element| match element {
-                rowan::NodeOrToken::Token(token)
+                NodeOrToken::Token(token)
                     if matches!(token.kind(), SyntaxKind::Minus | SyntaxKind::Bang) =>
                 {
                     Some(token.kind())
@@ -244,7 +246,7 @@ impl BinaryExpr {
         self.syntax()
             .children_with_tokens()
             .find_map(|element| match element {
-                rowan::NodeOrToken::Token(token)
+                NodeOrToken::Token(token)
                     if matches!(
                         token.kind(),
                         SyntaxKind::Plus
@@ -455,7 +457,7 @@ impl ClosureParam {
         support::child(self.syntax())
     }
 
-    pub fn ty(&self) -> Option<super::TypeRef> {
+    pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }
@@ -594,7 +596,7 @@ impl CastExpr {
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
-    pub fn ty(&self) -> Option<super::TypeRef> {
+    pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }

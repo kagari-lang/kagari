@@ -5,6 +5,7 @@ use super::{
 };
 #[cfg(test)]
 use crate::collection::CollectionAccess;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HostPathDeclaration {
@@ -189,7 +190,7 @@ impl HostInterface {
         }
         let mut current = HostValueType::Opaque(root.id.clone());
         let mut segments = Vec::with_capacity(declaration.segments.len());
-        let mut dynamic_parameters = std::collections::BTreeMap::<u32, HostValueType>::new();
+        let mut dynamic_parameters = BTreeMap::<u32, HostValueType>::new();
         for step in &declaration.segments {
             let resolved = match step {
                 HostPathSegmentDeclaration::Field(field_id) => {

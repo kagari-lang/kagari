@@ -1,5 +1,6 @@
 use kagari_common::Span;
 use kagari_common::cancellation::{CancellationToken, Cancelled};
+use kagari_common::literal;
 use smallvec::SmallVec;
 
 use crate::TokenBuffer;
@@ -59,7 +60,7 @@ pub fn lex_with_cancellation(
             }
             if end > start {
                 let text = format!("\"{}\"", &input[start..end]);
-                let kind = if kagari_common::literal::decode_string_literal(&text).is_ok() {
+                let kind = if literal::decode_string_literal(&text).is_ok() {
                     TokenKind::FormatText
                 } else {
                     TokenKind::Unknown
@@ -380,9 +381,7 @@ pub fn lex_with_cancellation(
                         break;
                     }
                 }
-                let kind = if closed
-                    && kagari_common::literal::decode_string_literal(&input[index..end]).is_ok()
-                {
+                let kind = if closed && literal::decode_string_literal(&input[index..end]).is_ok() {
                     TokenKind::String
                 } else {
                     TokenKind::Unknown
@@ -406,7 +405,7 @@ pub fn lex_with_cancellation(
                         chars.next();
                         end = next_index + 1;
                     }
-                    let kind = if kagari_common::literal::is_integer_literal(&input[index..end]) {
+                    let kind = if literal::is_integer_literal(&input[index..end]) {
                         TokenKind::Number
                     } else {
                         TokenKind::Unknown
@@ -466,13 +465,11 @@ pub fn lex_with_cancellation(
                     chars.next();
                     end = next_index + next.len_utf8();
                 }
-                let (_, suffix) = kagari_common::literal::numeric_literal_parts(&input[index..end]);
+                let (_, suffix) = literal::numeric_literal_parts(&input[index..end]);
                 if suffix.is_some_and(|suffix| suffix.starts_with('f')) {
                     kind = TokenKind::Float;
                 }
-                if kind == TokenKind::Number
-                    && !kagari_common::literal::is_integer_literal(&input[index..end])
-                {
+                if kind == TokenKind::Number && !literal::is_integer_literal(&input[index..end]) {
                     kind = TokenKind::Unknown;
                 }
                 tokens.push(token(kind, index, end));

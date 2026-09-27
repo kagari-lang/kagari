@@ -409,8 +409,9 @@ must not be the sole record needed to resume the goal.
 - [ ] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
-Current state: the checker and CI gate are implemented; A00 source cleanup has not
-started. No MIR/crate migration has started. A01 is gated on passing A00.
+Current state: A00 source cleanup is in progress. Common, syntax and Cranelift
+imports and module surfaces pass the structural audit. No MIR/crate migration
+has started. A01 remains gated on passing every A00 workspace gate.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -424,12 +425,35 @@ does not authorize starting the MIR refactor with failing gates.
 
 | Phase | Commits / completed work | Checks and results | Known errors / next owner |
 | --- | --- | --- | --- |
-| A00 | Strict checker with bounded LOC/re-export exceptions, regression suite and CI gate implemented; source cleanup pending | Checker: 32 tests pass; full audit: exit 1, 2,975 findings, no active exceptions; Rust CI gates not rerun for this tooling change | A00 fixes or justifies all findings and verifies every CI gate before A01 |
+| A00 | Common/syntax/Cranelift import cleanup; host-interface facade moved to normal module root; AST macro owned by AST facade | Checker: 32 tests pass; full audit: exit 1, 2,845 remaining findings, no exceptions; focused clippy and 107 tests pass; fmt and diff checks pass | A00 owns remaining HIR/IR/runtime/VM/SDK/CLI findings and full workspace gates; A01 not started |
 | A01 | Not started | Not run | None recorded |
 | A02 | Not started | Not run | None recorded |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
+
+### A00 checkpoint: foundation imports (2026-09-27)
+
+Checkpoint commit subject: `refactor: make foundation imports and facades explicit`.
+Changed common, syntax and existing Cranelift modules only; crate ownership and
+execution contracts are unchanged. Qualified numeric variants replace local globs.
+The existing host-interface API now lives in `host_interface/mod.rs`; the small
+AST node macro lives at the AST facade with explicit consumer imports. No new
+forwarding surface, visibility expansion or structure exception was introduced.
+
+Validation on this checkpoint's Rust sources:
+
+- `uv run --locked scripts/check_structure.py --self-test`: 32 tests pass.
+- `uv run --locked scripts/check_structure.py --json`: exit 1, 2,845 findings
+  (2,710 qualified paths, 89 globs, 18 re-export locations, 9 parent traversals,
+  19 oversized files); none in common, syntax or Cranelift. No parse errors or
+  exceptions. Remaining findings are owned by A00, not deferred to A05.
+- `cargo clippy -p kagari-common -p kagari-syntax -p kagari-jit-cranelift
+  --all-targets -- -D warnings`: pass.
+- `cargo test -p kagari-common -p kagari-syntax -p kagari-jit-cranelift`:
+  107 tests pass; doc tests pass.
+- `cargo fmt --all -- --check` and `git diff --check`: pass.
+- Full workspace clippy/tests and hosted CI are not yet validated for A00.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

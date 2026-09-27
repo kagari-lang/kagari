@@ -2,10 +2,13 @@
 use super::HostInterfaceError;
 use crate::collection::CollectionAccess;
 use crate::identity::DefinitionId;
+use bincode::Options;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
     de::{self, SeqAccess, Visitor},
 };
+use serde::{de::Error as DecodeError, ser::Error as EncodeError};
+use std::{fmt, vec::IntoIter};
 
 const MAX_DEPTH: usize = 64;
 const MAX_NODES: usize = 4096;
@@ -38,7 +41,6 @@ pub enum HostValueType {
 
 impl HostValueType {
     pub fn fingerprint(&self) -> Result<u64, HostInterfaceError> {
-        use bincode::Options;
         let bytes = super::codec()
             .serialize(self)
             .map_err(|_| HostInterfaceError::Encoding)?;
@@ -154,7 +156,7 @@ enum Node {
 impl Serialize for HostValueType {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.nodes()
-            .map_err(serde::ser::Error::custom)?
+            .map_err(EncodeError::custom)?
             .serialize(serializer)
     }
 }
@@ -164,7 +166,7 @@ impl<'de> Deserialize<'de> for HostValueType {
         struct TypeVisitor;
         impl<'de> Visitor<'de> for TypeVisitor {
             type Value = HostValueType;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a bounded preorder host type")
             }
             fn visit_seq<A: SeqAccess<'de>>(
@@ -172,21 +174,21 @@ impl<'de> Deserialize<'de> for HostValueType {
                 mut sequence: A,
             ) -> Result<Self::Value, A::Error> {
                 if sequence.size_hint().is_some_and(|count| count > MAX_NODES) {
-                    return Err(de::Error::custom("host type node limit"));
+                    return Err(DecodeError::custom("host type node limit"));
                 }
                 let mut nodes = Vec::new();
                 while let Some(node) = sequence.next_element::<Node>()? {
                     if nodes.len() >= MAX_NODES {
-                        return Err(de::Error::custom("host type node limit"));
+                        return Err(DecodeError::custom("host type node limit"));
                     }
                     nodes.push(node);
                 }
                 let mut nodes = nodes.into_iter();
                 let ty = build::<A::Error>(&mut nodes, 1)?;
                 if nodes.next().is_some() {
-                    return Err(de::Error::custom("trailing host type nodes"));
+                    return Err(DecodeError::custom("trailing host type nodes"));
                 }
-                ty.validate().map_err(de::Error::custom)?;
+                ty.validate().map_err(DecodeError::custom)?;
                 Ok(ty)
             }
         }
@@ -194,10 +196,7 @@ impl<'de> Deserialize<'de> for HostValueType {
     }
 }
 
-fn build<E: de::Error>(
-    nodes: &mut std::vec::IntoIter<Node>,
-    depth: usize,
-) -> Result<HostValueType, E> {
+fn build<E: de::Error>(nodes: &mut IntoIter<Node>, depth: usize) -> Result<HostValueType, E> {
     if depth > MAX_DEPTH {
         return Err(E::custom("host type depth limit"));
     }
@@ -241,8 +240,8 @@ fn build<E: de::Error>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{HostFunctionDeclaration, HostInterface};
     use super::*;
+    use crate::host_interface::{HostFunctionDeclaration, HostInterface};
 
     #[test]
     fn collection_access_round_trips_and_changes_host_binding_fingerprints() {

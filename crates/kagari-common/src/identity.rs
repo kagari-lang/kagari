@@ -1,12 +1,14 @@
 //! Source/semantic identity is distinct from runtime slots and display spelling.
+use crate::{Span, decode_limits::bounded_vec};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 pub const MAX_IDENTITY_PATH_SEGMENTS: usize = 64;
 
 fn module_path<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
-    crate::decode_limits::bounded_vec(
+    bounded_vec(
         deserializer,
         MAX_IDENTITY_PATH_SEGMENTS,
         "module identity path segment",
@@ -16,7 +18,7 @@ fn module_path<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>
 fn definition_path<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Vec<DefinitionPathSegment>, D::Error> {
-    crate::decode_limits::bounded_vec(
+    bounded_vec(
         deserializer,
         MAX_IDENTITY_PATH_SEGMENTS,
         "definition identity path segment",
@@ -71,8 +73,8 @@ impl Default for ModuleIdentity {
     }
 }
 
-impl std::fmt::Display for ModuleIdentity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ModuleIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}::{}", self.package.0, self.path.join("::"))
     }
 }
@@ -112,7 +114,7 @@ pub struct DefinitionPathSegment {
 pub struct FileSpan {
     pub file: FileId,
     pub revision: Revision,
-    pub range: crate::Span,
+    pub range: Span,
 }
 
 impl DefinitionId {

@@ -1,4 +1,5 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
+use super::decode_limits;
 use super::{
     HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, HostValueType, codec,
     hash, host_type_identity, validate_host_type_identity,
@@ -9,6 +10,7 @@ use crate::{
 };
 use bincode::Options;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, iter};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostTypeOwnership {
@@ -213,13 +215,13 @@ impl HostTypeDeclaration {
     }
     pub fn validate(&self) -> Result<(), HostInterfaceError> {
         validate_host_type_identity(&self.id)?;
-        if self.fields.len() > super::decode_limits::MAX_MEMBERS
-            || self.methods.len() > super::decode_limits::MAX_MEMBERS
-            || self.trait_implementations.len() > super::decode_limits::MAX_MEMBERS
+        if self.fields.len() > decode_limits::MAX_MEMBERS
+            || self.methods.len() > decode_limits::MAX_MEMBERS
+            || self.trait_implementations.len() > decode_limits::MAX_MEMBERS
             || self
                 .methods
                 .iter()
-                .any(|method| method.params.len() > super::decode_limits::MAX_MEMBERS)
+                .any(|method| method.params.len() > decode_limits::MAX_MEMBERS)
         {
             return Err(HostInterfaceError::TooLarge);
         }
@@ -230,7 +232,7 @@ impl HostTypeDeclaration {
         {
             return Err(HostInterfaceError::InvalidDeclaration);
         }
-        let mut names = std::collections::HashSet::new();
+        let mut names = HashSet::new();
         for field in &self.fields {
             validate_member(&self.id, &field.id, &field.name, DefinitionKind::Field)?;
             if !names.insert(&field.name) {
@@ -256,7 +258,7 @@ impl HostTypeDeclaration {
                 return Err(HostInterfaceError::InvalidDeclaration);
             }
         }
-        let mut implemented_traits = std::collections::HashSet::new();
+        let mut implemented_traits = HashSet::new();
         let mut mapped_methods = 0usize;
         let mut trait_arguments = 0usize;
         for implementation in &self.trait_implementations {
@@ -275,17 +277,17 @@ impl HostTypeDeclaration {
                 return Err(HostInterfaceError::InvalidDeclaration);
             }
             trait_arguments = trait_arguments.saturating_add(implementation.trait_arguments.len());
-            if trait_arguments > super::decode_limits::MAX_MEMBERS {
+            if trait_arguments > decode_limits::MAX_MEMBERS {
                 return Err(HostInterfaceError::TooLarge);
             }
             for argument in &implementation.trait_arguments {
                 argument.validate()?;
             }
             trait_arguments = trait_arguments.saturating_add(implementation.associated_types.len());
-            if trait_arguments > super::decode_limits::MAX_MEMBERS {
+            if trait_arguments > decode_limits::MAX_MEMBERS {
                 return Err(HostInterfaceError::TooLarge);
             }
-            let mut outputs = std::collections::HashSet::new();
+            let mut outputs = HashSet::new();
             for output in &implementation.associated_types {
                 if !output.declaration.within_path_limit() {
                     return Err(HostInterfaceError::TooLarge);
@@ -306,10 +308,10 @@ impl HostTypeDeclaration {
                 return Err(HostInterfaceError::DuplicateDeclaration);
             }
             mapped_methods = mapped_methods.saturating_add(implementation.methods.len());
-            if mapped_methods > super::decode_limits::MAX_MEMBERS {
+            if mapped_methods > decode_limits::MAX_MEMBERS {
                 return Err(HostInterfaceError::TooLarge);
             }
-            let mut bound_methods = std::collections::HashSet::new();
+            let mut bound_methods = HashSet::new();
             for binding in &implementation.methods {
                 if !binding.trait_method.within_path_limit() {
                     return Err(HostInterfaceError::TooLarge);
@@ -339,7 +341,7 @@ impl HostTypeDeclaration {
                     .params
                     .iter()
                     .map(|param| &param.ty)
-                    .chain(std::iter::once(&method.return_type))
+                    .chain(iter::once(&method.return_type))
             }))
             .chain(
                 self.trait_implementations
@@ -576,7 +578,7 @@ mod tests {
                         .kind = DefinitionKind::Method
                 }
                 _ => implementation.associated_types.resize(
-                    super::super::decode_limits::MAX_MEMBERS + 1,
+                    super::decode_limits::MAX_MEMBERS + 1,
                     implementation.associated_types[0].clone(),
                 ),
             }
@@ -644,7 +646,7 @@ mod tests {
         let bytes = first.to_bytes().unwrap();
         assert_eq!(bytes, second.to_bytes().unwrap());
         assert_eq!(HostInterface::from_bytes(&bytes).unwrap(), first);
-        for version in 1_u16..super::super::VERSION {
+        for version in 1_u16..crate::host_interface::VERSION {
             let mut old = bytes.clone();
             old[4..6].copy_from_slice(&version.to_le_bytes());
             assert_eq!(
@@ -697,8 +699,8 @@ mod tests {
         // Bypass to_bytes validation to model malformed untrusted wire input.
         let bytes = codec()
             .serialize(&(
-                super::super::MAGIC,
-                super::super::VERSION,
+                crate::host_interface::MAGIC,
+                crate::host_interface::VERSION,
                 &interface.types,
                 &interface.functions,
             ))

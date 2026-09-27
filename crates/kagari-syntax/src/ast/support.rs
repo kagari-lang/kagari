@@ -3,6 +3,7 @@ use crate::{
     kind::SyntaxKind,
     syntax_node::{SyntaxNode, SyntaxToken},
 };
+use rowan::NodeOrToken;
 
 pub fn child<N: AstNode>(node: &SyntaxNode) -> Option<N> {
     node.children().find_map(N::cast)
@@ -15,7 +16,7 @@ pub fn children<N: AstNode>(node: &SyntaxNode) -> impl Iterator<Item = N> {
 pub fn token(node: &SyntaxNode, kind: SyntaxKind) -> Option<SyntaxToken> {
     node.children_with_tokens()
         .find_map(|element| match element {
-            rowan::NodeOrToken::Token(token) if token.kind() == kind => Some(token),
+            NodeOrToken::Token(token) if token.kind() == kind => Some(token),
             _ => None,
         })
 }
