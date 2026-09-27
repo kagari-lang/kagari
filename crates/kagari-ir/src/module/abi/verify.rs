@@ -907,7 +907,7 @@ fn type_valid(
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Cursor(ty) => pending.push(ty),
+            AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Iter(ty) => pending.push(ty),
             AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::StandardEnum { kind, args } => {
                 let count = match kind {

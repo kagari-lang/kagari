@@ -455,7 +455,7 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         MapResultError {
             original, error, ..
         } => smallvec::smallvec![*original, *error],
-        Cursor { value, .. } | StandardEnum { value, .. } => value.iter().copied().collect(),
+        Iter { value, .. } | StandardEnum { value, .. } => value.iter().copied().collect(),
         LoadConst { .. } | LoadLocal { .. } | LoadModule { .. } => smallvec::smallvec![],
         StoreLocal { src, .. } | StoreModule { src, .. } | Move { src, .. } => {
             smallvec::smallvec![*src]
@@ -544,7 +544,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | ReadCell { dst, .. }
         | MakeStruct { dst, .. }
         | MapResultError { dst, .. }
-        | Cursor { dst, .. }
+        | Iter { dst, .. }
         | StandardEnum { dst, .. }
         | MakeEnum { dst, .. }
         | MakeInterface { dst, .. }

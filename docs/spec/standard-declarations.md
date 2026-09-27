@@ -53,7 +53,7 @@ typed host bindings. Declaration migration does not introduce numeric casts.
 
 ## Native types and standard protocols
 
-The same files declare Option, Result, Ordering, Array, Map, Set, String and Cursor.
+The same files declare Option, Result, Ordering, Array, Map, Set, String and Iter.
 Native declarations bind existing engine representations; they do not define empty
 script structs. Enum variant order and payload counts are checked against the
 runtime discriminant contract. Primitive scalar representations remain engine-owned.

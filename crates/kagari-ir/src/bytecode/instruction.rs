@@ -211,11 +211,11 @@ pub enum BytecodeInstruction {
         error: Register,
         ty: crate::module::abi::AbiType,
     },
-    Cursor {
+    Iter {
         dst: Register,
         value: Option<Register>,
         ty: crate::module::abi::AbiType,
-        op: crate::module::instruction::CursorOp,
+        op: crate::module::instruction::IterOp,
     },
     StandardEnum {
         dst: Register,

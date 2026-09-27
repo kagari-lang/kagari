@@ -35,10 +35,10 @@ fn main() -> i32 {
     std::debug::assert_eq(split[1][0], 1, "nonmatching destination");
 
     // Short-circuit terminals preserve progress shared by iterator aliases.
-    val cursor = values.iter();
-    val alias = cursor.iter();
+    val iter = values.iter();
+    val alias = iter.iter();
     std::debug::assert(alias.any(|item| item == 20), "first item");
-    std::debug::assert_eq(cursor.next(), Some(22), "shared progress");
+    std::debug::assert_eq(iter.next(), Some(22), "shared progress");
     val total: Total = values.iter().collect();
     total.value
 }

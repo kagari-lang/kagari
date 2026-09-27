@@ -895,15 +895,16 @@ tables carrying the former heap-object representation are rejected before execut
 
 ## Native iteration instructions
 
-Cursor New accepts a concrete Array, Map, Set or String ABI and returns a GC cursor.
-Cursor Next accepts a concrete Cursor<Item> ABI and returns Option<Item>; Cursor
+Iter New accepts a concrete Array, Map, Set or String ABI and returns a GC iterator.
+Iter Next accepts a concrete Iter<Item> ABI and returns Option<Item>; Iter
 Close suspends its native guard and returns Unit. The verifier checks each ABI,
-operand and result register before linking/execution. Cursor is a concrete ABI
+operand and result register before linking/execution. Iter is a concrete ABI
 type whose children participate in generic substitution, validation and layout
 traversal. Runtime operations check handle ownership, generation, source revision
-and item ABI; creation traces the shallow snapshot and retains its code version.
+and item ABI; creation retains the source, captures and code version without
+materializing a snapshot of the source items.
 For loops additionally hold frame-owned BeginIteration/EndIteration guards;
 frame unwinding and root-session cleanup release the corresponding guards.
 Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
-uses its normal interpreter fallback for unsupported cursor/control-flow bodies.
+uses its normal interpreter fallback for unsupported iterator/control-flow bodies.
 The semantic contract is in [builtins](builtins.md#iteration-protocols).

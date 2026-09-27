@@ -256,7 +256,7 @@ fn matches_host_type(
                 pending.push((ar, br));
                 pending.extend(ap.iter().zip(bp));
             }
-            (AbiType::Cursor(a), AbiType::Cursor(b))
+            (AbiType::Iter(a), AbiType::Iter(b))
             | (AbiType::Array(a, _), AbiType::Array(b, _))
             | (AbiType::Set(a, _), AbiType::Set(b, _)) => {
                 pending.push((a, b));
@@ -334,7 +334,7 @@ pub(crate) fn references(
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Cursor(ty) => pending.push(ty),
+            AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Iter(ty) => pending.push(ty),
             AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
                 pending.extend(&ty.arguments);

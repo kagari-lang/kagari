@@ -28,6 +28,6 @@ fn sum<C: Iterable<Item = i32>>(values: C) -> i32 {
 }
 fn main() -> i32 {
     val range = Range { start: 0, end: 7 };
-    val cursor: Cursor<i32> = [20, 1].iter();
-    sum(range) + sum(cursor)
+    val iter: Iter<i32> = [20, 1].iter();
+    sum(range) + sum(iter)
 }

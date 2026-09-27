@@ -15,7 +15,7 @@ Runtime-native functions intentionally have no Kagari body.
 | [string](string.kgr) | Immutable UTF-8 strings, byte ranges and scalar iteration |
 | [option](option.kgr) | Optional values, mapping, fallbacks and conversion to Result |
 | [result](result.kgr) | Recoverable errors, propagation and preserved error origins |
-| [iter](iter.kgr) | Iterator, Iterable, native Cursor and collection helpers |
+| [iter](iter.kgr) | Iterator, Iterable, native Iter and collection helpers |
 | [math](math.kgr) | Checked numeric helpers and floating-point operations |
 | [debug](debug.kgr) | Assertions, traps and host-routed logging |
 | [cmp](cmp.kgr) | PartialEq, Eq, PartialOrd, Ord and Ordering |

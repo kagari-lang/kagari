@@ -53,7 +53,7 @@ impl FunctionLowerer<'_, '_> {
         } else {
             None
         };
-        let guarded = matches!(source, TypeId::Cursor(_));
+        let guarded = matches!(source, TypeId::Iter(_));
         if guarded {
             self.emit(Instruction::BeginIteration {
                 collection: values[0],

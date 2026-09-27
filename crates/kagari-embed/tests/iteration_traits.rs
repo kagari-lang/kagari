@@ -99,10 +99,10 @@ fn native_iterators_support_generic_bounds_and_unicode() {
 fn sum<C:Iterable<Item=i32>>(values:C)->i32 {var total=0;for value in values {total+=value;}total}
 fn first<I:Iterator<Item=i32>>(values:I)->i32 {match values.next(){Some(x)=>x,None=>0}}
 fn main()->i32 {
-    val a=[20,22]; val cursor:Cursor<i32> =a.iter();
-    std::debug::assert_eq(first(cursor),20,"next");
-    std::debug::assert_eq(first(cursor),22,"shared cursor");
-    std::debug::assert_eq(first(cursor),0,"exhausted");
+    val a=[20,22]; val iter:Iter<i32> =a.iter();
+    std::debug::assert_eq(first(iter),20,"next");
+    std::debug::assert_eq(first(iter),22,"shared iter");
+    std::debug::assert_eq(first(iter),0,"exhausted");
     a.push(5);
     val scores:MutableMap<String,i32> =MutableMap::new();scores.insert("a",20);scores.insert("b",22);
     var total=0;for (key,value) in scores {total+=value;}
@@ -122,9 +122,9 @@ fn breaking_native_loops_releases_guards_and_allows_resuming() {
     execute(
         r#"
 fn main()->i32 {
-    val a=[20,22]; val cursor=a.iter();var total=0;
-    for value in cursor {total+=value;break;}
-    for value in cursor {total+=value;}
+    val a=[20,22]; val iter=a.iter();var total=0;
+    for value in iter {total+=value;break;}
+    for value in iter {total+=value;}
     a.push(1);
     for value in a {break;}
     a.push(2);
@@ -145,10 +145,10 @@ fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 }
 
 #[test]
-fn native_guards_release_on_failure_and_cursor_handles_survive_gc() {
+fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
     use kagari_ir::module::{
         abi::{AbiType, BuiltinType},
-        instruction::CursorOp,
+        instruction::IterOp,
     };
     let mut config = kagari_embed::EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
@@ -192,7 +192,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         .unwrap();
     let root = rt.root_value(Value::Array(array)).unwrap();
     let item = AbiType::Builtin(BuiltinType::I32);
-    let ty = AbiType::Cursor(Box::new(item.clone()));
+    let ty = AbiType::Iter(Box::new(item.clone()));
     let cancellation = kagari_common::cancellation::CancellationToken::default();
     let options = kagari_runtime::ExecutionOptions {
         cancellation: cancellation.clone(),
@@ -200,14 +200,14 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     };
     let session = rt.begin_execution(&loaded, options).unwrap();
     let value = rt
-        .cursor_operation(
+        .iter_operation(
             &loaded,
             &root.value(),
             &AbiType::Array(Box::new(item), CollectionAccess::Mutable),
-            CursorOp::New,
+            IterOp::New,
         )
         .unwrap();
-    let cursor = rt.root_value(value.clone()).unwrap();
+    let iter = rt.root_value(value.clone()).unwrap();
     assert!(rt.gc().array_push(array, Value::I32(1)).is_err());
     cancellation.cancel();
     assert!(rt.gc_safepoint().is_err());
@@ -216,7 +216,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     for expected in [20, 22] {
         let session = rt.begin_execution(&loaded, Default::default()).unwrap();
         let Value::Enum(id) = rt
-            .cursor_operation(&loaded, &cursor.value(), &ty, CursorOp::Next)
+            .iter_operation(&loaded, &iter.value(), &ty, IterOp::Next)
             .unwrap()
         else {
             panic!("Option")
@@ -227,11 +227,11 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
         );
         drop(session);
     }
-    // Between root calls guards are released; resumed cursors reject a changed structure.
+    // Between root calls guards are released; resumed iterators reject a changed structure.
     rt.gc().array_push(array, Value::I32(1)).unwrap();
     let session = rt.begin_execution(&loaded, Default::default()).unwrap();
     assert!(
-        rt.cursor_operation(&loaded, &cursor.value(), &ty, CursorOp::Next)
+        rt.iter_operation(&loaded, &iter.value(), &ty, IterOp::Next)
             .is_err()
     );
     drop(session);
@@ -244,15 +244,15 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     assert!(
         other
             .runtime()
-            .cursor_operation(&other_loaded, &cursor.value(), &ty, CursorOp::Next)
+            .iter_operation(&other_loaded, &iter.value(), &ty, IterOp::Next)
             .is_err()
     );
     drop(session);
-    drop(cursor);
+    drop(iter);
     rt.collect_garbage().unwrap();
     let session = rt.begin_execution(&loaded, Default::default()).unwrap();
     assert!(
-        rt.cursor_operation(&loaded, &value, &ty, CursorOp::Next)
+        rt.iter_operation(&loaded, &value, &ty, IterOp::Next)
             .is_err()
     );
     drop(session);
@@ -261,6 +261,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
 #[test]
 fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
     for source in [
+        "fn removed(value: Cursor<i32>) {}",
         "struct C{} impl Iterator for C {type Item=i32;fn next(self)->i32 {42}}",
         "struct C{} impl Iterable for C {type Item=i32;type Iter=i32;fn iter(self)->i32 {42}}",
         "struct C{} impl Iterator for C {type Item=i32;fn next(self)->Option<i32>{None}} impl Iterable for C {type Item=i32;type Iter=C;fn iter(self)->C {self}}",
@@ -278,6 +279,30 @@ fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn native_iter_type_and_iterable_associated_type_resolve_independently() {
+    execute(
+        r#"
+        struct Values { val items: Array<i32> }
+        impl Iterable for Values {
+            type Item = i32;
+            type Iter = Iter<i32>;
+            fn iter(self) -> Self::Iter { self.items.iter() }
+        }
+        fn sum<I: Iterable<Item = i32>>(source: I) -> i32 {
+            var total = 0;
+            for item in source { total += item; }
+            total
+        }
+        fn main() -> i32 {
+            val values = Values { items: [20, 22] };
+            val items: Iter<i32> = values.iter().map(|item| item);
+            sum(items)
+        }
+    "#,
+    );
 }
 
 #[test]
@@ -343,18 +368,18 @@ fn main()->i32 {
 }
 
 #[test]
-fn malformed_native_cursor_operations_are_rejected_before_execution() {
+fn malformed_native_iter_operations_are_rejected_before_execution() {
     use kagari_ir::{
         bytecode::BytecodeInstruction,
         module::{
             abi::{AbiType, BuiltinType},
-            instruction::CursorOp,
+            instruction::IterOp,
         },
     };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
-                "cursor-wire.kgr",
+                "iter-wire.kgr",
                 "fn main()->i32 {var total=0;for x in [20,22]{total+=x;}total}",
             ),
             Default::default(),
@@ -369,10 +394,10 @@ fn malformed_native_cursor_operations_are_rejected_before_execution() {
             .flat_map(|m| &mut m.functions)
             .flat_map(|f| &mut f.instructions)
             .find_map(|i| match i {
-                BytecodeInstruction::Cursor {
+                BytecodeInstruction::Iter {
                     ty,
                     value,
-                    op: CursorOp::New,
+                    op: IterOp::New,
                     ..
                 } => Some((ty, value)),
                 _ => None,

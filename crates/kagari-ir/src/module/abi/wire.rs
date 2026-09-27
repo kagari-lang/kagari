@@ -22,7 +22,7 @@ enum Node {
     Builtin(BuiltinType),
     Tuple(u32),
     Function(u32),
-    Cursor,
+    Iter,
     Array(CollectionAccess),
     Map(CollectionAccess),
     Set(CollectionAccess),
@@ -94,9 +94,9 @@ impl AbiType {
                     pending.extend(params.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Function(params.len() as u32)
                 }
-                Self::Cursor(element) => {
+                Self::Iter(element) => {
                     pending.push((element, depth + 1));
-                    Node::Cursor
+                    Node::Iter
                 }
                 Self::Array(element, access) => {
                     pending.push((element, depth + 1));
@@ -278,7 +278,7 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
             params: children(count, nodes)?,
             result: Box::new(build(nodes, depth + 1)?),
         },
-        Node::Cursor => AbiType::Cursor(Box::new(build(nodes, depth + 1)?)),
+        Node::Iter => AbiType::Iter(Box::new(build(nodes, depth + 1)?)),
         Node::Array(access) => AbiType::Array(Box::new(build(nodes, depth + 1)?), access),
         Node::Map(access) => AbiType::Map {
             key: Box::new(build(nodes, depth + 1)?),

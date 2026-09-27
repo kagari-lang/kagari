@@ -1,11 +1,11 @@
 use super::*;
 use kagari_ir::module::{
     abi::{AbiType, BuiltinType},
-    instruction::CursorOp,
+    instruction::IterOp,
 };
 
 #[derive(Debug)]
-pub(super) struct NativeCursor {
+pub(super) struct NativeIter {
     pub(super) source: Value,
     pub(super) item_type: AbiType,
     position: usize,
@@ -25,7 +25,7 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    pub(crate) fn new_script_cursor(
+    pub(crate) fn new_script_iter(
         &self,
         source: &Value,
         ty: &AbiType,
@@ -33,12 +33,12 @@ impl GcHeap {
         retention: crate::module::RetainedRuntimeProgram,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let item_type = CursorOp::closure_item(ty).ok_or_else(invalid)?.clone();
+        let item_type = IterOp::closure_item(ty).ok_or_else(invalid)?.clone();
         if !self.matches_abi(source, ty, owner) {
             return Err(invalid());
         }
         let session = self.resources.active_session().ok_or_else(invalid)?;
-        self.alloc_object(HeapObject::Cursor(Box::new(NativeCursor {
+        self.alloc_object(HeapObject::Iter(Box::new(NativeIter {
             source: source.clone(),
             item_type,
             position: 0,
@@ -53,25 +53,25 @@ impl GcHeap {
     }
 
     /// Script-backed steps execute on the VM frame stack, never under a heap borrow.
-    pub fn cursor_step(&self, value: &Value, ty: &AbiType) -> Result<Option<Value>, RuntimeError> {
+    pub fn iter_step(&self, value: &Value, ty: &AbiType) -> Result<Option<Value>, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let (Value::GcHandle(id), AbiType::Cursor(item)) = (value, ty) else {
+        let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
             return Err(invalid());
         };
         let objects = self.objects.borrow();
-        let Some(HeapObject::Cursor(cursor)) = self.readable_object(&objects, *id) else {
+        let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, *id) else {
             return Err(invalid());
         };
-        if cursor.item_type != **item {
+        if iter.item_type != **item {
             return Err(invalid());
         }
-        Ok(match &cursor.source {
+        Ok(match &iter.source {
             Value::Tuple(fields) => fields.first().cloned(),
             _ => None,
         })
     }
 
-    fn close_cursor_tree(&self, value: &Value) -> Result<(), RuntimeError> {
+    fn close_iter_tree(&self, value: &Value) -> Result<(), RuntimeError> {
         let mut pending = vec![value.clone()];
         let mut visited = std::collections::HashSet::new();
         while let Some(Value::GcHandle(id)) = pending.pop() {
@@ -79,11 +79,11 @@ impl GcHeap {
                 continue;
             }
             let mut objects = self.objects.borrow_mut();
-            let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, id) else {
+            let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
                 return Err(invalid());
             };
-            cursor.guard = None;
-            if let Value::Tuple(fields) = &cursor.source {
+            iter.guard = None;
+            if let Value::Tuple(fields) = &iter.source {
                 pending.extend(
                     fields
                         .iter()
@@ -106,7 +106,7 @@ impl GcHeap {
             _ => None,
         }
     }
-    pub(crate) fn new_cursor(
+    pub(crate) fn new_iter(
         &self,
         source: &Value,
         ty: &AbiType,
@@ -141,12 +141,12 @@ impl GcHeap {
         let revision = self.collection_revision(source).ok_or_else(invalid)?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
         session
-            .cursor_guards
+            .iter_guards
             .borrow_mut()
             .try_reserve(1)
             .map_err(|_| self.resource_limit("iterator registry"))?;
         let guard = Some(self.begin_collection_iteration(source)?);
-        let id = self.alloc_object(HeapObject::Cursor(Box::new(NativeCursor {
+        let id = self.alloc_object(HeapObject::Iter(Box::new(NativeIter {
             source: source.clone(),
             item_type,
             position: 0,
@@ -157,43 +157,43 @@ impl GcHeap {
             owner: owner.clone(),
             _retention: retention,
         })))?;
-        session.cursor_guards.borrow_mut().insert(id);
+        session.iter_guards.borrow_mut().insert(id);
         Ok(Value::GcHandle(id))
     }
-    pub(crate) fn advance_cursor(
+    pub(crate) fn advance_iter(
         &self,
         value: &Value,
         ty: &AbiType,
-        op: CursorOp,
+        op: IterOp,
     ) -> Result<Value, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let (Value::GcHandle(id), AbiType::Cursor(item)) = (value, ty) else {
+        let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
             return Err(invalid());
         };
-        if op == CursorOp::Close {
-            self.cursor_step(value, ty)?;
-            self.close_cursor_tree(value)?;
+        if op == IterOp::Close {
+            self.iter_step(value, ty)?;
+            self.close_iter_tree(value)?;
             return Ok(Value::Unit);
         }
-        if op != CursorOp::Next {
+        if op != IterOp::Next {
             return Err(invalid());
         }
         let (needs_guard, payload, next_position, owner) = {
             let objects = self.objects.borrow();
-            let Some(HeapObject::Cursor(cursor)) = self.readable_object(&objects, *id) else {
+            let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, *id) else {
                 return Err(invalid());
             };
-            if cursor.item_type != **item
-                || self.collection_revision(&cursor.source) != Some(cursor.revision)
+            if iter.item_type != **item
+                || self.collection_revision(&iter.source) != Some(iter.revision)
             {
                 return Err(invalid());
             }
-            let (payload, advance) = match &cursor.source {
-                Value::Array(id) => (self.array_get(*id, cursor.position), 1),
+            let (payload, advance) = match &iter.source {
+                Value::Array(id) => (self.array_get(*id, iter.position), 1),
                 Value::Set(id) => (
                     self.with_set(*id, |values| {
                         values
-                            .get_index(cursor.position)
+                            .get_index(iter.position)
                             .map(|(key, _)| key.to_value())
                     })
                     .ok_or_else(invalid)?,
@@ -202,14 +202,14 @@ impl GcHeap {
                 Value::Map(id) => (
                     self.with_map(*id, |entries| {
                         entries
-                            .get_index(cursor.position)
+                            .get_index(iter.position)
                             .map(|(key, value)| Value::Tuple(vec![key.to_value(), value.clone()]))
                     })
                     .ok_or_else(invalid)?,
                     1,
                 ),
                 Value::Str(text) => match text
-                    .get(cursor.position..)
+                    .get(iter.position..)
                     .and_then(|tail| tail.chars().next())
                 {
                     Some(character) => (
@@ -221,10 +221,10 @@ impl GcHeap {
                 _ => return Err(invalid()),
             };
             (
-                cursor.guard.is_none() && cursor.loops.get() == 0,
+                iter.guard.is_none() && iter.loops.get() == 0,
                 payload,
-                cursor.position.checked_add(advance).ok_or_else(invalid)?,
-                cursor.owner.clone(),
+                iter.position.checked_add(advance).ok_or_else(invalid)?,
+                iter.owner.clone(),
             )
         };
         if payload
@@ -236,16 +236,16 @@ impl GcHeap {
         let session = self.resources.active_session().ok_or_else(invalid)?;
         let new_guard = if needs_guard && payload.is_some() {
             session
-                .cursor_guards
+                .iter_guards
                 .borrow_mut()
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("iterator registry"))?;
             let source = {
                 let objects = self.objects.borrow();
-                let Some(HeapObject::Cursor(cursor)) = self.readable_object(&objects, *id) else {
+                let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, *id) else {
                     return Err(invalid());
                 };
-                cursor.source.clone()
+                iter.source.clone()
             };
             Some(self.begin_collection_iteration(&source)?)
         } else {
@@ -259,24 +259,24 @@ impl GcHeap {
         };
         let result = self.alloc_enum(tag, payload.clone().into_iter().collect())?;
         let mut objects = self.objects.borrow_mut();
-        let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, *id) else {
+        let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, *id) else {
             return Err(invalid());
         };
         if payload.is_some() {
-            cursor.position = next_position;
+            iter.position = next_position;
             if needs_guard {
-                session.cursor_guards.borrow_mut().insert(*id);
-                cursor.guard = new_guard;
-                cursor.session = Rc::downgrade(&session);
+                session.iter_guards.borrow_mut().insert(*id);
+                iter.guard = new_guard;
+                iter.session = Rc::downgrade(&session);
             }
         } else {
-            cursor.guard = None;
+            iter.guard = None;
         }
         Ok(Value::Enum(result))
     }
-    pub(crate) fn release_cursor_guards(&self, session: &Rc<crate::session::SessionState>) {
+    pub(crate) fn release_iter_guards(&self, session: &Rc<crate::session::SessionState>) {
         let mut objects = self.objects.borrow_mut();
-        for id in session.cursor_guards.borrow_mut().drain() {
+        for id in session.iter_guards.borrow_mut().drain() {
             if id.owner != self.owner {
                 continue;
             }
@@ -286,10 +286,10 @@ impl GcHeap {
             if slot.generation != id.generation {
                 continue;
             }
-            if let Some(HeapObject::Cursor(cursor)) = &mut slot.object
-                && cursor.session.ptr_eq(&Rc::downgrade(session))
+            if let Some(HeapObject::Iter(iter)) = &mut slot.object
+                && iter.session.ptr_eq(&Rc::downgrade(session))
             {
-                cursor.guard = None;
+                iter.guard = None;
             }
         }
     }

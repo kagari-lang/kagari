@@ -46,7 +46,7 @@ alias: insert, remove, clear, reorder, and length-changing operations fail befor
 changing it. Replacing an existing element without changing structure is allowed.
 Mutating an object referenced by an element is allowed. Iteration protection ends
 on exhaustion, break, return, or failure for native for loops, including nested
-iteration. Direct native cursors and custom iterator wrappers follow the
+iteration. Direct native iterators and custom iterator wrappers follow the
 [iteration protocol lifecycle](builtins.md#iteration-protocols).
 
 String lengths and slices use byte offsets; slices validate UTF-8 boundaries.

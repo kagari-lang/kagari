@@ -850,7 +850,7 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
             error,
             ..
         } => vec![*dst, *original, *error],
-        Instruction::Cursor { dst, value, .. } | Instruction::StandardEnum { dst, value, .. } => {
+        Instruction::Iter { dst, value, .. } | Instruction::StandardEnum { dst, value, .. } => {
             std::iter::once(*dst).chain(value.iter().copied()).collect()
         }
         Instruction::LoadConst { dst, .. }

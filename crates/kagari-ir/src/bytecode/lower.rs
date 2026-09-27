@@ -947,7 +947,7 @@ fn lower_instruction(
             error: lower_value(*error),
             ty: ty.clone(),
         },
-        Instruction::Cursor { dst, value, ty, op } => BytecodeInstruction::Cursor {
+        Instruction::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
             dst: lower_value(*dst),
             value: value.map(lower_value),
             ty: ty.clone(),

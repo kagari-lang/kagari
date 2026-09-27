@@ -277,14 +277,14 @@ impl FunctionLowerer<'_, '_> {
                 self.function.debug.source_span,
             )?
             .remove(0);
-        let cursor_abi = if matches!(concrete_iterator, kagari_hir::types::TypeId::Cursor(_)) {
+        let iter_abi = if matches!(concrete_iterator, kagari_hir::types::TypeId::Iter(_)) {
             Some(crate::module::abi::AbiType::from_checked_type(
                 &concrete_iterator,
             ))
         } else {
             None
         };
-        if cursor_abi.is_some() {
+        if iter_abi.is_some() {
             self.emit(Instruction::BeginIteration {
                 collection: iterator,
             });
@@ -327,13 +327,13 @@ impl FunctionLowerer<'_, '_> {
         self.ensure_jump(next_block);
         self.loops.pop();
         self.switch_to_block(exit);
-        if let Some(ty) = cursor_abi {
+        if let Some(ty) = iter_abi {
             let dst = self.alloc_temp(ValueType::Unit);
-            self.emit(Instruction::Cursor {
+            self.emit(Instruction::Iter {
                 dst,
                 value: Some(iterator),
                 ty,
-                op: crate::module::instruction::CursorOp::Close,
+                op: crate::module::instruction::IterOp::Close,
             });
             self.emit(Instruction::EndIteration);
         }

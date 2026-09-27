@@ -41,13 +41,19 @@ KbcArtifact {
 }
 ```
 
-Format version 62 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 70 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. Versions 1 through 61 are rejected; no
+virtual segment fingerprints from resolved contract fields. Versions 1 through 69 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
 stable ordered BytecodeProgram, its
 root ModuleRef, and module/function call slots. Structs use nominal layout tables,
 positional initializers and layout/slot field operands.
+
+Version 70 and runtime ABI v70 name the native iterator type and instruction Iter.
+The former Cursor type name is removed from the source API. Iterator remains the
+stepping protocol, and Iterable::Iter remains its independent associated type.
+Earlier artifacts are rejected before execution; no compatibility alias or decoder
+is provided. Runtime-helper ABI remains v6.
 
 Version 62 and runtime ABI v62 add the ArrayJoin native contract used by string
 interpolation and `[String].join`. Previous artifacts are rejected before execution;
@@ -61,8 +67,8 @@ Version 60 and runtime ABI v60 preserve source URIs and one-based line/UTF-8 byt
 columns for failure stacks, even without optional debug metadata. Runtime helper
 ABI v6 publishes native instruction offsets before charging their budget.
 
-Version 59 and runtime ABI v59 add iteration contracts, Cursor ABI types and
-verified native cursor instructions. Script iterators use ordinary linked calls.
+Version 59 and runtime ABI v59 add iteration contracts, Iter ABI types and
+verified native iterator instructions. Script iterators use ordinary linked calls.
 Prior products are rejected; KHI remains v11.
 
 Version 58 and runtime ABI v58 register explicit conversion contracts, derived

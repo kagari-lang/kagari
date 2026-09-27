@@ -267,7 +267,7 @@ pub fn declarations(
             let arity = def.generic_params().map_or(0, |p| p.params().count());
             if matches!(
                 binding.as_str(),
-                "Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet" | "Cursor"
+                "Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet" | "Iter"
             ) {
                 writeln!(constructors,"StandardTypeConstructorSpec{{kind:StandardTypeConstructor::{binding},name:{name:?},arity:{arity},heap_backed:true,const_safe:false}},").unwrap();
             }

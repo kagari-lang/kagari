@@ -653,28 +653,30 @@ bounds. It cannot also declare a conflicting Iterable implementation.
 Custom iterables return an iterator whose Item agrees with their own Item.
 
 Arrays, Map, Set and String implement Iterable using the opaque shared
-`Cursor<Item>` type. Cursor implements Iterator and identity Iterable.
+`Iter<Item>` type. Iter implements Iterator and identity Iterable.
+The concrete `Iter<T>` type is distinct from the `Iterable::Iter` associated type:
+an Iterable implementation may use `type Iter = Iter<T>` or select a custom iterator.
 Array/Set items are elements, Map items are `(key, value)` tuples in insertion
 order, and String items are single Unicode scalars represented as String.
-Cursor construction retains the source and reads each slot on demand, without
-copying all items. Contained objects retain their identity. Copying a Cursor shares
+Iter construction retains the source and reads each slot on demand, without
+copying all items. Contained objects retain their identity. Copying an Iter shares
 its position; converting a collection again creates independent progress.
 A custom iterator owns its state and consistency rules; no automatic clone,
 reset, exact-length or fused-iterator promise is imposed on its implementation.
 
-Native cursors reject structural modification of their source while actively
+Native iterators reject structural modification of their source while actively
 iterating. For-loop guards end on exhaustion, break, return or failed execution;
 nested loops retain independent guards. Direct iter/next use keeps its guard
 until None or the end of the root execution session. Root-session cleanup also
 runs after trap, cancellation and budget exhaustion, independently of GC timing.
-A rooted Cursor can survive between calls and resume. Resuming after its source
+A rooted Iter can survive between calls and resume. Resuming after its source
 was structurally changed traps; nonstructural replacements are visible when their
 positions are subsequently visited. Already yielded values remain ordinary values.
-For loops suspend a native cursor on exit, so the same cursor may resume later
+For loops suspend a native iterator on exit, so the same iterator may resume later
 if the source structure is unchanged. Custom iterators have no implicit native
-source guard: wrappers that acquire native cursors follow the direct-call rules.
+source guard: wrappers that acquire native iterators follow the direct-call rules.
 
-Host retention uses the normal rooted-value API. Cursor handles are runtime-owned,
+Host retention uses the normal rooted-value API. Iter handles are runtime-owned,
 generation checked, and trace their source, callbacks and adapter state. They retain their
 execution version; they are not transferable across runtimes. They provide no
 Eq/Hash, serialization of execution state, or script constructor.
@@ -711,14 +713,14 @@ Existing from(array) factories share this construction implementation.
 Native associated calls such as Array::from_iter(source) infer item types from the
 source. User implementations can use ordinary script loops and return their own
 nominal type. Construction failures do not return a partial destination; completed
-callback side effects remain. Native cursor guards release on exhaustion, loop
+callback side effects remain. Native iter guards release on exhaustion, loop
 exit or execution cleanup.
 
 ## Lazy adapters and terminal operations
 
 Iterator provides native default methods with ordinary generic trait contracts.
 Explicit user overrides use normal static method dispatch. map, filter, filter_map,
-take, skip, enumerate, zip and chain return an opaque Cursor. Construction does not
+take, skip, enumerate, zip and chain return an opaque Iter. Construction does not
 advance a source or invoke a callback; zip/chain obtain the other iterator once.
 Callbacks receive Item values, including shared object references, without borrowed
 parameter syntax. enumerate emits (usize, Item). zip steps left before right and

@@ -96,7 +96,7 @@ pub enum StandardTypeConstructor {
     MutableArray,
     MutableMap,
     MutableSet,
-    Cursor,
+    Iter,
     Option,
     Result,
     Map,
@@ -610,9 +610,9 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
                 },
             })
         }
-        StandardTypeConstructor::Cursor => {
+        StandardTypeConstructor::Iter => {
             let [item] = args.try_into().ok()?;
-            Some(TypeId::Cursor(Box::new(item)))
+            Some(TypeId::Iter(Box::new(item)))
         }
         StandardTypeConstructor::Set
         | StandardTypeConstructor::MutableSet

@@ -9,8 +9,8 @@ use std::{
 };
 
 use indexmap::IndexMap;
-mod cursor;
 mod custom_keys;
+mod iter;
 
 use crate::error::{RuntimeError, RuntimeErrorKind};
 use crate::value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value};
@@ -142,7 +142,7 @@ struct ObjectSlot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcObjectKind {
-    Cursor,
+    Iter,
     Array,
     Map,
     Set,
@@ -162,7 +162,7 @@ pub struct ClosureValueSnapshot {
 
 #[derive(Debug)]
 enum HeapObject {
-    Cursor(Box<cursor::NativeCursor>),
+    Iter(Box<iter::NativeIter>),
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexMap<MapKey, ()>),
@@ -188,7 +188,7 @@ enum HeapObject {
 impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
-            Self::Cursor(_) => 1,
+            Self::Iter(_) => 1,
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
             Self::Set(values) => values.len(),
@@ -206,14 +206,14 @@ impl HeapObject {
 #[derive(Debug)]
 pub struct CollectionIteration {
     _children: Vec<CollectionIteration>,
-    cursor_loops: Vec<Rc<Cell<usize>>>,
+    iter_loops: Vec<Rc<Cell<usize>>>,
     active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     id: Option<HeapObjectId>,
     _root: RootedValue,
 }
 impl Drop for CollectionIteration {
     fn drop(&mut self) {
-        for loops in &self.cursor_loops {
+        for loops in &self.iter_loops {
             loops.set(loops.get() - 1);
         }
         let Some(id) = self.id else {
@@ -471,9 +471,9 @@ impl GcHeap {
                 (Value::Interface(id), AbiType::Trait(expected)) => {
                     if !self.interface_snapshot(id).is_some_and(|value| value.interface_type == *expected) { return false; }
                 },
-                (Value::GcHandle(id), AbiType::Cursor(element)) => {
+                (Value::GcHandle(id), AbiType::Iter(element)) => {
                     let objects=self.objects.borrow();
-                    if !matches!(self.readable_object(&objects,id),Some(HeapObject::Cursor(cursor)) if cursor.item_type == **element) {return false;}
+                    if !matches!(self.readable_object(&objects,id),Some(HeapObject::Iter(iter)) if iter.item_type == **element) {return false;}
                 },
                 (Value::Array(id), AbiType::Array(element, _)) => {
                     let Some(values) = self.array_snapshot(id) else { return false; };
@@ -514,11 +514,11 @@ impl GcHeap {
         if matches!(value, Value::GcHandle(_)) {
             let mut guard = CollectionIteration {
                 _children: Vec::new(),
-                cursor_loops: Vec::new(),
+                iter_loops: Vec::new(),
                 active: self.iterations.clone(),
                 id: None,
                 _root: self.root_value(value.clone()).ok_or_else(|| {
-                    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid cursor")
+                    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid iterator")
                 })?,
             };
             let mut pending = vec![value.clone()];
@@ -532,26 +532,25 @@ impl GcHeap {
                             continue;
                         }
                         let mut objects = self.objects.borrow_mut();
-                        let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, id)
-                        else {
+                        let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
                             return Err(RuntimeError::new(
                                 RuntimeErrorKind::ScriptTrap,
-                                "invalid cursor",
+                                "invalid iterator",
                             ));
                         };
-                        let count = cursor
+                        let count = iter
                             .loops
                             .get()
                             .checked_add(1)
                             .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
                         guard
-                            .cursor_loops
+                            .iter_loops
                             .try_reserve(1)
                             .map_err(|_| self.resource_limit("iterator guards"))?;
-                        guard.cursor_loops.push(cursor.loops.clone());
-                        cursor.loops.set(count);
-                        cursor.guard = None;
-                        if let Value::Tuple(fields) = &cursor.source {
+                        guard.iter_loops.push(iter.loops.clone());
+                        iter.loops.set(count);
+                        iter.guard = None;
+                        if let Value::Tuple(fields) = &iter.source {
                             pending.extend(
                                 fields
                                     .iter()
@@ -560,7 +559,7 @@ impl GcHeap {
                                     .cloned(),
                             );
                         } else {
-                            pending.push(cursor.source.clone());
+                            pending.push(iter.source.clone());
                         }
                     }
                     source => guard
@@ -573,7 +572,7 @@ impl GcHeap {
         if matches!(value, Value::Str(_)) {
             return Ok(CollectionIteration {
                 _children: Vec::new(),
-                cursor_loops: Vec::new(),
+                iter_loops: Vec::new(),
                 active: self.iterations.clone(),
                 id: None,
                 _root: self.root_value(value.clone()).expect("string root"),
@@ -615,7 +614,7 @@ impl GcHeap {
         active.insert(id, count);
         Ok(CollectionIteration {
             _children: Vec::new(),
-            cursor_loops: Vec::new(),
+            iter_loops: Vec::new(),
             active: self.iterations.clone(),
             id: Some(id),
             _root: root,
@@ -1024,7 +1023,7 @@ impl GcHeap {
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
-            HeapObject::Cursor(_) => Some(GcObjectKind::Cursor),
+            HeapObject::Iter(_) => Some(GcObjectKind::Iter),
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
@@ -1479,8 +1478,8 @@ impl GcHeap {
             }
             traced.push(id);
             match object {
-                HeapObject::Cursor(cursor) => {
-                    pending.push(&cursor.source);
+                HeapObject::Iter(iter) => {
+                    pending.push(&iter.source);
                 }
                 HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
                 HeapObject::Map(entries) => {
@@ -1515,7 +1514,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1540,7 +1539,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1559,7 +1558,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1586,7 +1585,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1605,7 +1604,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1632,7 +1631,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1647,7 +1646,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1666,7 +1665,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1685,7 +1684,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Cursor(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 }

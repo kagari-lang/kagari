@@ -47,11 +47,11 @@ fn terminals_short_circuit_and_preserve_shared_progress() {
         r#"
     fn main() -> i32 {
         val values = [1, 20, 22, 99];
-        val cursor = values.iter().map(|x| x);
-        std::debug::assert_eq(cursor.find(|x| x == 20), Some(20), "find");
-        std::debug::assert(cursor.any(|x| x == 22), "any");
-        std::debug::assert(!cursor.all(|x| x < 90), "all");
-        std::debug::assert_eq(cursor.count(), "".len_bytes(), "end");
+        val iter = values.iter().map(|x| x);
+        std::debug::assert_eq(iter.find(|x| x == 20), Some(20), "find");
+        std::debug::assert(iter.any(|x| x == 22), "any");
+        std::debug::assert(!iter.all(|x| x < 90), "all");
+        std::debug::assert_eq(iter.count(), "".len_bytes(), "end");
         values.push(200);
         val empty = [1].iter().take("".len_bytes());
         std::debug::assert(empty.all(|x| false), "empty all");
@@ -174,13 +174,13 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
         bytecode::{BytecodeInstruction as I, ConstantOperand},
         module::{
             abi::{AbiType, BuiltinType},
-            instruction::CursorOp,
+            instruction::IterOp,
         },
     };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
-                "invalid-cursor-wire.kgr",
+                "invalid-iter-wire.kgr",
                 "fn main(){val a:Array<(usize,i32)> = [1].iter().enumerate().collect();}",
             ),
             Default::default(),
@@ -213,9 +213,9 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
                 .instructions
                 .iter_mut()
                 .find_map(|i| match i {
-                    I::Cursor {
+                    I::Iter {
                         ty,
-                        op: CursorOp::FromClosure,
+                        op: IterOp::FromClosure,
                         ..
                     } => Some(ty),
                     _ => None,
@@ -247,11 +247,11 @@ fn native_iteration_reads_live_slots_and_does_not_snapshot_items() {
     struct Item { val value: i32 }
     fn main() -> i32 {
         val source = [Item { value: 1 }, Item { value: 2 }];
-        val cursor = source.iter();
+        val iter = source.iter();
         source[0] = Item { value: 20 };
-        val first = cursor.next().unwrap_or(Item { value: 0 });
+        val first = iter.next().unwrap_or(Item { value: 0 });
         source[1] = Item { value: 22 };
-        val rest: Array<Item> = cursor.collect();
+        val rest: Array<Item> = iter.collect();
         val text: Array<String> = "中😀é".iter().collect();
         std::debug::assert_eq(text[1], "😀", "scalar iteration");
         std::debug::assert_eq(text[2], "é", "UTF-8 progress");
@@ -263,13 +263,13 @@ fn native_iteration_reads_live_slots_and_does_not_snapshot_items() {
 }
 
 #[test]
-fn duplicate_cursor_dependencies_and_deep_adapter_chains_release_guards() {
+fn duplicate_iter_dependencies_and_deep_adapter_chains_release_guards() {
     execute(
         r#"
     fn main() -> i32 {
         val source = [20, 22];
-        val cursor = source.iter();
-        val pairs: Array<(i32,i32)> = cursor.zip(cursor).collect();
+        val iter = source.iter();
+        val pairs: Array<(i32,i32)> = iter.zip(iter).collect();
         std::debug::assert_eq(pairs[0][0] + pairs[0][1], 42, "shared zip");
         source.push(99);
         var deep = source.iter();
@@ -350,8 +350,8 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
                 "retained-pipeline.kgr",
                 r#"
         struct Offset { val value: i32 }
-        fn make()->Cursor<i32>{val offset=Offset{value:1};[19,21].iter().map(|x|x+offset.value)}
-        fn read(cursor:Cursor<i32>)->i32 {cursor.next().unwrap_or(0)}
+        fn make()->Iter<i32>{val offset=Offset{value:1};[19,21].iter().map(|x|x+offset.value)}
+        fn read(iter:Iter<i32>)->i32 {iter.next().unwrap_or(0)}
         fn main(){print("read");}
     "#,
             ),
@@ -402,15 +402,15 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
 }
 
 #[test]
-fn native_cursor_allocation_is_independent_of_source_length() {
+fn native_iter_allocation_is_independent_of_source_length() {
     use kagari_ir::module::{
         abi::{AbiType, BuiltinType},
-        instruction::CursorOp,
+        instruction::IterOp,
     };
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
-            SourceFile::new("cursor-allocation.kgr", "fn main(){}"),
+            SourceFile::new("iter-allocation.kgr", "fn main(){}"),
             Default::default(),
             Default::default(),
         )
@@ -423,20 +423,20 @@ fn native_cursor_allocation_is_independent_of_source_length() {
     let session = rt.begin_execution(&loaded, Default::default()).unwrap();
     let before = rt.gc().stats().allocation_units;
     let value = rt
-        .cursor_operation(
+        .iter_operation(
             &loaded,
             &root.value(),
             &AbiType::Array(
                 Box::new(AbiType::Builtin(BuiltinType::I32)),
                 kagari_common::collection::CollectionAccess::Mutable,
             ),
-            CursorOp::New,
+            IterOp::New,
         )
         .unwrap();
-    let cursor = rt.root_value(value).unwrap();
+    let iter = rt.root_value(value).unwrap();
     assert!(rt.gc().stats().allocation_units - before <= 2);
     drop(session);
-    drop(cursor);
+    drop(iter);
     drop(root);
     rt.collect_garbage().unwrap();
     assert_eq!(rt.gc().active_roots(), 0);
@@ -487,7 +487,7 @@ fn custom_iterators_use_native_defaults_and_generic_callbacks() {
         r#"
 struct Counter {var value:i32}
 impl Iterator for Counter {type Item=i32;fn next(self)->Option<i32>{if self.value>22 {None}else{val n=self.value;self.value+=1;Some(n)}}}
-fn transform<I:Iterator<Item=i32>>(source:I)->Cursor<i32> {source.filter(|x|x!=21).map(|x|x)}
+fn transform<I:Iterator<Item=i32>>(source:I)->Iter<i32> {source.filter(|x|x!=21).map(|x|x)}
 fn main()->i32 {val result:Array<i32> = transform(Counter{value:20}).collect();result[0]+result[1]}
 "#,
     );

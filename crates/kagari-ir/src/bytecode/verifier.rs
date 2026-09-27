@@ -659,7 +659,7 @@ fn instantiate_method_type(
             params: params.iter().map(child).collect::<Option<_>>()?,
             result: Box::new(child(result)?),
         },
-        AbiType::Cursor(element) => AbiType::Cursor(Box::new(child(element)?)),
+        AbiType::Iter(element) => AbiType::Iter(Box::new(child(element)?)),
         AbiType::Array(element, access) => AbiType::Array(Box::new(child(element)?), *access),
         AbiType::Set(element, access) => AbiType::Set(Box::new(child(element)?), *access),
         AbiType::Map { key, value, access } => AbiType::Map {
@@ -1037,20 +1037,20 @@ fn verify_instruction(
             expect_register_ty(function, *error, payload, "mapped error")?;
             expect_register_ty(function, *dst, ValueType::HeapObject, "mapped Result")?;
         }
-        BytecodeInstruction::Cursor { dst, value, ty, op } => {
+        BytecodeInstruction::Iter { dst, value, ty, op } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {
                 function: function.id,
-                reason: "invalid cursor contract",
+                reason: "invalid iterator contract",
             };
             let (input, output) = op.contract(ty).ok_or_else(invalid)?;
             match (input, value) {
                 (Some(ty), Some(value)) => {
-                    expect_register_ty(function, *value, ty, "cursor input")?
+                    expect_register_ty(function, *value, ty, "iterator input")?
                 }
                 (None, None) => {}
                 _ => return Err(invalid()),
             }
-            expect_register_ty(function, *dst, output, "cursor result")?;
+            expect_register_ty(function, *dst, output, "iterator result")?;
         }
         BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
             let invalid = || BytecodeVerificationError::InvalidOperation {

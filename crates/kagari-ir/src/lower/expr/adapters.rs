@@ -2,7 +2,7 @@ use super::*;
 use crate::lower::instances::IteratorInstance;
 use crate::module::{
     abi::AbiType,
-    instruction::{CursorOp, StandardEnumOp},
+    instruction::{IterOp, StandardEnumOp},
 };
 use kagari_hir::{
     builtin::{declarations::IteratorMethod, surface::StandardEnum, traits::StandardTrait},
@@ -148,11 +148,11 @@ impl FunctionLowerer<'_, '_> {
         let source_type =
             TypeId::Tuple(std::iter::once(step_type).chain(dependency_types).collect());
         let dst = self.alloc_temp(ValueType::HeapObject);
-        self.emit(Instruction::Cursor {
+        self.emit(Instruction::Iter {
             dst,
             value: Some(source),
             ty: AbiType::from_checked_type(&source_type),
-            op: CursorOp::FromClosure,
+            op: IterOp::FromClosure,
         });
         Ok(dst)
     }
@@ -171,13 +171,13 @@ impl FunctionLowerer<'_, '_> {
     }
 
     pub(super) fn iterator_close(&mut self, ty: &TypeId, value: IrValue) {
-        if matches!(ty, TypeId::Cursor(_)) {
+        if matches!(ty, TypeId::Iter(_)) {
             let dst = self.alloc_temp(ValueType::Unit);
-            self.emit(Instruction::Cursor {
+            self.emit(Instruction::Iter {
                 dst,
                 value: Some(value),
                 ty: AbiType::from_checked_type(ty),
-                op: CursorOp::Close,
+                op: IterOp::Close,
             });
         }
     }

@@ -202,7 +202,7 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
         } => "MutableMap",
         TypeId::Set(_, CollectionAccess::ReadOnly) => "Set",
         TypeId::Set(_, CollectionAccess::Mutable) => "MutableSet",
-        TypeId::Cursor(_) => "Cursor",
+        TypeId::Iter(_) => "Iter",
         TypeId::StandardEnum { kind, .. } => kind.spec().name,
         _ => return None,
     };
@@ -308,7 +308,7 @@ impl ApiType {
                     ("Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet", _) => {
                         surface::standard_generic_type(name, types).unwrap_or(TypeId::Error)
                     }
-                    ("Cursor", [item]) => TypeId::Cursor(Box::new(item.clone())),
+                    ("Iter", [item]) => TypeId::Iter(Box::new(item.clone())),
                     ("Option", [_]) => TypeId::StandardEnum {
                         kind: StandardEnum::Option,
                         args: types,
@@ -366,9 +366,7 @@ impl ApiType {
                 value.infer(output, arguments);
             }
             (Self::Named("Set" | "MutableSet", [item]), TypeId::Set(actual, _))
-            | (Self::Named("Cursor", [item]), TypeId::Cursor(actual)) => {
-                item.infer(actual, arguments)
-            }
+            | (Self::Named("Iter", [item]), TypeId::Iter(actual)) => item.infer(actual, arguments),
             (Self::Named(name, params), TypeId::StandardEnum { kind, args })
                 if *name == kind.spec().name && params.len() == args.len() =>
             {

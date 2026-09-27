@@ -129,8 +129,8 @@ impl FunctionLowerer<'_, '_> {
         {
             return Ok(args[0]);
         }
-        use crate::module::{abi::AbiType, instruction::CursorOp};
-        let cursor_op = match StandardTrait::from_id(&interface.declaration) {
+        use crate::module::{abi::AbiType, instruction::IterOp};
+        let iter_op = match StandardTrait::from_id(&interface.declaration) {
             Some(StandardTrait::Iterable)
                 if matches!(
                     ty,
@@ -140,16 +140,14 @@ impl FunctionLowerer<'_, '_> {
                         | TypeId::Builtin(kagari_hir::types::BuiltinType::String)
                 ) =>
             {
-                Some(CursorOp::New)
+                Some(IterOp::New)
             }
-            Some(StandardTrait::Iterator) if matches!(ty, TypeId::Cursor(_)) => {
-                Some(CursorOp::Next)
-            }
+            Some(StandardTrait::Iterator) if matches!(ty, TypeId::Iter(_)) => Some(IterOp::Next),
             _ => None,
         };
-        if let Some(op) = cursor_op {
+        if let Some(op) = iter_op {
             let dst = self.alloc_temp(ValueType::HeapObject);
-            self.emit(Instruction::Cursor {
+            self.emit(Instruction::Iter {
                 dst,
                 value: Some(args[0]),
                 ty: AbiType::from_checked_type(&ty),

@@ -489,7 +489,7 @@ pub fn iteration_outputs(
     bounds: &GenericBounds,
 ) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
     let native_item = match receiver {
-        TypeId::Cursor(item) => Some((**item).clone()),
+        TypeId::Iter(item) => Some((**item).clone()),
         TypeId::Array(item, _) | TypeId::Set(item, _) if kind == StandardTrait::Iterable => {
             Some((**item).clone())
         }
@@ -510,7 +510,7 @@ pub fn iteration_outputs(
         if kind == StandardTrait::Iterable {
             outputs.insert(
                 crate::types::associated_type_id(&id, "Iter"),
-                TypeId::Cursor(Box::new(item)),
+                TypeId::Iter(Box::new(item)),
             );
         }
         return Some(outputs);

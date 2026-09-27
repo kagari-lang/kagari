@@ -1,7 +1,7 @@
 use super::*;
 use crate::module::{
     abi::AbiType,
-    instruction::{CursorOp, StandardEnumOp},
+    instruction::{IterOp, StandardEnumOp},
 };
 use kagari_hir::{
     builtin::{
@@ -134,7 +134,7 @@ impl FunctionLowerer<'_, '_> {
         )?;
         let item_type = self.iterator_item(&iterator_type)?;
         let output = self.collection_new(target)?;
-        let guarded = matches!(iterator_type, TypeId::Cursor(_));
+        let guarded = matches!(iterator_type, TypeId::Iter(_));
         if guarded {
             self.emit(Instruction::BeginIteration {
                 collection: iterator,
@@ -168,11 +168,11 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(done);
         if guarded {
             let dst = self.alloc_temp(ValueType::Unit);
-            self.emit(Instruction::Cursor {
+            self.emit(Instruction::Iter {
                 dst,
                 value: Some(iterator),
                 ty: AbiType::from_checked_type(&iterator_type),
-                op: CursorOp::Close,
+                op: IterOp::Close,
             });
             self.emit(Instruction::EndIteration);
         }

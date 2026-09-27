@@ -52,7 +52,7 @@ pub(super) fn infer(
             ) if expected_kind == actual_kind && expected.len() == actual.len() => {
                 pending.extend(expected.iter().zip(actual).rev());
             }
-            (TypeId::Cursor(expected), TypeId::Cursor(actual))
+            (TypeId::Iter(expected), TypeId::Iter(actual))
             | (TypeId::Array(expected, _), TypeId::Array(actual, _))
             | (TypeId::Set(expected, _), TypeId::Set(actual, _)) => {
                 pending.push((expected, actual));

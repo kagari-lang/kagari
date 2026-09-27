@@ -189,7 +189,7 @@ pub enum AbiType {
         params: Vec<AbiType>,
         result: Box<AbiType>,
     },
-    Cursor(Box<AbiType>),
+    Iter(Box<AbiType>),
     Array(Box<AbiType>, CollectionAccess),
     Map {
         key: Box<AbiType>,
@@ -234,7 +234,7 @@ impl AbiType {
                 params: params.iter().map(Self::to_checked_type).collect(),
                 result: Box::new(result.to_checked_type()),
             },
-            Self::Cursor(ty) => TypeId::Cursor(Box::new(ty.to_checked_type())),
+            Self::Iter(ty) => TypeId::Iter(Box::new(ty.to_checked_type())),
             Self::Array(ty, access) => TypeId::Array(Box::new(ty.to_checked_type()), *access),
             Self::Map { key, value, access } => TypeId::Map {
                 key: Box::new(key.to_checked_type()),
@@ -315,7 +315,7 @@ impl AbiType {
                 params: params.iter().map(Self::from_checked_type).collect(),
                 result: Box::new(Self::from_checked_type(result)),
             },
-            TypeId::Cursor(element) => Self::Cursor(Box::new(Self::from_checked_type(element))),
+            TypeId::Iter(element) => Self::Iter(Box::new(Self::from_checked_type(element))),
             TypeId::Array(element, access) => {
                 Self::Array(Box::new(Self::from_checked_type(element)), *access)
             }
@@ -359,7 +359,7 @@ impl AbiType {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Cursor(ty) => pending.push(ty),
+                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) => pending.push(ty),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
@@ -412,7 +412,7 @@ impl AbiType {
                     .collect::<Option<_>>()?,
                 result: Box::new(result.instantiate(owner, arguments)?),
             },
-            Self::Cursor(ty) => Self::Cursor(Box::new(ty.instantiate(owner, arguments)?)),
+            Self::Iter(ty) => Self::Iter(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Array(ty, access) => {
                 Self::Array(Box::new(ty.instantiate(owner, arguments)?), *access)
             }

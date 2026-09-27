@@ -6,7 +6,7 @@ impl BodyChecker<'_> {
         for kind in [StandardTrait::Iterator, StandardTrait::Iterable] {
             if matches!(
                 receiver,
-                TypeId::Cursor(_)
+                TypeId::Iter(_)
                     | TypeId::Array(_, _)
                     | TypeId::Map { .. }
                     | TypeId::Set(_, _)

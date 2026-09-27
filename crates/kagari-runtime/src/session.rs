@@ -137,7 +137,7 @@ pub trait ExecutionObserver: std::fmt::Debug {
 
 #[derive(Debug)]
 pub(crate) struct SessionState {
-    pub cursor_guards: RefCell<std::collections::HashSet<crate::gc::HeapObjectId>>,
+    pub iter_guards: RefCell<std::collections::HashSet<crate::gc::HeapObjectId>>,
     pub host_scopes: RefCell<
         std::collections::HashMap<crate::HostFrameId, Rc<crate::host_scope::HostScopeState>>,
     >,
@@ -165,7 +165,7 @@ impl SessionState {
         baseline: ResourceCounters,
     ) -> Self {
         Self {
-            cursor_guards: Default::default(),
+            iter_guards: Default::default(),
             host_scopes: RefCell::new(std::collections::HashMap::new()),
             observer: RefCell::new(None),
             frames: RefCell::new(Vec::new()),
@@ -345,7 +345,7 @@ impl Drop for ExecutionSession {
                 self.resources
                     .quarantine("execution session ended with active resources");
             }
-            self.gc.release_cursor_guards(&self.state);
+            self.gc.release_iter_guards(&self.state);
             self.resources.end_execution(&self.state);
             self.modules
                 .release_epoch(self.state.root.key(), ModuleEpochRetention::ActiveCall);

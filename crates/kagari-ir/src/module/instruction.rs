@@ -35,11 +35,11 @@ pub enum Instruction {
         error: IrValue,
         ty: super::abi::AbiType,
     },
-    Cursor {
+    Iter {
         dst: IrValue,
         value: Option<IrValue>,
         ty: super::abi::AbiType,
-        op: CursorOp,
+        op: IterOp,
     },
     StandardEnum {
         dst: IrValue,
@@ -417,7 +417,7 @@ impl Instruction {
                 ..
             } => EffectSet::allocation(),
             Self::MapResultError { .. } => EffectSet::allocation(),
-            Self::Cursor { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
+            Self::Iter { .. } => EffectSet::allocation().union(EffectSet::aggregate_write()),
             Self::StandardEnum { .. } => EffectSet::aggregate_read(),
             Self::ReadAggregateField { .. }
             | Self::ReadCell { .. }
@@ -656,13 +656,13 @@ impl StandardEnumOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CursorOp {
+pub enum IterOp {
     New,
     FromClosure,
     Next,
     Close,
 }
-impl CursorOp {
+impl IterOp {
     pub fn contract(
         self,
         ty: &super::abi::AbiType,
@@ -686,7 +686,7 @@ impl CursorOp {
                 _ => return None,
             },
             Self::Next | Self::Close => {
-                if !matches!(ty, AbiType::Cursor(_)) {
+                if !matches!(ty, AbiType::Iter(_)) {
                     return None;
                 }
                 ValueType::HeapObject

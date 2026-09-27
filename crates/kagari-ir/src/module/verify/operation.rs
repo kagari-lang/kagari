@@ -285,14 +285,14 @@ pub(super) fn verify(
             context.expect(error.ty, payload, "mapped error")?;
             context.expect(dst.ty, ValueType::HeapObject, "mapped Result")?;
         }
-        Cursor { dst, value, ty, op } => {
+        Iter { dst, value, ty, op } => {
             let (input, output) = op
                 .contract(ty)
                 .ok_or_else(|| context.error(Error::InvalidEnumInitializer))?;
             if input != value.map(|v| v.ty) {
                 return Err(context.error(Error::InvalidEnumInitializer));
             }
-            context.expect(dst.ty, output, "cursor result")?;
+            context.expect(dst.ty, output, "iterator result")?;
         }
         StandardEnum { dst, value, ty, op } => {
             let (input, output) = op

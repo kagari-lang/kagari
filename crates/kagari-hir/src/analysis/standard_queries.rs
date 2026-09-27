@@ -310,6 +310,9 @@ mod trait_tests {
             assert_eq!(signature.declaration, api);
             assert_eq!(signature.parameters.len(), usize::from(name == "map"));
             assert!(signature.result.is_concrete());
+            if name != "collect" {
+                assert_eq!(signature.result.display_name(), "Iter<i32>");
+            }
         }
     }
     #[test]

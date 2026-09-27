@@ -5,7 +5,7 @@ use super::{
 };
 use crate::module::{
     abi::AbiType,
-    instruction::{CursorOp, StandardEnumOp},
+    instruction::{IterOp, StandardEnumOp},
 };
 use kagari_common::collection::CollectionAccess as Access;
 use kagari_hir::{
@@ -364,17 +364,17 @@ pub(super) fn verify(
                         }
                     }
                 }
-                I::Cursor { dst, value, ty, op } => {
+                I::Iter { dst, value, ty, op } => {
                     if let Some(value) = value.and_then(get)
                         && !flows(&value, ty)
                     {
                         return Err(invalid());
                     }
                     let item = match ty {
-                        AbiType::Tuple(_) if *op == CursorOp::FromClosure => {
-                            CursorOp::closure_item(ty).cloned()
+                        AbiType::Tuple(_) if *op == IterOp::FromClosure => {
+                            IterOp::closure_item(ty).cloned()
                         }
-                        AbiType::Array(item, _) | AbiType::Set(item, _) | AbiType::Cursor(item) => {
+                        AbiType::Array(item, _) | AbiType::Set(item, _) | AbiType::Iter(item) => {
                             Some((**item).clone())
                         }
                         AbiType::Map { key, value, .. } => {
@@ -386,10 +386,8 @@ pub(super) fn verify(
                         (
                             *dst,
                             Fact::typed(match op {
-                                CursorOp::New | CursorOp::FromClosure => {
-                                    AbiType::Cursor(Box::new(item))
-                                }
-                                CursorOp::Next => AbiType::StandardEnum {
+                                IterOp::New | IterOp::FromClosure => AbiType::Iter(Box::new(item)),
+                                IterOp::Next => AbiType::StandardEnum {
                                     kind: surface::StandardEnum::Option,
                                     args: vec![item],
                                 },

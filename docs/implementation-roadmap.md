@@ -142,17 +142,17 @@ General propagation, Clone and writable indexing remain separate. Error origins
 are completed in E01–E03 below.
 
 B08 uses artifact format 59 and runtime ABI v59. Custom iterators and native
-cursors share protocol-based for lowering. Native cursors retain source guards,
+iterators share protocol-based for lowering. Native iterators retain source guards,
 GC roots and code versions; loop/session cleanup and structural revision checks
-cover early exit and resumed cursors. See the authoritative iteration contract in
+cover early exit and resumed iterators. See the authoritative iteration contract in
 [the builtins specification](spec/builtins.md#iteration-protocols).
 
 B09 validation: 1,132 workspace tests passed, including 6 conversion and 10
 iteration integration cases. Source, artifact roundtrips and JIT fallback cover
 single evaluation, qualified conversions, derived bounds, cross-module generic
 implementations, native/custom iteration and associated output checking. Invalid
-cursor instructions are rejected before execution. Cleanup tests cover nested
-loops, return, trap, cancellation, budgets, rooted cursors across GC, foreign/stale
+iterator instructions are rejected before execution. Cleanup tests cover nested
+loops, return, trap, cancellation, budgets, rooted iterators across GC, foreign/stale
 handles and structure changes between calls. Formatting, workspace clippy with
 warnings denied, and `git diff --check` passed. The former generic Iterator<T>
 proposal now references the implemented associated-Item contract.
@@ -199,7 +199,7 @@ resource and bytecode-validation contracts remain engine responsibilities.
 
 S02 migrated 71 function signatures and 54 method views into English declaration
 sources with executable examples. It removed duplicated intrinsic call typing and
-connected native for_each to ordinary script closure frames and cursor cleanup.
+connected native for_each to ordinary script closure frames and iterator cleanup.
 Validation includes 327 HIR tests, 146 IR tests and source/artifact documentation
 execution. Rustdoc-style API documentation is required for subsequent declarations.
 
@@ -355,7 +355,7 @@ implementation contracts without fictitious script bodies. KBC/runtime ABI v66 r
 earlier artifacts. HIR, IR and embedding tests passed, including invalid bounds,
 fresh destination access, user destinations, duplicate policies and API documentation.
 
-I04 adds opaque Cursor adapters driven by ordinary VM closure frames. Construction
+I04 adds opaque Iter adapters driven by ordinary VM closure frames. Construction
 does not invoke callbacks; aliases share progress. Generic callbacks and secondary
 Iterable inputs retain associated item types. HIR, IR and embedding tests passed,
 including all eight adapters through source, serialized artifacts and JIT fallback
@@ -369,12 +369,12 @@ passed after updating the renamed native diagnostic expectation. Tests include
 short-circuit continuation, empty inputs, custom collection targets, colliding
 custom keys, negative callback/bound checks and inference-error preservation.
 
-I06 replaces native cursor snapshots with on-demand indexed reads and UTF-8 scalar
+I06 replaces native iterator snapshots with on-demand indexed reads and UTF-8 scalar
 progress. Source shape is checked at construction and yielded payloads are checked
 before progress commits. Guard acquisition/cleanup use explicit work lists, share
 duplicate dependencies and retain roots across ordinary callback frames. Runtime,
 VM and embedding tests passed, with additional acceptance for 1,500 adapter layers,
-constant cursor allocation size, live slot replacement, trap/budget cleanup, and
+constant iterator allocation size, live slot replacement, trap/budget cleanup, and
 rooted pipelines resumed through host reentry after GC between root sessions.
 KBC/runtime ABI v69 rejects artifacts with earlier iteration semantics.
 
@@ -383,10 +383,22 @@ The bundled API now contains 127 executable documentation blocks. Native qualifi
 from_iter paths and trait-default navigation/signature queries have acceptance
 coverage. Generated adapter steps retain their originating call-site identity and
 debug location; removed native-only iterable facts no longer form a parallel
-semantic model. Negative tests reject malformed closure cursor contracts and
+semantic model. Negative tests reject malformed closure iterator contracts and
 invalid usize state, and explicit user overrides retain ordinary static dispatch.
 
 Final validation: 1,206 workspace tests passed, including source/serialized-artifact
 execution, JIT-enabled fallback, all standalone examples and API documentation.
 `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
 `cargo test --workspace --no-fail-fast` and `git diff --check` passed.
+
+The native iterator type is now Iter<T>, replacing Cursor<T> without an alias.
+Its declaration, type identities, ABI nodes, IR/bytecode instructions, runtime
+operations and examples use the same name. Iterator and Iterable::Iter keep their
+protocol meanings; an implementation can select `type Iter = Iter<i32>` and return
+Self::Iter. Artifact format/runtime ABI v70 reject earlier products.
+
+Rename validation: 1,207 workspace tests passed, including independent resolution
+of the concrete Iter type and Iterable::Iter, removed-name rejection, checked
+signature display, source/artifact/JIT iteration and executable API examples.
+Formatting, workspace/all-targets clippy with warnings denied and git diff --check
+also passed.

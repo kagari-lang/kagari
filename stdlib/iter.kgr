@@ -6,16 +6,16 @@
 ///
 /// next returns Some(item) or None. Do not assume custom iterators remain exhausted after
 /// returning None unless their own contract promises it. A for loop stops at the first
-/// None. Native cursors enforce structural modification guards and release execution
+/// None. Native iterators enforce structural modification guards and release execution
 /// resources on exit.
 ///
 /// # Examples
 ///
 /// ```kgr
 /// fn main() {
-///     val cursor = [7].iter();
-///     std::debug::assert(cursor.next() == Some(7), "first");
-///     std::debug::assert(cursor.next() == None, "end");
+///     val iter = [7].iter();
+///     std::debug::assert(iter.next() == Some(7), "first");
+///     std::debug::assert(iter.next() == None, "end");
 /// }
 /// ```
 pub trait Iterator {
@@ -62,7 +62,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[0] + values[1], 42, "mapped");
     /// ```
     #[intrinsic(IteratorMap)]
-    fn map<U>(self, callback: fn(Self::Item) -> U) -> Cursor<U>;
+    fn map<U>(self, callback: fn(Self::Item) -> U) -> Iter<U>;
 
     /// Lazily retain items for which the predicate returns true.
     /// Predicates receive ordinary values, including shared object references.
@@ -84,7 +84,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[0] + values[1], 42, "retained");
     /// ```
     #[intrinsic(IteratorFilter)]
-    fn filter(self, predicate: fn(Self::Item) -> bool) -> Cursor<Self::Item>;
+    fn filter(self, predicate: fn(Self::Item) -> bool) -> Iter<Self::Item>;
 
     /// Lazily transform items and omit callback results that are None.
     ///
@@ -106,13 +106,13 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[0] + values[1], 42, "present values");
     /// ```
     #[intrinsic(IteratorFilterMap)]
-    fn filter_map<U>(self, callback: fn(Self::Item) -> Option<U>) -> Cursor<U>;
+    fn filter_map<U>(self, callback: fn(Self::Item) -> Option<U>) -> Iter<U>;
 
     /// Yield at most count items without evaluating any later items.
     ///
     ///
     /// A zero count never calls next on the source. Reaching the limit releases
-    /// this cursor's native source guards when traversal finishes.
+    /// this iterator's native source guards when traversal finishes.
     ///
     /// # Panics
     ///
@@ -127,7 +127,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "limited");
     /// ```
     #[intrinsic(IteratorTake)]
-    fn take(self, count: usize) -> Cursor<Self::Item>;
+    fn take(self, count: usize) -> Iter<Self::Item>;
 
     /// Lazily skip the first count items, then yield remaining items.
     ///
@@ -148,7 +148,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[0] + values[1], 42, "remaining");
     /// ```
     #[intrinsic(IteratorSkip)]
-    fn skip(self, count: usize) -> Cursor<Self::Item>;
+    fn skip(self, count: usize) -> Iter<Self::Item>;
 
     /// Yield (index, item) pairs starting at zero. Indices use usize.
     ///
@@ -170,7 +170,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[1][1], "right", "item");
     /// ```
     #[intrinsic(IteratorEnumerate)]
-    fn enumerate(self) -> Cursor<(usize, Self::Item)>;
+    fn enumerate(self) -> Iter<(usize, Self::Item)>;
 
     /// Lazily pair items, stepping the left iterator before the right iterator.
     /// A missing item on either side ends the current traversal.
@@ -193,7 +193,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[1][0], 22, "paired");
     /// ```
     #[intrinsic(IteratorZip)]
-    fn zip<I: Iterable>(self, other: I) -> Cursor<(Self::Item, I::Item)>;
+    fn zip<I: Iterable>(self, other: I) -> Iter<(Self::Item, I::Item)>;
 
     /// Yield this iterator's items, then the other iterable's items.
     /// The first None permanently advances from the first iterator to the second.
@@ -215,7 +215,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(values[0] + values[1], 42, "chained");
     /// ```
     #[intrinsic(IteratorChain)]
-    fn chain<I: Iterable<Item = Self::Item>>(self, other: I) -> Cursor<Self::Item>;
+    fn chain<I: Iterable<Item = Self::Item>>(self, other: I) -> Iter<Self::Item>;
 
     /// Return the first matching item, leaving subsequent items unconsumed.
     ///
@@ -232,9 +232,9 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val cursor = [1, 20, 22].iter();
-    /// std::debug::assert_eq(cursor.find(|x| x == 20), Some(20), "found");
-    /// std::debug::assert_eq(cursor.next(), Some(22), "continuation");
+    /// val iter = [1, 20, 22].iter();
+    /// std::debug::assert_eq(iter.find(|x| x == 20), Some(20), "found");
+    /// std::debug::assert_eq(iter.next(), Some(22), "continuation");
     /// ```
     #[intrinsic(IteratorFind)]
     fn find(self, predicate: fn(Self::Item) -> bool) -> Option<Self::Item>;
@@ -254,9 +254,9 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val cursor = [1, 20, 22].iter();
-    /// std::debug::assert(cursor.any(|x| x == 20), "match");
-    /// std::debug::assert_eq(cursor.next(), Some(22), "continuation");
+    /// val iter = [1, 20, 22].iter();
+    /// std::debug::assert(iter.any(|x| x == 20), "match");
+    /// std::debug::assert_eq(iter.next(), Some(22), "continuation");
     /// ```
     #[intrinsic(IteratorAny)]
     fn any(self, predicate: fn(Self::Item) -> bool) -> bool;
@@ -276,9 +276,9 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val cursor = [20, 1, 22].iter();
-    /// std::debug::assert(!cursor.all(|x| x % 2 == 0), "first failure");
-    /// std::debug::assert_eq(cursor.next(), Some(22), "continuation");
+    /// val iter = [20, 1, 22].iter();
+    /// std::debug::assert(!iter.all(|x| x % 2 == 0), "first failure");
+    /// std::debug::assert_eq(iter.next(), Some(22), "continuation");
     /// ```
     #[intrinsic(IteratorAll)]
     fn all(self, predicate: fn(Self::Item) -> bool) -> bool;
@@ -400,7 +400,7 @@ pub trait Iterator {
 /// Obtain an iterator without transferring ownership of the source.
 ///
 /// The associated Iter must implement Iterator with the same Item. Native collections
-/// produce guarded cursors. An Iterator can itself be used as an iterable under the
+/// produce guarded iterators. An Iterator can itself be used as an iterable under the
 /// standard derived rule. Custom iterators define their own consistency behavior.
 /// Calling iter on a collection creates fresh progress; calling it on an iterator
 /// returns the same stateful iterator. Aliases share progress. Neither operation
@@ -455,25 +455,28 @@ pub trait FromIterator<T> {
 
 /// A native iterator retaining its source and current position.
 ///
-/// Obtain a cursor through `iter` on a native collection or string. It implements
+/// Obtain an iterator through `iter` on a native collection or string. It implements
 /// `Iterator` and yields `Some(item)` until exhausted. Array and set items are
 /// elements, map items are `(key, value)` tuples, and string items are one-scalar
 /// strings. Yielded object references keep their identity.
 ///
 /// The runtime manages structural iteration guards and releases them when the
-/// cursor is closed or execution is cleaned up. Do not structurally modify a guarded
+/// iterator is closed or execution is cleaned up. Do not structurally modify a guarded
 /// source. Map and set traversal uses insertion order. The representation is opaque;
-/// there is no empty-struct constructor for a cursor. Native cursors read slots on
+/// there is no empty-struct constructor for an iterator. Native iterators read slots on
 /// demand; replacing an unvisited slot is visible to subsequent steps. A rooted
-/// cursor retains its source, callbacks and captures across execution sessions.
+/// iterator retains its source, callbacks and captures across execution sessions.
 /// Structural changes after a traversal ends invalidate subsequent resumption.
+///
+/// `Iter<T>` is the concrete native type. `Iterable::Iter` is an associated type
+/// that may select this type or any user-defined implementation of `Iterator`.
 ///
 /// # Examples
 ///
 /// ```kgr
-/// val cursor = [7].iter();
-/// std::debug::assert(cursor.next() == Some(7), "first item");
-/// std::debug::assert(cursor.next() == None, "exhausted");
+/// val iter = [7].iter();
+/// std::debug::assert(iter.next() == Some(7), "first item");
+/// std::debug::assert(iter.next() == None, "exhausted");
 /// ```
-#[builtin_type(Cursor)]
-pub type Cursor<T>;
+#[builtin_type(Iter)]
+pub type Iter<T>;

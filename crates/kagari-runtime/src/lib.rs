@@ -645,30 +645,30 @@ impl Runtime {
             .map(value::Value::Closure)
     }
 
-    pub fn cursor_operation(
+    pub fn iter_operation(
         &self,
         owner: &LoadedModule,
         value: &value::Value,
         ty: &kagari_ir::module::abi::AbiType,
-        op: kagari_ir::module::instruction::CursorOp,
+        op: kagari_ir::module::instruction::IterOp,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
         if matches!(
             op,
-            kagari_ir::module::instruction::CursorOp::New
-                | kagari_ir::module::instruction::CursorOp::FromClosure
+            kagari_ir::module::instruction::IterOp::New
+                | kagari_ir::module::instruction::IterOp::FromClosure
         ) {
             let retention = self
                 .modules
                 .retain_runtime_program(owner)
                 .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
-            if op == kagari_ir::module::instruction::CursorOp::FromClosure {
-                self.gc.new_script_cursor(value, ty, owner, retention)
+            if op == kagari_ir::module::instruction::IterOp::FromClosure {
+                self.gc.new_script_iter(value, ty, owner, retention)
             } else {
-                self.gc.new_cursor(value, ty, owner, retention)
+                self.gc.new_iter(value, ty, owner, retention)
             }
         } else {
-            self.gc.advance_cursor(value, ty, op)
+            self.gc.advance_iter(value, ty, op)
         }
     }
 

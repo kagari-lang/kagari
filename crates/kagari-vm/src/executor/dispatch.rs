@@ -27,12 +27,12 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?.write_register(dst, mapped)?;
             }
 
-            BytecodeInstruction::Cursor { dst, value, ty, op } => {
+            BytecodeInstruction::Iter { dst, value, ty, op } => {
                 let source = self
                     .current_frame()?
-                    .read_register(value.ok_or(VmError::TypeMismatch("cursor source"))?)?;
-                if op == kagari_ir::module::instruction::CursorOp::Next
-                    && let Some(step) = self.runtime.gc().cursor_step(&source, &ty)?
+                    .read_register(value.ok_or(VmError::TypeMismatch("iterator source"))?)?;
+                if op == kagari_ir::module::instruction::IterOp::Next
+                    && let Some(step) = self.runtime.gc().iter_step(&source, &ty)?
                 {
                     let closure = self.runtime.resolve_closure(&step)?;
                     return self
@@ -40,7 +40,7 @@ impl<'a> Executor<'a> {
                         .push_closure(self.runtime, closure, &[], Some(dst))
                         .map_err(VmError::RuntimeError);
                 }
-                let result = self.runtime.cursor_operation(
+                let result = self.runtime.iter_operation(
                     self.current_frame()?.loaded(),
                     &source,
                     &ty,
