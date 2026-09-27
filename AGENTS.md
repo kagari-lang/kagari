@@ -49,7 +49,7 @@ policy rather than forcing every file move into a separately runnable checkpoint
   their responsibilities move, and record unresolved debt for the final audit.
 - Use normal Rust `mod` boundaries for handwritten source. Reserve `include!` for
   generated code and `#[path]` for justified test or cross-target sharing.
-- Use explicit production imports; wildcard imports are acceptable in test code.
+- Follow the import/path rules and structural review below for handwritten Rust.
 - Split functions when control flow or ownership becomes difficult to follow.
   Group growing argument sets into cohesive parameter types where that clarifies
   the contract. Prefer explicit enums and focused handlers over conditional chains
@@ -60,6 +60,65 @@ policy rather than forcing every file move into a separately runnable checkpoint
   speculative abstraction and empty crates created only for future features.
 - Write source comments, API documentation and repository documents in English.
   Use the user's language for conversation and progress updates.
+
+### Imports and Module Paths
+
+- Declare dependencies through explicit `use` statements at module scope. Import
+  the type/function or a short, meaningful module name instead of repeating long
+  `crate::...`, external-crate or `std::...` paths in signatures and function bodies.
+  For example, import `std::sync::Arc` and `crate::error::RuntimeError`, then write
+  `Arc<RuntimeError>` rather than
+  `std::sync::Arc<crate::error::RuntimeError>` throughout the implementation.
+- Root-qualified paths in imports are encouraged: `use crate::module::Type;` makes
+  ownership clear. This rule limits verbose paths at use sites, not explicit paths
+  in the import declarations themselves.
+- Short qualification such as `fmt::Display`, `io::Result` or `hir::Expr` is useful
+  when it clarifies ownership. Resolve collisions with meaningful aliases or module
+  imports; do not replace one unreadable path with an opaque abbreviation.
+- Do not use wildcard imports in production, including `use module::*`, grouped
+  glob imports, function-local `use Enum::*`, and `pub use module::*`. Explicitly
+  list imported/re-exported items; keep enum variants qualified where helpful.
+- Test-only scopes may use wildcard imports, such as `use super::*` inside a
+  `#[cfg(test)]` module or a dedicated integration-test target. Compiling ordinary
+  production code with `cargo test` does not make its imports test-only. Examples
+  and benchmarks should follow the production import style.
+- Do not use repeated parent traversal such as `super::super::` or longer chains
+  in production imports, signatures or bodies. Use an explicit `crate::...` import
+  for the owning module instead. A single `super::` is acceptable for a direct
+  parent relationship; tests should avoid deep traversal as well.
+- Keep normal imports at module scope. Function-local imports need a concrete
+  reason, such as feature/configuration scoping, rather than hiding a function's
+  dependency list or enabling wildcard matching.
+- Qualification required for correctness is allowed: ambiguous trait calls such
+  as `<Type as Trait>::method`, macro hygiene, and clearly scoped derive/attribute
+  paths such as `thiserror::Error`. Generated code may require absolute paths.
+  These exceptions do not justify routine fully qualified paths in handwritten
+  implementation code.
+- Do not introduce forwarding modules, broad re-exports, widened visibility or
+  compatibility aliases just to shorten imports. Import from the actual owner or
+  fix the responsibility boundary. Keep intentional public facades explicit.
+
+### Structural Review at Checkpoints
+
+Review changed handwritten Rust modules before each implementation checkpoint:
+
+1. Check production `use` and `pub use` declarations, including nested/local
+   imports, for globs. Classify test-only/generated code explicitly rather than
+   treating the entire file as exempt because it contains tests.
+2. Check for repeated `super::` traversal and long qualified paths at use sites;
+   replace them with explicit imports or short module qualification as appropriate.
+3. Check module ownership, visibility/re-export growth, handwritten `include!`,
+   unjustified `#[path]`, file size and large functions mixing responsibilities.
+4. Record any justified exception or existing debt in the active plan with its
+   reason and follow-up owner. Resolve new violations in the changed code; do not
+   hide them with broad lint allowances or claim that formatting checks catch them.
+
+Text searches are useful audit inputs, not a complete Rust-aware checker: imports
+may span multiple lines, contain nested groups, or appear inside string fixtures.
+Review results in context. Do not launch unrelated repository-wide source rewrites
+for a documentation task. During the MIR migration, apply this review as modules
+move and include a full structural audit in A05. Intermediate compilation failures
+do not prevent import/path review and do not require compatibility scaffolding.
 
 ### Replacement and Migration
 

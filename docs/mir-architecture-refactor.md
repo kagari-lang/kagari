@@ -290,6 +290,10 @@ passing every test through the interpreter does not count as completing this pha
   hidden frontend dependencies, stale generated bindings, obsolete codecs and
   transitional production stubs. Retain behavior tests and rewrite structural tests
   to assert the new architecture.
+- Audit handwritten Rust against [AGENTS.md](../AGENTS.md#imports-and-module-paths):
+  explicit production imports/re-exports, no deep parent traversal, readable paths
+  at use sites, proper module ownership and justified structural exceptions. Review
+  test/generated-code exemptions in context; a successful build is not this audit.
 - Finish specifications, crate/layout documentation, CLI, SDK examples and feature
   recipes. Keep the roadmap and goal guide pointing to one active plan.
 - Run the final acceptance matrix and workspace gates. Record performance and
