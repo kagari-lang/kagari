@@ -5,6 +5,7 @@ use crate::instruction::JumpTarget;
 use crate::instruction::LocalSlot;
 use crate::instruction::PathId;
 use crate::instruction::Register;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::effects::EffectSet;
 use kagari_abi::ids::DebugPointId;
 use kagari_abi::ids::FunctionRef;
@@ -85,6 +86,9 @@ pub struct BytecodeFunction {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FunctionMetadata {
+    /// Explicit logical charges in emission order; one entry per executable point.
+    #[serde(deserialize_with = "kagari_abi::decode_limits::instructions")]
+    pub instruction_budgets: Vec<LogicalBudgetCharge>,
     pub semantic: SemanticSlots,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub params: TypeLayoutBuffer,

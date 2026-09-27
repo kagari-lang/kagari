@@ -1,3 +1,4 @@
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::BytecodeFunction;
@@ -63,6 +64,7 @@ pub fn test_function_module(
     registers: Vec<ValueType>,
 ) -> BytecodeModule {
     let metadata = FunctionMetadata {
+        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
         registers,

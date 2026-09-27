@@ -1,12 +1,13 @@
-use crate::DeterministicInputs;
-use crate::Runtime;
-use crate::RuntimeErrorKind;
-use crate::value::Value;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::ModuleRef;
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::collection::CollectionAccess;
+use kagari_runtime::DeterministicInputs;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::value::Value;
 
 fn load(runtime: &mut Runtime, name: &str) -> kagari_runtime::LoadedModule {
     runtime
@@ -66,19 +67,29 @@ fn nested_scopes_inherit_permissions_budget_and_lifetime_even_if_outer_drops_fir
     let mut options = runtime.execution_options();
     options.resources.max_instruction_steps = Some(2);
     let outer = runtime.begin_execution(&module, options.clone()).unwrap();
-    runtime.consume_instruction_step().unwrap();
+    runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap();
     let mut escalation = options.clone();
     escalation.resources.max_instruction_steps = None;
     escalation.security.profile.allow_host_calls = true;
     escalation.security.capabilities.host_calls = true;
     let nested = runtime.begin_execution(&module, escalation).unwrap();
     assert!(!runtime.security().allows_host_calls());
-    runtime.consume_instruction_step().unwrap();
-    let error = runtime.consume_instruction_step().unwrap_err();
+    runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap();
+    let error = runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
     assert_eq!(nested.counters().instruction_steps, 2);
     drop(outer);
-    assert!(runtime.consume_instruction_step().is_err());
+    assert!(
+        runtime
+            .consume_logical_charge(LogicalBudgetCharge::Step)
+            .is_err()
+    );
     assert_eq!(
         runtime
             .modules()
@@ -96,8 +107,12 @@ fn nested_scopes_inherit_permissions_budget_and_lifetime_even_if_outer_drops_fir
     );
     assert!(runtime.resources().termination().is_none());
     let next = runtime.begin_execution(&module, options).unwrap();
-    runtime.consume_instruction_step().unwrap();
-    runtime.consume_instruction_step().unwrap();
+    runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap();
+    runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap();
     assert_eq!(next.counters().instruction_steps, 2);
     assert_eq!(runtime.resources().counters().instruction_steps, 4);
 }
@@ -189,7 +204,9 @@ fn cancellation_is_sticky_until_all_scopes_exit_and_next_root_can_run() {
         .unwrap();
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().array_len(object).is_none());
-    runtime.consume_instruction_step().unwrap();
+    runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap();
     assert_eq!(next.counters().instruction_steps, 1);
 }
 
@@ -257,12 +274,12 @@ fn zero_wall_budget_rejects_before_counter_charges() {
 
 #[test]
 fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
-    use crate::ExecutionPhase;
-    use crate::HostExposurePolicy;
-    use crate::host::HostFunction;
     use kagari_common::host_interface::{
         HostFunctionDeclaration, HostFunctionEffects, HostValueType,
     };
+    use kagari_runtime::ExecutionPhase;
+    use kagari_runtime::HostExposurePolicy;
+    use kagari_runtime::host::HostFunction;
     use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
@@ -371,7 +388,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
 
 #[test]
 fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
-    use crate::ExecutionPhase;
+    use kagari_runtime::ExecutionPhase;
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
     let _session = runtime
@@ -392,9 +409,9 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
 
 #[test]
 fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
-    use crate::HostExposurePolicy;
-    use crate::host::HostFunction;
     use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
+    use kagari_runtime::HostExposurePolicy;
+    use kagari_runtime::host::HostFunction;
     let mut runtime = Runtime::default();
     let mut security = runtime.security();
     security.profile.allow_host_calls = true;
@@ -666,7 +683,11 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
             if mode == 1 {
                 token.cancel();
             } else {
-                assert!(runtime.consume_instruction_step().is_err());
+                assert!(
+                    runtime
+                        .consume_logical_charge(LogicalBudgetCharge::Step)
+                        .is_err()
+                );
             }
             drop(session);
         }

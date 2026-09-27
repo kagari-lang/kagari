@@ -2,6 +2,7 @@ mod authority;
 mod loading;
 mod objects;
 use host::HostCallContext;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::native::ExecutableFunctionArtifact;
 use kagari_abi::types::AbiType;
@@ -758,8 +759,9 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
-        self.resources.consume_instruction_step()
+    pub fn consume_logical_charge(&self, charge: LogicalBudgetCharge) -> Result<(), RuntimeError> {
+        self.resources
+            .consume_instruction_steps(charge.instruction_steps())
     }
 
     pub fn invoke_host(

@@ -6,7 +6,9 @@ use kagari_abi::native_call::{
     JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue,
 };
 
-/// Charge one logical instruction from generated code.
+/// Charge the verified logical instruction at this offset from generated code.
+/// The active execution frame supplies the charge; absent frames and invalid
+/// offsets are engine faults, not unmetered native execution.
 ///
 /// # Safety
 /// A non-null pointer must reference a live Runtime for the duration of this call.
@@ -15,12 +17,13 @@ pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime, o
     let Some(runtime) = (unsafe { runtime.as_ref() }) else {
         return JIT_STATUS_INVALID_RUNTIME;
     };
-    if usize::try_from(offset)
+    let charge = match usize::try_from(offset)
         .ok()
-        .is_none_or(|offset| runtime.record_native_instruction(offset).is_err())
+        .and_then(|offset| runtime.record_native_instruction(offset).ok())
     {
-        return JIT_STATUS_ENGINE_FAULT;
-    }
+        Some(charge) => charge,
+        None => return JIT_STATUS_ENGINE_FAULT,
+    };
     if let Err(error) = runtime.gc_safepoint() {
         return match error.kind() {
             RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
@@ -29,7 +32,7 @@ pub unsafe extern "C" fn jit_consume_instruction_step(runtime: *const Runtime, o
             _ => JIT_STATUS_INVALID_HEAP_REFERENCE,
         };
     }
-    match runtime.consume_instruction_step() {
+    match runtime.consume_logical_charge(charge) {
         Ok(()) => JIT_STATUS_OK,
         Err(error) => match error.kind() {
             RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,

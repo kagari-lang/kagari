@@ -1,7 +1,4 @@
-use crate::LoadedModule;
-use crate::Runtime;
-use crate::RuntimeErrorKind;
-use crate::value::Value;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::BytecodeFunction;
@@ -12,6 +9,10 @@ use kagari_bytecode::FunctionMetadata;
 use kagari_bytecode::FunctionRecord;
 use kagari_bytecode::ModuleRef;
 use kagari_bytecode::Register;
+use kagari_runtime::LoadedModule;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::value::Value;
 
 #[derive(Debug)]
 struct ReentrantObserver;
@@ -30,16 +31,24 @@ impl kagari_runtime::ExecutionObserver for ReentrantObserver {
 }
 
 fn loaded(runtime: &mut Runtime) -> LoadedModule {
+    loaded_with_instructions(runtime, vec![BytecodeInstruction::Return(None)])
+}
+
+fn loaded_with_instructions(
+    runtime: &mut Runtime,
+    instructions: Vec<BytecodeInstruction>,
+) -> LoadedModule {
     let function = BytecodeFunction {
         id: FunctionRef::new(0),
         name: "main".into(),
         register_count: 1,
         metadata: FunctionMetadata {
+            instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
             registers: vec![ValueType::HeapObject],
             roots: kagari_bytecode::RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
             ..Default::default()
         },
-        instructions: vec![BytecodeInstruction::Return(None)],
+        instructions,
         ..Default::default()
     };
     runtime
@@ -297,4 +306,99 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
     assert_eq!(runtime.resources().counters().loaded_modules, 1);
     assert!(runtime.execution_root().is_none());
+}
+
+#[test]
+fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
+    use kagari_abi::native_call::{JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT};
+    use kagari_runtime::{ResourcePolicy, RuntimeConfig, jit_abi::jit_consume_instruction_step};
+    let mut runtime = Runtime::new(RuntimeConfig {
+        resources: ResourcePolicy {
+            max_instruction_steps: Some(2),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let module = loaded_with_instructions(
+        &mut runtime,
+        vec![
+            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::Return(None),
+        ],
+    );
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    stack
+        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    for offset in 0..2 {
+        assert_eq!(
+            unsafe { jit_consume_instruction_step(&runtime, offset) },
+            JIT_STATUS_OK
+        );
+        assert_eq!(runtime.resources().counters().instruction_steps, offset + 1);
+    }
+    assert_eq!(
+        unsafe { jit_consume_instruction_step(&runtime, 2) },
+        JIT_STATUS_RESOURCE_LIMIT
+    );
+    assert_eq!(runtime.resources().counters().instruction_steps, 2);
+    assert_eq!(
+        runtime.capture_error_trace().frames[0].instruction_offset,
+        2
+    );
+    drop(stack);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
+}
+
+#[test]
+fn native_budget_checks_require_an_active_validated_program_point() {
+    use kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT;
+    use kagari_runtime::jit_abi::jit_consume_instruction_step;
+    let runtime = Runtime::default();
+    assert_eq!(
+        unsafe { jit_consume_instruction_step(&runtime, 0) },
+        JIT_STATUS_ENGINE_FAULT
+    );
+    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+    let mut runtime = Runtime::default();
+    let module = loaded(&mut runtime);
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    stack
+        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    assert_eq!(
+        unsafe { jit_consume_instruction_step(&runtime, 1) },
+        JIT_STATUS_ENGINE_FAULT
+    );
+    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+}
+
+#[test]
+fn interpreter_frame_fetch_exposes_the_checked_charge_for_each_point() {
+    let mut runtime = Runtime::default();
+    let module = loaded_with_instructions(
+        &mut runtime,
+        vec![
+            BytecodeInstruction::BudgetCheckpoint,
+            BytecodeInstruction::Return(None),
+        ],
+    );
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    stack
+        .push(module.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    for index in 0..2 {
+        let (instruction, charge) = stack.current_mut().unwrap().next_instruction().unwrap();
+        assert_eq!(charge, LogicalBudgetCharge::Step);
+        assert_eq!(stack.current().unwrap().instruction_offset(), index);
+        assert_eq!(
+            matches!(instruction, BytecodeInstruction::BudgetCheckpoint),
+            index == 0
+        );
+        runtime.consume_logical_charge(charge).unwrap();
+    }
+    assert_eq!(runtime.resources().counters().instruction_steps, 2);
+    assert!(stack.current_mut().unwrap().next_instruction().is_none());
 }

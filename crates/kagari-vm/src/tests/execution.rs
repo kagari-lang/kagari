@@ -1,3 +1,4 @@
+use kagari_abi::budget::LogicalBudgetCharge;
 use std::sync::{Arc, Mutex};
 
 use kagari_abi::ids::DebugPointId;
@@ -36,6 +37,7 @@ fn test_function(
     registers: Vec<ValueType>,
 ) -> BytecodeFunction {
     let metadata = FunctionMetadata {
+        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
         registers,

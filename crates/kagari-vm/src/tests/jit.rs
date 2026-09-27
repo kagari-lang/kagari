@@ -1,3 +1,4 @@
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::DebugPointId;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::native::BackendId;
@@ -250,7 +251,7 @@ impl CodegenBackend for NativeBackend {
     ) -> Result<Value, BackendInvocationError> {
         assert_eq!(artifact.function, FunctionRef::new(0));
         runtime
-            .consume_instruction_step()
+            .consume_logical_charge(LogicalBudgetCharge::Step)
             .map_err(BackendInvocationError::RuntimeFailure)?;
         Ok(Value::I32(11))
     }

@@ -198,6 +198,8 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
+    /// Preserve a logical charge and its origin after removing a pure operation.
+    BudgetCheckpoint,
     Convert {
         dst: Register,
         src: Register,

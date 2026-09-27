@@ -1,26 +1,28 @@
-use crate::CapabilitySet;
-use crate::HostBorrowKind;
-use crate::HostExposurePolicy;
-use crate::HostObjectId;
-use crate::HostSchemaEpoch;
-use crate::HostTypeOwnership;
-use crate::HostTypeRegistration;
-use crate::LanguageProfile;
-use crate::PathAccess;
-use crate::Runtime;
-use crate::RuntimeConfig;
-use crate::RuntimeErrorKind;
-use crate::SecurityContext;
-use crate::TypeId;
-use crate::host::HostError;
-use crate::host::HostFunction;
-use crate::value::Value;
+use kagari_abi::budget::LogicalBudgetCharge;
+use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::BytecodeModule;
 use kagari_bytecode::BytecodeProgram;
 use kagari_bytecode::ModuleRef;
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType,
 };
+use kagari_runtime::CapabilitySet;
+use kagari_runtime::HostBorrowKind;
+use kagari_runtime::HostExposurePolicy;
+use kagari_runtime::HostObjectId;
+use kagari_runtime::HostSchemaEpoch;
+use kagari_runtime::HostTypeOwnership;
+use kagari_runtime::HostTypeRegistration;
+use kagari_runtime::LanguageProfile;
+use kagari_runtime::PathAccess;
+use kagari_runtime::Runtime;
+use kagari_runtime::RuntimeConfig;
+use kagari_runtime::RuntimeErrorKind;
+use kagari_runtime::SecurityContext;
+use kagari_runtime::TypeId;
+use kagari_runtime::host::HostError;
+use kagari_runtime::host::HostFunction;
+use kagari_runtime::value::Value;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -149,9 +151,14 @@ fn host_scopes_keep_the_root_budget_until_all_resources_are_released() {
     assert!(runtime.gc().validate_value(&a));
     assert!(runtime.gc().validate_value(&b));
     drop(session);
-    runtime.consume_instruction_step().unwrap();
+    runtime
+        .consume_logical_charge(LogicalBudgetCharge::Step)
+        .unwrap();
     assert_eq!(
-        runtime.consume_instruction_step().unwrap_err().kind(),
+        runtime
+            .consume_logical_charge(LogicalBudgetCharge::Step)
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::ResourceLimitExceeded
     );
     assert!(runtime.host_scope(&[]).is_err());
@@ -275,12 +282,7 @@ fn quarantine_does_not_block_host_scope_cleanup() {
     let stack = runtime.enter_execution_stack(&loaded).unwrap();
     assert_eq!(
         stack
-            .push(
-                loaded.slot(),
-                kagari_bytecode::FunctionRef::new(0),
-                &[],
-                None
-            )
+            .push(loaded.slot(), FunctionRef::new(0), &[], None)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::EngineFault

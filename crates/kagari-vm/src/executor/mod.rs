@@ -67,7 +67,7 @@ impl<'a> Executor<'a> {
                 frame.next_instruction()
             };
 
-            let Some(instruction) = instruction else {
+            let Some((instruction, charge)) = instruction else {
                 return Err(VmError::RuntimeError(
                     self.runtime
                         .quarantine_execution_invariant("verified function fell through"),
@@ -75,7 +75,7 @@ impl<'a> Executor<'a> {
             };
 
             self.runtime
-                .consume_instruction_step()
+                .consume_logical_charge(charge)
                 .map_err(VmError::RuntimeError)?;
 
             match instruction {

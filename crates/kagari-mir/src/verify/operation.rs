@@ -49,6 +49,7 @@ pub(super) fn verify(
         }
     }
     match instruction {
+        Instruction::BudgetCheckpoint => {}
         Instruction::Convert {
             dst,
             src,

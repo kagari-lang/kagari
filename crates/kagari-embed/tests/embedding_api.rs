@@ -9,6 +9,7 @@ use crate::KagariRuntime;
 use crate::LoadOptions;
 use crate::ReloadOptions;
 use crate::RuntimeFailureKind;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::ArtifactBuildOptions;
@@ -158,6 +159,7 @@ fn host_path_artifact(
         })
         .collect();
     let metadata = FunctionMetadata {
+        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
         registers,

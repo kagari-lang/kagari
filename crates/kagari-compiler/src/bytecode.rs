@@ -20,7 +20,6 @@ use kagari_common::identity::DefinitionPathSegment;
 use kagari_common::identity::ModuleIdentity;
 use kagari_mir::program::VerifiedMirProgram;
 use std::collections::HashMap;
-use std::iter;
 use std::slice;
 
 use kagari_common::Span;
@@ -405,7 +404,7 @@ fn lower_function(
     analysis: &FunctionAnalysis,
     context: &mut BytecodeLoweringContext,
 ) -> Result<BytecodeFunction, BytecodeLoweringError> {
-    let block_offsets = compute_block_offsets(function);
+    let block_offsets = compute_block_offsets(function, analysis);
     let mut instructions = Vec::with_capacity(
         function
             .blocks
@@ -414,8 +413,19 @@ fn lower_function(
             .sum(),
     );
     let mut instruction_spans = Vec::with_capacity(instructions.capacity());
+    let mut instruction_budgets = Vec::with_capacity(instructions.capacity());
 
-    for (_, block) in emission_order(function) {
+    for (index, block) in function.emission_order() {
+        let facts = analysis
+            .block(BlockId::new(index))
+            .expect("sealed block facts");
+        instruction_budgets.extend((0..block.instructions.len()).map(|index| {
+            facts
+                .instruction(index)
+                .expect("sealed instruction facts")
+                .budget()
+        }));
+        instruction_budgets.push(facts.terminator().budget());
         lower_block(
             block,
             &block_offsets,
@@ -427,6 +437,7 @@ fn lower_function(
 
     let (root_locals, root_temps) = function.root_slots();
     let metadata = FunctionMetadata {
+        instruction_budgets,
         semantic: function.semantic.clone(),
         params: function.params.iter().map(|param| param.ty).collect(),
         return_type: function.return_type,
@@ -563,20 +574,27 @@ fn push_target(targets: &mut Vec<JumpTarget>, target: JumpTarget) {
     }
 }
 
-fn compute_block_offsets(function: &MirFunction) -> HashMap<BlockId, JumpTarget> {
-    let mut offsets = HashMap::new();
-    let mut next_offset = 0usize;
-
-    for (index, block) in emission_order(function) {
-        let block_id = BlockId::new(index);
-        offsets.insert(block_id, JumpTarget::new(next_offset));
-        next_offset += block.instructions.len();
-        if block.terminator.is_some() {
-            next_offset += 1;
-        }
-    }
-
-    offsets
+fn compute_block_offsets(
+    function: &MirFunction,
+    analysis: &FunctionAnalysis,
+) -> HashMap<BlockId, JumpTarget> {
+    function
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(index, _)| {
+            let id = BlockId::new(index);
+            (
+                id,
+                JumpTarget::new(
+                    analysis
+                        .block(id)
+                        .expect("sealed block facts")
+                        .start_offset(),
+                ),
+            )
+        })
+        .collect()
 }
 
 fn lower_block(
@@ -610,6 +628,7 @@ fn lower_instruction(
     context: &mut BytecodeLoweringContext,
 ) -> BytecodeInstruction {
     match instruction {
+        Instruction::BudgetCheckpoint => BytecodeInstruction::BudgetCheckpoint,
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
             dst: lower_value(*dst),
             constant: lower_constant(constant),
@@ -1077,20 +1096,6 @@ fn lower_jump(
         .get(&block)
         .copied()
         .ok_or(BytecodeLoweringError::InvalidBranchTarget(block))
-}
-
-fn emission_order(function: &MirFunction) -> impl Iterator<Item = (usize, &BasicBlock)> {
-    iter::once((
-        function.entry.index(),
-        &function.blocks[function.entry.index()],
-    ))
-    .chain(
-        function
-            .blocks
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| *index != function.entry.index()),
-    )
 }
 
 pub fn lower_program_to_bytecode(

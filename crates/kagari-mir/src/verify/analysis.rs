@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::mem;
 
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::representation::ValueType;
 
 use crate::analysis::{BlockAnalysis, FunctionAnalysis, PointAnalysis, SafepointKind, SlotSet};
@@ -62,6 +63,14 @@ pub(super) fn build(
     budget: &mut Budget,
 ) -> Result<FunctionAnalysis, MirVerificationError> {
     let mut blocks = debug_points(function, &initialized, context, budget)?;
+    let mut logical_offset = 0;
+    for (index, _) in function.emission_order() {
+        for point in &mut blocks[index].points {
+            budget.work(1, context)?;
+            point.logical_offset = logical_offset;
+            logical_offset += 1;
+        }
+    }
     let entries = live_entries(function, &initialized, &blocks, context, budget)?;
     record_liveness(function, &mut blocks, &entries, context, budget)?;
     Ok(FunctionAnalysis { blocks })
@@ -112,15 +121,21 @@ fn debug_points(
                     cursor = scope.parent;
                 }
             }
-            let safepoint = block.instructions.get(offset).map_or(
-                Some(SafepointKind::ControlFlow),
-                |instruction| {
-                    let effects = instruction.effects();
-                    (effects.calls || effects.allocates || effects.touches_runtime)
-                        .then_some(SafepointKind::Runtime)
-                },
-            );
+            let safepoint =
+                block
+                    .instructions
+                    .get(offset)
+                    .map_or(SafepointKind::ControlFlow, |instruction| {
+                        let effects = instruction.effects();
+                        if effects.calls || effects.allocates || effects.touches_runtime {
+                            SafepointKind::Runtime
+                        } else {
+                            SafepointKind::Budget
+                        }
+                    });
             points.push(PointAnalysis {
+                logical_offset: 0,
+                budget: LogicalBudgetCharge::Step,
                 live: empty.clone(),
                 roots: empty.clone(),
                 debug_available,

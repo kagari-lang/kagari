@@ -1,4 +1,5 @@
 use crate::tests::bytecode::*;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::effects::EffectSet;
 use kagari_bytecode as bytecode;
 
@@ -382,6 +383,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
             local_count: 1,
             register_count: 2,
             metadata: FunctionMetadata {
+                instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
                 params: vec![ValueType::HostHandle],
                 return_type: ValueType::I32,
                 locals: vec![ValueType::HostHandle],

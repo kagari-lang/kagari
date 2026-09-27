@@ -1,4 +1,5 @@
 use crate::tests::bytecode::*;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::effects::EffectSet;
 use kagari_bytecode as bytecode;
 
@@ -274,6 +275,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
             local_count: 0,
             register_count: 2,
             metadata: FunctionMetadata {
+                instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
                 return_type: ValueType::Unit,
                 registers: vec![ValueType::HeapObject, ValueType::Bool],
                 roots: bytecode::RootSlotLayout {
@@ -337,6 +339,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             local_count: 1,
             register_count: 2,
             metadata: FunctionMetadata {
+                instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
                 params: vec![ValueType::HostHandle],
                 return_type: ValueType::I32,
                 locals: vec![ValueType::HostHandle],
@@ -387,6 +390,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             local_count: 2,
             register_count: 2,
             metadata: FunctionMetadata {
+                instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
                 params: vec![ValueType::HostHandle, ValueType::I32],
                 return_type: ValueType::Unit,
                 locals: vec![ValueType::HostHandle, ValueType::I32],

@@ -18,6 +18,7 @@ use crate::instruction::Terminator;
 use kagari_abi::effects::EffectSet;
 use kagari_abi::representation::ValueType;
 use kagari_abi::types::ModuleAbi;
+use std::iter;
 
 #[derive(Debug, Clone)]
 pub struct MirModule {
@@ -52,6 +53,17 @@ pub struct MirFunction {
 }
 
 impl MirFunction {
+    /// Canonical logical point order: entry block first, then block ID order.
+    /// Requires the valid entry guaranteed by MIR verification.
+    pub fn emission_order(&self) -> impl Iterator<Item = (usize, &BasicBlock)> {
+        iter::once((self.entry.index(), &self.blocks[self.entry.index()])).chain(
+            self.blocks
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != self.entry.index()),
+        )
+    }
+
     /// Conservative GC roots for the entire function lifetime. Slot liveness
     /// can narrow these sets later without changing the value representation.
     pub fn root_slots(&self) -> (Vec<LocalId>, Vec<TempId>) {

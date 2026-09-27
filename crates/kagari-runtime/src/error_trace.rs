@@ -152,19 +152,6 @@ impl Runtime {
     pub fn capture_error_trace(&self) -> Arc<ErrorTrace> {
         ErrorTrace::capture(&self.resources)
     }
-    /// Native backends publish their logical program point before a budget check.
-    pub fn record_native_instruction(&self, offset: usize) -> Result<(), RuntimeError> {
-        if let Some(session) = self.resources.active_session() {
-            let mut frames = session.frames.try_borrow_mut().map_err(|_| {
-                self.resources
-                    .quarantine("native program point while frames are borrowed")
-            })?;
-            if let Some(frame) = frames.last_mut() {
-                frame.set_native_instruction(offset)?;
-            }
-        }
-        Ok(())
-    }
 }
 
 /// A detached diagnostic preview, not a script value and not an execution failure.

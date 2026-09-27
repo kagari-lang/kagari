@@ -1,5 +1,6 @@
 //! Revision-bound execution facts, computed before a verified module is sealed.
 use crate::{BlockId, LocalId, TempId};
+use kagari_abi::budget::LogicalBudgetCharge;
 
 /// A dense set of logical slots. Temporaries and locals have distinct namespaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,11 +36,12 @@ impl SlotSet {
     }
 }
 
-/// Conservative boundaries at which execution can enter runtime services or
-/// transfer control. Native lowering must preserve operand roots during the call,
-/// and publish an allocated result before the next boundary.
+/// Every logical point has a budget/GC/cancellation boundary before its operation.
+/// Runtime operations additionally keep operand roots published during their calls;
+/// a newly allocated result must be published before the next boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SafepointKind {
+    Budget,
     Runtime,
     ControlFlow,
 }
@@ -49,13 +51,23 @@ pub enum SafepointKind {
 /// liveness, so a visible heap local remains rooted even without a script read.
 #[derive(Debug, Clone)]
 pub struct PointAnalysis {
+    pub(crate) logical_offset: usize,
+    pub(crate) budget: LogicalBudgetCharge,
     pub(crate) live: SlotSet,
     pub(crate) roots: SlotSet,
     pub(crate) debug_available: SlotSet,
-    pub(crate) safepoint: Option<SafepointKind>,
+    pub(crate) safepoint: SafepointKind,
 }
 
 impl PointAnalysis {
+    /// Canonical logical offset used for budget failures and runtime error traces.
+    pub fn logical_offset(&self) -> usize {
+        self.logical_offset
+    }
+    /// Charge before this logical operation, independent of native instruction count.
+    pub fn budget(&self) -> LogicalBudgetCharge {
+        self.budget
+    }
     pub fn live(&self) -> &SlotSet {
         &self.live
     }
@@ -67,7 +79,7 @@ impl PointAnalysis {
     pub fn debug_available(&self) -> &SlotSet {
         &self.debug_available
     }
-    pub fn safepoint(&self) -> Option<SafepointKind> {
+    pub fn safepoint(&self) -> SafepointKind {
         self.safepoint
     }
 }
@@ -80,6 +92,9 @@ pub struct BlockAnalysis {
 }
 
 impl BlockAnalysis {
+    pub fn start_offset(&self) -> usize {
+        self.points[0].logical_offset
+    }
     pub fn reachable(&self) -> bool {
         self.reachable
     }

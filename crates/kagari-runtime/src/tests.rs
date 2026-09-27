@@ -1,4 +1,5 @@
 use super::*;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
 use kagari_abi::types::FunctionAbi;
@@ -83,6 +84,7 @@ fn module_with_public_function_and_constant(
 
 fn module_with_executable_function() -> BytecodeModule {
     let metadata = FunctionMetadata {
+        instruction_budgets: vec![LogicalBudgetCharge::Step; 1],
         return_type: ValueType::Unit,
         ..FunctionMetadata::default()
     };

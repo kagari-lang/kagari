@@ -3,6 +3,7 @@ use crate::RuntimeErrorKind;
 use crate::gc::ClosureValueSnapshot;
 use crate::gc::{CollectionIteration, GcHeap, RootSet};
 use crate::value::Value;
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_bytecode::BytecodeFunction;
 use kagari_bytecode::BytecodeInstruction;
@@ -412,8 +413,14 @@ impl ExecutionFrame {
         Ok(())
     }
 
-    pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {
-        let instruction = self.function().instructions.get(self.ip).cloned();
+    pub fn next_instruction(&mut self) -> Option<(BytecodeInstruction, LogicalBudgetCharge)> {
+        let instruction = self.function().instructions.get(self.ip).cloned().zip(
+            self.function()
+                .metadata
+                .instruction_budgets
+                .get(self.ip)
+                .copied(),
+        );
         if instruction.is_some() {
             self.executing = Some(self.ip);
             self.ip += 1;
@@ -497,5 +504,34 @@ impl ExecutionFrame {
 
     pub fn return_dst(&self) -> Option<Register> {
         self.return_dst
+    }
+}
+
+impl Runtime {
+    /// Native backends publish their logical program point before a budget check.
+    pub(crate) fn record_native_instruction(
+        &self,
+        offset: usize,
+    ) -> Result<LogicalBudgetCharge, RuntimeError> {
+        let session = self.resources.active_session().ok_or_else(|| {
+            self.resources
+                .quarantine("native program point without an execution session")
+        })?;
+        let mut frames = session.frames.try_borrow_mut().map_err(|_| {
+            self.resources
+                .quarantine("native program point while frames are borrowed")
+        })?;
+        let frame = frames.last_mut().ok_or_else(|| {
+            self.resources
+                .quarantine("native program point without an execution frame")
+        })?;
+        frame.set_native_instruction(offset)?;
+        frame
+            .function()
+            .metadata
+            .instruction_budgets
+            .get(offset)
+            .copied()
+            .ok_or_else(|| self.resources.quarantine("missing native logical charge"))
     }
 }

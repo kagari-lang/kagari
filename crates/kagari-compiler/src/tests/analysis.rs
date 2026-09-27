@@ -43,7 +43,7 @@ fn call_operands_and_visible_heap_locals_are_roots_before_the_result_exists() {
                     ..
                 } => {
                     saw_call = true;
-                    assert_eq!(point.safepoint(), Some(SafepointKind::Runtime));
+                    assert_eq!(point.safepoint(), SafepointKind::Runtime);
                     assert!(point.debug_available().contains_local(local));
                     assert!(point.roots().contains_local(local));
                     assert!(args.iter().all(|arg| point.roots().contains_temp(arg.temp)));
@@ -99,7 +99,7 @@ fn loops_keep_heap_values_live_and_do_not_root_scalar_slots() {
             assert!(point.live().contains_local(keep));
             assert!(point.roots().contains_local(keep));
             assert!(!point.roots().contains_local(LocalId::new(0)));
-            assert_eq!(point.safepoint(), Some(SafepointKind::ControlFlow));
+            assert_eq!(point.safepoint(), SafepointKind::ControlFlow);
         }
     }
     assert!(backedges > 0);

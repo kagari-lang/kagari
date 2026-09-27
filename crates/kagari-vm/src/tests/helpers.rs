@@ -1,3 +1,4 @@
+use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::representation::ValueType;
 use kagari_abi::standard::StandardIntrinsic;
@@ -182,6 +183,7 @@ fn path_module(
         })
         .collect();
     let metadata = kagari_bytecode::FunctionMetadata {
+        instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         registers: vec![
             ValueType::HostHandle,

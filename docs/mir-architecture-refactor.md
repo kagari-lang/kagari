@@ -467,7 +467,7 @@ does not authorize starting the MIR refactor with failing gates.
 | --- | --- | --- | --- |
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
-| A02 | `0cb6570` concrete source handoff; `c5ecb17` sealed analyses; portable debug origins | 146 targeted tests and 2 seal doc tests; source/core clippy, structure, fmt and diff checks pass | Explicit logical budgets and bounded public passes remain; A03/A04 own artifact/VM/native integration |
+| A02 | `0cb6570` concrete source handoff; `c5ecb17` sealed analyses; `74168b1` portable origins; explicit logical charges and offsets | 244 focused tests and 2 seal doc tests; scoped source/core/runtime clippy, structure, fmt and diff checks pass | Bounded public passes remain; A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures |
 | A03 | Not started | Not run | None recorded |
 | A04 | Not started | Not run | None recorded |
 | A05 | Not started | Not run | None recorded |
@@ -1215,6 +1215,77 @@ Do not conflate the completed origin/analysis contracts with completed budget or
 optimization semantics. The existing A03 VM and A04 Cranelift integration errors
 remain unchanged and were not rerun. Artifact/feature reconnection and A05's full
 behavior matrix and workspace gates remain outstanding.
+
+### A02 checkpoint: explicit logical budget points (2026-09-28)
+
+Checkpoint subject: `refactor(execution)!: preserve explicit logical budget points`.
+
+The shared ABI defines `LogicalBudgetCharge::Step`: one pre-operation instruction
+charge, with no zero-cost or batched representation. Every sealed MIR point owns
+its charge and canonical logical offset. MIR owns entry-first emission order;
+compiler jump offsets and charge emission consume the sealed facts. Native codegen
+can now use these offsets without inspecting bytecode or counting machine
+instructions. Every logical point is a GC/cancellation/budget safepoint, including
+pure operations; runtime operations additionally retain their operand roots while
+calling runtime services.
+
+MIR and bytecode now provide `BudgetCheckpoint`, which replaces a removed pure
+operation while preserving its origin and charge. It performs no value operation;
+it still runs the ordinary pre-operation checks. Compiler lowering emits an
+explicit instruction-budget table and the verifier requires exact point coverage.
+The bounded codec and artifact metadata limits cover this table, and malformed
+charge variants cannot decode. Artifact format and runtime ABI advance to **102**;
+previous formats remain rejected, with no compatibility reader.
+
+The interpreter frame fetch returns the operation and its checked charge together.
+VM dispatch consumes that charge at the existing point: after the pre-instruction
+GC/observer work and fetch, before execution. Native budget helpers validate the
+active frame and logical offset, obtain the same metadata charge, publish the
+failure origin, then check GC/resources. Missing frames/offsets quarantine rather
+than silently accepting an unvalidated native charge. Native point mutation moved
+from diagnostic snapshots into frame ownership. The public runtime entrypoint is
+now `consume_logical_charge`; callers and authored bytecode fixtures were updated
+directly. Dynamic host/collection resource costs retain their existing contracts.
+
+Validation (default Cargo target/parallelism and configured O1 profiles):
+
+- `cargo test -p kagari-abi -p kagari-bytecode -p kagari-mir -p kagari-compiler -p kagari-codegen`:
+  212 tests pass (38 ABI, 25 bytecode, 138 compiler unit, ten program integration,
+  one MIR budget), plus two seal doc tests. New compiler tests cover checkpoint
+  charge/origin preservation and artifact round trips, missing/extra/invalid
+  charges, and nonzero-entry logical offsets matching bytecode emission.
+- `cargo test -p kagari-runtime --test execution_frames --test execution_sessions --test host_scopes`:
+  32 tests pass. Three new tests exercise native budget exhaustion at the exact
+  logical offset with cleanup, invalid native frame/offset rejection, and frame
+  fetch charge delivery. Existing session/reentry/host quota coverage passes.
+  These moved integration tests had stale `crate::` imports; they now import their
+  actual runtime/ABI owners without adding dependencies or weakening assertions.
+- All-target clippy with `-D warnings` passes for ABI/bytecode/MIR/compiler/codegen;
+  frontend-free compiler all-target clippy also passes. Runtime clippy passes with
+  `--lib --test execution_frames --test execution_sessions --test host_scopes`.
+- Structure audit: 482 Rust files, zero findings/exceptions; formatting and diff
+  checks pass. Reviewed enum inventories, explicit imports, point ordering, charge
+  ownership, artifact bounds and the pre-operation failure ordering. A duplicated
+  test operand inventory now uses the exhaustive MIR use/definition APIs; the
+  original type-layout assertions remain.
+
+Carried integration evidence: `cargo check -p kagari-vm` still reports the same five
+A03 errors: removed `kagari_codegen` imports in `error.rs`/`vm.rs` and the old runtime
+`BackendDiagnosticKind` path. The broad runtime test attempt additionally exposed
+18 name-resolution errors in `crates/kagari-runtime/src/tests.rs`: its old compiler
+backend mock still names `CodegenBackend`, `BackendFunctionInput`,
+`BackendCompileError` and obsolete native product types through the runtime facade.
+A03 must replace those compilation/invocation fixtures at the intended owners;
+A04 owns the real Cranelift implementation. Do not reintroduce a runtime-to-codegen
+edge to make these fixtures compile. Logs are `target/a02-budget-tests.log`,
+`target/a02-budget-vm-check.log`, and the passing `target/a02-budget-*-tests.log`
+and clippy logs. Full VM/native behavior remains unverified until that integration.
+
+A02 remains open for bounded public constant/branch simplification and dead pure
+operation cleanup, retaining these logical checkpoints and re-verifying/recomputing
+all facts after transformation. The checkpoint mechanism is tested, but no public
+optimization pipeline is implemented yet. A03 artifact/MIR correspondence and
+feature wiring, A04 native migration and A05 acceptance remain outstanding.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

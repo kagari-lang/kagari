@@ -725,6 +725,7 @@ fn sanitize_symbol(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kagari_abi::budget::LogicalBudgetCharge;
     use kagari_abi::ids::FunctionRef;
     use kagari_abi::representation::ValueType;
     use kagari_bytecode::BytecodeFunction;
@@ -954,6 +955,7 @@ mod tests {
             name: name.to_owned(),
             register_count,
             metadata: FunctionMetadata {
+                instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
                 return_type,
                 registers,
                 roots,

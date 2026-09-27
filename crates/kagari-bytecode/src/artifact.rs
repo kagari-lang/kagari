@@ -32,7 +32,7 @@ use kagari_abi::representation::ValueType;
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 101;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 102;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = MAX_FUNCTIONS;
@@ -72,7 +72,7 @@ pub fn validate_program_resource_limits(
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str =
     concat!("kagari-compiler/", env!("CARGO_PKG_VERSION"));
-pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v101";
+pub const KAGARI_RUNTIME_ABI_VERSION: &str = "kagari-runtime-abi-v102";
 pub const KAGARI_RUNTIME_HELPER_ABI_VERSION: &str = "kagari-runtime-helper-abi-v6";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,4 +1,3 @@
-use crate::bytecode::emission_order;
 use crate::bytecode::lower_local;
 use kagari_abi::ids::DebugPointId;
 use kagari_bytecode::BytecodeDebugMetadata;
@@ -58,7 +57,7 @@ pub(super) fn collect_debug_metadata(
         );
     }
     let mut points = Vec::with_capacity(instruction_spans.len());
-    for (id, block) in emission_order(function) {
+    for (id, block) in function.emission_order() {
         let facts = analysis
             .block(BlockId::new(id))
             .expect("sealed block facts");

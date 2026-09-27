@@ -19,6 +19,7 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::BudgetCheckpoint => {}
             BytecodeInstruction::Convert {
                 dst,
                 src,
