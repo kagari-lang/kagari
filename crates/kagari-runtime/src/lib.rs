@@ -4,7 +4,6 @@ mod objects;
 use host::HostCallContext;
 use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::ExecutableFunctionArtifact;
 use kagari_abi::types::AbiType;
 use kagari_abi::types::NominalAbiType;
 use kagari_bytecode::BinaryOp;
@@ -53,8 +52,8 @@ use kagari_abi::standard::StandardIntrinsic;
 pub use backend::BackendInvocationError;
 pub use backend::native::{InstalledNativeFunction, NativeInvocationFailure};
 pub use cache::{
-    ExecutionArtifactId, ExecutionArtifactKind, ExecutionArtifactRecord, ExecutionArtifactRegistry,
-    ReloadDependencySnapshot, ReloadInvalidation,
+    InterpreterCacheId, InterpreterCacheRecord, InterpreterCacheRegistry, ReloadDependencySnapshot,
+    ReloadInvalidation,
 };
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use frame::{ExecutionFrame, ExecutionStack};
@@ -155,7 +154,7 @@ pub struct Runtime {
     resources: Rc<ResourceState>,
     epochs: ModuleEpochAllocator,
     modules: ModuleStore,
-    execution_artifacts: ExecutionArtifactRegistry,
+    interpreter_caches: InterpreterCacheRegistry,
 }
 
 /// A resolved dynamic method whose interface receiver stays rooted across
@@ -209,7 +208,7 @@ impl Runtime {
             modules: ModuleStore::new(resources.clone()),
             resources,
             epochs: ModuleEpochAllocator::default(),
-            execution_artifacts: ExecutionArtifactRegistry::default(),
+            interpreter_caches: InterpreterCacheRegistry::default(),
         }
     }
 
@@ -648,47 +647,23 @@ impl Runtime {
         &self.modules
     }
 
-    pub fn register_execution_artifact(
+    /// Register runtime-local interpreter metadata without retaining the code version.
+    /// Native code must use `install_native_function` with its executable owner.
+    pub fn register_interpreter_cache(
         &self,
-        kind: ExecutionArtifactKind,
         module: ModuleKey,
         function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
-    ) -> Option<ExecutionArtifactId> {
+    ) -> Option<InterpreterCacheId> {
         self.modules.loaded(module)?;
-        if kind == ExecutionArtifactKind::Jit {
-            self.modules
-                .retain_epoch(module, ModuleEpochRetention::CompiledArtifact);
-        }
         Some(
-            self.execution_artifacts
-                .register(kind, module, function, dependencies),
+            self.interpreter_caches
+                .register(module, function, dependencies),
         )
     }
 
-    pub fn register_executable_function_artifact(
-        &self,
-        module: ModuleKey,
-        dependencies: ReloadDependencySnapshot,
-        artifact: ExecutableFunctionArtifact,
-    ) -> Option<ExecutionArtifactId> {
-        let loaded = self.modules.loaded(module)?;
-        loaded
-            .bytecode
-            .functions
-            .iter()
-            .any(|function| function.id == artifact.function)
-            .then_some(())?;
-        self.modules
-            .retain_epoch(module, ModuleEpochRetention::CompiledArtifact);
-        Some(
-            self.execution_artifacts
-                .register_executable_function(module, dependencies, artifact),
-        )
-    }
-
-    pub fn execution_artifact(&self, id: ExecutionArtifactId) -> Option<ExecutionArtifactRecord> {
-        let artifact = self.execution_artifacts.get(id)?;
+    pub fn interpreter_cache(&self, id: InterpreterCacheId) -> Option<InterpreterCacheRecord> {
+        let artifact = self.interpreter_caches.get(id)?;
         if !self.modules.is_reachable(artifact.module) {
             return None;
         }

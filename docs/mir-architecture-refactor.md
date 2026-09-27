@@ -1,6 +1,6 @@
 # MIR and Crate Architecture Refactor
 
-Status: A00-A02 complete; A03 runtime/artifact integration is in progress; workspace build is broken.
+Status: A00-A03 complete; A04 Cranelift migration is next; workspace build is broken.
 
 This is the active architecture execution plan linked from
 [implementation-roadmap.md](implementation-roadmap.md). It follows the completed
@@ -442,18 +442,20 @@ must not be the sole record needed to resume the goal.
 - [x] A00 — Existing structure cleanup and passing CI prerequisite.
 - [x] A01 — Contracts and crate ownership.
 - [x] A02 — MIR, analyses and compiler lowering.
-- [ ] A03 — Runtime, artifacts and embedding.
+- [x] A03 — Runtime, artifacts and embedding.
 - [ ] A04 — Existing Cranelift backend migration.
 - [ ] A05 — Integration, audit and baseline.
 
 Current state: A00 passed at `4d82fcb`, A01 completed at `3227b0a`, and A02
-completes with the bounded public MIR passes checkpoint below. Source compilation,
-verified MIR analyses and frontend-free bytecode lowering pass their scoped checks.
-Runtime, VM and SDK libraries now build at their intended execution boundary.
-The workspace remains intentionally broken in legacy VM/backend tests, SDK callers
-and the A04 backend implementation. Shared preparation, caching, prepared reload
-and source/native feature separation now build; normal CLI execution passes.
-Resume A03 remaining caller migration and legacy registry reconciliation. A05 final acceptance has not run and the overall refactor is not complete.
+completed with the bounded public MIR passes. A03 completes with the native
+registry reconciliation checkpoint below. Source compilation, verified MIR analyses,
+frontend-free bytecode lowering, runtime/VM prepared execution, portable artifacts,
+shared SDK preparation/reload and feature isolation have scoped passing evidence.
+SDK callers are migrated; the workspace remains broken in the A04 Cranelift
+implementation and legacy VM/backend fixtures. Mixed SDK native suites cannot yet
+build through their real backend dependency. Resume A04 MIR-to-CLIF translation,
+code-memory ownership and native fixture migration. A05 final acceptance has not
+run, and the overall refactor is not complete.
 
 Pre-migration structural audit (2026-09-27):
 `uv run --locked scripts/check_structure.py --json` scanned 375 Rust files and
@@ -470,8 +472,8 @@ does not authorize starting the MIR refactor with failing gates.
 | A00 | `ec0bf1a`, `2cf5fb3`, `957b691`, `ed10ba2`, `c14e5bd`, `05c4e0f`, and the production responsibility checkpoint below | 32 checker tests; 432 files, zero findings/exceptions; workspace clippy and all 1,315 tests/doc tests; fmt and diff checks pass | None; hosted CI not queried for local commits |
 | A01 | Complete at `3227b0a`; thirteen owners, portable ABI and linked validation, source-free execution dependencies | 418 targeted ABI/bytecode/HIR/MIR tests pass; dependency inventory and exit evidence below | A02-A04 own the recorded downstream migration work |
 | A02 | Complete with bounded public passes; `0cb6570` concrete source handoff, `c5ecb17` sealed analyses, `74168b1` portable origins, `5ded21e` logical charges | 254 focused tests and 2 seal doc tests; scoped source/core clippy, structure, fmt and diff checks pass | A03/A04 own artifact/VM/native integration and obsolete runtime backend fixtures; optimized execution parity follows restored VM wiring |
-| A03 | Runtime installation, VM prepared execution, portable MIR/v103 artifacts and shared SDK preparation/cache | 401 core tests + one seal doc test at prior checkpoint; feature-mode consumers, ten SDK harness tests and five CLI tests; scoped clippy, structure, fmt and diff pass | Legacy registry reconciliation and remaining SDK/test/example caller migration remain; Cranelift library carries 22 A04 errors |
-| A04 | Not started | Not run | None recorded |
+| A03 | Complete with native registry reconciliation; runtime/VM prepared execution, portable MIR/v103 artifacts, SDK features/cache/reload and migrated callers | 196 runtime tests + one doc test, eight VM prepared tests, ten SDK preparation tests, five CLI tests and four feature-mode consumers at exit; earlier 55 source SDK tests and seven examples; scoped clippy, structure, fmt and diff pass | A04 owns 22 Cranelift library errors and native fixtures; mixed SDK suites await the real backend; A05 full acceptance remains |
+| A04 | Next: verified MIR-to-CLIF and owned native products | Carried backend check fails with 22 errors | Obsolete runtime/bytecode imports and backend methods; bytecode-shaped MIR access; legacy native fixtures |
 | A05 | Not started | Not run | None recorded |
 
 ### A00 checkpoint: foundation imports (2026-09-27)
@@ -1855,6 +1857,57 @@ remains. The registry has no VM/SDK production consumer: only its own runtime AP
 and unit tests still use it. Next reconcile that public cache/invalidation surface
 with actual installed native handles and their existing code/version retention
 coverage. A04 backend implementation and A05 full acceptance remain outstanding.
+
+### A03 exit: native ownership and interpreter cache separation (2026-09-28)
+
+Removed the legacy `ExecutionArtifactKind::Jit` and descriptor-only native
+registration entrypoint. Runtime-local invalidation is now explicitly
+`InterpreterCacheRegistry` with `InterpreterCacheId`/`InterpreterCacheRecord` and
+`Runtime::{register_interpreter_cache, interpreter_cache}`. These records track
+interpreter metadata and do not retain compiled code or epochs. Dependency and
+same-module reload invalidation, reachability checks and failed-reload preservation
+remain. There are no compatibility aliases or production consumers of the old API.
+
+Native descriptors now have one executable ownership path: an owned ABI compilation
+product installed as `InstalledNativeFunction`. Successful publication does not
+release a still-held native handle's versions. The existing tests already prove
+last-clone release, continued old-version calls and pinning the entire dependency
+program. Replaced the descriptor-only registration test with an actual installation
+test checking descriptor/safepoint preservation, invalid-function rejection before
+entry, owner release and retention counts. Added failed-artifact-reload coverage
+that invokes the retained native handle and verifies its owner is released only
+when the installation is dropped. Interpreter invalidation tests retain their
+module/function cache assertions separately from native lifetime semantics.
+
+Validation and phase exit:
+
+- `cargo test -p kagari-runtime`: 196 tests plus one compile-fail doc test pass.
+  `cargo clippy -p kagari-runtime --all-targets -- -D warnings`: pass. Logs:
+  `target/a03-runtime-cache-{tests,clippy}.log`.
+- `cargo test -p kagari-vm --test prepared_execution`: eight pass;
+  `cargo test -p kagari-cli`: five pass. Existing SDK consumer command with
+  `--test native_artifacts --test native_preparation`: ten pass.
+  Logs: `target/a03-exit-{vm,cli,sdk}-tests.log`.
+- The existing artifact feature consumer passes with no features (two tests),
+  `source` (three), `native` (three), and `source,native` (four). Reproduction:
+  `cargo test --offline --manifest-path target/a03-feature-harness/Cargo.toml
+  --target-dir target`, adding `--features <mode>` as appropriate.
+- Re-inspected `cargo tree -p kagari-embed --no-default-features --features <mode>
+  --edges normal --prefix none` for all four modes. Artifact-only has only
+  ABI/bytecode/common/runtime/VM; native adds compiler core/MIR/codegen without
+  HIR/syntax; source adds frontend services without codegen. No concrete backend
+  enters these production graphs. Logs: `target/a03-exit-graph-*.log`.
+- Structure (507 Rust files, zero violations/exceptions), formatting and diff
+  checks pass. Reviewed explicit exports, cache/installation ownership, native
+  retention cleanup and changed assertions. No new structural debt is carried.
+
+A03's stated ownership and feature/artifact phase exit is complete, independently
+of downstream native build status. A04 owns the 22 already recorded Cranelift
+library errors and remaining obsolete VM/backend fixtures; mixed SDK native tests
+are wired but still await typechecking/execution against that real backend. The
+A03 source and artifact path has the scoped evidence above and the earlier 55-test,
+seven-example checkpoint. Full workspace clippy/tests and A05's complete behavior
+matrix/measurements remain required; this exit is not final acceptance.
 
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting

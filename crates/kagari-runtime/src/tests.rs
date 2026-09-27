@@ -1,10 +1,6 @@
 use super::*;
 use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::{
-    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
-    ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap,
-};
 use kagari_abi::representation::ValueType;
 use kagari_abi::types::FunctionAbi;
 use kagari_abi::types::PublicAbiItem;
@@ -532,7 +528,7 @@ fn prepared_reload_is_inert_and_rejects_a_stale_publication() {
 }
 
 #[test]
-fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
+fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
     let dependency_v1 = KbcArtifact::from_program(
         kagari_bytecode::BytecodeProgram {
             root: kagari_bytecode::ModuleRef::new(0),
@@ -579,30 +575,20 @@ fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
         });
 
     let interpreter_cache = runtime
-        .register_execution_artifact(
-            ExecutionArtifactKind::InterpreterCache,
-            consumer.key(),
-            None,
-            consumer_snapshot.clone(),
-        )
+        .register_interpreter_cache(consumer.key(), None, consumer_snapshot.clone())
         .expect("interpreter cache should register");
-    let jit_artifact = runtime
-        .register_execution_artifact(
-            ExecutionArtifactKind::Jit,
-            consumer.key(),
-            None,
-            consumer_snapshot,
-        )
-        .expect("jit artifact should register");
+    let function_cache = runtime
+        .register_interpreter_cache(consumer.key(), Some(FunctionRef::new(0)), consumer_snapshot)
+        .expect("function cache should register");
 
-    assert!(runtime.execution_artifact(interpreter_cache).is_some());
-    assert!(runtime.execution_artifact(jit_artifact).is_some());
+    assert!(runtime.interpreter_cache(interpreter_cache).is_some());
+    assert!(runtime.interpreter_cache(function_cache).is_some());
     assert_eq!(
         runtime
             .modules()
             .retention_counts(consumer.key())
             .compiled_artifacts,
-        1
+        0
     );
 
     runtime
@@ -615,10 +601,10 @@ fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
         .and_then(|candidate| runtime.publish_staged_reload(candidate))
         .expect("compatible dependency implementation should reload");
 
-    assert!(runtime.execution_artifact(interpreter_cache).is_none());
-    assert!(runtime.execution_artifact(jit_artifact).is_none());
-    assert!(runtime.execution_artifacts.get(interpreter_cache).is_none());
-    assert!(runtime.execution_artifacts.get(jit_artifact).is_none());
+    assert!(runtime.interpreter_cache(interpreter_cache).is_none());
+    assert!(runtime.interpreter_cache(function_cache).is_none());
+    assert!(runtime.interpreter_caches.get(interpreter_cache).is_none());
+    assert!(runtime.interpreter_caches.get(function_cache).is_none());
     assert_eq!(
         runtime
             .modules()
@@ -629,7 +615,7 @@ fn reload_invalidates_artifacts_with_stale_dependency_fingerprints() {
 }
 
 #[test]
-fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_abi_is_stable() {
+fn reload_invalidates_interpreter_cache_for_new_epoch_even_when_public_abi_is_stable() {
     let mut runtime = Runtime::default();
     let loaded = runtime
         .load_program(
@@ -644,21 +630,20 @@ fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_ab
         )
         .expect("module should load");
     let artifact = runtime
-        .register_execution_artifact(
-            ExecutionArtifactKind::Jit,
+        .register_interpreter_cache(
             loaded.key(),
             None,
             ReloadDependencySnapshot::from_bytecode(&loaded.bytecode),
         )
-        .expect("jit artifact should register");
+        .expect("function cache should register");
 
-    assert!(runtime.execution_artifact(artifact).is_some());
+    assert!(runtime.interpreter_cache(artifact).is_some());
     assert_eq!(
         runtime
             .modules()
             .retention_counts(loaded.key())
             .compiled_artifacts,
-        1
+        0
     );
 
     let reloaded = runtime
@@ -678,8 +663,8 @@ fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_ab
 
     assert_eq!(reloaded.id, loaded.id);
     assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
-    assert!(runtime.execution_artifact(artifact).is_none());
-    assert!(runtime.execution_artifacts.get(artifact).is_none());
+    assert!(runtime.interpreter_cache(artifact).is_none());
+    assert!(runtime.interpreter_caches.get(artifact).is_none());
     assert_eq!(
         runtime
             .modules()
@@ -690,87 +675,7 @@ fn reload_invalidates_jit_artifact_for_reloaded_module_epoch_even_when_public_ab
 }
 
 #[test]
-fn runtime_registers_abi_executable_descriptors_without_a_compiler() {
-    let mut runtime = Runtime::default();
-    let loaded = runtime
-        .load_program(
-            "backend_module",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![module_with_executable_function()],
-            },
-        )
-        .expect("module should load");
-    let dependencies = ReloadDependencySnapshot::from_bytecode(&loaded.bytecode);
-    // Compilation belongs to codegen. This test exercises the runtime's ABI
-    // descriptor registration, epoch retention and invalid-function rejection.
-    let mut artifact = ExecutableFunctionArtifact::new(
-        BackendId::new("test-baseline"),
-        BackendTarget::new("test-target", 64),
-        FunctionRef::new(0),
-    );
-    artifact.entry = ExecutableEntryPoint::Symbol("backend_module::main".into());
-    artifact.safepoints.push(ExecutableSafepoint {
-        instruction_offset: 0,
-        kind: ExecutableSafepointKind::RuntimeHelperCall {
-            helper: "test.helper".into(),
-        },
-        stack_map: ExecutableStackMap::empty(),
-    });
-    let expected = artifact.clone();
-
-    let id = runtime
-        .register_executable_function_artifact(loaded.key(), dependencies, artifact)
-        .expect("executable artifact should register");
-    let record = runtime
-        .execution_artifact(id)
-        .expect("registered artifact should be reachable");
-
-    assert_eq!(record.kind, ExecutionArtifactKind::Jit);
-    assert_eq!(record.module, loaded.key());
-    assert_eq!(record.function, Some(FunctionRef::new(0)));
-    assert_eq!(record.executable.as_ref(), Some(&expected));
-    assert_eq!(
-        record
-            .executable
-            .as_ref()
-            .expect("artifact should carry executable metadata")
-            .backend,
-        BackendId::new("test-baseline")
-    );
-    assert_eq!(
-        runtime
-            .modules()
-            .retention_counts(loaded.key())
-            .compiled_artifacts,
-        1
-    );
-
-    let stale_function_artifact = ExecutableFunctionArtifact::new(
-        BackendId::new("test-baseline"),
-        BackendTarget::new("test-target", 64),
-        FunctionRef::new(99),
-    );
-    assert!(
-        runtime
-            .register_executable_function_artifact(
-                loaded.key(),
-                ReloadDependencySnapshot::from_bytecode(&loaded.bytecode),
-                stale_function_artifact,
-            )
-            .is_none()
-    );
-    assert_eq!(
-        runtime
-            .modules()
-            .retention_counts(loaded.key())
-            .compiled_artifacts,
-        1
-    );
-}
-
-#[test]
-fn failed_reload_does_not_invalidate_registered_artifacts() {
+fn failed_reload_does_not_invalidate_interpreter_caches() {
     let dependency_v1 = artifact_with_loader_fingerprints();
     let dependency_v1_snapshot = ReloadDependencySnapshot::from_artifact(&dependency_v1);
     let mut dependency_v2 = dependency_v1.clone();
@@ -799,13 +704,8 @@ fn failed_reload_does_not_invalidate_registered_artifacts() {
         });
 
     let artifact = runtime
-        .register_execution_artifact(
-            ExecutionArtifactKind::Jit,
-            consumer.key(),
-            None,
-            consumer_snapshot,
-        )
-        .expect("jit artifact should register");
+        .register_interpreter_cache(consumer.key(), None, consumer_snapshot)
+        .expect("interpreter cache should register");
 
     let error = runtime
         .stage_reload_artifact(
@@ -823,14 +723,14 @@ fn failed_reload_does_not_invalidate_registered_artifacts() {
             kagari_bytecode::ArtifactValidationError::ContentHashMismatch
         )
     ));
-    assert!(runtime.execution_artifact(artifact).is_some());
-    assert!(runtime.execution_artifacts.get(artifact).is_some());
+    assert!(runtime.interpreter_cache(artifact).is_some());
+    assert!(runtime.interpreter_caches.get(artifact).is_some());
     assert_eq!(
         runtime
             .modules()
             .retention_counts(consumer.key())
             .compiled_artifacts,
-        1
+        0
     );
 }
 

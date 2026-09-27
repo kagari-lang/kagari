@@ -15,21 +15,14 @@ use crate::module::ModuleId;
 use crate::module::ModuleKey;
 use crate::reload::path_fingerprints_for_module;
 use crate::reload::public_abi_fingerprints_for_module;
-use kagari_abi::native::ExecutableFunctionArtifact;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExecutionArtifactId(u64);
+pub struct InterpreterCacheId(u64);
 
-impl ExecutionArtifactId {
+impl InterpreterCacheId {
     pub fn index(self) -> u64 {
         self.0
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ExecutionArtifactKind {
-    InterpreterCache,
-    Jit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,14 +61,14 @@ impl ReloadDependencySnapshot {
     }
 }
 
+/// Runtime-local interpreter cache metadata. Records neither own native code nor
+/// retain module epochs; callers must check reachability before using cached data.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutionArtifactRecord {
-    pub id: ExecutionArtifactId,
-    pub kind: ExecutionArtifactKind,
+pub struct InterpreterCacheRecord {
+    pub id: InterpreterCacheId,
     pub module: ModuleKey,
     pub function: Option<FunctionRef>,
     pub dependencies: ReloadDependencySnapshot,
-    pub executable: Option<ExecutableFunctionArtifact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,102 +81,77 @@ pub struct ReloadInvalidation {
     pub dependencies: ReloadDependencySnapshot,
 }
 
+/// Invalidation bookkeeping for interpreter caches. Native products are owned by
+/// prepared programs and runtime installations retain their exact pinned versions.
 #[derive(Debug, Default)]
-pub struct ExecutionArtifactRegistry {
-    inner: RefCell<ExecutionArtifactRegistryInner>,
+pub struct InterpreterCacheRegistry {
+    inner: RefCell<InterpreterCacheRegistryInner>,
 }
 
 #[derive(Debug, Default)]
-struct ExecutionArtifactRegistryInner {
+struct InterpreterCacheRegistryInner {
     next_id: u64,
-    artifacts: HashMap<ExecutionArtifactId, ExecutionArtifactRecord>,
+    entries: HashMap<InterpreterCacheId, InterpreterCacheRecord>,
 }
 
-impl ExecutionArtifactRegistry {
+impl InterpreterCacheRegistry {
     pub fn register(
         &self,
-        kind: ExecutionArtifactKind,
         module: ModuleKey,
         function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
-    ) -> ExecutionArtifactId {
+    ) -> InterpreterCacheId {
         let mut inner = self.inner.borrow_mut();
-        let id = ExecutionArtifactId(inner.next_id);
+        let id = InterpreterCacheId(inner.next_id);
         inner.next_id += 1;
-        inner.artifacts.insert(
+        inner.entries.insert(
             id,
-            ExecutionArtifactRecord {
+            InterpreterCacheRecord {
                 id,
-                kind,
                 module,
                 function,
                 dependencies,
-                executable: None,
             },
         );
         id
     }
 
-    pub fn register_executable_function(
-        &self,
-        module: ModuleKey,
-        dependencies: ReloadDependencySnapshot,
-        executable: ExecutableFunctionArtifact,
-    ) -> ExecutionArtifactId {
-        let mut inner = self.inner.borrow_mut();
-        let id = ExecutionArtifactId(inner.next_id);
-        inner.next_id += 1;
-        let function = Some(executable.function);
-        inner.artifacts.insert(
-            id,
-            ExecutionArtifactRecord {
-                id,
-                kind: ExecutionArtifactKind::Jit,
-                module,
-                function,
-                dependencies,
-                executable: Some(executable),
-            },
-        );
-        id
-    }
-
-    pub fn get(&self, id: ExecutionArtifactId) -> Option<ExecutionArtifactRecord> {
-        self.inner.borrow().artifacts.get(&id).cloned()
+    pub fn get(&self, id: InterpreterCacheId) -> Option<InterpreterCacheRecord> {
+        self.inner.borrow().entries.get(&id).cloned()
     }
 
     pub fn invalidate_for_reload(
         &self,
         invalidation: &ReloadInvalidation,
-    ) -> Vec<ExecutionArtifactRecord> {
+    ) -> Vec<InterpreterCacheRecord> {
         let mut inner = self.inner.borrow_mut();
         let mut invalidated = inner
-            .artifacts
+            .entries
             .iter()
-            .filter_map(|(id, artifact)| {
-                artifact_invalidated_by_reload(artifact, invalidation).then_some(*id)
+            .filter_map(|(id, cache)| {
+                cache_invalidated_by_reload(cache, invalidation).then_some(*id)
             })
             .collect::<Vec<_>>();
         invalidated.sort_by_key(|id| id.index());
         invalidated
             .into_iter()
-            .filter_map(|id| inner.artifacts.remove(&id))
+            .filter_map(|id| inner.entries.remove(&id))
             .collect()
     }
 }
 
-fn artifact_invalidated_by_reload(
-    artifact: &ExecutionArtifactRecord,
+fn cache_invalidated_by_reload(
+    cache: &InterpreterCacheRecord,
     invalidation: &ReloadInvalidation,
 ) -> bool {
-    if artifact.module.id == invalidation.module_id {
-        if artifact.module.epoch == invalidation.published.epoch {
+    if cache.module.id == invalidation.module_id {
+        if cache.module.epoch == invalidation.published.epoch {
             return false;
         }
         return true;
     }
 
-    artifact
+    cache
         .dependencies
         .dependency_fingerprints
         .iter()

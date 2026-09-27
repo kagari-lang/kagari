@@ -10,6 +10,11 @@ After A00 passes, A01–A04 checkpoints may fail compilation/tests when errors a
 follow-up owners are recorded. Use Conventional Commits with `Architecture-Step: Axx`;
 the final integration phase must restore all required checks and behavior.
 
+A00–A03 are complete at their documented phase boundaries. A04 now migrates the
+existing Cranelift subset and native fixtures to verified MIR; the workspace still
+has the recorded backend build errors. See the active plan's ledger for scoped
+validation and the remaining A05 acceptance requirements.
+
 [Foundation refactor](foundation-refactor.md) records the completed R01–R18 track.
 Its semantic contracts, as amended by later specifications, continue to govern
 behavior. Its `Roadmap-Step: Rxx` trailers and the

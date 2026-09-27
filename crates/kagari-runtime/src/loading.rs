@@ -1,13 +1,11 @@
 use crate::PreparedReload;
 use crate::Runtime;
 use crate::StagedReload;
-use crate::cache::ExecutionArtifactId;
-use crate::cache::ExecutionArtifactKind;
+use crate::cache::InterpreterCacheId;
 use crate::cache::ReloadDependencySnapshot;
 use crate::cache::ReloadInvalidation;
 use crate::error::RuntimeError;
 use crate::module::LoadedModule;
-use crate::module::ModuleEpochRetention;
 use crate::module::VerifiedProgram;
 use crate::reload::ReloadValidationError;
 use crate::reload::validate_reload_artifact_candidate;
@@ -65,7 +63,7 @@ impl Runtime {
             .modules
             .stage_verified_program(name, epoch, program, self.host.owner(), bindings)?
             .publish();
-        self.invalidate_execution_artifacts_for_reload(&module, dependencies);
+        self.invalidate_interpreter_caches_for_reload(&module, dependencies);
         Ok(module)
     }
 
@@ -253,17 +251,17 @@ impl Runtime {
         }
         let dependencies = program.module().verified_program().dependencies().clone();
         let module = program.publish();
-        self.invalidate_execution_artifacts_for_reload(&module, dependencies);
+        self.invalidate_interpreter_caches_for_reload(&module, dependencies);
         Ok(module)
     }
 
-    pub(super) fn invalidate_execution_artifacts_for_reload(
+    pub(super) fn invalidate_interpreter_caches_for_reload(
         &self,
         module: &LoadedModule,
         dependencies: ReloadDependencySnapshot,
-    ) -> Vec<ExecutionArtifactId> {
+    ) -> Vec<InterpreterCacheId> {
         let invalidated = self
-            .execution_artifacts
+            .interpreter_caches
             .invalidate_for_reload(&ReloadInvalidation {
                 module_name: module.name.clone(),
                 module_identity: module.bytecode.identity.clone(),
@@ -272,12 +270,6 @@ impl Runtime {
                 published: module.key(),
                 dependencies,
             });
-        for artifact in &invalidated {
-            if artifact.kind == ExecutionArtifactKind::Jit {
-                self.modules
-                    .release_epoch(artifact.module, ModuleEpochRetention::CompiledArtifact);
-            }
-        }
         invalidated
             .into_iter()
             .map(|artifact| artifact.id)

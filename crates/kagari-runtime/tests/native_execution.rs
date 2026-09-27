@@ -8,7 +8,8 @@ use std::sync::{
 use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_abi::ids::FunctionRef;
 use kagari_abi::native::{
-    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCodeOwner,
+    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
+    ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, NativeCodeOwner,
     NativeCompilationProduct,
 };
 use kagari_abi::native_call::{
@@ -17,13 +18,14 @@ use kagari_abi::native_call::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
-    FunctionRecord, ModuleRef,
+    FunctionRecord, KbcArtifact, ModuleRef,
 };
 use kagari_runtime::jit_abi::jit_consume_instruction_step;
 use kagari_runtime::value::Value;
 use kagari_runtime::{
     BackendInvocationError, CapabilitySet, InstalledNativeFunction, LanguageProfile,
-    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, VerifiedProgram,
+    ReloadValidationError, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
+    SecurityContext, VerifiedProgram,
 };
 
 #[derive(Debug)]
@@ -264,6 +266,110 @@ fn unresolved_entries_are_rejected_before_retaining_versions_or_running_code() {
         0
     );
     assert_eq!(runtime.resources().counters().instruction_steps, 0);
+}
+
+#[test]
+fn installation_retains_descriptors_and_rejects_unknown_functions_without_leaking_owners() {
+    let mut runtime = runtime(None);
+    let module = runtime.load_program("native", program()).unwrap();
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let mut code = product(execute, dropped.clone());
+    Rc::get_mut(&mut code)
+        .unwrap()
+        .artifact
+        .safepoints
+        .push(ExecutableSafepoint {
+            instruction_offset: 0,
+            kind: ExecutableSafepointKind::RuntimeHelperCall {
+                helper: kagari_abi::native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL.into(),
+            },
+            stack_map: ExecutableStackMap::empty(),
+        });
+    let expected = code.artifact.clone();
+    // The static unit-returning fixture implements this program's native ABI.
+    let installed = unsafe { runtime.install_native_function(&module, code) }.unwrap();
+    assert_eq!(installed.module().key(), module.key());
+    assert_eq!(installed.artifact(), &expected);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        1
+    );
+
+    let mut invalid = product(execute, dropped.clone());
+    Rc::get_mut(&mut invalid).unwrap().artifact.function = FunctionRef::new(99);
+    // Invalid metadata is rejected before the otherwise valid static entry can run.
+    assert!(matches!(
+        unsafe { runtime.install_native_function(&module, invalid) },
+        Err(BackendInvocationError::UnsupportedArtifact(_))
+    ));
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        1
+    );
+    assert_eq!(runtime.resources().counters().instruction_steps, 0);
+    assert_eq!(
+        runtime.invoke_native_function(&installed).unwrap(),
+        Value::Unit
+    );
+    drop(installed);
+    assert_eq!(dropped.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        0
+    );
+    assert_clean(&runtime);
+}
+
+#[test]
+fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
+    let mut runtime = runtime(None);
+    let module = runtime.load_program("native", program()).unwrap();
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let installed =
+        unsafe { runtime.install_native_function(&module, product(execute, dropped.clone())) }
+            .unwrap();
+    let mut candidate = KbcArtifact::from_program(program(), Default::default()).unwrap();
+    candidate.header.content_hash.0 ^= 1;
+    assert!(matches!(
+        runtime.stage_reload_artifact(&module, "native", candidate, &Default::default()),
+        Err(ReloadValidationError::Artifact(_))
+    ));
+    assert_eq!(
+        runtime.modules().latest("native").unwrap().key(),
+        module.key()
+    );
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        1
+    );
+    assert_eq!(dropped.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        runtime.invoke_native_function(&installed).unwrap(),
+        Value::Unit
+    );
+    drop(installed);
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(module.key())
+            .compiled_artifacts,
+        0
+    );
+    assert_clean(&runtime);
 }
 
 #[test]
