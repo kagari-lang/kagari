@@ -1,6 +1,9 @@
 # Foundation Refactor
 
-This is the active foundation track linked from implementation-roadmap.md.
+This records the completed R01–R18 foundation track. The active architecture
+execution plan is [MIR and crate architecture refactor](mir-architecture-refactor.md).
+The checkpoints and validation notes below are historical; the semantic contracts
+remain authoritative as amended by later specifications.
 It is a breaking replacement: no old API facade, dual semantic path, artifact
 upgrade, or legacy interpreter. Runtime ABI/schema/authority checks remain required.
 The module model was subsequently revised: imports link declarations without

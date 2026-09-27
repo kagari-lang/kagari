@@ -2,6 +2,14 @@
 
 This document specifies the backend abstraction model for Kagari.
 
+The active [MIR architecture plan](../mir-architecture-refactor.md) replaces the
+current bytecode-based `BackendFunctionInput` and the combined compile/invoke
+interface described below. The target accepts verified MIR and explicit ABI/link
+descriptions in `kagari-codegen`; runtime/VM own installation and invocation.
+Existing-interface descriptions are migration context until the corresponding
+phase updates them. LLVM remains deferred; this track preserves the existing
+Cranelift subset rather than expanding its coverage.
+
 The goal is to let Kagari adopt machine-code backends such as Cranelift without coupling the language, runtime, or typed IR directly to one backend implementation.
 
 ## Design Goals

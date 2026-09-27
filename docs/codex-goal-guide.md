@@ -1,34 +1,49 @@
 # Codex Goal Guide for Kagari
 
 The [implementation roadmap](implementation-roadmap.md) points to the active
-[foundation checkpoints](foundation-refactor.md). R01–R18 and the three contracts
-in `docs/spec/` govern the foundation work. Earlier M1–M11 milestones are historical.
+[MIR and crate architecture refactor](mir-architecture-refactor.md).
+The completed [foundation checkpoints](foundation-refactor.md) and subsequent
+language extensions are historical implementation records. Their current semantic
+contracts in `docs/spec/` remain authoritative; do not restart R01-R18.
 
 ## Operating Rules
 
-- Read `docs/foundation-refactor.md`, the relevant `docs/spec/` files, and
-  `docs/kagari.ebnf` before changing a behavior.
-- Work through incomplete R checkpoints in order. Keep each change reviewable.
-- Remove superseded behavior directly; do not add compatibility aliases or
-  artifact upgrades. Preserve runtime ABI, schema, version, and permission checks.
-- Verify each checkpoint with focused tests and `git diff --check`, then make a
-  Conventional Commit with a `Roadmap-Step: Rxx` trailer. Multiple commits may
-  share a checkpoint when a coherent change needs its own review boundary.
-- At the end, run `cargo fmt --all -- --check`,
+- Read the active plan and its progress ledger, relevant specifications, and the
+  working-tree diff before continuing. Follow A01-A05 in order.
+- Replace obsolete crates, APIs and formats directly. No compatibility aliases,
+  forwarding crates, parallel semantic implementations or artifact upgrades.
+  Preserve runtime ABI/schema/version/permission validation.
+- Intermediate phases and commits may fail compilation or tests. Record the
+  command, representative diagnostics, cause and owning follow-up phase in the
+  plan's ledger and disclose broken builds in commit bodies. Continue the planned
+  migration without building compatibility scaffolding or asking for permission
+  solely because intermediate wiring is incomplete.
+- Run focused verification where possible and `git diff --check` at checkpoints.
+  Use Conventional Commits with `Architecture-Step: Axx` trailers; several commits
+  may belong to one phase. Keep scope completion separate from build status.
+- Use the configured O1 profile, default target directory and default Cargo
+  parallelism. Do not create another target directory for each checkpoint.
+- At A05, resolve all carried errors, run the acceptance/feature matrix and pass
+  `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`, and `git diff --check`.
-- Record reproducible measurements for compiler time, edit reanalysis, shared
-  code, call overhead, and baseline GC pauses in
-  [performance-baseline.md](performance-baseline.md).
+- Record durable measurement summaries with cache state and separate build/test
+  times. Target logs are disposable; they must not be the only progress record.
+- Migrate the existing Cranelift subset. Expanded JIT coverage is the next native
+  priority; LLVM remains a late independent track and is not a completion gate.
 
 ## Goal Prompt
 
+The complete goal prompt and acceptance criteria live in
+[the execution plan](mir-architecture-refactor.md#goal-prompt). A short entry is:
+
 ```text
-/goal Implement the incomplete R checkpoints in docs/foundation-refactor.md.
-Use the three semantic contracts and relevant docs/spec/ files as authority.
-Verify and commit each checkpoint using a Conventional Commit and a
-Roadmap-Step: Rxx trailer. Finish with the documented workspace checks.
+/goal Implement docs/mir-architecture-refactor.md through A01-A05.
+Follow its crate boundaries, no-compatibility policy, intermediate-error rules,
+Conventional Commit checkpoints and final acceptance matrix. Keep its progress
+ledger current. LLVM and expanded JIT coverage remain deferred.
 ```
 
-To resume, inspect the working tree, the R checklist, and recent commit trailers.
-Continue the first incomplete checkpoint without repeating completed work.
+To resume, inspect the working tree, A checklist, known-error ledger and recent
+`Architecture-Step` trailers. Continue unfinished work without replaying completed
+phases. Do not mark the goal complete while final integration errors remain.

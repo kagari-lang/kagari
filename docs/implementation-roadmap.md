@@ -1,10 +1,27 @@
 # Kagari Implementation Roadmap
 
-[Foundation refactor](foundation-refactor.md) is the sole active R01–R18 execution plan. Its three semantic contracts and checkpoint status define the behavior to implement and verify. Each completed checkpoint requires a Conventional Commit with a `Roadmap-Step: Rxx` trailer. The [performance baseline](performance-baseline.md) records R18 measurements.
+The [MIR and crate architecture refactor](mir-architecture-refactor.md) is the
+active architecture execution plan. A01–A05 replace the existing IR/backend crate
+boundaries with the documented thirteen-crate layout. LLVM and expanded JIT
+coverage are deferred; the existing Cranelift subset must migrate to verified MIR.
+Intermediate checkpoints may fail compilation/tests when errors and follow-up
+owners are recorded. Use Conventional Commits with `Architecture-Step: Axx`;
+the final integration phase must restore all required checks and behavior.
+
+[Foundation refactor](foundation-refactor.md) records the completed R01–R18 track.
+Its semantic contracts, as amended by later specifications, continue to govern
+behavior. Its `Roadmap-Step: Rxx` trailers and the
+[performance baseline](performance-baseline.md) are historical evidence, not an
+additional active migration queue.
 
 The former M1–M11 milestone queue is historical and has been removed from this document. Git history retains its original scope and commits; those milestones do not prescribe current APIs, compatibility branches, artifact formats, or acceptance criteria.
 
-After the foundation track, plan separate work for complete LSP/editor integration, a full incremental dependency database, async and cross-thread execution policy, incremental or generational GC, complete event replay and persistent state migration, advanced JIT optimization, and further standard-library coverage. These tracks reuse the foundation contracts without reopening their semantics.
+After the architecture track, native backend expansion prioritizes Cranelift JIT;
+LLVM is a late independent track. Complete LSP/editor integration, a full
+incremental dependency database, async and cross-thread execution policy,
+incremental or generational GC, complete event replay, persistent state migration
+and further standard-library coverage remain separately scoped work. These tracks
+reuse the existing semantic contracts.
 
 Completed language extension: ordinary associated types, equality bindings,
 projection bounds and qualified projections, preserving the existing static and

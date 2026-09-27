@@ -21,6 +21,7 @@ This currently means:
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
+- [MIR and crate architecture execution plan](docs/mir-architecture-refactor.md)
 - [Foundation checkpoints and semantic contracts](docs/foundation-refactor.md)
 - [Foundation performance baseline](docs/performance-baseline.md)
 - [Runnable language examples](examples/README.md)
@@ -62,6 +63,10 @@ The aim is to keep the scripting model ergonomic without giving up the host appl
 ## Repository Layout
 
 The repository is organized as a Rust workspace so that major responsibilities are separated:
+
+The list below describes the current implementation. The
+[MIR architecture plan](docs/mir-architecture-refactor.md) defines the replacement
+layout and staged migration; it does not claim those crates already exist.
 
 - `kagari-common`: shared foundational types such as source files, spans, and diagnostics
 - `kagari-syntax`: lexer, parser, and AST

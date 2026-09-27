@@ -4,9 +4,16 @@ This document defines the production architecture for Kagari.
 It describes the intended system shape that implementation work must converge on.
 When existing code conflicts with the specifications, the specifications are authoritative.
 
+The active structural migration is the
+[MIR and crate architecture refactor](mir-architecture-refactor.md). Its target
+crate ownership and dependency constraints supersede the old workspace and
+bytecode-fed native backend shapes described below. Until A05 completes, those
+sections describe the starting implementation, not a second supported architecture.
+Language/runtime behavior continues to follow the semantic specifications.
+
 ## Foundation Contracts
 
-The active breaking track is [foundation-refactor.md](foundation-refactor.md).
+The completed foundation track is [foundation-refactor.md](foundation-refactor.md).
 [Value semantics](spec/value-semantics.md), [failure semantics](spec/failure-semantics.md),
 and [module activation](spec/module-activation.md) define observable behavior and
 supersede conflicting historical descriptions. Unchecked work is not implemented.
