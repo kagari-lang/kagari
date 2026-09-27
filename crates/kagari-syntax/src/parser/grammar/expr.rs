@@ -29,6 +29,8 @@ impl<'a> Parser<'a> {
                     | TokenKind::Bang
                     | TokenKind::Pipe
                     | TokenKind::PipePipe
+                    | TokenKind::DotDot
+                    | TokenKind::DotDotEq
                     | TokenKind::LBrace
             )
         )
@@ -45,11 +47,21 @@ impl<'a> Parser<'a> {
 
     fn parse_range_expr(&mut self) {
         let checkpoint = self.checkpoint();
-        self.parse_logical_or_expr();
-        self.bump_trivia();
-        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
-            self.bump();
+        if !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
             self.parse_logical_or_expr();
+            self.bump_trivia();
+        }
+        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            let inclusive = self.at(TokenKind::DotDotEq);
+            self.bump();
+            self.bump_trivia();
+            // In a for/if condition the following brace belongs to the body.
+            if inclusive
+                || self.expr_starts()
+                    && (!self.at(TokenKind::LBrace) || self.allow_struct_literals())
+            {
+                self.parse_logical_or_expr();
+            }
             self.start_node_at(checkpoint, SyntaxKind::RangeExpr);
             self.finish_node();
         }

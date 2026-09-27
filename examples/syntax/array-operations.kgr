@@ -1,3 +1,5 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/array-operations.kgr
+// Result: main returns 42.
 struct Cell { var value: i32 }
 
 fn main() -> i32 {
@@ -9,6 +11,9 @@ fn main() -> i32 {
     val source: Array<i32> = [10, 20, 30];
     destination.copy_from_slice(source);
     std::debug::assert(destination[1] == 20, "copied");
+
+    destination.copy_within(0..2, 1);
+    std::debug::assert(destination[1] == 10 && destination[2] == 20, "overlap");
 
     // Repetition shares the object; it does not construct one object per slot.
     val cells = [Cell { value: 1 }; 2];

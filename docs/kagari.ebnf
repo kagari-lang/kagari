@@ -240,10 +240,9 @@ binding_condition   ::= "val" pattern "=" expr ;
 
 expr                ::= range_expr ;
 
-range_expr          ::= logic_or_expr (range_op logic_or_expr)? ;
-
-range_op            ::= ".."
-                      | "..=" ;
+range_expr          ::= logic_or_expr? ".." logic_or_expr?
+                      | logic_or_expr? "..=" logic_or_expr
+                      | logic_or_expr ;
 
 logic_or_expr       ::= logic_and_expr ("||" logic_and_expr)* ;
 

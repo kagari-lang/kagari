@@ -214,7 +214,10 @@ pub(crate) fn validate_enum_layouts(
                 pending.extend(params);
                 pending.push(result);
             }
-            AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Iter(ty) => pending.push(ty),
+            AbiType::Array(ty, _)
+            | AbiType::Set(ty, _)
+            | AbiType::Iter(ty)
+            | AbiType::Range(ty, _) => pending.push(ty),
             AbiType::Map { key, value, .. } => {
                 pending.push(key);
                 pending.push(value);
@@ -224,7 +227,7 @@ pub(crate) fn validate_enum_layouts(
                     StandardEnumKind::Ordering
                     | StandardEnumKind::TryFromIntError
                     | StandardEnumKind::Infallible => 0,
-                    StandardEnumKind::Option => 1,
+                    StandardEnumKind::Bound | StandardEnumKind::Option => 1,
                     StandardEnumKind::Result => 2,
                 };
                 if args.len() != expected {

@@ -213,6 +213,50 @@ mod tests {
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
     #[test]
+    fn ranges_and_interval_copy_expose_source_owned_api_queries() {
+        for (source, receiver, expected) in [
+            (
+                "fn main() { val range = 0u8..3u8; range. }",
+                "range. }",
+                vec!["iter", "start_bound", "end_bound"],
+            ),
+            (
+                "fn main() { val values = [0; 4]; values. }",
+                "values. }",
+                vec!["fill", "copy_from_slice", "copy_within"],
+            ),
+        ] {
+            let mut sources = SourceDatabase::default();
+            let file = sources
+                .set("ranges.kgr", source.into(), SourceLayer::Base)
+                .unwrap();
+            let snapshot = AnalysisDatabase::default()
+                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .unwrap();
+            let analysis = snapshot.file(file).unwrap();
+            let candidates = analysis.standard_method_completions(
+                source.find(receiver).unwrap() + receiver.find('.').unwrap() + 1,
+            );
+            for name in expected {
+                let matches = candidates
+                    .iter()
+                    .filter(|m| m.path.last().unwrap().1 == name)
+                    .collect::<Vec<_>>();
+                assert_eq!(matches.len(), 1, "{name}");
+                let api = matches[0];
+                let declaration = snapshot
+                    .declaration(&DeclarationId::Definition(api.identity()))
+                    .unwrap();
+                let text = snapshot.source(declaration.location.file).unwrap();
+                assert_eq!(
+                    &text.text()[declaration.location.range.start..declaration.location.range.end],
+                    name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn native_iterator_implementation_exposes_members_and_inherited_defaults() {
         let item_type = TypeId::Builtin(crate::types::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));

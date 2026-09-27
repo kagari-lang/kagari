@@ -146,6 +146,14 @@ fn validate_native_enum(def: &ast::EnumDef, binding: &str) {
     let (arity, layout): (usize, &[(&str, Option<usize>)]) = match binding {
         "TryFromIntError" => (0, &[("OutOfRange", None)]),
         "Infallible" => (0, &[]),
+        "Bound" => (
+            1,
+            &[
+                ("Included", Some(0)),
+                ("Excluded", Some(0)),
+                ("Unbounded", None),
+            ],
+        ),
         "Option" => (1, &[("Some", Some(0)), ("None", None)]),
         "Result" => (2, &[("Ok", Some(0)), ("Err", Some(1))]),
         "Ordering" => (0, &[("Less", None), ("Equal", None), ("Greater", None)]),
@@ -362,7 +370,19 @@ pub fn declarations(
             let arity = def.generic_params().map_or(0, |p| p.params().count());
             if matches!(
                 binding.as_str(),
-                "Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet" | "Iter"
+                "Array"
+                    | "MutableArray"
+                    | "Map"
+                    | "MutableMap"
+                    | "Set"
+                    | "MutableSet"
+                    | "Iter"
+                    | "Range"
+                    | "RangeInclusive"
+                    | "RangeFrom"
+                    | "RangeTo"
+                    | "RangeToInclusive"
+                    | "RangeFull"
             ) {
                 writeln!(constructors,"StandardTypeConstructorSpec{{kind:StandardTypeConstructor::{binding},name:{name:?},arity:{arity},heap_backed:true,const_safe:false}},").unwrap();
             }

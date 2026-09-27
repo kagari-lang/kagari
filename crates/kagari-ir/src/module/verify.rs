@@ -465,6 +465,8 @@ fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
         Unary { operand, .. } => smallvec::smallvec![*operand],
         BeginIteration { collection } => smallvec::smallvec![*collection],
         EndIteration => smallvec::smallvec![],
+        RangeBound { value, .. } => smallvec::smallvec![*value],
+        MakeRange { start, end, .. } => start.iter().chain(end).copied().collect(),
         RepeatArray { value, count, .. } => smallvec::smallvec![*value, *count],
         Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
         Call { callee, args, .. } => {
@@ -543,6 +545,8 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeTuple { dst, .. }
         | MakeArray { dst, .. }
         | RepeatArray { dst, .. }
+        | MakeRange { dst, .. }
+        | RangeBound { dst, .. }
         | MakeClosure { dst, .. }
         | MakeCell { dst, .. }
         | ReadCell { dst, .. }

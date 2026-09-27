@@ -66,6 +66,7 @@ impl TraceValue {
         *remaining -= 1;
         use crate::value::Value;
         match value {
+            Value::Range(value) => Self::Opaque(format!("{value:?}")),
             Value::Unit => Self::Unit,
             Value::Bool(value) => Self::Bool(*value),
             Value::I32(value) => Self::I32(*value),

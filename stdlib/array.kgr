@@ -313,6 +313,29 @@ impl<T> MutableArray<T> {
     /// ```
     #[intrinsic(ArrayCopyFromSlice)]
     pub fn copy_from_slice(self, source: [T]);
+
+    /// Copy a range of elements to another position in this array.
+    ///
+    /// Source and destination may overlap. Copies use the original source elements
+    /// and retain referenced object identities. Length does not change.
+    /// RangeBounds methods run once each, lower bound before upper bound, after
+    /// all arguments have been evaluated. Their side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Traps when bounds overflow, start exceeds end, either region is outside
+    /// the array, or preparation fails. No final replacement occurs on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = [1, 2, 3, 4];
+    /// values.copy_within(0..3, 1);
+    /// std::debug::assert(values[1] == 1 && values[3] == 3, "overlap");
+    /// ```
+    #[intrinsic(ArrayCopyWithin)]
+    pub fn copy_within<R: RangeBounds<usize>>(self, source: R, destination: usize);
+
 }
 
 impl Array<String> {

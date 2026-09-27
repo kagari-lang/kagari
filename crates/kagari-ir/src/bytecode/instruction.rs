@@ -287,6 +287,19 @@ pub enum BytecodeInstruction {
         #[serde(deserialize_with = "crate::decode_limits::operands")]
         elements: Vec<Register>,
     },
+    RangeBound {
+        dst: Register,
+        value: Register,
+        range: crate::module::abi::AbiType,
+        bound: crate::module::abi::AbiType,
+        upper: bool,
+    },
+    MakeRange {
+        dst: Register,
+        start: Option<Register>,
+        end: Option<Register>,
+        ty: crate::module::abi::AbiType,
+    },
     RepeatArray {
         dst: Register,
         value: Register,

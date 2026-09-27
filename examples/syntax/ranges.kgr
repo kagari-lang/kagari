@@ -1,4 +1,4 @@
-// Integer ranges evaluate both endpoints once and produce iterable i32 arrays.
+// Integer ranges retain bounds; iteration is lazy and preserves integer width.
 fn main() -> i32 {
     var sum = 0;
     for value in 0..3 {
@@ -16,5 +16,12 @@ fn main() -> i32 {
     val values = next()..=next();
     var subtotal = 0;
     for value in values { subtotal += value; }
+    val array = [1, 2, 3, 4];
+    array.copy_within(..2, 2);
+    array.copy_within(..=0, 1);
+    array.copy_within(3.., 0);
+    array.copy_within(.., 0);
+    val prefix = (254u8..).iter().take(2usize).collect::<MutableArray<u8>>();
+    std::debug::assert(prefix[1] == 255u8, "lazy open range");
     if sum == 6 && saw_max && calls == 2 && subtotal == 3 { 42 } else { 0 }
 }

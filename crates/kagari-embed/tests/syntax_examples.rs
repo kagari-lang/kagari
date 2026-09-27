@@ -4,7 +4,12 @@ use kagari_runtime::value::Value;
 
 #[test]
 fn standalone_language_examples_execute_from_source_and_artifact() {
-    let cases: [(&str, &str, Value); 43] = [
+    let cases: [(&str, &str, Value); 44] = [
+        (
+            "examples/syntax/array-operations.kgr",
+            include_str!("../../../examples/syntax/array-operations.kgr"),
+            Value::I32(42),
+        ),
         (
             "examples/syntax/bitwise.kgr",
             include_str!("../../../examples/syntax/bitwise.kgr"),

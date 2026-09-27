@@ -22,6 +22,20 @@ pub(super) fn validate(
         if cancel.check().is_err() {
             return;
         }
+        if let TypeId::Range(element, kind) = ty
+            && *kind != kagari_common::range::RangeKind::Full
+            && element.is_concrete()
+            && !element.is_integer()
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                    type_name: element.display_name(),
+                    constraint: "integer range endpoint".into(),
+                    reason: "range endpoints must have a builtin integer type".into(),
+                })
+                .with_span(span),
+            );
+        }
         let key = match ty {
             TypeId::Map { key, .. } => Some(key.as_ref()),
             TypeId::Set(key, _) => Some(key.as_ref()),
@@ -269,7 +283,9 @@ pub(super) fn validate(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Iter(ty) => pending.push(ty),
+            TypeId::Array(ty, _) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
+                pending.push(ty)
+            }
             TypeId::Map { key, value, .. } => {
                 pending.push(key);
                 pending.push(value);
@@ -583,9 +599,10 @@ pub(super) fn validate_imported_interface_type(
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeId::Array(item, _) | TypeId::Set(item, _) | TypeId::Iter(item) => {
-                pending.push(item)
-            }
+            TypeId::Array(item, _)
+            | TypeId::Set(item, _)
+            | TypeId::Iter(item)
+            | TypeId::Range(item, _) => pending.push(item),
             TypeId::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             _ => {}
         }

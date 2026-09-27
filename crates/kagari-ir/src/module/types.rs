@@ -67,6 +67,7 @@ impl ValueType {
             TypeId::Tuple(_)
             | TypeId::Function { .. }
             | TypeId::Iter(_)
+            | TypeId::Range(_, _)
             | TypeId::Array(_, _)
             | TypeId::Map { .. }
             | TypeId::Set(_, _)

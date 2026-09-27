@@ -205,6 +205,7 @@ fn main() {
             );
             let mut generics = Vec::new();
             let mut constraints = Vec::new();
+            let mut predicates = Vec::new();
             for param in implementation
                 .as_ref()
                 .and_then(|i| i.generic_params())
@@ -232,6 +233,13 @@ fn main() {
                     [] => None,
                     ["Eq", "Hash"] => Some("HashKey"),
                     ["PartialEq"] => Some("Comparable"),
+                    ["RangeBounds"] => {
+                        let bounds = api::bounds(param.bounds());
+                        predicates.push(format!(
+                            "(ApiType::Named({param_name:?}, &[]), &[{bounds}])"
+                        ));
+                        None
+                    }
                     ["OrderedNumber"] => Some("OrderedNumber"),
                     ["SignedNumber"] => Some("SignedNumber"),
                     _ => panic!("unsupported standard constraint {bounds:?}"),
@@ -283,8 +291,9 @@ fn main() {
             let (start, end) = range;
             let generics = format!("&{:?}", generics);
             let constraints = format!("&[{}]", constraints.join(","));
+            let predicates = predicates.join(",");
             let qualified_name = format!("std::{}::{export}", module.to_lowercase());
-            writeln!(functions,"StandardFunctionSpec{{module:StandardModule::{module},name:{export:?},intrinsic:StandardIntrinsic::{intrinsic},type_params:{generics},arity:{arity},constraints:{constraints},api:&ApiFunction{{qualified_name:{qualified_name:?},uri:{uri:?},start:{start},end:{end},documentation:{doc:?},signature:{signature:?},params:&[{parameter_types}],result:{output}}}}},").unwrap();
+            writeln!(functions,"StandardFunctionSpec{{module:StandardModule::{module},name:{export:?},intrinsic:StandardIntrinsic::{intrinsic},type_params:{generics},arity:{arity},constraints:{constraints},api:&ApiFunction{{bounds:&[{predicates}],qualified_name:{qualified_name:?},uri:{uri:?},start:{start},end:{end},documentation:{doc:?},signature:{signature:?},params:&[{parameter_types}],result:{output}}}}},").unwrap();
             if params
                 .first()
                 .is_some_and(|p| p.name_text().as_deref() == Some("self"))

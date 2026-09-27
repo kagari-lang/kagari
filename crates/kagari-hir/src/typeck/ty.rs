@@ -124,6 +124,11 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                 },
                 args: vec![],
             })
+        } else if matches!(name, "RangeFull" | "std::ops::RangeFull") {
+            Some(TypeId::Range(
+                Box::new(TypeId::Builtin(crate::types::BuiltinType::Unit)),
+                kagari_common::range::RangeKind::Full,
+            ))
         } else if matches!(name, "Ordering" | "std::cmp::Ordering") {
             Some(crate::builtin::traits::ordering_type(false))
         } else if let Some(id) = context.declarations.host_type(name) {
@@ -278,7 +283,11 @@ pub(super) fn resolve_type_in(
                     )
                 })
                 .collect::<Vec<_>>();
-            if reference.ty.is_unresolved() && name.contains("::") && bindings.is_empty() {
+            if reference.ty.is_unresolved()
+                && name.contains("::")
+                && bindings.is_empty()
+                && !(prelude && surface::standard_type_constructor(name).is_some())
+            {
                 let resolved = super::associated::resolve_projection_name(
                     module, name, args, context, table, cancel,
                 );

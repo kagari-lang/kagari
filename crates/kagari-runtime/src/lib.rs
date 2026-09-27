@@ -18,6 +18,7 @@ mod layout_fixtures;
 pub mod metadata;
 pub mod module;
 pub mod numeric;
+pub mod range;
 pub mod reflection;
 pub mod reload;
 pub mod resource;

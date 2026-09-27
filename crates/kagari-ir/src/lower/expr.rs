@@ -1275,89 +1275,44 @@ impl FunctionLowerer<'_, '_> {
     fn lower_range(
         &mut self,
         expr_id: hir::ExprId,
-        start: hir::ExprId,
-        end: hir::ExprId,
-        inclusive: bool,
+        start: Option<hir::ExprId>,
+        end: Option<hir::ExprId>,
+        _inclusive: bool,
     ) -> Result<IrValue, IrLoweringError> {
-        let first = self.lower_expr(start)?;
-        if self.current_block_terminated() {
-            return Ok(first);
+        let mut values = Vec::new();
+        for expr in start.iter().chain(&end) {
+            let value = self.lower_expr(*expr)?;
+            if self.current_block_terminated() {
+                return Ok(value);
+            }
+            values.push(value);
         }
-        let last = self.lower_expr(end)?;
-        if self.current_block_terminated() {
-            return Ok(last);
-        }
-        let array = self.alloc_temp(self.expr_type(expr_id)?);
-        self.emit(Instruction::MakeArray {
-            dst: array,
-            elements: ValueBuffer::new(),
+        let source = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(expr_id)
+            .ok_or(IrLoweringError::MissingExprType(expr_id))?;
+        let ty = self
+            .planner
+            .arguments(
+                &[source],
+                &self.instance.substitution,
+                self.function.debug.source_span,
+            )?
+            .remove(0);
+        let ty = crate::module::abi::AbiType::from_checked_type(&ty);
+        let mut values = values.into_iter();
+        let first = start.and_then(|_| values.next());
+        let last = end.and_then(|_| values.next());
+        let dst = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::MakeRange {
+            dst,
+            start: first,
+            end: last,
+            ty,
         });
-        let current = self.alloc_temp(ValueType::I32);
-        self.emit(Instruction::Move {
-            dst: current,
-            src: first,
-        });
-        let condition = self.new_block();
-        let append = self.new_block();
-        let step = self.new_block();
-        let exit = self.new_block();
-        self.set_terminator(Terminator::Jump(condition));
-        self.switch_to_block(condition);
-        let keep_going = self.alloc_temp(ValueType::Bool);
-        self.emit(Instruction::Binary {
-            dst: keep_going,
-            op: if inclusive {
-                BinaryOp::Le
-            } else {
-                BinaryOp::Lt
-            },
-            lhs: current,
-            rhs: last,
-        });
-        self.set_terminator(Terminator::Branch {
-            cond: keep_going,
-            then_block: append,
-            else_block: exit,
-        });
-        self.switch_to_block(append);
-        let pushed = self.alloc_temp(ValueType::HeapObject);
-        self.emit(Instruction::Call {
-            dst: Some(pushed),
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
-            args: smallvec::smallvec![array, current],
-        });
-        if inclusive {
-            let at_end = self.alloc_temp(ValueType::Bool);
-            self.emit(Instruction::Binary {
-                dst: at_end,
-                op: BinaryOp::Eq,
-                lhs: current,
-                rhs: last,
-            });
-            self.set_terminator(Terminator::Branch {
-                cond: at_end,
-                then_block: exit,
-                else_block: step,
-            });
-        } else {
-            self.set_terminator(Terminator::Jump(step));
-        }
-        self.switch_to_block(step);
-        let one = self.lower_constant(Constant::I32(1), ValueType::I32);
-        let next = self.alloc_temp(ValueType::I32);
-        self.emit(Instruction::Binary {
-            dst: next,
-            op: BinaryOp::Add,
-            lhs: current,
-            rhs: one,
-        });
-        self.emit(Instruction::Move {
-            dst: current,
-            src: next,
-        });
-        self.set_terminator(Terminator::Jump(condition));
-        self.switch_to_join(exit);
-        Ok(array)
+        Ok(dst)
     }
 
     fn lower_struct_init(
@@ -1547,7 +1502,11 @@ impl FunctionLowerer<'_, '_> {
 
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
             && kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
-                .is_some_and(|kind| kind.operator() || kind.iteration())
+                .is_some_and(|kind| {
+                    kind.operator()
+                        || kind.iteration()
+                        || kind == kagari_hir::builtin::traits::StandardTrait::RangeBounds
+                })
         {
             let receiver = call
                 .receiver
@@ -1967,6 +1926,42 @@ impl FunctionLowerer<'_, '_> {
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
                         use kagari_hir::builtin::surface::StandardIntrinsic::*;
+                        if intrinsic == ArrayCopyWithin {
+                            use kagari_hir::builtin::traits::StandardTrait;
+                            let input = args[usize::from(call.receiver.is_none())];
+                            let source = self
+                                .analyzed
+                                .typed
+                                .type_table
+                                .expr_type(input)
+                                .ok_or(IrLoweringError::MissingExprType(input))?;
+                            let source = self
+                                .planner
+                                .arguments(&[source], &self.instance.substitution, span)?
+                                .remove(0);
+                            let mut interface = StandardTrait::RangeBounds.nominal();
+                            interface.arguments.push(kagari_hir::types::TypeId::Builtin(
+                                kagari_hir::types::BuiltinType::USize,
+                            ));
+                            let methods = &StandardTrait::RangeBounds.contract().methods;
+                            let start = self.lower_applied_operator(
+                                interface.clone(),
+                                source.clone(),
+                                &methods[0].id,
+                                &[lowered[1]],
+                            )?;
+                            let end = self.lower_applied_operator(
+                                interface,
+                                source,
+                                &methods[1].id,
+                                &[lowered[1]],
+                            )?;
+                            return Ok(self.emit_intrinsic(
+                                ArrayCopyWithinBounds,
+                                &[lowered[0], start, end, lowered[2]],
+                                ValueType::Unit,
+                            ));
+                        }
                         if matches!(
                             intrinsic,
                             ArrayFrom

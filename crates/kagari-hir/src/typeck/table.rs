@@ -938,6 +938,9 @@ pub(crate) fn match_implementation(
                 pending.push((left_result, right_result));
                 pending.extend(left.iter().zip(right));
             }
+            (TypeId::Range(left, a), TypeId::Range(right, b)) if a == b => {
+                pending.push((left, right))
+            }
             (TypeId::Iter(left), TypeId::Iter(right))
             | (TypeId::Array(left, _), TypeId::Array(right, _))
             | (TypeId::Set(left, _), TypeId::Set(right, _)) => pending.push((left, right)),

@@ -659,6 +659,7 @@ fn instantiate_method_type(
             params: params.iter().map(child).collect::<Option<_>>()?,
             result: Box::new(child(result)?),
         },
+        AbiType::Range(element, kind) => AbiType::Range(Box::new(child(element)?), *kind),
         AbiType::Iter(element) => AbiType::Iter(Box::new(child(element)?)),
         AbiType::Array(element, access) => AbiType::Array(Box::new(child(element)?), *access),
         AbiType::Set(element, access) => AbiType::Set(Box::new(child(element)?), *access),
@@ -900,6 +901,40 @@ fn verify_instruction(
             )?;
         }
         BytecodeInstruction::EndIteration => {}
+        BytecodeInstruction::RangeBound {
+            dst,
+            value,
+            range,
+            bound,
+            ..
+        } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "bound destination")?;
+            expect_register_ty(function, *value, ValueType::HeapObject, "bound range")?;
+            if !crate::module::instruction::range_bound_valid(range, bound) {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "invalid range bound contract",
+                });
+            }
+        }
+        BytecodeInstruction::MakeRange {
+            dst,
+            start,
+            end,
+            ty,
+        } => {
+            expect_register_ty(function, *dst, ValueType::HeapObject, "range destination")?;
+            if !crate::module::instruction::range_operands_valid(
+                ty,
+                start.map(|r| register_ty(function, r)).transpose()?,
+                end.map(|r| register_ty(function, r)).transpose()?,
+            ) {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "invalid range operands",
+                });
+            }
+        }
         BytecodeInstruction::RepeatArray { dst, value, count } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "repeat array dst")?;
             expect_register_ty(function, *count, ValueType::U64, "repeat array count")?;

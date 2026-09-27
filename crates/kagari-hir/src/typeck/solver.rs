@@ -156,6 +156,7 @@ impl Solver {
                             TypeId::Function { params: a, .. },
                             TypeId::Function { params: b, .. },
                         ) => a.len() == b.len(),
+                        (TypeId::Range(_, a), TypeId::Range(_, b)) => a == b,
                         (TypeId::Array(..), TypeId::Array(..))
                         | (TypeId::Set(..), TypeId::Set(..))
                         | (TypeId::Map { .. }, TypeId::Map { .. })

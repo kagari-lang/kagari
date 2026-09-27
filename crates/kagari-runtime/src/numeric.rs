@@ -243,7 +243,7 @@ pub fn convert(
     }
 }
 
-fn read_integer(
+pub(crate) fn read_integer(
     ty: kagari_ir::module::abi::BuiltinType,
     value: &Value,
 ) -> Result<i128, RuntimeError> {

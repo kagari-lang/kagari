@@ -177,6 +177,7 @@ pub(crate) fn verify_intrinsic(
     use StandardIntrinsic::*;
 
     let arity = match intrinsic {
+        ArrayCopyWithinBounds => 4,
         KeyLookupBegin => 1,
         KeyCandidates => 2,
         KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
@@ -307,6 +308,19 @@ pub(crate) fn verify_intrinsic(
                 expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
+        }
+        ArrayCopyWithin => {
+            return Err(ContractError::Intrinsic {
+                intrinsic,
+                reason: "range bounds require static lowering",
+            });
+        }
+        ArrayCopyWithinBounds => {
+            for index in 0..3 {
+                expect_arg_ty(args, index, ValueType::HeapObject, "array range operand")?;
+            }
+            expect_arg_ty(args, 3, ValueType::U64, "array copy destination")?;
+            verify_call_dst(dst, ValueType::Unit)?;
         }
         ArrayFill | ArrayCopyFromSlice => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "array target")?;

@@ -62,8 +62,6 @@ assign_op	4	witnessed	examples/syntax/data-model.kgr	-	"*="
 assign_op	5	witnessed	examples/syntax/data-model.kgr	-	"/="
 condition	1	witnessed	examples/syntax/binding-conditions.kgr	-	binding_condition
 condition	2	witnessed	examples/syntax/expressions.kgr	-	expr
-range_op	1	witnessed	examples/syntax/ranges.kgr	-	".."
-range_op	2	witnessed	examples/syntax/ranges.kgr	-	"..="
 unary_expr	1	witnessed	examples/syntax/expressions.kgr	-	("!" | "-") unary_expr
 unary_expr	2	witnessed	examples/syntax/expressions.kgr	-	postfix_expr
 postfix_op	1	witnessed	examples/syntax/expressions.kgr	-	call_suffix
@@ -124,3 +122,6 @@ assign_op	8	witnessed	examples/syntax/bitwise.kgr	-	"|="
 assign_op	9	witnessed	examples/syntax/bitwise.kgr	-	"^="
 assign_op	10	witnessed	examples/syntax/bitwise.kgr	-	"<<="
 assign_op	11	witnessed	examples/syntax/bitwise.kgr	-	">>="
+range_expr	1	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr? ".." logic_or_expr?
+range_expr	2	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr? "..=" logic_or_expr
+range_expr	3	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr

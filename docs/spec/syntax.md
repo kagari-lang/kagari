@@ -745,10 +745,9 @@ includes the zero-iteration path, without constant-condition evaluation.
 ```ebnf
 expr            ::= range_expr ;
 
-range_expr      ::= logic_or_expr (range_op logic_or_expr)? ;
-
-range_op        ::= ".."
-                  | "..=" ;
+range_expr      ::= logic_or_expr? ".." logic_or_expr?
+                  | logic_or_expr? "..=" logic_or_expr
+                  | logic_or_expr ;
 
 logic_or_expr   ::= logic_and_expr ("||" logic_and_expr)* ;
 
@@ -855,12 +854,26 @@ literal         ::= INTEGER
   the same names with the same types. Integer range patterns accept `i32`
   literal or local scalar `const` bounds; `..` excludes the upper bound and
   `..=` includes it.
-- `range_expr` models the common `a..b` and `a..=b` forms.
-- Both bounds are evaluated once, left to right, and must be `i32`. A range
-  produces a fresh `[i32]` array in ascending order; `..` excludes its end and
-  `..=` includes it. A start above the end produces an empty array. Materializing
-  the range consumes ordinary execution budget and allocation resources.
-- half-open forms such as `..b`, `a..`, and `..` are outside the current grammar.
+- Range expressions describe bounds without materializing an array. The forms
+  `a..b`, `a..=b`, `a..`, `..b`, `..=b` and `..` produce `Range<T>`,
+  `RangeInclusive<T>`, `RangeFrom<T>`, `RangeTo<T>`, `RangeToInclusive<T>` and
+  `RangeFull`. Inclusive forms require an end expression.
+- Present bounds evaluate once, left to right, and have the same builtin integer
+  type. Context supplies an endpoint type, otherwise normal integer inference
+  applies. `RangeFull` has no type parameter. Bounds are immutable value data.
+- Ranges with a start implement `Iterable`: each `iter()` or `for` creates a fresh
+  lazy ascending cursor. `..` excludes the end and `..=` includes it. Reversed
+  finite bounds iterate zero times. Inclusive iteration through the integer maximum
+  terminates normally. Open-ended iteration traps when the next value would exceed
+  its integer type. Iteration consumes execution budget per step.
+- Collect explicitly when storage is needed, for example
+  `(0..4).iter().collect::<MutableArray<i32>>()`. Ranges without a start are bounds
+  descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
+  for array interval operations; `RangeFull` implements it for any `T`.
+- This phase does not introduce fixed-size array types or borrowed slice views.
+  Array indexing still accepts a single integer, not a range. Range values expose
+  `Iterable` and `RangeBounds`; range equality, ordering and hashing are not yet
+  standard protocols.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.
 - Enum constructors accept `Token<i32>::Empty`, `Token<i32>::Empty()` and

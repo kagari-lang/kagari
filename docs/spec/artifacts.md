@@ -590,3 +590,10 @@ carry their concrete Result payload types. Earlier products are rejected.
 Version 81/runtime ABI v81 add the verified repeat-array instruction and array bulk
 replacement intrinsics. Repeat counts have the semantic type usize; writable target
 access and element types are checked before execution. Older products are rejected.
+
+Version 82/runtime ABI v82 add immutable range ABI descriptors and canonical
+encoding, MakeRange/RangeBound instructions, the standard Bound enum, lazy range
+iteration and the normalized ArrayCopyWithinBounds intrinsic. Public copy_within
+calls must lower their RangeBounds protocol calls before bytecode verification.
+Validators reject missing endpoints, invalid element types, mismatched Bound
+payloads and read-only destinations before execution. Earlier products are rejected.

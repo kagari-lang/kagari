@@ -925,6 +925,21 @@ fn type_valid(
                 pending.extend(params);
                 pending.push(result);
             }
+            AbiType::Range(ty, kind) => {
+                if *kind == kagari_common::range::RangeKind::Full {
+                    if **ty != AbiType::Builtin(BuiltinType::Unit) {
+                        return false;
+                    }
+                } else {
+                    match ty.as_ref() {
+                        AbiType::Builtin(t) if t.integer_layout().is_some() => {}
+                        AbiType::Parameter { .. }
+                        | AbiType::Projection { .. }
+                        | AbiType::SelfType(_) => pending.push(ty),
+                        _ => return false,
+                    }
+                }
+            }
             AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Iter(ty) => pending.push(ty),
             AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::StandardEnum { kind, args } => {
@@ -932,7 +947,7 @@ fn type_valid(
                     StandardEnumKind::Ordering
                     | StandardEnumKind::TryFromIntError
                     | StandardEnumKind::Infallible => 0,
-                    StandardEnumKind::Option => 1,
+                    StandardEnumKind::Bound | StandardEnumKind::Option => 1,
                     StandardEnumKind::Result => 2,
                 };
                 if args.len() != count {

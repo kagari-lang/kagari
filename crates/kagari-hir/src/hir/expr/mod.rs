@@ -43,8 +43,8 @@ pub enum ExprKind {
         rhs: ExprId,
     },
     Range {
-        start: ExprId,
-        end: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
         inclusive: bool,
     },
     Call {

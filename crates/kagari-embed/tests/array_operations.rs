@@ -104,6 +104,16 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
         "fn main() { val a: Array<i32> = [0; 2]; a.fill(1); }",
         "fn main() { val a: Array<i32> = [0; 2]; a.copy_from_slice([1, 2]); }",
         "fn main() { val a = [0; 2]; a.copy_from_slice([true, false]); }",
+        "fn main() { val a: Array<i32> = [0; 2]; a.copy_within(.., 0); }",
+        "fn main() { val a = [0; 2]; a.copy_within(0i32..1i32, 0); }",
+        "fn main() { val a = [0; 2]; a.copy_within(0..1, 0i32); }",
+        "fn main() { val r = true..false; }",
+        "fn main() { val r = 1.0..2.0; }",
+        "fn wrong(r: Range<bool>) {} fn main() {}",
+        "fn main() { val r = ..=; }",
+        "fn main() { for n in ..3 {} }",
+        "fn main() { for n in .. {} }",
+        "fn main() { val r: MutableArray<i32> = 0..3; }",
     ] {
         assert!(
             engine
@@ -123,4 +133,166 @@ fn array_operation_example() {
     execute(include_str!(
         "../../../examples/syntax/array-operations.kgr"
     ));
+}
+
+#[test]
+fn range_values_iterate_lazily_and_preserve_integer_width() {
+    execute(
+        r#"
+    fn identity<T>(range: Range<T>) -> Range<T> { range }
+    fn upper<R: RangeBounds<usize>>(range: R) -> Bound<usize> { range.end_bound() }
+    fn main() -> i32 {
+        val qualified: std::ops::Range<u8> = identity(1u8..4u8);
+        val bound: std::ops::Bound<u8> = qualified.start_bound();
+        std::debug::assert(bound == std::ops::Bound::Included(1u8), "qualified");
+        val range: Range<u8> = 1u8..4u8;
+        val negative = (-128i8..=-126i8).iter().collect::<MutableArray<i8>>();
+        std::debug::assert(negative[2] == -126i8, "signed endpoints");
+        val upper: Bound<usize> = upper(..);
+        std::debug::assert(upper == Bound::Unbounded, "qualified full bound");
+        var total = 0u8;
+        for n in range { total += n; }
+        for n in range { total += n; }
+        std::debug::assert(total == 12u8, "fresh cursors");
+        val high = (254u8..=255u8).iter().collect::<MutableArray<u8>>();
+        std::debug::assert(high.len() == 2usize && high[1] == 255u8, "inclusive max");
+        val wide = (0u64..18446744073709551615u64).iter().take(3usize).collect::<MutableArray<u64>>();
+        std::debug::assert(wide[2] == 2u64, "lazy wide range");
+        val unbounded = (10i16..).iter().take(2usize).collect::<MutableArray<i16>>();
+        std::debug::assert(unbounded[1] == 11i16, "open range");
+        42
+    }
+    "#,
+    );
+}
+
+#[test]
+fn copy_within_accepts_all_range_forms_and_custom_bounds() {
+    execute(
+        r#"
+    struct Region { val log: MutableArray<i32> }
+    impl RangeBounds<usize> for Region {
+        fn start_bound(self) -> Bound<usize> { self.log.push(1); Bound::Excluded(0) }
+        fn end_bound(self) -> Bound<usize> { self.log.push(2); Bound::Included(2) }
+    }
+    fn copy<R: RangeBounds<usize>>(array: MutableArray<i32>, range: R, destination: usize) {
+        array.copy_within(range, destination);
+    }
+    fn main() -> i32 {
+        val a = [1, 2, 3, 4];
+        a.copy_within(0..3, 1);
+        std::debug::assert(a[1] == 1 && a[3] == 3, "forward overlap");
+        a.copy_within(1..=3, 0);
+        std::debug::assert(a[0] == 1 && a[2] == 3, "backward overlap");
+        a.copy_within(..2, 2);
+        a.copy_within(..=0, 1);
+        a.copy_within(3.., 0);
+        a.copy_within(.., 0);
+        a.copy_within(4..4, 4);
+        val log = [];
+        a.copy_from_slice([1, 2, 3, 4]);
+        copy(a, Region { log }, 0);
+        std::debug::assert(a[0] == 2 && a[1] == 3, "custom bounds");
+        std::debug::assert(log.len() == 2usize && log[0] == 1 && log[1] == 2, "bound calls once");
+        copy(a, 0..2, 2);
+        std::debug::assert(a[2] == 2 && a[3] == 3, "generic inference");
+        val range = 1u8..=3u8;
+        std::debug::assert(range.start_bound() == Bound::Included(1u8), "start");
+        std::debug::assert(range.end_bound() == Bound::Included(3u8), "end");
+        42
+    }
+    "#,
+    );
+}
+
+#[test]
+fn failed_interval_copy_keeps_completed_argument_and_bound_effects() {
+    use kagari_common::{
+        collection::CollectionAccess,
+        host_interface::{HostFunctionDeclaration, HostInterface, HostValueType},
+    };
+    use kagari_runtime::host::HostFunction;
+    let declaration = HostFunctionDeclaration::new(
+        "demo.memory",
+        vec![],
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
+    );
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(HostInterface {
+            functions: vec![declaration.clone()],
+            ..Default::default()
+        })
+        .unwrap();
+    let profile = kagari_runtime::LanguageProfile {
+        allow_host_calls: true,
+        ..Default::default()
+    };
+    for (body, expected) in [
+        ("a.copy_within(3..1, 0);", vec![1, 2, 3]),
+        (
+            "a.copy_within(..=18446744073709551615usize, 0);",
+            vec![1, 2, 3],
+        ),
+        ("a.copy_within(3..3, 4);", vec![1, 2, 3]),
+        ("a.copy_from_slice([1, 2]);", vec![1, 2, 3]),
+        ("a.copy_within(Region { a }, 0);", vec![9, 2]),
+    ] {
+        let source = format!(
+            r#"
+        struct Region {{ val a: MutableArray<i32> }}
+        impl RangeBounds<usize> for Region {{
+            fn start_bound(self) -> Bound<usize> {{ self.a[0] = 9; Bound::Included(0) }}
+            fn end_bound(self) -> Bound<usize> {{ self.a.pop(); Bound::Excluded(3) }}
+        }}
+        fn main() {{ val a = demo::memory(); {body} }}
+        "#
+        );
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("failure.kgr", source),
+                kagari_embed::CompileOptions {
+                    language_profile: profile,
+                },
+                Default::default(),
+            )
+            .unwrap();
+        for encoded in [false, true] {
+            let artifact = if encoded {
+                BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            } else {
+                artifact.clone()
+            };
+            let mut context = ExecutionContext {
+                language_profile: profile,
+                ..Default::default()
+            };
+            context.capabilities.host_calls = true;
+            context.host_policy.allowed_host_functions = vec!["demo.memory".into()];
+            let mut runtime = engine.runtime(context.clone());
+            let memory = runtime
+                .runtime()
+                .alloc_array(vec![Value::I32(1), Value::I32(2), Value::I32(3)])
+                .unwrap();
+            let root = runtime
+                .runtime()
+                .gc()
+                .root_value(Value::Array(memory))
+                .unwrap();
+            runtime
+                .register_host_function(HostFunction::new(declaration.clone(), move |_, _| {
+                    Ok(Value::Array(memory))
+                }))
+                .unwrap();
+            let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+            let error = runtime.execute(&loaded, "main", &[], &context).unwrap_err();
+            assert_eq!(
+                runtime.runtime().gc().array_snapshot(memory).unwrap(),
+                expected.iter().copied().map(Value::I32).collect::<Vec<_>>(),
+                "{body}: {error:?}"
+            );
+            drop(root);
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        }
+    }
 }

@@ -131,6 +131,21 @@ pub fn invoke_with_callbacks(
         ArrayRemove => array_remove(gc, args),
         ArrayJoin => array_join(gc, args),
         ArrayClear => array_clear(gc, args),
+        ArrayCopyWithin => Err(BuiltinError::new("range bounds require static lowering")),
+        ArrayCopyWithinBounds => {
+            let [Value::Array(target), start, end, destination] = args else {
+                return Err(BuiltinError::new("invalid copy_within operands"));
+            };
+            let destination = usize::try_from(match destination {
+                Value::U64(n) => *n,
+                _ => return Err(BuiltinError::new("invalid copy destination")),
+            })
+            .map_err(|_| BuiltinError::new("copy destination exceeds platform capacity"))?;
+            let start = crate::range::index_bound(gc, start)?;
+            let end = crate::range::index_bound(gc, end)?;
+            gc.array_copy_within(*target, start, end, destination)?;
+            Ok(Value::Unit)
+        }
         ArrayFill => {
             let [Value::Array(target), value] = args else {
                 return Err(BuiltinError::new("array.fill expects an array and value"));

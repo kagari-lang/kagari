@@ -196,14 +196,14 @@ impl<'a> BodyResolver<'a> {
             | ExprKind::ArrayRepeat {
                 value: lhs,
                 count: rhs,
-            }
-            | ExprKind::Range {
-                start: lhs,
-                end: rhs,
-                ..
             } => {
                 self.resolve_expr(*lhs);
                 self.resolve_expr(*rhs);
+            }
+            ExprKind::Range { start, end, .. } => {
+                for expr in start.iter().chain(end) {
+                    self.resolve_expr(*expr);
+                }
             }
             ExprKind::Call { callee, args, .. } => {
                 self.resolve_expr(*callee);

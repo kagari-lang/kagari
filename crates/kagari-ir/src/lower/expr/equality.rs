@@ -219,6 +219,13 @@ impl FunctionLowerer<'_, '_> {
                 args: members,
             } => {
                 let variants = match kind {
+                    kagari_hir::builtin::surface::StandardEnum::Bound => {
+                        vec![
+                            (0, vec![members[0].clone()]),
+                            (1, vec![members[0].clone()]),
+                            (2, vec![]),
+                        ]
+                    }
                     kagari_hir::builtin::surface::StandardEnum::TryFromIntError => {
                         vec![(0, vec![])]
                     }

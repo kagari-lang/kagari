@@ -189,6 +189,37 @@ impl<'a> Executor<'a> {
                 let value = self.make_tuple(&elements)?;
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
+            BytecodeInstruction::RangeBound {
+                dst,
+                value,
+                range,
+                bound,
+                upper,
+            } => {
+                let Value::Range(value) = self.current_frame()?.read_register(value)? else {
+                    return Err(VmError::Trap("invalid range value"));
+                };
+                let result = value
+                    .bound(self.runtime.gc(), &range, &bound, upper)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?.write_register(dst, result)?;
+            }
+            BytecodeInstruction::MakeRange {
+                dst,
+                start,
+                end,
+                ty,
+            } => {
+                let frame = self.current_frame()?;
+                let start = start.map(|r| frame.read_register(r)).transpose()?;
+                let end = end.map(|r| frame.read_register(r)).transpose()?;
+                drop(frame);
+                let value =
+                    kagari_runtime::range::RangeValue::new(&ty, start.as_ref(), end.as_ref())
+                        .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?
+                    .write_register(dst, Value::Range(value))?;
+            }
             BytecodeInstruction::RepeatArray { dst, value, count } => {
                 let value = self.current_frame()?.read_register(value)?;
                 let Value::U64(count) = self.current_frame()?.read_register(count)? else {

@@ -87,7 +87,9 @@ binding_stmt	2	?	init_expr
 return_stmt	1	?	expr
 if_expr	1	?	("else" (if_expr | block))
 break_stmt	1	?	expr
-range_expr	1	?	(range_op logic_or_expr)
+range_expr	1	?	logic_or_expr
+range_expr	2	?	logic_or_expr
+range_expr	3	?	logic_or_expr
 logic_or_expr	1	*	("||" logic_and_expr)
 logic_and_expr	1	*	("&&" equality_expr)
 equality_expr	1	*	(("==" | "!=" | "===" | "!==") compare_expr)

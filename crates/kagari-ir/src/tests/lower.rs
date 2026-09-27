@@ -888,6 +888,12 @@ fn instruction_values(instruction: &Instruction) -> Vec<IrValue> {
         }
         Instruction::WriteCell { cell, value } => vec![*cell, *value],
         Instruction::EndIteration => Vec::new(),
+        Instruction::RangeBound { dst, value, .. } => vec![*dst, *value],
+        Instruction::MakeRange {
+            dst, start, end, ..
+        } => std::iter::once(*dst)
+            .chain(start.iter().chain(end).copied())
+            .collect(),
         Instruction::RepeatArray { dst, value, count } => vec![*dst, *value, *count],
         Instruction::MakeTuple { dst, elements }
         | Instruction::MakeArray { dst, elements }

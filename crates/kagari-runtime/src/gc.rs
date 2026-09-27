@@ -452,6 +452,7 @@ impl GcHeap {
         while let Some((value, ty)) = pending.pop() {
             match (value, ty) {
                 (value, AbiType::Builtin(_)) if value.has_representation(ty.representation()) => {},
+                (Value::Range(value), AbiType::Range(_, _)) if value.matches(ty) => {},
                 (Value::Closure(id), AbiType::Function { params, result }) => {
                     let Some(snapshot) = self.closure_snapshot(id) else { return false; };
                     let Some(function) = snapshot.implementation.bytecode.functions.get(snapshot.function.index()) else { return false; };
@@ -490,6 +491,8 @@ impl GcHeap {
                 (Value::Enum(id), AbiType::StandardEnum { kind, args }) => {
                     let Some(snapshot) = self.enum_snapshot(id) else { return false; };
                     let index = match (kind, snapshot.tag) {
+                        (kagari_ir::module::abi::StandardEnumKind::Bound, EnumTag::BoundUnbounded) => continue,
+                        (kagari_ir::module::abi::StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 0,
                         (kagari_ir::module::abi::StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Ordering, EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater) => continue,
                         (kagari_ir::module::abi::StandardEnumKind::Option, EnumTag::OptionNone) => continue,
@@ -570,7 +573,7 @@ impl GcHeap {
             }
             return Ok(guard);
         }
-        if matches!(value, Value::Str(_)) {
+        if matches!(value, Value::Str(_) | Value::Range(_)) {
             return Ok(CollectionIteration {
                 _children: Vec::new(),
                 iter_loops: Vec::new(),
@@ -829,6 +832,59 @@ impl GcHeap {
         })
         .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid array source"))??;
         self.commit_array_copy(target, prepared)
+    }
+
+    pub fn array_copy_within(
+        &self,
+        target: HeapObjectId,
+        start: std::ops::Bound<usize>,
+        end: std::ops::Bound<usize>,
+        destination: usize,
+    ) -> Result<(), RuntimeError> {
+        use std::ops::Bound;
+        self.ensure_execution_allowed()?;
+        let invalid = || {
+            RuntimeError::new(
+                RuntimeErrorKind::IndexOutOfBounds,
+                "array copy range is out of bounds",
+            )
+        };
+        let length = self.array_len(target).ok_or_else(invalid)?;
+        let start = match start {
+            Bound::Unbounded => 0,
+            Bound::Included(n) => n,
+            Bound::Excluded(n) => n.checked_add(1).ok_or_else(invalid)?,
+        };
+        let end = match end {
+            Bound::Unbounded => length,
+            Bound::Excluded(n) => n,
+            Bound::Included(n) => n.checked_add(1).ok_or_else(invalid)?,
+        };
+        if start > end || end > length || destination > length || end - start > length - destination
+        {
+            return Err(invalid());
+        }
+        let (mut prepared, _temporary) = self.prepare_array_copy(end - start)?;
+        self.with_array(target, |values| {
+            for (index, value) in values[start..end].iter().enumerate() {
+                if index % 1024 == 0 {
+                    self.ensure_execution_allowed()?;
+                }
+                prepared.push(value.clone());
+            }
+            Ok::<_, RuntimeError>(())
+        })
+        .ok_or_else(invalid)??;
+        self.ensure_execution_allowed()?;
+        self.with_array_mut(target, |values| {
+            for (slot, value) in values[destination..destination + prepared.len()]
+                .iter_mut()
+                .zip(prepared)
+            {
+                *slot = value;
+            }
+        })
+        .ok_or_else(invalid)
     }
 
     fn prepare_array_copy(
@@ -2428,5 +2484,59 @@ mod array_bulk_tests {
             vec![Value::I32(1), Value::I32(2)]
         );
         assert_eq!(limited.stats().current_heap_units, 3);
+    }
+    #[test]
+    fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
+        use std::ops::Bound::{Excluded, Included, Unbounded};
+        let heap = GcHeap::new(Default::default(), Rc::new(ResourceState::default()));
+        let original = vec![Value::I32(1), Value::I32(2), Value::I32(3), Value::I32(4)];
+        let target = heap.alloc_array(original.clone()).unwrap();
+        let before = heap.stats().current_heap_units;
+        for (start, end, destination) in [
+            (Included(3), Excluded(1), 0),
+            (Included(0), Excluded(5), 0),
+            (Unbounded, Unbounded, 1),
+            (Included(4), Excluded(4), 5),
+            (Excluded(usize::MAX), Unbounded, 0),
+            (Unbounded, Included(usize::MAX), 0),
+        ] {
+            assert!(
+                heap.array_copy_within(target, start, end, destination)
+                    .is_err()
+            );
+            assert_eq!(heap.array_snapshot(target).unwrap(), original);
+            assert_eq!(heap.stats().current_heap_units, before);
+        }
+        let guard = heap
+            .begin_collection_iteration(&Value::Array(target))
+            .unwrap();
+        heap.array_copy_within(target, Included(0), Excluded(3), 1)
+            .unwrap();
+        assert_eq!(
+            heap.array_snapshot(target).unwrap(),
+            vec![Value::I32(1), Value::I32(1), Value::I32(2), Value::I32(3)]
+        );
+        assert_eq!(heap.stats().current_heap_units, before);
+        drop(guard);
+        for policy in [
+            ResourcePolicy {
+                max_heap_units: Some(5),
+                ..Default::default()
+            },
+            ResourcePolicy {
+                max_instruction_steps: Some(0),
+                ..Default::default()
+            },
+        ] {
+            let limited = GcHeap::new(Default::default(), Rc::new(ResourceState::new(policy)));
+            let target = limited.alloc_array(original.clone()).unwrap();
+            assert!(
+                limited
+                    .array_copy_within(target, Included(0), Excluded(3), 1)
+                    .is_err()
+            );
+            assert_eq!(limited.array_snapshot(target).unwrap(), original);
+            assert_eq!(limited.stats().current_heap_units, 5);
+        }
     }
 }

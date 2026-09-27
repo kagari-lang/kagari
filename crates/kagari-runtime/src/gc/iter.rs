@@ -8,7 +8,7 @@ use kagari_ir::module::{
 pub(super) struct NativeIter {
     pub(super) source: Value,
     pub(super) item_type: AbiType,
-    position: usize,
+    position: u128,
     revision: u64,
     pub(super) guard: Option<CollectionIteration>,
     pub(super) loops: Rc<Cell<usize>>,
@@ -113,7 +113,7 @@ impl GcHeap {
     }
     fn collection_revision(&self, source: &Value) -> Option<u64> {
         match source {
-            Value::Str(_) => Some(0),
+            Value::Str(_) | Value::Range(_) => Some(0),
             Value::Array(id) | Value::Map(id) | Value::Set(id) => {
                 let objects = self.objects.borrow();
                 self.readable_object(&objects, *id)?;
@@ -140,6 +140,7 @@ impl GcHeap {
             (Value::Map(id), AbiType::Map { .. }) => {
                 self.object_kind(*id) == Some(GcObjectKind::Map)
             }
+            (Value::Range(range), AbiType::Range(_, kind)) => kind.has_start() && range.matches(ty),
             (Value::Str(_), AbiType::Builtin(BuiltinType::String)) => true,
             _ => false,
         };
@@ -147,7 +148,9 @@ impl GcHeap {
             return Err(invalid());
         }
         let item_type = match ty {
-            AbiType::Array(item, _) | AbiType::Set(item, _) => (**item).clone(),
+            AbiType::Range(item, _) | AbiType::Array(item, _) | AbiType::Set(item, _) => {
+                (**item).clone()
+            }
             AbiType::Map { key, value, .. } => {
                 AbiType::Tuple(vec![(**key).clone(), (**value).clone()])
             }
@@ -205,11 +208,12 @@ impl GcHeap {
                 return Err(invalid());
             }
             let (payload, advance) = match &iter.source {
-                Value::Array(id) => (self.array_get(*id, iter.position), 1),
+                Value::Range(range) => (range.at(iter.position)?, 1),
+                Value::Array(id) => (self.array_get(*id, iter.position as usize), 1),
                 Value::Set(id) => (
                     self.with_set(*id, |values| {
                         values
-                            .get_index(iter.position)
+                            .get_index(iter.position as usize)
                             .map(|(key, _)| key.to_value())
                     })
                     .ok_or_else(invalid)?,
@@ -218,19 +222,19 @@ impl GcHeap {
                 Value::Map(id) => (
                     self.with_map(*id, |entries| {
                         entries
-                            .get_index(iter.position)
+                            .get_index(iter.position as usize)
                             .map(|(key, value)| Value::Tuple(vec![key.to_value(), value.clone()]))
                     })
                     .ok_or_else(invalid)?,
                     1,
                 ),
                 Value::Str(text) => match text
-                    .get(iter.position..)
+                    .get(iter.position as usize..)
                     .and_then(|tail| tail.chars().next())
                 {
                     Some(character) => (
                         Some(Value::Str(character.to_string())),
-                        character.len_utf8(),
+                        character.len_utf8() as u128,
                     ),
                     None => (None, 0),
                 },

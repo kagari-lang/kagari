@@ -189,6 +189,7 @@ pub enum TypeId {
         result: Box<TypeId>,
     },
     Iter(Box<TypeId>),
+    Range(Box<TypeId>, kagari_common::range::RangeKind),
     Array(Box<TypeId>, CollectionAccess),
     Map {
         key: Box<TypeId>,
@@ -261,7 +262,9 @@ impl TypeId {
                 Self::Tuple(types) | Self::StandardEnum { args: types, .. } => {
                     pending.extend(types)
                 }
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) => pending.push(ty),
+                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
+                    pending.push(ty)
+                }
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
@@ -288,7 +291,10 @@ impl TypeId {
                     pending.extend(items)
                 }
                 Self::Function { .. } => {}
-                Self::Array(item, _) | Self::Set(item, _) | Self::Iter(item) => pending.push(item),
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(nominal) | Self::Enum(nominal) | Self::Trait(nominal) => {
                     pending.extend(&nominal.arguments);
@@ -319,7 +325,10 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items)
                 }
-                Self::Array(item, _) | Self::Set(item, _) | Self::Iter(item) => pending.push(item),
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
@@ -355,6 +364,7 @@ impl TypeId {
         match self {
             Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
             Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
+            Self::Range(ty, kind) => Self::Range(Box::new(map(ty)), *kind),
             Self::Array(ty, access) => Self::Array(Box::new(map(ty)), *access),
             Self::Set(ty, access) => Self::Set(Box::new(map(ty)), *access),
             Self::Map { key, value, access } => Self::Map {
@@ -425,6 +435,7 @@ impl TypeId {
                     args: vec![Self::Unknown; args.len()],
                 },
                 Self::Iter(_) => Self::Iter(Box::new(Self::Unknown)),
+                Self::Range(_, kind) => Self::Range(Box::new(Self::Unknown), *kind),
                 Self::Array(_, access) => Self::Array(Box::new(Self::Unknown), *access),
                 Self::Set(_, access) => Self::Set(Box::new(Self::Unknown), *access),
                 Self::Map { access, .. } => Self::Map {
@@ -515,7 +526,8 @@ impl TypeId {
                             .map(|(source, target)| (source, target, substitute)),
                     );
                 }
-                (Self::Iter(source), Self::Iter(target))
+                (Self::Range(source, _), Self::Range(target, _))
+                | (Self::Iter(source), Self::Iter(target))
                 | (Self::Array(source, _), Self::Array(target, _))
                 | (Self::Set(source, _), Self::Set(target, _)) => {
                     pending.push((source, target, substitute));
@@ -576,7 +588,10 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items);
                 }
-                Self::Array(item, _) | Self::Set(item, _) | Self::Iter(item) => pending.push(item),
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
@@ -642,7 +657,7 @@ impl TypeId {
                 | Self::Generic(_)
                 | Self::SelfType(_)
                 | Self::Projection { .. } => return false,
-                Self::Function { .. } | Self::Iter(_) => return false,
+                Self::Function { .. } | Self::Iter(_) | Self::Range(_, _) => return false,
                 // The elements of mutable containers do not participate in identity equality.
                 Self::Builtin(_)
                 | Self::Struct(_)
@@ -667,7 +682,10 @@ impl TypeId {
                 Self::Tuple(items) | Self::StandardEnum { args: items, .. } => {
                     pending.extend(items);
                 }
-                Self::Array(item, _) | Self::Set(item, _) | Self::Iter(item) => pending.push(item),
+                Self::Array(item, _)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Function { params, result } => {
                     pending.extend(params);
@@ -711,9 +729,10 @@ impl TypeId {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values())
                 }
-                Self::Array(element, _) | Self::Set(element, _) | Self::Iter(element) => {
-                    pending.push(element)
-                }
+                Self::Array(element, _)
+                | Self::Set(element, _)
+                | Self::Iter(element)
+                | Self::Range(element, _) => pending.push(element),
                 Self::Map { key, value, .. } => {
                     pending.push(key);
                     pending.push(value);
@@ -739,6 +758,9 @@ impl TypeId {
                 (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
                 (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
                     pending.extend(left.iter_mut().zip(right).rev());
+                }
+                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
+                    pending.push((left, right));
                 }
                 (Self::Iter(left), Self::Iter(right))
                 | (Self::Array(left, _), Self::Array(right, _))
@@ -823,6 +845,9 @@ impl TypeId {
                         return true;
                     }
                     pending.extend(left.iter().zip(right).rev());
+                }
+                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
+                    pending.push((left, right));
                 }
                 (Self::Iter(left), Self::Iter(right))
                 | (Self::Array(left, _), Self::Array(right, _))
@@ -1038,6 +1063,14 @@ impl TypeId {
                             output.push('>');
                         }
                     }
+                    Self::Range(item, kind) => {
+                        if *kind != kagari_common::range::RangeKind::Full {
+                            pending.push(Part::Text(">"));
+                            pending.push(Part::Type(item));
+                            pending.push(Part::Text("<"));
+                        }
+                        pending.push(Part::Text(kind.name()));
+                    }
                     Self::StandardEnum { kind, args } => {
                         sequence(&mut pending, args, "<", ">");
                         pending.push(Part::Text(kind.spec().name));
@@ -1057,6 +1090,7 @@ impl TypeId {
             Self::Tuple(_)
             | Self::Function { .. }
             | Self::Iter(_)
+            | Self::Range(_, _)
             | Self::Array(_, _)
             | Self::Map { .. }
             | Self::Set(_, _)

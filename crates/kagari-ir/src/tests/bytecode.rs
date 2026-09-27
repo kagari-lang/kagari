@@ -2974,3 +2974,88 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
         assert!(verify_module(&invalid).is_err());
     }
 }
+
+#[test]
+fn ranges_reject_forged_shapes_endpoints_and_bounds() {
+    use crate::module::abi::{AbiType, BuiltinType, StandardEnumKind};
+    use kagari_common::range::RangeKind;
+    let module = common::bytecode_ok("fn main() { val a = [1, 2, 3]; a.copy_within(0..2, 1); }");
+    verify_module(&module).unwrap();
+    for mutation in 0..6 {
+        let mut invalid = module.clone();
+        let instruction = invalid
+            .functions
+            .iter_mut()
+            .flat_map(|f| &mut f.instructions)
+            .find(|i| matches!(i, BytecodeInstruction::MakeRange { .. }))
+            .unwrap();
+        let BytecodeInstruction::MakeRange { ty, start, end, .. } = instruction else {
+            unreachable!()
+        };
+        match mutation {
+            0 => *start = None,
+            1 => *end = None,
+            2 => {
+                *ty = AbiType::Range(
+                    Box::new(AbiType::Builtin(BuiltinType::Bool)),
+                    RangeKind::Exclusive,
+                )
+            }
+            3 => {
+                *ty = AbiType::Range(
+                    Box::new(AbiType::Builtin(BuiltinType::USize)),
+                    RangeKind::Full,
+                )
+            }
+            4 => *start = Some(Register::new(usize::MAX)),
+            _ => {
+                *ty = AbiType::Range(
+                    Box::new(AbiType::Builtin(BuiltinType::U64)),
+                    RangeKind::Exclusive,
+                )
+            }
+        }
+        assert!(
+            verify_module(&invalid).is_err(),
+            "range mutation {mutation}"
+        );
+    }
+    for mutation in 0..4 {
+        let mut invalid = module.clone();
+        let instruction = invalid
+            .functions
+            .iter_mut()
+            .flat_map(|f| &mut f.instructions)
+            .find(|i| matches!(i, BytecodeInstruction::RangeBound { .. }))
+            .unwrap();
+        let BytecodeInstruction::RangeBound {
+            range,
+            bound,
+            value,
+            ..
+        } = instruction
+        else {
+            unreachable!()
+        };
+        match mutation {
+            0 => *bound = AbiType::Builtin(BuiltinType::Bool),
+            1 => {
+                *bound = AbiType::StandardEnum {
+                    kind: StandardEnumKind::Bound,
+                    args: vec![],
+                }
+            }
+            2 => {
+                *range = AbiType::Range(
+                    Box::new(AbiType::Builtin(BuiltinType::I32)),
+                    RangeKind::Exclusive,
+                )
+            }
+            _ => *value = Register::new(usize::MAX),
+        }
+        assert!(
+            verify_module(&invalid).is_err(),
+            "bound mutation {mutation}"
+        );
+    }
+}

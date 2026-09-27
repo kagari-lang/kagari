@@ -26,6 +26,7 @@ pub struct BuiltinTypeSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum StandardEnum {
+    Bound,
     TryFromIntError,
     Infallible,
     Option,
@@ -44,6 +45,9 @@ impl StandardEnum {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardVariant {
+    Included,
+    Excluded,
+    Unbounded,
     OutOfRange,
     Less,
     Equal,
@@ -57,6 +61,7 @@ pub enum StandardVariant {
 impl StandardVariant {
     pub fn kind(self) -> StandardEnum {
         match self {
+            Self::Included | Self::Excluded | Self::Unbounded => StandardEnum::Bound,
             Self::OutOfRange => StandardEnum::TryFromIntError,
             Self::Less | Self::Equal | Self::Greater => StandardEnum::Ordering,
             Self::Some | Self::None => StandardEnum::Option,
@@ -65,6 +70,9 @@ impl StandardVariant {
     }
     pub fn index(self) -> usize {
         match self {
+            Self::Included => 0,
+            Self::Excluded => 1,
+            Self::Unbounded => 2,
             Self::OutOfRange | Self::Less => 0,
             Self::Equal => 1,
             Self::Greater => 2,
@@ -74,7 +82,12 @@ impl StandardVariant {
     }
     pub fn payload(self) -> Option<usize> {
         match self {
-            Self::OutOfRange | Self::None | Self::Less | Self::Equal | Self::Greater => None,
+            Self::Unbounded
+            | Self::OutOfRange
+            | Self::None
+            | Self::Less
+            | Self::Equal
+            | Self::Greater => None,
             Self::Err => Some(1),
             _ => Some(0),
         }
@@ -83,6 +96,9 @@ impl StandardVariant {
 
 pub fn standard_variant(path: &str) -> Option<StandardVariant> {
     Some(match path {
+        "Bound::Included" | "std::ops::Bound::Included" => StandardVariant::Included,
+        "Bound::Excluded" | "std::ops::Bound::Excluded" => StandardVariant::Excluded,
+        "Bound::Unbounded" | "std::ops::Bound::Unbounded" => StandardVariant::Unbounded,
         "TryFromIntError::OutOfRange" | "std::convert::TryFromIntError::OutOfRange" => {
             StandardVariant::OutOfRange
         }
@@ -99,6 +115,13 @@ pub fn standard_variant(path: &str) -> Option<StandardVariant> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StandardTypeConstructor {
+    Bound,
+    Range,
+    RangeInclusive,
+    RangeFrom,
+    RangeTo,
+    RangeToInclusive,
+    RangeFull,
     Array,
     MutableArray,
     MutableMap,
@@ -198,6 +221,8 @@ pub enum StandardIntrinsic {
     ArrayClear,
     ArrayFill,
     ArrayCopyFromSlice,
+    ArrayCopyWithin,
+    ArrayCopyWithinBounds,
     ArrayJoin,
     MapNew,
     MapLen,
@@ -514,6 +539,11 @@ pub fn standard_enums() -> &'static [StandardEnumSpec] {
 }
 
 pub fn standard_enum(name: &str) -> Option<&'static StandardEnumSpec> {
+    let name = if name == "std::ops::Bound" {
+        "Bound"
+    } else {
+        name
+    };
     standard_enums().iter().find(|spec| spec.name == name)
 }
 
@@ -522,6 +552,14 @@ pub fn standard_type_constructors() -> &'static [StandardTypeConstructorSpec] {
 }
 
 pub fn standard_type_constructor(name: &str) -> Option<&'static StandardTypeConstructorSpec> {
+    let name = if let Some(member) = name.strip_prefix("std::ops::") {
+        if member != "Bound" && range_kind(member).is_none() {
+            return None;
+        }
+        member
+    } else {
+        name
+    };
     standard_type_constructors()
         .iter()
         .find(|spec| spec.name == name)
@@ -620,10 +658,26 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
         return None;
     }
 
+    if let Some(kind) = range_kind(name) {
+        return Some(TypeId::Range(
+            Box::new(
+                args.into_iter()
+                    .next()
+                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit)),
+            ),
+            kind,
+        ));
+    }
     match spec.kind {
-        StandardTypeConstructor::Option | StandardTypeConstructor::Result => {
-            standard_enum_type(name, args)
-        }
+        StandardTypeConstructor::Range
+        | StandardTypeConstructor::RangeInclusive
+        | StandardTypeConstructor::RangeFrom
+        | StandardTypeConstructor::RangeTo
+        | StandardTypeConstructor::RangeToInclusive
+        | StandardTypeConstructor::RangeFull => unreachable!(),
+        StandardTypeConstructor::Bound
+        | StandardTypeConstructor::Option
+        | StandardTypeConstructor::Result => standard_enum_type(name, args),
         StandardTypeConstructor::Map | StandardTypeConstructor::MutableMap => {
             let [key, value] = args.try_into().ok()?;
             Some(TypeId::Map {
@@ -747,5 +801,18 @@ pub fn standard_variant_in_module(module: StandardModule, name: &str) -> Option<
 pub fn standard_associated_function(path: &str) -> Option<&'static StandardFunctionSpec> {
     STANDARD_FUNCTIONS.iter().find(|spec| {
         spec.name.contains("::") && (spec.name == path || spec.api.qualified_name == path)
+    })
+}
+
+pub fn range_kind(name: &str) -> Option<kagari_common::range::RangeKind> {
+    use kagari_common::range::RangeKind::*;
+    Some(match name.strip_prefix("std::ops::").unwrap_or(name) {
+        "Range" => Exclusive,
+        "RangeInclusive" => Inclusive,
+        "RangeFrom" => From,
+        "RangeTo" => To,
+        "RangeToInclusive" => ToInclusive,
+        "RangeFull" => Full,
+        _ => return None,
     })
 }

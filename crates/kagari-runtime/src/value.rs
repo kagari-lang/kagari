@@ -15,6 +15,9 @@ pub struct EnumValueSnapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnumTag {
+    BoundIncluded,
+    BoundExcluded,
+    BoundUnbounded,
     TryFromIntError,
     OrderingLess,
     OrderingEqual,
@@ -29,6 +32,7 @@ pub enum EnumTag {
 impl EnumTag {
     pub fn type_name(&self) -> &str {
         match self {
+            Self::BoundIncluded | Self::BoundExcluded | Self::BoundUnbounded => "Bound",
             Self::TryFromIntError => "TryFromIntError",
             Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => "Ordering",
             Self::OptionSome | Self::OptionNone => "Option",
@@ -46,6 +50,9 @@ impl EnumTag {
     }
     pub fn variant_name(&self) -> &str {
         match self {
+            Self::BoundIncluded => "Included",
+            Self::BoundExcluded => "Excluded",
+            Self::BoundUnbounded => "Unbounded",
             Self::TryFromIntError => "OutOfRange",
             Self::OrderingLess => "Less",
             Self::OrderingEqual => "Equal",
@@ -67,12 +74,17 @@ impl EnumTag {
     }
     pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
         match self {
-            Self::TryFromIntError
+            Self::BoundUnbounded
+            | Self::TryFromIntError
             | Self::OptionNone
             | Self::OrderingLess
             | Self::OrderingEqual
             | Self::OrderingGreater => fields.is_empty(),
-            Self::OptionSome | Self::ResultOk | Self::ResultErr => fields.len() == 1,
+            Self::BoundIncluded
+            | Self::BoundExcluded
+            | Self::OptionSome
+            | Self::ResultOk
+            | Self::ResultErr => fields.len() == 1,
             Self::Declared(layout) => {
                 fields.len() == layout.variant().payload.len()
                     && fields
@@ -181,6 +193,9 @@ impl MapKey {
                 Value::Enum(id) => {
                     let snapshot = gc.enum_snapshot(id)?;
                     parts.push(match snapshot.tag {
+                        EnumTag::BoundIncluded => KeyPart::StandardEnum(8),
+                        EnumTag::BoundExcluded => KeyPart::StandardEnum(9),
+                        EnumTag::BoundUnbounded => KeyPart::StandardEnum(10),
                         EnumTag::TryFromIntError => KeyPart::StandardEnum(7),
                         EnumTag::OrderingLess => KeyPart::StandardEnum(4),
                         EnumTag::OrderingEqual => KeyPart::StandardEnum(5),
@@ -237,6 +252,7 @@ pub enum Value {
     F64(f64),
     Str(String),
     Tuple(Vec<Value>),
+    Range(crate::range::RangeValue),
     Array(HeapObjectId),
     Map(HeapObjectId),
     Set(HeapObjectId),
@@ -271,7 +287,8 @@ impl Value {
                     T::HostHandle
                 )
                 | (
-                    Self::Tuple(_)
+                    Self::Range(_)
+                        | Self::Tuple(_)
                         | Self::Array(_)
                         | Self::Map(_)
                         | Self::Set(_)
@@ -295,7 +312,8 @@ impl Value {
             | Self::F32(_)
             | Self::F64(_)
             | Self::Str(_) => ValueCategory::Primitive,
-            Self::Tuple(_)
+            Self::Range(_)
+            | Self::Tuple(_)
             | Self::Array(_)
             | Self::Map(_)
             | Self::Set(_)
@@ -348,7 +366,8 @@ impl Value {
             | Self::U64(_)
             | Self::F32(_)
             | Self::F64(_)
-            | Self::Str(_) => true,
+            | Self::Str(_)
+            | Self::Range(_) => true,
             Self::Tuple(elements) => elements.iter().all(Self::is_default_heap_payload),
             Self::Array(_)
             | Self::Map(_)

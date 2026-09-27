@@ -288,6 +288,7 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
         TypeId::Set(_, CollectionAccess::ReadOnly) => "Set",
         TypeId::Set(_, CollectionAccess::Mutable) => "MutableSet",
         TypeId::Iter(_) => "Iter",
+        TypeId::Range(_, kind) => kind.name(),
         TypeId::StandardEnum { kind, .. } => kind.spec().name,
         _ => return None,
     };
@@ -328,6 +329,7 @@ pub struct ApiParameter {
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ApiFunction {
+    pub bounds: &'static [(ApiType, &'static [ApiBound])],
     pub qualified_name: &'static str,
     pub uri: &'static str,
     pub start: usize,
@@ -399,11 +401,18 @@ impl ApiType {
                     .iter()
                     .map(|t| t.instantiate(arguments))
                     .collect::<Vec<_>>();
+                if surface::range_kind(name).is_some() {
+                    return surface::standard_generic_type(name, types).unwrap_or(TypeId::Error);
+                }
                 match (*name, types.as_slice()) {
                     ("Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet", _) => {
                         surface::standard_generic_type(name, types).unwrap_or(TypeId::Error)
                     }
                     ("Iter", [item]) => TypeId::Iter(Box::new(item.clone())),
+                    ("Bound", [_]) => TypeId::StandardEnum {
+                        kind: StandardEnum::Bound,
+                        args: types,
+                    },
                     ("Option", [_]) => TypeId::StandardEnum {
                         kind: StandardEnum::Option,
                         args: types,
@@ -440,6 +449,9 @@ impl ApiType {
                 } else {
                     argument.recover_from(actual);
                 }
+            }
+            (Self::Named(name, [item]), TypeId::Range(actual, kind)) if *name == kind.name() => {
+                item.infer(actual, arguments)
             }
             (Self::Array(element), TypeId::Array(actual, _)) => element.infer(actual, arguments),
             (Self::Named("Array" | "MutableArray", [element]), TypeId::Array(actual, _)) => {

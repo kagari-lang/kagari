@@ -278,11 +278,19 @@ impl BinaryExpr {
 
 impl RangeExpr {
     pub fn start(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).next()
+        self.syntax()
+            .children_with_tokens()
+            .take_while(|part| !matches!(part.kind(), SyntaxKind::DotDot | SyntaxKind::DotDotEq))
+            .filter_map(|part| part.into_node().and_then(Expr::cast))
+            .next()
     }
 
     pub fn end(&self) -> Option<Expr> {
-        self.syntax().children().filter_map(Expr::cast).nth(1)
+        self.syntax()
+            .children_with_tokens()
+            .skip_while(|part| !matches!(part.kind(), SyntaxKind::DotDot | SyntaxKind::DotDotEq))
+            .filter_map(|part| part.into_node().and_then(Expr::cast))
+            .next()
     }
 
     pub fn inclusive(&self) -> bool {

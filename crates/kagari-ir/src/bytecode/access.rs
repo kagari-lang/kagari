@@ -227,6 +227,38 @@ pub(super) fn verify(
                         changed |= merge(&mut locals[local.index()], value);
                     }
                 }
+                I::RangeBound {
+                    dst,
+                    value,
+                    range,
+                    bound,
+                    ..
+                } => {
+                    if let Some(value) = get(*value)
+                        && !flows(&value, range)
+                    {
+                        return Err(invalid());
+                    }
+                    produced = Some((*dst, Fact::typed(bound.clone())));
+                }
+                I::MakeRange {
+                    dst,
+                    start,
+                    end,
+                    ty,
+                } => {
+                    let AbiType::Range(item, _) = ty else {
+                        return Err(invalid());
+                    };
+                    for register in start.iter().chain(end) {
+                        if let Some(fact) = get(*register)
+                            && !flows(&fact, item)
+                        {
+                            return Err(invalid());
+                        }
+                    }
+                    produced = Some((*dst, Fact::typed(ty.clone())));
+                }
                 I::RepeatArray { dst, value, count } => {
                     if let (Some(value), Some(count)) = (get(*value), get(*count)) {
                         if !flows(
@@ -408,9 +440,10 @@ pub(super) fn verify(
                         AbiType::Tuple(_) if *op == IterOp::FromClosure => {
                             IterOp::closure_item(ty).cloned()
                         }
-                        AbiType::Array(item, _) | AbiType::Set(item, _) | AbiType::Iter(item) => {
-                            Some((**item).clone())
-                        }
+                        AbiType::Range(item, _)
+                        | AbiType::Array(item, _)
+                        | AbiType::Set(item, _)
+                        | AbiType::Iter(item) => Some((**item).clone()),
                         AbiType::Map { key, value, .. } => {
                             Some(AbiType::Tuple(vec![(**key).clone(), (**value).clone()]))
                         }
@@ -643,7 +676,8 @@ pub(super) fn verify(
                         CallTarget::StandardIntrinsic(intrinsic) => {
                             if matches!(
                                 intrinsic,
-                                S::ArrayFrom
+                                S::ArrayCopyWithin
+                                    | S::ArrayFrom
                                     | S::MutableArrayFrom
                                     | S::MapFrom
                                     | S::MutableMapFrom
@@ -661,6 +695,7 @@ pub(super) fn verify(
                                     | S::ArrayClear
                                     | S::ArrayFill
                                     | S::ArrayCopyFromSlice
+                                    | S::ArrayCopyWithinBounds
                                     | S::MapInsert
                                     | S::MapRemove
                                     | S::MapClear
@@ -676,6 +711,23 @@ pub(super) fn verify(
                                 .is_some_and(|f| f.access == Some(Access::ReadOnly))
                             {
                                 return Err(invalid());
+                            }
+                            if *intrinsic == S::ArrayCopyWithinBounds {
+                                if !matches!(&facts[0].ty, Some(AbiType::Array(_, Access::Mutable)))
+                                {
+                                    return Err(invalid());
+                                }
+                                let bound = AbiType::StandardEnum {
+                                    kind: surface::StandardEnum::Bound,
+                                    args: vec![AbiType::Builtin(B::USize)],
+                                };
+                                if !flows(&facts[1], &bound)
+                                    || !flows(&facts[2], &bound)
+                                    || !flows(&facts[3], &AbiType::Builtin(B::USize))
+                                {
+                                    return Err(invalid());
+                                }
+                                result = Fact::typed(AbiType::Builtin(B::Unit));
                             }
                             if matches!(intrinsic, S::KeyMapInsert | S::KeySetInsert) {
                                 match (&facts[0].ty, intrinsic) {

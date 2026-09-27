@@ -320,8 +320,10 @@ impl<'a> Completion<'a> {
                                 ]
                                 .into_iter(),
                             ),
-                            ExprKind::Range { start, end, .. }
-                            | ExprKind::ArrayRepeat {
+                            ExprKind::Range { start, end, .. } => {
+                                Box::new(start.iter().chain(end).copied().map(Node::Expr))
+                            }
+                            ExprKind::ArrayRepeat {
                                 value: start,
                                 count: end,
                             } => Box::new([Node::Expr(*start), Node::Expr(*end)].into_iter()),

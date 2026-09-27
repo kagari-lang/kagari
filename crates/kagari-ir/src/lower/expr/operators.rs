@@ -286,11 +286,34 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         use crate::module::{abi::AbiType, instruction::IterOp};
+        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::RangeBounds)
+            && matches!(ty, TypeId::Range(_, _))
+        {
+            let upper = method.path.last().is_some_and(|p| p.name == "end_bound");
+            let bound = AbiType::StandardEnum {
+                kind: kagari_hir::builtin::surface::StandardEnum::Bound,
+                args: interface
+                    .arguments
+                    .iter()
+                    .map(AbiType::from_checked_type)
+                    .collect(),
+            };
+            let dst = self.alloc_temp(ValueType::HeapObject);
+            self.emit(Instruction::RangeBound {
+                dst,
+                value: args[0],
+                range: AbiType::from_checked_type(&ty),
+                bound,
+                upper,
+            });
+            return Ok(dst);
+        }
         let iter_op = match StandardTrait::from_id(&interface.declaration) {
             Some(StandardTrait::Iterable)
                 if matches!(
                     ty,
-                    TypeId::Array(_, _)
+                    TypeId::Range(_, _)
+                        | TypeId::Array(_, _)
                         | TypeId::Set(_, _)
                         | TypeId::Map { .. }
                         | TypeId::Builtin(kagari_hir::types::BuiltinType::String)

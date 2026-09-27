@@ -551,8 +551,8 @@ KBC/runtime ABI v80 rejects earlier products.
 
 - [x] A01: dynamic repeat arrays with once-only evaluation and shallow element copies.
 - [x] A02: atomic fill and equal-length copy_from_slice on writable arrays.
-- [ ] A03: independent range values, lazy integer iteration and range declarations.
-- [ ] A04: copy_within with validated ranges and overlap-safe shallow copying.
+- [x] A03: independent range values, lazy integer iteration and range declarations.
+- [x] A04: copy_within with validated ranges and overlap-safe shallow copying.
 - [ ] A05: examples, API documentation, artifacts and workspace validation.
 
 These are general language and standard-library capabilities. Fixed-size array

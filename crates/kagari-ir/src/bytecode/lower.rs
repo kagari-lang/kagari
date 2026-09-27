@@ -883,6 +883,30 @@ fn lower_instruction(
                 .map(|element| lower_value(*element))
                 .collect(),
         },
+        Instruction::RangeBound {
+            dst,
+            value,
+            range,
+            bound,
+            upper,
+        } => BytecodeInstruction::RangeBound {
+            dst: lower_value(*dst),
+            value: lower_value(*value),
+            range: range.clone(),
+            bound: bound.clone(),
+            upper: *upper,
+        },
+        Instruction::MakeRange {
+            dst,
+            start,
+            end,
+            ty,
+        } => BytecodeInstruction::MakeRange {
+            dst: lower_value(*dst),
+            start: start.map(lower_value),
+            end: end.map(lower_value),
+            ty: ty.clone(),
+        },
         Instruction::RepeatArray { dst, value, count } => BytecodeInstruction::RepeatArray {
             dst: lower_value(*dst),
             value: lower_value(*value),

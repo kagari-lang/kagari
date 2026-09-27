@@ -106,6 +106,19 @@ pub enum Instruction {
         dst: IrValue,
         elements: ValueBuffer,
     },
+    RangeBound {
+        dst: IrValue,
+        value: IrValue,
+        range: crate::module::abi::AbiType,
+        bound: crate::module::abi::AbiType,
+        upper: bool,
+    },
+    MakeRange {
+        dst: IrValue,
+        start: Option<IrValue>,
+        end: Option<IrValue>,
+        ty: crate::module::abi::AbiType,
+    },
     RepeatArray {
         dst: IrValue,
         value: IrValue,
@@ -432,9 +445,14 @@ impl Instruction {
             Self::StoreModule { .. } => EffectSet::module_write(),
             Self::Call { callee, .. } => callee.effects(),
             Self::BeginIteration { .. } | Self::EndIteration => EffectSet::runtime_call(),
+            Self::MakeRange { .. } => EffectSet {
+                may_trap: true,
+                ..EffectSet::default()
+            },
             Self::MakeTuple { .. }
             | Self::MakeArray { .. }
             | Self::RepeatArray { .. }
+            | Self::RangeBound { .. }
             | Self::MakeClosure { .. }
             | Self::MakeCell { .. }
             | Self::MakeInterface { .. }
@@ -507,6 +525,8 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayClear
             | ArrayFill
             | ArrayCopyFromSlice
+            | ArrayCopyWithin
+            | ArrayCopyWithinBounds
             | MapInsert
             | MapRemove
             | MapClear
@@ -680,7 +700,7 @@ impl StandardEnumOp {
         let payload = if spec.payload_arity == 0 {
             None
         } else {
-            Some(args[variant as usize].representation())
+            Some(args[if args.len() == 2 { variant as usize } else { 0 }].representation())
         };
         match self {
             Self::Make(_) => Some((payload, ValueType::HeapObject)),
@@ -714,6 +734,7 @@ impl IterOp {
                 ValueType::HeapObject
             }
             Self::New => match ty {
+                AbiType::Range(_, kind) if kind.has_start() => ValueType::HeapObject,
                 AbiType::Array(_, _) | AbiType::Map { .. } | AbiType::Set(_, _) => {
                     ValueType::HeapObject
                 }
@@ -777,4 +798,40 @@ pub fn mapped_error_payload(ty: &super::abi::AbiType) -> Option<super::ValueType
         return None;
     }
     StandardEnumOp::Make(1).contract(ty)?.0
+}
+
+/// Validate endpoint presence and physical types using the range's semantic type.
+pub fn range_operands_valid(
+    ty: &super::abi::AbiType,
+    start: Option<ValueType>,
+    end: Option<ValueType>,
+) -> bool {
+    use super::abi::AbiType;
+    let AbiType::Range(item, kind) = ty else {
+        return false;
+    };
+    ty.within_wire_limits()
+        && super::abi::verify::concrete_type_valid(ty, &Default::default())
+        && start == kind.has_start().then(|| item.representation())
+        && end == kind.has_end().then(|| item.representation())
+}
+
+pub fn range_bound_valid(range: &super::abi::AbiType, bound: &super::abi::AbiType) -> bool {
+    use super::abi::{AbiType, StandardEnumKind};
+    let (
+        AbiType::Range(item, kind),
+        AbiType::StandardEnum {
+            kind: StandardEnumKind::Bound,
+            args,
+        },
+    ) = (range, bound)
+    else {
+        return false;
+    };
+    range.within_wire_limits()
+        && bound.within_wire_limits()
+        && super::abi::verify::concrete_type_valid(range, &Default::default())
+        && super::abi::verify::concrete_type_valid(bound, &Default::default())
+        && args.len() == 1
+        && (*kind == kagari_common::range::RangeKind::Full || args[0] == **item)
 }

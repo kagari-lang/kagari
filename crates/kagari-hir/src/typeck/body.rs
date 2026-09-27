@@ -889,23 +889,39 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Prefix { op, expr } => {
                 self.infer_prefix_operator(expr_id, op, expr, env, expected)
             }
-            ExprKind::Range { start, end, .. } => {
-                let integer = TypeId::Builtin(BuiltinType::I32);
-                let start_ty = self.infer_expr_type_expected(*start, env, Some(&integer));
-                let end_ty = self.infer_expr_type_expected(*end, env, Some(&integer));
-                for (operand, ty) in [(*start, start_ty), (*end, end_ty)] {
-                    if ty.conflicts_with(&integer) {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
-                                operator: "..",
-                                expected: display_type_id(&integer),
-                                found: display_type_id(&ty),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(operand)),
-                        );
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                use kagari_common::range::RangeKind;
+                let kind = RangeKind::from_parts(start.is_some(), end.is_some(), *inclusive)
+                    .unwrap_or(RangeKind::Full);
+                let mut element = match expected {
+                    Some(TypeId::Range(item, _)) => Some((**item).clone()),
+                    _ => None,
+                };
+                for operand in start.iter().chain(end) {
+                    let actual = self.infer_expr_with_coercion(*operand, env, element.as_ref());
+                    if let Some(expected) = &element {
+                        if expected.conflicts_with(&actual) {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
+                                    operator: "range",
+                                    expected: display_type_id(expected),
+                                    found: display_type_id(&actual),
+                                })
+                                .with_span(self.lowered.source_map.expr_span(*operand)),
+                            );
+                        }
+                    } else {
+                        element = Some(actual);
                     }
                 }
-                TypeId::Array(Box::new(integer), CollectionAccess::Mutable)
+                TypeId::Range(
+                    Box::new(element.unwrap_or(TypeId::Builtin(BuiltinType::Unit))),
+                    kind,
+                )
             }
             ExprKind::Binary { lhs, op, rhs } => {
                 self.infer_binary_operator(expr_id, lhs, op, rhs, env, expected)
@@ -1964,6 +1980,20 @@ impl<'a> BodyChecker<'a> {
                 }
             }
         }
+        let declared_bounds = api
+            .bounds
+            .iter()
+            .map(|(target, bounds)| {
+                (
+                    target.instantiate(&bindings),
+                    bounds
+                        .iter()
+                        .map(|b| super::ConstraintTarget::Trait(b.nominal(&bindings)))
+                        .collect(),
+                )
+            })
+            .collect();
+        self.check_generic_call_bounds(&[], &declared_bounds, &Default::default(), env, callee);
         for ty in bindings.values_mut() {
             *ty = self.solver.resolve(ty);
         }

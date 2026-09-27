@@ -11,6 +11,10 @@ pub fn declaration(
 ) {
     let interface = def.trait_ref().unwrap();
     let protocol = interface.path_text().unwrap();
+    if protocol == "RangeBounds" {
+        range_bounds(def, module, uri, text, items, output);
+        return;
+    }
     let target = def.target_type().unwrap();
     let owner = target.name_text().unwrap();
     let parameters = def
@@ -25,6 +29,7 @@ pub fn declaration(
     assert!(def.where_clause().is_none() && def.associated_consts().next().is_none());
     assert!(matches!(protocol.as_str(), "Iterable" | "FromIterator"));
     let expected_module = match owner.as_str() {
+        "Range" | "RangeInclusive" | "RangeFrom" => "ops",
         "Array" | "MutableArray" => "array",
         "Map" | "MutableMap" => "map",
         "Set" | "MutableSet" => "set",
@@ -36,7 +41,8 @@ pub fn declaration(
     assert_eq!(module, expected_module);
     let named = |name: &str| format!("ApiType::Named({name:?}, &[])");
     let (arguments, element): (Vec<String>, String) = match owner.as_str() {
-        "Array" | "MutableArray" | "Set" | "MutableSet" => {
+        "Range" | "RangeInclusive" | "RangeFrom" | "Array" | "MutableArray" | "Set"
+        | "MutableSet" => {
             assert_eq!(names.len(), 1);
             (vec![named(&names[0])], named(&names[0]))
         }
@@ -222,4 +228,103 @@ pub fn declaration(
     let constraints = constraints.join(",");
     let associated = associated.join(",");
     writeln!(output, "super::declarations::ApiImplementation{{interface:{protocol:?},trait_arguments:&[{trait_arguments}],bounds:&[{constraints}],generics:&{names:?},target:{target},associated_types:&[{associated}],methods:&[ApiMethod{{item:{item},iterator:None,generics:&[{generics}],bounds:&[],params:&[ApiParameter{{name:{param_name:?},ty:{param_type}}}],result:{result}}}]}},").unwrap();
+}
+
+fn range_bounds(
+    def: &ast::ImplBlock,
+    module: &str,
+    uri: &str,
+    text: &str,
+    items: &mut String,
+    output: &mut String,
+) {
+    assert_eq!(module, "ops");
+    assert!(
+        def.where_clause().is_none()
+            && def.associated_types().next().is_none()
+            && def.associated_consts().next().is_none()
+    );
+    let interface = def.trait_ref().unwrap();
+    let arguments = interface.generic_args().unwrap();
+    assert!(arguments.bindings().next().is_none());
+    assert_eq!(
+        arguments.args().map(ty).collect::<Vec<_>>(),
+        ["ApiType::Named(\"T\", &[])"]
+    );
+    assert!(
+        def.generic_params()
+            .unwrap()
+            .params()
+            .all(|p| p.bounds().is_none())
+    );
+    let target_node = def.target_type().unwrap();
+    let owner = target_node.name_text().unwrap();
+    assert!(matches!(
+        owner.as_str(),
+        "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo" | "RangeToInclusive" | "RangeFull"
+    ));
+    let names = def
+        .generic_params()
+        .unwrap()
+        .params()
+        .map(|p| p.name_text().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["T"]);
+    let target = ty(target_node);
+    let expected = if owner == "RangeFull" {
+        "ApiType::Named(\"RangeFull\", &[])".into()
+    } else {
+        format!("ApiType::Named({owner:?}, &[ApiType::Named(\"T\", &[])])")
+    };
+    assert_eq!(target, expected);
+    let mut methods = String::new();
+    let members = def.methods().collect::<Vec<_>>();
+    assert_eq!(members.len(), 2);
+    for (method, name, binding) in members
+        .iter()
+        .zip(["start_bound", "end_bound"])
+        .map(|(m, n)| {
+            (
+                m,
+                n,
+                if n == "start_bound" {
+                    "RangeStartBound"
+                } else {
+                    "RangeEndBound"
+                },
+            )
+        })
+    {
+        assert_eq!(method.name_text().as_deref(), Some(name));
+        assert_eq!(attribute(method, "intrinsic").as_deref(), Some(binding));
+        assert!(
+            method.body().is_none()
+                && method.generic_params().is_none()
+                && method.where_clause().is_none()
+        );
+        assert_eq!(method.visibility(), ast::Visibility::Private);
+        let params = method.param_list().unwrap().params().collect::<Vec<_>>();
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0].name_text().as_deref(), Some("self"));
+        assert!(params[0].ty().is_none());
+        let result = ty(method.return_type().unwrap());
+        assert_eq!(
+            result,
+            "ApiType::Named(\"Bound\", &[ApiType::Named(\"T\", &[])])"
+        );
+        let item = api::item(
+            method,
+            method.name().unwrap(),
+            module,
+            uri,
+            text,
+            &[
+                ("Impl", format!("RangeBounds for {owner}")),
+                ("Method", name.into()),
+            ],
+        );
+        writeln!(items, "{item},").unwrap();
+        writeln!(methods, "ApiMethod{{item:{item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}},").unwrap();
+    }
+    writeln!(output, "super::declarations::ApiImplementation{{interface:\"RangeBounds\",trait_arguments:&[ApiType::Named(\"T\", &[])],bounds:&[],generics:&{names:?},target:{target},associated_types:&[],methods:&[{methods}]}},").unwrap();
 }

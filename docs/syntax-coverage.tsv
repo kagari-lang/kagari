@@ -85,7 +85,6 @@ condition	covered	examples/syntax/binding-conditions.kgr	-
 binding_condition	covered	examples/syntax/binding-conditions.kgr	-
 expr	covered	examples/syntax/ranges.kgr	-
 range_expr	covered	examples/syntax/ranges.kgr	-
-range_op	covered	examples/syntax/ranges.kgr	-
 logic_or_expr	covered	examples/syntax/expressions.kgr	-
 logic_and_expr	covered	examples/syntax/expressions.kgr	-
 equality_expr	covered	examples/syntax/expressions.kgr	-

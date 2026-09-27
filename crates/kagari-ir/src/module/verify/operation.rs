@@ -230,6 +230,38 @@ pub(super) fn verify(
                 .map_err(contract)?;
             }
         },
+        RangeBound {
+            dst,
+            value,
+            range,
+            bound,
+            ..
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "bound destination")?;
+            context.expect(value.ty, ValueType::HeapObject, "bound range")?;
+            if !crate::module::instruction::range_bound_valid(range, bound) {
+                return Err(contract(ContractError::InvalidOperation {
+                    reason: "invalid range bound contract",
+                }));
+            }
+        }
+        MakeRange {
+            dst,
+            start,
+            end,
+            ty,
+        } => {
+            context.expect(dst.ty, ValueType::HeapObject, "range destination")?;
+            if !super::super::instruction::range_operands_valid(
+                ty,
+                start.map(|v| v.ty),
+                end.map(|v| v.ty),
+            ) {
+                return Err(contract(ContractError::InvalidOperation {
+                    reason: "invalid range operands",
+                }));
+            }
+        }
         RepeatArray { dst, count, .. } => {
             context.expect(dst.ty, ValueType::HeapObject, "repeat array destination")?;
             context.expect(count.ty, ValueType::U64, "repeat array count")?;

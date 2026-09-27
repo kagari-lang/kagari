@@ -23,6 +23,7 @@ enum Node {
     Tuple(u32),
     Function(u32),
     Iter,
+    Range(kagari_common::range::RangeKind),
     Array(CollectionAccess),
     Map(CollectionAccess),
     Set(CollectionAccess),
@@ -93,6 +94,10 @@ impl AbiType {
                     pending.push((result, depth + 1));
                     pending.extend(params.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Function(params.len() as u32)
+                }
+                Self::Range(element, kind) => {
+                    pending.push((element, depth + 1));
+                    Node::Range(*kind)
                 }
                 Self::Iter(element) => {
                     pending.push((element, depth + 1));
@@ -278,6 +283,7 @@ fn build<E: de::Error>(nodes: &mut std::vec::IntoIter<Node>, depth: usize) -> Re
             params: children(count, nodes)?,
             result: Box::new(build(nodes, depth + 1)?),
         },
+        Node::Range(kind) => AbiType::Range(Box::new(build(nodes, depth + 1)?), kind),
         Node::Iter => AbiType::Iter(Box::new(build(nodes, depth + 1)?)),
         Node::Array(access) => AbiType::Array(Box::new(build(nodes, depth + 1)?), access),
         Node::Map(access) => AbiType::Map {

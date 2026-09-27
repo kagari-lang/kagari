@@ -190,6 +190,7 @@ pub enum AbiType {
         result: Box<AbiType>,
     },
     Iter(Box<AbiType>),
+    Range(Box<AbiType>, kagari_common::range::RangeKind),
     Array(Box<AbiType>, CollectionAccess),
     Map {
         key: Box<AbiType>,
@@ -234,6 +235,7 @@ impl AbiType {
                 params: params.iter().map(Self::to_checked_type).collect(),
                 result: Box::new(result.to_checked_type()),
             },
+            Self::Range(ty, kind) => TypeId::Range(Box::new(ty.to_checked_type()), *kind),
             Self::Iter(ty) => TypeId::Iter(Box::new(ty.to_checked_type())),
             Self::Array(ty, access) => TypeId::Array(Box::new(ty.to_checked_type()), *access),
             Self::Map { key, value, access } => TypeId::Map {
@@ -315,6 +317,9 @@ impl AbiType {
                 params: params.iter().map(Self::from_checked_type).collect(),
                 result: Box::new(Self::from_checked_type(result)),
             },
+            TypeId::Range(element, kind) => {
+                Self::Range(Box::new(Self::from_checked_type(element)), *kind)
+            }
             TypeId::Iter(element) => Self::Iter(Box::new(Self::from_checked_type(element))),
             TypeId::Array(element, access) => {
                 Self::Array(Box::new(Self::from_checked_type(element)), *access)
@@ -359,7 +364,9 @@ impl AbiType {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) => pending.push(ty),
+                Self::Array(ty, _) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
+                    pending.push(ty)
+                }
                 Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
                 Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
@@ -412,6 +419,9 @@ impl AbiType {
                     .collect::<Option<_>>()?,
                 result: Box::new(result.instantiate(owner, arguments)?),
             },
+            Self::Range(ty, kind) => {
+                Self::Range(Box::new(ty.instantiate(owner, arguments)?), *kind)
+            }
             Self::Iter(ty) => Self::Iter(Box::new(ty.instantiate(owner, arguments)?)),
             Self::Array(ty, access) => {
                 Self::Array(Box::new(ty.instantiate(owner, arguments)?), *access)

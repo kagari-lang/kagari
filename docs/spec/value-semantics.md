@@ -435,3 +435,30 @@ identities. Both methods replace slots without changing length, so they are allo
 during iteration. Preparation validates inputs, charges work and temporary storage,
 and prepares all copies before committing any slot. Failed preparation leaves the
 destination unchanged; completed argument side effects are not rolled back.
+
+
+## Ranges and interval copying
+
+Range expressions are immutable bounds values rather than arrays. See
+[range syntax and iteration](syntax.md) and the declarations in
+[stdlib/ops.kgr](../../stdlib/ops.kgr). Iterators own their cursor; assigning a
+range copies its bounds, and iterating it twice creates independent cursors.
+
+`MutableArray<T>.copy_within<R: RangeBounds<usize>>(source, destination)` replaces
+slots in the same array and returns unit. Evaluate the receiver, source and
+`usize` destination once, left to right; then call `start_bound` and `end_bound`
+once each, in that order. These calls may execute script code. After they return,
+resolve unbounded endpoints against the current array length. Convert an excluded
+start or included end with checked `+ 1`. Require `start <= end <= length`,
+`destination <= length`, and sufficient space for `end - start` elements.
+Even an empty copy validates both the range and destination.
+
+Prepare a shallow snapshot of the source segment before writing any destination
+slot. Source and destination may overlap in either direction. Object identity,
+array length and iteration validity are preserved. Charge work and temporary
+storage and check cancellation during preparation. Committing slots runs no script
+code and performs no allocation. Failure before commit leaves the copy destination
+unchanged; argument and custom bound-method side effects remain visible.
+
+`copy_from_slice` uses Kagari's read-only `Array<T>` view. It does not introduce
+Rust borrowed slices or a `Copy` bound. No operation performs object graph cloning.

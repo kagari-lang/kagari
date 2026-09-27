@@ -11,6 +11,7 @@ use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardTrait {
+    RangeBounds,
     PartialEq,
     Eq,
     Hash,
@@ -43,7 +44,8 @@ pub enum StandardTrait {
     Product,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 30] = [
+        Self::RangeBounds,
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -76,6 +78,7 @@ impl StandardTrait {
     ];
     pub fn name(self) -> &'static str {
         match self {
+            Self::RangeBounds => "RangeBounds",
             Self::PartialEq => "PartialEq",
             Self::Eq => "Eq",
             Self::Hash => "Hash",
@@ -111,7 +114,8 @@ impl StandardTrait {
     pub fn namespace(self) -> &'static str {
         match self {
             Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
-            Self::Add
+            Self::RangeBounds
+            | Self::Add
             | Self::Sub
             | Self::Mul
             | Self::Div
@@ -355,6 +359,11 @@ pub fn intrinsic_applies(
         return interface.arguments.as_slice() == [receiver.clone()]
             && interface.associated_types.is_empty()
             && numeric_aggregation_item(receiver).is_some();
+    }
+    if kind == StandardTrait::RangeBounds {
+        return super::declarations::implementations(receiver)
+            .into_iter()
+            .any(|i| i.applied_arguments(receiver, interface).is_some());
     }
     if kind == StandardTrait::FromIterator {
         if let Some((mut required, mut target)) = lifted_collection_requirement(interface, receiver)

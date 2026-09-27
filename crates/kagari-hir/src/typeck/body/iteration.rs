@@ -3,10 +3,18 @@ use crate::builtin::traits::StandardTrait;
 use crate::types::{NominalType, associated_type_id};
 impl BodyChecker<'_> {
     pub(super) fn add_iterator_view(&self, receiver: &TypeId, views: &mut Vec<NominalType>) {
+        if let TypeId::Range(item, kind) = receiver
+            && *kind != kagari_common::range::RangeKind::Full
+        {
+            let mut view = StandardTrait::RangeBounds.nominal();
+            view.arguments.push((**item).clone());
+            views.push(view);
+        }
         for kind in [StandardTrait::Iterator, StandardTrait::Iterable] {
             if matches!(
                 receiver,
-                TypeId::Iter(_)
+                TypeId::Range(_, _)
+                    | TypeId::Iter(_)
                     | TypeId::Array(_, _)
                     | TypeId::Map { .. }
                     | TypeId::Set(_, _)

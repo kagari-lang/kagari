@@ -37,6 +37,7 @@ impl From<RuntimeError> for ReflectionError {
 
 pub fn type_of(gc: &GcHeap, value: &Value) -> Value {
     let type_name = match value {
+        Value::Range(value) => value.kind.name(),
         Value::Unit => "()",
         Value::Bool(_) => "bool",
         Value::I32(_) => "i32",
