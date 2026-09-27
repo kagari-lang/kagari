@@ -297,9 +297,6 @@ pub enum StandardIntrinsic {
     SetRemove,
     SetClear,
     SetToArray,
-    SetUnion,
-    SetIntersection,
-    SetDifference,
     StringLenBytes,
     StringLenChars,
     StringIsEmpty,
@@ -931,8 +928,5 @@ pub fn collection_read_method(intrinsic: StandardIntrinsic) -> bool {
             | SetIsEmpty
             | SetContains
             | SetToArray
-            | SetUnion
-            | SetIntersection
-            | SetDifference
     )
 }

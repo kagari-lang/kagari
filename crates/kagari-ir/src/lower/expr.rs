@@ -6,6 +6,7 @@ mod iterators;
 mod keys;
 mod list_queries;
 mod operators;
+mod set_queries;
 mod standard;
 mod terminals;
 
@@ -2104,12 +2105,6 @@ impl FunctionLowerer<'_, '_> {
                                 | kagari_hir::types::TypeId::Set(key, _) => Some(&**key),
                                 _ => None,
                             };
-                            if let Some(key) = key
-                                && self.has_custom_protocol(key)
-                                && matches!(intrinsic, SetUnion | SetIntersection | SetDifference)
-                            {
-                                return self.lower_set_algebra(intrinsic, key, &lowered);
-                            }
                             if let Some(key) = key
                                 && self.has_custom_protocol(key)
                                 && matches!(

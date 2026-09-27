@@ -462,21 +462,7 @@ pub(crate) fn verify_intrinsic(
             };
             verify_call_dst(dst, return_ty)?;
         }
-        SetUnion | SetIntersection | SetDifference => {
-            expect_arg_ty(
-                args,
-                0,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            expect_arg_ty(
-                args,
-                1,
-                ValueType::HeapObject,
-                "standard intrinsic argument",
-            )?;
-            verify_call_dst(dst, ValueType::HeapObject)?;
-        }
+
         StringLenBytes | StringLenChars => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::U64)?;

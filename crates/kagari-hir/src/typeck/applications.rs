@@ -426,6 +426,13 @@ pub(crate) fn validate_signatures(
                         | crate::builtin::declarations::NativeDefaultMethod::ListStartsWith
                         | crate::builtin::declarations::NativeDefaultMethod::ListEndsWith
                         | crate::builtin::declarations::NativeDefaultMethod::ListBinarySearch
+                        | crate::builtin::declarations::NativeDefaultMethod::SetUnion
+                        | crate::builtin::declarations::NativeDefaultMethod::SetIntersection
+                        | crate::builtin::declarations::NativeDefaultMethod::SetDifference
+                        | crate::builtin::declarations::NativeDefaultMethod::SetSymmetricDifference
+                        | crate::builtin::declarations::NativeDefaultMethod::SetIsSubset
+                        | crate::builtin::declarations::NativeDefaultMethod::SetIsSuperset
+                        | crate::builtin::declarations::NativeDefaultMethod::SetIsDisjoint
                         | crate::builtin::declarations::NativeDefaultMethod::MapKeysView
                         | crate::builtin::declarations::NativeDefaultMethod::MapValuesView
                         | crate::builtin::declarations::NativeDefaultMethod::MapEntriesView

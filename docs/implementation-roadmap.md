@@ -626,7 +626,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] C02: List endpoint, membership, prefix/suffix and binary search queries.
 - [x] C03: List reordering, truncation, prepared extension and swap removal.
 - [x] C04: Concrete collection capacity construction and reservation.
-- [ ] C05: Set relationships and symmetric difference over readonly interfaces.
+- [x] C05: Set relationships and symmetric difference over readonly interfaces.
 - [ ] C06: Guarded Map get_or_insert_with and update operations.
 - [ ] C07: Prepared retain, stable sorting and adjacent deduplication.
 - [ ] C08: Lazy snapshot windows/chunks and immediate range removal.
@@ -683,3 +683,8 @@ classes, reservation during iteration, order preservation and overflow failure
 without modification. Workspace clippy passes. Live heap units still measure
 stored values rather than allocator capacity; preparation uses allocation limits.
 KBC/runtime ABI is v95.
+
+C05 validation: readonly/native/custom Set operands, generic unbounded relations,
+empty/self operations and insertion ordering pass through source, serialized
+artifacts and JIT fallback with collection threshold one. Existing collection
+interface and standard trait tests pass. KBC/runtime ABI is v96.

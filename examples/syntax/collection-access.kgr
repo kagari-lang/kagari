@@ -27,6 +27,9 @@ fn main() -> i32 {
     std::debug::assert(s.len() == [0, 0].len(), "dedup");
     val ms = LinkedHashSet::from([1]);
     ms.insert(2);
+    val readonly: Set<i32> = ms;
+    std::debug::assert(s.is_subset(readonly), "set relationship");
+    std::debug::assert(s.symmetric_difference(readonly).is_empty(), "same membership");
     val empty: Map<String, i32> = LinkedHashMap::new();
     val empty_array: ArrayList<i32> = ArrayList::new();
     val empty_set: Set<i32> = LinkedHashSet::from([]);

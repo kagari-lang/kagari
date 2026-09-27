@@ -66,6 +66,13 @@ pub enum NativeDefaultMethod {
     ListEndsWith,
     ListBinarySearch,
 
+    SetUnion,
+    SetIntersection,
+    SetDifference,
+    SetSymmetricDifference,
+    SetIsSubset,
+    SetIsSuperset,
+    SetIsDisjoint,
     MapKeysView,
     MapValuesView,
     MapEntriesView,

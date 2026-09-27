@@ -580,9 +580,6 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | MapValuesStorage
                 | MapEntriesStorage
                 | SetToArray
-                | SetUnion
-                | SetIntersection
-                | SetDifference
                 | ArrayJoin
                 | StringParse
                 | ParseNumber(_)

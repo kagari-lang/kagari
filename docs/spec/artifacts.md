@@ -681,3 +681,10 @@ products are rejected.
 KBC/runtime ABI v95 adds typed capacity constructors, queries and reservation
 bindings for concrete collections. Reservations retain write/allocation effects;
 previous products are rejected.
+
+## Set interface algebra (v96)
+
+KBC/runtime ABI v96 removes concrete-only set algebra intrinsics. Set relations
+and algebra lower through Iterable and Set member identities, including custom
+storage and read-only views. Result construction uses the selected Eq/Hash
+protocol. Old artifacts are rejected before execution.

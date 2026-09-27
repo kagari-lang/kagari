@@ -224,6 +224,18 @@ impl FunctionLowerer<'_, '_> {
                 .is_none()
         {
             use kagari_hir::builtin::declarations::NativeDefaultMethod::*;
+            if matches!(
+                operation,
+                SetUnion
+                    | SetIntersection
+                    | SetDifference
+                    | SetSymmetricDifference
+                    | SetIsSubset
+                    | SetIsSuperset
+                    | SetIsDisjoint
+            ) {
+                return self.lower_set_query(operation, &ty, args);
+            }
             if matches!(operation, MapKeysView | MapValuesView | MapEntriesView) {
                 return self.lower_map_view_snapshot(operation, &ty, args[0]);
             }

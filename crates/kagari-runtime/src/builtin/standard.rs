@@ -43,11 +43,7 @@ pub fn invoke_with_callbacks(
                 gc.ensure_key_mode(collection, false)?;
             }
         }
-        SetUnion | SetIntersection | SetDifference => {
-            for collection in args.iter().take(2) {
-                gc.ensure_key_mode(collection, false)?;
-            }
-        }
+
         _ => {}
     }
     match intrinsic {
@@ -193,9 +189,6 @@ pub fn invoke_with_callbacks(
         SetRemove => set_remove(gc, args),
         SetClear => set_clear(gc, args),
         SetToArray => set_to_array(gc, args),
-        SetUnion => set_union(gc, args),
-        SetIntersection => set_intersection(gc, args),
-        SetDifference => set_difference(gc, args),
         StringLenBytes => string_len_bytes(args),
         StringLenChars => string_len_chars(args),
         StringIsEmpty => string_is_empty(args),
@@ -654,46 +647,6 @@ fn set_to_array(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
         .set_snapshot(handle)
         .ok_or_else(|| BuiltinError::new("set.to_array expects valid set handle"))?;
     array_value(gc, values)
-}
-
-fn set_union(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let (lhs, rhs) = two_sets(args, "set.union")?;
-    let mut values = gc
-        .set_snapshot(lhs)
-        .ok_or_else(|| BuiltinError::new("set.union expects valid lhs set"))?;
-    for value in gc
-        .set_snapshot(rhs)
-        .ok_or_else(|| BuiltinError::new("set.union expects valid rhs set"))?
-    {
-        values.push(value);
-    }
-    set_value(gc, values)
-}
-
-fn set_intersection(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let (lhs, rhs) = two_sets(args, "set.intersection")?;
-    gc.set_len(rhs)
-        .ok_or_else(|| BuiltinError::new("set.intersection expects valid rhs set"))?;
-    let values = gc
-        .set_snapshot(lhs)
-        .ok_or_else(|| BuiltinError::new("set.intersection expects valid lhs set"))?
-        .into_iter()
-        .filter(|value| gc.set_contains(rhs, value) == Some(true))
-        .collect();
-    set_value(gc, values)
-}
-
-fn set_difference(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let (lhs, rhs) = two_sets(args, "set.difference")?;
-    gc.set_len(rhs)
-        .ok_or_else(|| BuiltinError::new("set.difference expects valid rhs set"))?;
-    let values = gc
-        .set_snapshot(lhs)
-        .ok_or_else(|| BuiltinError::new("set.difference expects valid lhs set"))?
-        .into_iter()
-        .filter(|value| gc.set_contains(rhs, value) == Some(false))
-        .collect();
-    set_value(gc, values)
 }
 
 fn string_transform(intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Value, BuiltinError> {
@@ -1214,16 +1167,6 @@ fn one_set(args: &[Value], name: &'static str) -> Result<crate::gc::HeapObjectId
     Ok(*handle)
 }
 
-fn two_sets(
-    args: &[Value],
-    name: &'static str,
-) -> Result<(crate::gc::HeapObjectId, crate::gc::HeapObjectId), BuiltinError> {
-    let [Value::Set(lhs), Value::Set(rhs)] = args else {
-        return Err(BuiltinError::new(format!("{name} expects two sets")));
-    };
-    Ok((*lhs, *rhs))
-}
-
 fn one_string<'a>(args: &'a [Value], name: &'static str) -> Result<&'a str, BuiltinError> {
     let [Value::Str(value)] = args else {
         return Err(BuiltinError::new(format!("{name} expects one string")));
@@ -1259,12 +1202,6 @@ fn require_hash_key(gc: &GcHeap, value: &Value, name: &'static str) -> Result<()
 fn array_value(gc: &GcHeap, values: Vec<Value>) -> Result<Value, BuiltinError> {
     gc.alloc_array(values)
         .map(Value::Array)
-        .map_err(BuiltinError::from)
-}
-
-fn set_value(gc: &GcHeap, values: Vec<Value>) -> Result<Value, BuiltinError> {
-    gc.alloc_set(values)
-        .map(Value::Set)
         .map_err(BuiltinError::from)
 }
 
@@ -1719,46 +1656,6 @@ mod tests {
             option_variant(&gc, &missing),
             ("None".to_owned(), Vec::new())
         );
-    }
-
-    #[test]
-    fn builtin_standard_set_helpers_use_ordered_algebra() {
-        let gc = GcHeap::new(
-            GcHeapConfig::default(),
-            std::rc::Rc::new(crate::resource::ResourceState::default()),
-        );
-        let lhs = Value::Set(gc.alloc_set(vec![Value::I32(1), Value::I32(2)]).unwrap());
-        let rhs = Value::Set(gc.alloc_set(vec![Value::I32(2), Value::I32(3)]).unwrap());
-
-        let union = call(
-            &gc,
-            StandardIntrinsic::SetUnion,
-            &[lhs.clone(), rhs.clone()],
-        )
-        .unwrap();
-        let intersection = call(
-            &gc,
-            StandardIntrinsic::SetIntersection,
-            &[lhs.clone(), rhs.clone()],
-        )
-        .unwrap();
-        let difference = call(&gc, StandardIntrinsic::SetDifference, &[lhs, rhs]).unwrap();
-
-        let Value::Set(union) = union else {
-            panic!("expected union set");
-        };
-        let Value::Set(intersection) = intersection else {
-            panic!("expected intersection set");
-        };
-        let Value::Set(difference) = difference else {
-            panic!("expected difference set");
-        };
-        assert_eq!(
-            gc.set_snapshot(union).unwrap(),
-            vec![Value::I32(1), Value::I32(2), Value::I32(3)]
-        );
-        assert_eq!(gc.set_snapshot(intersection).unwrap(), vec![Value::I32(2)]);
-        assert_eq!(gc.set_snapshot(difference).unwrap(), vec![Value::I32(1)]);
     }
 
     #[test]

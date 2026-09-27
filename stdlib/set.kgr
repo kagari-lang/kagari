@@ -117,91 +117,7 @@ impl<T: Eq + Hash> LinkedHashSet<T> {
     #[intrinsic(SetToArray)]
     pub fn to_array(self) -> ArrayList<T>;
 
-    /// Create a set of elements in either set. Referenced objects remain shared.
-    ///
-    /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
-    /// Equal keys must have equal hashes; a hash collision alone does not imply equality.
-    ///
-    /// Do not change fields used by equality or hashing while a key is stored. Keys and values
-    /// containing objects share those objects; this operation does not perform a deep copy.
-    ///
-    /// Neither input container is modified. Do not rely on a particular enumeration order.
-    ///
-    /// # Panics
-    ///
-    /// User equality or hashing may trap where invoked. Mutation guards and execution resource
-    /// limits still apply where the operation modifies or allocates storage.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
-    /// values.insert(1);
-    /// val other: LinkedHashSet<i32> = LinkedHashSet::new();
-    /// other.insert(2);
-    /// val combined = values.union(other);
-    /// std::debug::assert(combined.contains(1) && combined.contains(2), "union");
-    /// ```
-    #[intrinsic(SetUnion)]
-    pub fn union(self, rhs: LinkedHashSet<T>) -> LinkedHashSet<T>;
 
-    /// Create a set of elements in both sets. Referenced objects remain shared.
-    ///
-    /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
-    /// Equal keys must have equal hashes; a hash collision alone does not imply equality.
-    ///
-    /// Do not change fields used by equality or hashing while a key is stored. Keys and values
-    /// containing objects share those objects; this operation does not perform a deep copy.
-    ///
-    /// Neither input container is modified. Do not rely on a particular enumeration order.
-    ///
-    /// # Panics
-    ///
-    /// User equality or hashing may trap where invoked. Mutation guards and execution resource
-    /// limits still apply where the operation modifies or allocates storage.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
-    /// values.insert(1);
-    /// values.insert(2);
-    /// val other: LinkedHashSet<i32> = LinkedHashSet::new();
-    /// other.insert(2);
-    /// val common = values.intersection(other);
-    /// std::debug::assert(common.len() == [0].len() && common.contains(2), "intersection");
-    /// ```
-    #[intrinsic(SetIntersection)]
-    pub fn intersection(self, rhs: LinkedHashSet<T>) -> LinkedHashSet<T>;
-
-    /// Create a set of elements in the first set but not the second. Referenced objects remain
-    ///
-    /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
-    /// Equal keys must have equal hashes; a hash collision alone does not imply equality.
-    ///
-    /// Do not change fields used by equality or hashing while a key is stored. Keys and values
-    /// containing objects share those objects; this operation does not perform a deep copy.
-    ///
-    /// Neither input container is modified. Do not rely on a particular enumeration order.
-    ///
-    /// # Panics
-    ///
-    /// User equality or hashing may trap where invoked. Mutation guards and execution resource
-    /// limits still apply where the operation modifies or allocates storage.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
-    /// values.insert(1);
-    /// values.insert(2);
-    /// val other: LinkedHashSet<i32> = LinkedHashSet::new();
-    /// other.insert(2);
-    /// val remaining = values.difference(other);
-    /// std::debug::assert(remaining.len() == [0].len() && remaining.contains(1), "difference");
-    /// ```
-    #[intrinsic(SetDifference)]
-    pub fn difference(self, rhs: LinkedHashSet<T>) -> LinkedHashSet<T>;
 }
 
 impl<T: Eq + Hash> LinkedHashSet<T> {
@@ -377,6 +293,160 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     fn is_empty(self) -> bool;
     /// Tests whether the set contains an element.
     fn contains(self, value: T) -> bool;
+    /// Elements from the left set followed by previously absent elements from the right.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.union(b).len() == 3usize, "union");
+    /// ```
+    #[intrinsic(SetUnion)]
+    fn union(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
+
+    /// Elements of the left set that also belong to the right set.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.intersection(b).contains(2), "intersection");
+    /// ```
+    #[intrinsic(SetIntersection)]
+    fn intersection(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
+
+    /// Elements of the left set that do not belong to the right set.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.difference(b).contains(1), "difference");
+    /// ```
+    #[intrinsic(SetDifference)]
+    fn difference(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
+
+    /// Left-only elements followed by right-only elements.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.symmetric_difference(b).len() == 2usize, "symmetric_difference");
+    /// ```
+    #[intrinsic(SetSymmetricDifference)]
+    fn symmetric_difference(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
+
+    /// Whether every element of this set belongs to the other set.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.is_subset(b) == false, "is_subset");
+    /// ```
+    #[intrinsic(SetIsSubset)]
+    fn is_subset(self, rhs: Set<T>) -> bool ;
+
+    /// Whether every element of the other set belongs to this set.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.is_superset(b) == false, "is_superset");
+    /// ```
+    #[intrinsic(SetIsSuperset)]
+    fn is_superset(self, rhs: Set<T>) -> bool ;
+
+    /// Whether the two sets have no common elements.
+    ///
+    /// Uses the queried set's membership policy. Implementations used together
+    /// should agree on equivalence. Both sources are guarded during traversal.
+    /// Relations short-circuit and do not require hashing. New sets require
+    /// `Eq + Hash`, retain source traversal order and shallow element references.
+    /// The inputs are unchanged; callback side effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Propagates membership, iteration, hashing and resource failures.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val a: Set<i32> = LinkedHashSet::from([1, 2]);
+    /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
+    /// std::debug::assert(a.is_disjoint(b) == false, "is_disjoint");
+    /// ```
+    #[intrinsic(SetIsDisjoint)]
+    fn is_disjoint(self, rhs: Set<T>) -> bool ;
+
 }
 
 /// Writable access to a collection of distinct elements.
