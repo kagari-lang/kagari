@@ -111,6 +111,7 @@ pub struct TypeTable {
     struct_inits: HashMap<ExprId, ResolvedStructInit>,
     enum_constructors: HashMap<ExprId, ResolvedEnumConstructor>,
     exprs: HashMap<ExprId, TypeId>,
+    callable_coercions: HashMap<ExprId, (TypeId, NominalType)>,
     interface_coercions: HashMap<ExprId, ResolvedInterfaceCoercion>,
     locals: HashMap<LocalId, TypeId>,
     places: HashMap<PlaceId, TypeId>,
@@ -280,7 +281,7 @@ impl TypeTable {
             keys!(iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, standard_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, standard_patterns: PatternId, pattern_ranges: PatternId,
-                interface_coercions: ExprId, associated_consts: ExprId);
+                callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {
                     assert_eq!(receiver.arena(), from);
@@ -705,6 +706,10 @@ impl TypeTable {
                 self.associated_consts
                     .insert(new_map.expr_id(b), fact.clone());
             }
+            if let Some(coercion) = old.callable_coercions.get(&old_map.expr_id(a)) {
+                self.callable_coercions
+                    .insert(new_map.expr_id(b), coercion.clone());
+            }
             if let Some(coercion) = old.interface_coercions.get(&old_map.expr_id(a)) {
                 self.interface_coercions
                     .insert(new_map.expr_id(b), coercion.clone());
@@ -833,6 +838,28 @@ impl TypeTable {
         self.exprs.get(&id).cloned()
     }
 
+    /// The produced value type includes checked capability and callable conversions.
+    pub fn coerced_expr_type(&self, id: ExprId) -> Option<TypeId> {
+        self.callable_coercion(id)
+            .and_then(|(_, interface)| crate::builtin::traits::callable_signature(interface))
+            .or_else(|| {
+                self.interface_coercion(id)
+                    .map(|coercion| TypeId::Trait(coercion.interface_type.clone()))
+            })
+            .or_else(|| self.expr_type(id))
+    }
+
+    pub fn callable_coercion(&self, id: ExprId) -> Option<&(TypeId, NominalType)> {
+        self.callable_coercions.get(&id)
+    }
+    pub(crate) fn insert_callable_coercion(
+        &mut self,
+        id: ExprId,
+        receiver: TypeId,
+        interface: NominalType,
+    ) {
+        self.callable_coercions.insert(id, (receiver, interface));
+    }
     pub fn interface_coercion(&self, id: ExprId) -> Option<&ResolvedInterfaceCoercion> {
         self.interface_coercions.get(&id)
     }

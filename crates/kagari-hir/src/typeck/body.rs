@@ -1510,6 +1510,16 @@ impl<'a> BodyChecker<'a> {
         env: &BodyTypeEnv,
     ) -> TypeId {
         use crate::aggregates::ImplementationSearchError;
+        if let Some(target @ TypeId::Function { .. }) = expected
+            && !matches!(source, TypeId::Function { .. })
+            && let Some((interface, signature)) = self.callable_contract(&source, env)
+            && !signature.conflicts_with(target)
+        {
+            let _ = self.solver.constrain(target, &signature, self.cancel);
+            self.type_table
+                .insert_callable_coercion(expr_id, source, interface);
+            return signature;
+        }
         let Some(target @ TypeId::Trait(interface)) = expected else {
             return source;
         };
@@ -2511,6 +2521,12 @@ impl<'a> BodyChecker<'a> {
             .filter(|parameter| !substitution.contains_key(*parameter))
             .cloned()
             .collect::<Vec<_>>();
+        self.seed_callable_context(
+            callee,
+            &function.generic_params,
+            &function.bounds,
+            &mut substitution,
+        );
         self.seed_explicit_arguments(callee, &explicit_parameters, &mut substitution);
         if let Some(expected) = expected
             && super::inference::infer(
@@ -2526,7 +2542,7 @@ impl<'a> BodyChecker<'a> {
         }
         self.type_table
             .insert_call(call_expr, target, Some(receiver));
-        let arg_tys = self.infer_generic_args(
+        let arg_tys = self.infer_bounded_args(
             args,
             function
                 .params
@@ -2535,6 +2551,7 @@ impl<'a> BodyChecker<'a> {
                 .map(|parameter| parameter.ty.clone()),
             &function.generic_params,
             &mut substitution,
+            &function.bounds,
             env,
         );
         let suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
@@ -2942,6 +2959,7 @@ impl<'a> BodyChecker<'a> {
         let self_ty = receiver_ty;
         substitution.insert_receiver(self_owner.clone(), self_ty.clone());
         let method_generics = &method.generic_params[trait_contract.generic_params.len()..];
+        self.seed_callable_context(callee, method_generics, &method.bounds, &mut substitution);
         self.seed_explicit_arguments(callee, method_generics, &mut substitution);
         let return_pattern = method
             .return_type
@@ -2985,11 +3003,12 @@ impl<'a> BodyChecker<'a> {
                 )
             })
             .collect::<Vec<_>>();
-        let arg_tys = self.infer_generic_args(
+        let arg_tys = self.infer_bounded_args(
             args,
             param_types.iter().cloned(),
             method_generics,
             &mut substitution,
+            &method.bounds,
             env,
         );
         let mut suppress_missing = arg_tys.iter().any(|(_, ty)| ty.is_unresolved());
@@ -3319,6 +3338,23 @@ impl<'a> BodyChecker<'a> {
                 }
                 return result.as_ref().clone();
             }
+            if let Some((interface, TypeId::Function { params, result })) =
+                self.callable_contract(&callee_ty, env)
+            {
+                let arguments = self.infer_typed_args(args, params.iter().cloned(), env);
+                self.record_operator(call_expr, callee, &callee_ty, interface, env);
+                self.check_builtin_arity("callable", params.len(), args.len(), callee);
+                for (index, ty) in params.iter().enumerate() {
+                    self.check_arg_type(
+                        "callable",
+                        &format!("arg{index}"),
+                        ty.clone(),
+                        index,
+                        &arguments,
+                    );
+                }
+                return *result;
+            }
             self.infer_call_args(args, env);
             let Ok(completes) = super::completion::expr_can_complete(
                 &self.lowered.module,
@@ -3350,6 +3386,12 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         let mut substitution = crate::types::TypeSubstitution::default();
+        self.seed_callable_context(
+            callee,
+            &function.generic_params,
+            &function.bounds,
+            &mut substitution,
+        );
         self.seed_explicit_arguments(callee, &function.generic_params, &mut substitution);
         if let Some(expected) = expected
             && super::inference::infer(
@@ -3363,11 +3405,12 @@ impl<'a> BodyChecker<'a> {
         {
             return TypeId::Unknown;
         }
-        let arg_tys = self.infer_generic_args(
+        let arg_tys = self.infer_bounded_args(
             args,
             function.params.iter().map(|parameter| parameter.ty.clone()),
             &function.generic_params,
             &mut substitution,
+            &function.bounds,
             env,
         );
         if self.cancel.check().is_err() {
@@ -3384,6 +3427,13 @@ impl<'a> BodyChecker<'a> {
                 return TypeId::Unknown;
             };
             suppress_missing |= !completes;
+            if !completes {
+                // A terminating argument produces no callable to specialize.
+                // Keep concrete constraints from other inputs, but discard fresh
+                // placeholders that were introduced only for callback context.
+                substitution
+                    .retain(|_, ty| !matches!(self.solver.resolve(ty), TypeId::Inference(_)));
+            }
         }
         let type_arguments = self.finish_inferred_arguments(
             &mut substitution,
@@ -3870,6 +3920,35 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         Some(id.declaration.clone())
+    }
+
+    fn callable_contract(
+        &self,
+        ty: &TypeId,
+        env: &BodyTypeEnv,
+    ) -> Option<(crate::types::NominalType, TypeId)> {
+        use crate::builtin::traits::{StandardTrait, callable_signature};
+        let mut candidates = self
+            .trait_bounds_for(ty, env)
+            .into_iter()
+            .filter_map(|interface| {
+                if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::Fn) {
+                    return None;
+                }
+                let (mut interface, output) = self.select_operator(ty, interface, env)?;
+                interface.associated_types.insert(
+                    crate::types::associated_type_id(&interface.declaration, "Output"),
+                    output,
+                );
+                let signature = callable_signature(&interface)?;
+                Some((interface, signature))
+            });
+        let selected = candidates.next()?;
+        if candidates.next().is_some() {
+            None
+        } else {
+            Some(selected)
+        }
     }
 
     fn select_operator(
@@ -4629,6 +4708,42 @@ impl<'a> BodyChecker<'a> {
         substitution: &mut crate::types::TypeSubstitution,
         env: &mut BodyTypeEnv,
     ) -> Vec<(ExprId, TypeId)> {
+        self.infer_bounded_args(
+            args,
+            parameters,
+            generics,
+            substitution,
+            &Default::default(),
+            env,
+        )
+    }
+
+    fn seed_callable_context(
+        &mut self,
+        site: ExprId,
+        generics: &[crate::types::GenericParameterType],
+        bounds: &super::GenericBounds,
+        substitution: &mut crate::types::TypeSubstitution,
+    ) {
+        if !bounds.values().flatten().any(|bound| matches!(bound, super::ConstraintTarget::Trait(interface) if crate::builtin::traits::StandardTrait::from_id(&interface.declaration) == Some(crate::builtin::traits::StandardTrait::Fn))) { return; }
+        // Later arguments can provide the input type of an earlier callback.
+        for (index, parameter) in generics.iter().enumerate() {
+            let inferred = self.inference_variable(site, index + 1024);
+            if self.body_inference {
+                substitution.entry(parameter.clone()).or_insert(inferred);
+            }
+        }
+    }
+
+    fn infer_bounded_args(
+        &mut self,
+        args: &[ExprId],
+        parameters: impl Iterator<Item = TypeId>,
+        generics: &[crate::types::GenericParameterType],
+        substitution: &mut crate::types::TypeSubstitution,
+        bounds: &super::GenericBounds,
+        env: &mut BodyTypeEnv,
+    ) -> Vec<(ExprId, TypeId)> {
         let mut parameters = parameters.fuse();
         let mut actual = Vec::new();
         for argument in args {
@@ -4636,10 +4751,26 @@ impl<'a> BodyChecker<'a> {
                 break;
             }
             let parameter = parameters.next();
-            let expected = parameter
+            let callable = parameter
                 .as_ref()
+                .and_then(|parameter| bounds.get(parameter))
+                .and_then(|constraints| {
+                    constraints.iter().find_map(|constraint| match constraint {
+                        super::ConstraintTarget::Trait(interface) => {
+                            crate::builtin::traits::callable_signature(interface)
+                        }
+                        _ => None,
+                    })
+                });
+            let expected = callable
+                .as_ref()
+                .or(parameter.as_ref())
                 .map(|ty| ty.argument_context(substitution, generics));
-            let ty = self.infer_expr_with_coercion(*argument, env, expected.as_ref());
+            let ty = if callable.is_some() {
+                self.infer_expr_type_expected(*argument, env, expected.as_ref())
+            } else {
+                self.infer_expr_with_coercion(*argument, env, expected.as_ref())
+            };
             let Ok(completes) = super::completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
@@ -4648,6 +4779,10 @@ impl<'a> BodyChecker<'a> {
             ) else {
                 break;
             };
+            if completes && let Some(parameter) = parameter.as_ref() {
+                let context = parameter.argument_context(substitution, generics);
+                let _ = self.solver.constrain(&context, &ty, self.cancel);
+            }
             if completes
                 && !generics.is_empty()
                 && let Some(parameter) = parameter
@@ -4655,6 +4790,25 @@ impl<'a> BodyChecker<'a> {
                     .is_err()
             {
                 break;
+            }
+            if completes && let Some(callable) = callable {
+                let signature = if matches!(ty, TypeId::Function { .. }) {
+                    Some(ty.clone())
+                } else {
+                    self.callable_contract(&ty, env)
+                        .map(|(_, signature)| signature)
+                };
+                if let Some(signature) = signature {
+                    let context = callable.argument_context(substitution, generics);
+                    let _ = self.solver.constrain(&context, &signature, self.cancel);
+                    let _ = super::inference::infer(
+                        &callable,
+                        &signature,
+                        generics,
+                        substitution,
+                        self.cancel,
+                    );
+                }
             }
             actual.push((*argument, ty));
         }

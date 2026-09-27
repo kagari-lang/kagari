@@ -716,7 +716,8 @@ Final completion audit: all S01-S05 and C01-C08 checkpoints are implemented and
 committed independently. Window/chunk resumption validates source revisions and
 restores guards after early closure. Native API query tests now recognize FromStr
 implementations and Set algebra's interface-owned declarations. Current KBC and
-runtime ABI versions are v100; old artifacts are rejected without compatibility.
+runtime ABI versions were v100 at that checkpoint; subsequent entries record
+further version changes. Old artifacts are rejected without compatibility.
 
 Validation covers 1,305 passing tests, including Rust doctests and the executable
 SDK documentation test. The initial full workspace run passed every SDK example
@@ -726,3 +727,21 @@ assertions. After updating only those assertions, the final workspace run passed
 Formatting, workspace/all-targets clippy with warnings denied, and git diff checks
 also passed. Logs are under target/stdlib-completion-workspace.log,
 target/stdlib-completion-final.log and target/stdlib-completion-clippy.log.
+
+### Unified callable protocol
+
+- [x] Source-owned `Fn<Args, Output = R>`, callable-bound shorthand, contextual
+  closure inference, and user callable objects.
+- [x] Interoperability with `fn(...) -> R` callback parameters through ordinary
+  GC-managed closure adapters; source/artifact and interpreter/JIT-fallback tests.
+- Deliberately excluded: ownership-based `FnMut`/`FnOnce` distinctions and new
+  optimized calling conventions.
+
+Artifacts and runtime ABI advance to v101. Function-typed values automatically
+implement `Fn`; user objects are adapted to the existing closure representation.
+Validation passes all 1,315 workspace tests with no ignored or filtered tests,
+including executable SDK documentation, source/artifact execution, JIT fallback,
+GC capture lifetime, trap cleanup, evaluation order, inferred associated outputs,
+and analysis-cache reuse. Formatting, workspace/all-targets clippy with warnings
+denied, and git diff checks also pass. Logs: target/fn-workspace-final.log and
+target/fn-clippy-final.log.

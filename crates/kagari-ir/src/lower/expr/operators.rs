@@ -108,6 +108,37 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
+        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
+            && let TypeId::Function { params, result } = &ty
+        {
+            let mut values = ValueBuffer::new();
+            let mut representations = Vec::new();
+            for (position, param) in params.iter().enumerate() {
+                let representation = self.value_type(param)?;
+                let dst = self.alloc_temp(representation);
+                let index = self.lower_constant(Constant::I32(position as i32), ValueType::I32);
+                self.emit(Instruction::ReadAggregateIndex {
+                    dst,
+                    base: args[1],
+                    index,
+                });
+                values.push(dst);
+                representations.push(representation);
+            }
+            let return_type = self.value_type(result)?;
+            let dst = self.alloc_temp(return_type);
+            self.emit(Instruction::Call {
+                dst: Some(dst),
+                callee: CallTarget::Closure {
+                    value: args[0],
+                    params: representations,
+                    return_type,
+                },
+                args: values,
+            });
+            return Ok(dst);
+        }
+
         let interface = if let TypeId::Trait(child) = &ty {
             self.planner
                 .catalog

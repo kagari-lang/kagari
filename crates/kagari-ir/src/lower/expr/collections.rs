@@ -211,7 +211,7 @@ impl FunctionLowerer<'_, '_> {
             else_block: done,
         });
         self.switch_to_block(body);
-        let value = self.iterator_callback(callback, item, &[index])?;
+        let value = self.call_function_value(callback, item, &[index])?;
         self.collection_insert(&ty, array, value)?;
         let one = self.usize_constant(1);
         let next = self.alloc_temp(ValueType::U64);

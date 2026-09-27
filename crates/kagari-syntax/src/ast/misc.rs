@@ -144,6 +144,13 @@ impl TraitBoundList {
 }
 
 impl TraitRef {
+    pub fn callable_inputs(&self) -> Option<TypeList> {
+        support::child(self.syntax())
+    }
+    pub fn callable_output(&self) -> Option<TypeRef> {
+        support::child(self.syntax())
+    }
+
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }

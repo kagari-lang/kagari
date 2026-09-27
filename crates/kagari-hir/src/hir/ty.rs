@@ -15,6 +15,7 @@ pub enum TypeKind {
         args: TypeBuffer,
         bindings: Vec<(String, TypeRefId)>,
         positional_after_binding: bool,
+        callable_syntax: bool,
     },
     Projection {
         arguments: TypeBuffer,

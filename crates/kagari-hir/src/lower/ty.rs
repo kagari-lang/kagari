@@ -46,6 +46,7 @@ impl Lowerer {
                     name,
                     args,
                     bindings,
+                    callable_syntax: false,
                     positional_after_binding: list.positional_after_binding(),
                 }
             }

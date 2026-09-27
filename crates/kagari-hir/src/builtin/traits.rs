@@ -49,9 +49,10 @@ pub enum StandardTrait {
     FromIterator,
     Sum,
     Product,
+    Fn,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 38] = [
         Self::Map,
         Self::MutableMap,
         Self::Set,
@@ -89,6 +90,7 @@ impl StandardTrait {
         Self::FromIterator,
         Self::Sum,
         Self::Product,
+        Self::Fn,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -130,6 +132,7 @@ impl StandardTrait {
             Self::FromIterator => "FromIterator",
             Self::Sum => "Sum",
             Self::Product => "Product",
+            Self::Fn => "Fn",
         }
     }
     pub fn namespace(self) -> &'static str {
@@ -138,7 +141,8 @@ impl StandardTrait {
             Self::Map | Self::MutableMap => "map",
             Self::Set | Self::MutableSet => "set",
             Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
-            Self::RangeBounds
+            Self::Fn
+            | Self::RangeBounds
             | Self::Add
             | Self::Sub
             | Self::Mul
@@ -236,12 +240,17 @@ impl StandardTrait {
         )
     }
     pub fn operator(self) -> bool {
-        self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index)
+        self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index | Self::Fn)
     }
     pub fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
         let mut view = self.nominal();
         if self.binary_operator() {
             view.arguments.push(receiver.clone());
+        }
+        if self == Self::Fn
+            && let TypeId::Function { params, .. } = receiver
+        {
+            view.arguments.push(callable_arguments(params));
         }
         if self == Self::Index {
             view.arguments.push(TypeId::Builtin(BuiltinType::I32));
@@ -287,9 +296,47 @@ fn build_contract(kind: StandardTrait) -> TraitSignature {
         .contract()
 }
 
+/// A zero-argument call uses unit; all other calls pass a positional tuple.
+pub fn callable_arguments(params: &[TypeId]) -> TypeId {
+    if params.is_empty() {
+        TypeId::Builtin(BuiltinType::Unit)
+    } else {
+        TypeId::Tuple(params.to_vec())
+    }
+}
+
+/// Parameter context from a callable bound; an unspecified output remains unknown.
+pub fn callable_signature(interface: &NominalType) -> Option<TypeId> {
+    if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::Fn) {
+        return None;
+    }
+    let params = match interface.arguments.as_slice() {
+        [TypeId::Tuple(params)] => params.clone(),
+        [TypeId::Builtin(BuiltinType::Unit)] => vec![],
+        _ => return None,
+    };
+    let result = interface
+        .associated_types
+        .get(&crate::types::associated_type_id(
+            &interface.declaration,
+            "Output",
+        ))
+        .cloned()
+        .unwrap_or(TypeId::Unknown);
+    Some(TypeId::Function {
+        params,
+        result: Box::new(result),
+    })
+}
+
 /// Builtin associated outputs are computed from the applied protocol, not its spelling.
 pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<TypeId> {
     let kind = StandardTrait::from_id(&interface.declaration)?;
+    if kind == StandardTrait::Fn
+        && let TypeId::Function { params, result } = receiver
+    {
+        return (interface.arguments == [callable_arguments(params)]).then(|| (**result).clone());
+    }
     if kind == StandardTrait::Index
         && let TypeId::Array(element, _) = receiver
         && matches!(

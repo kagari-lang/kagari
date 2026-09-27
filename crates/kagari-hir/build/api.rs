@@ -117,6 +117,21 @@ pub fn item(
 
 pub fn bound(node: ast::TraitRef) -> String {
     let name = node.path_text().unwrap();
+    if let Some(inputs) = node.callable_inputs() {
+        let params = inputs.types().map(ty).collect::<Vec<_>>();
+        let args = if params.is_empty() {
+            "ApiType::Tuple(&[])".to_owned()
+        } else {
+            format!("ApiType::Tuple(&[{}])", params.join(","))
+        };
+        let output = node
+            .callable_output()
+            .map(ty)
+            .unwrap_or_else(|| "ApiType::Tuple(&[])".into());
+        return format!(
+            "ApiBound{{name:{name:?},args:&[{args}],bindings:&[(\"Output\",{output})]}}"
+        );
+    }
     let args = node
         .generic_args()
         .into_iter()

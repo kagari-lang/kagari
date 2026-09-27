@@ -708,6 +708,15 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         if self.at(TokenKind::Lt) {
             self.parse_generic_arg_list();
+        } else if self.at(TokenKind::LParen) {
+            self.bump();
+            self.parse_type_list();
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+            self.bump_trivia();
+            if self.at(TokenKind::Arrow) {
+                self.bump();
+                self.parse_type_ref();
+            }
         }
         self.finish_node();
     }

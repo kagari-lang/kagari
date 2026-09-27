@@ -79,3 +79,5 @@ file combines grammar branches for the syntax audit and is not a standalone
 executable program.
 The [syntax coverage audit](../docs/syntax-coverage.md) compares these witnesses
 with EBNF rules and records forms that are still missing or unverified.
+
+- `syntax/callables.kgr`: unified `Fn` bounds, contextual closure inference, and stateful callable objects used as callbacks.

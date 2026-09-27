@@ -121,28 +121,28 @@ impl FunctionLowerer<'_, '_> {
                 if variant == 0 {
                     Ok(payload.unwrap())
                 } else {
-                    self.iterator_callback(args[1], output, &callback_args)
+                    self.call_function_value(args[1], output, &callback_args)
                 }
             }
             OptionOrElse | ResultOrElse => {
                 if variant == 0 {
                     self.standard_enum_op(output, Op::Make(0), payload)
                 } else {
-                    self.iterator_callback(args[1], output, &callback_args)
+                    self.call_function_value(args[1], output, &callback_args)
                 }
             }
             OptionMapOr | ResultMapOr | OptionMapOrElse | ResultMapOrElse => {
                 if variant == 0 {
-                    self.iterator_callback(args[2], output, &callback_args)
+                    self.call_function_value(args[2], output, &callback_args)
                 } else if matches!(operation, OptionMapOr | ResultMapOr) {
                     Ok(args[1])
                 } else {
-                    self.iterator_callback(args[1], output, &callback_args)
+                    self.call_function_value(args[1], output, &callback_args)
                 }
             }
             OptionIsSomeAnd | ResultIsOkAnd | ResultIsErrAnd => {
                 if (variant == 1) == (operation == ResultIsErrAnd) {
-                    self.iterator_callback(args[1], output, &callback_args)
+                    self.call_function_value(args[1], output, &callback_args)
                 } else {
                     Ok(self.lower_constant(Constant::Bool(false), ValueType::Bool))
                 }
@@ -151,7 +151,7 @@ impl FunctionLowerer<'_, '_> {
                 if variant == 1 {
                     return Ok(args[0]);
                 }
-                let cond = self.iterator_callback(
+                let cond = self.call_function_value(
                     args[1],
                     &TypeId::Builtin(BuiltinType::Bool),
                     &callback_args,

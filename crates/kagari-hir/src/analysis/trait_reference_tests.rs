@@ -424,3 +424,52 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         TypeId::Trait(_)
     ));
 }
+
+#[test]
+fn callable_facts_survive_body_reuse_and_preserve_bound_navigation() {
+    let text = r#"
+struct Add {val value:i32}
+impl Fn<(i32,)> for Add {type Output=i32; fn call(self,args:(i32,))->i32 {self.value+args[0]}}
+fn apply<F: Fn(i32)->i32>(f:F)->i32 {f(1)}
+fn callback()->fn(i32)->i32 {Add{value:41}}
+fn untouched()->i32 {1}
+"#;
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("callables.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let old = analyze(&mut db, &sources);
+    assert!(old.file(file).unwrap().result().diagnostics().is_empty());
+    let definition = old
+        .file(file)
+        .unwrap()
+        .standard_api_at(text.find("Fn(i32)").unwrap())
+        .unwrap();
+    assert_eq!(definition.path.last().unwrap().1, "Fn");
+    sources
+        .set(
+            "callables.kgr",
+            text.replace("fn untouched()->i32 {1}", "fn untouched()->i32 {1+2}"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let updated = analyze(&mut db, &sources);
+    let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
+    let facts = updated.file(file).unwrap().result().facts();
+    let fresh = fresh.file(file).unwrap().result().facts();
+    facts.typed.type_table.assert_same_source_facts(
+        &fresh.typed.type_table,
+        facts.lowered.module.body.arena(),
+        fresh.lowered.module.body.arena(),
+    );
+    assert!(updated.file(file).unwrap().signatures_reused());
+    assert!(
+        updated
+            .file(file)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+}

@@ -69,12 +69,11 @@ impl BodyChecker<'_> {
             } => Some(self.resolve_constructor_type(*ty, env)),
             _ => None,
         };
-        let inferred_return =
-            (!self.closure_returns.is_empty()).then(|| self.expected_return.clone());
+        // Return expressions already receive their return context explicitly.
+        // Ambient closure context must not determine unrelated local values.
         let context = explicit
             .as_ref()
-            .or(expected.filter(|ty| **ty != TypeId::Unknown))
-            .or(inferred_return.as_ref());
+            .or(expected.filter(|ty| **ty != TypeId::Unknown));
         let mut types = match context {
             Some(TypeId::StandardEnum { kind: actual, args })
                 if *actual == kind && args.len() == kind.spec().arity =>

@@ -151,7 +151,9 @@ where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
 (* Semantics restrict where targets to generic parameters and their projections. *)
 where_predicate     ::= type ":" type_bound_list ;
 
-trait_ref           ::= path generic_args? ;
+trait_ref           ::= path trait_arguments? ;
+trait_arguments     ::= generic_args | callable_arguments ;
+callable_arguments  ::= "(" type_list? ")" ("->" type)? ;
 
 impl_block          ::= inherent_impl
                       | trait_impl ;

@@ -516,7 +516,34 @@ impl Lowerer {
             .generic_args()
             .map(|args| args.args().map(|arg| self.lower_type(&arg)).collect())
             .unwrap_or_default();
-        let kind = if trait_ref.generic_args().is_none() {
+        let kind = if let Some(inputs) = trait_ref.callable_inputs() {
+            let input_span = token_span(&inputs);
+            let inputs = inputs.types().map(|ty| self.lower_type(&ty)).collect();
+            let tuple = self.alloc_type(
+                input_span,
+                crate::hir::TypeData {
+                    kind: crate::hir::TypeKind::Tuple(inputs),
+                },
+            );
+            let output = if let Some(output) = trait_ref.callable_output() {
+                self.lower_type(&output)
+            } else {
+                let end = token_span(trait_ref).end;
+                self.alloc_type(
+                    kagari_common::Span { start: end, end },
+                    crate::hir::TypeData {
+                        kind: crate::hir::TypeKind::Tuple(Default::default()),
+                    },
+                )
+            };
+            crate::hir::TypeKind::Generic {
+                name,
+                args: smallvec::smallvec![tuple],
+                bindings: vec![("Output".into(), output)],
+                positional_after_binding: false,
+                callable_syntax: true,
+            }
+        } else if trait_ref.generic_args().is_none() {
             crate::hir::TypeKind::Named(name)
         } else {
             let list = trait_ref.generic_args().expect("generic arguments");
@@ -525,6 +552,7 @@ impl Lowerer {
                 name,
                 args,
                 bindings,
+                callable_syntax: false,
                 positional_after_binding: list.positional_after_binding(),
             }
         };

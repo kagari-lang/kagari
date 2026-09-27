@@ -505,3 +505,30 @@ impl<T> RangeBounds<T> for RangeFull {
     #[intrinsic(RangeEndBound)]
     fn end_bound(self) -> Bound<T>;
 }
+
+/// A callable value with positional arguments and an associated result.
+///
+/// Values of type `fn(...) -> R`, including closures, implement this protocol
+/// automatically. User types may
+/// implement `Fn<(A, B)>` with `type Output = R` and `call(self, args: (A, B))`.
+/// `F: Fn(A, B) -> R` is the corresponding bound shorthand. An omitted result
+/// means unit. Calls evaluate the receiver and arguments once, left to right.
+///
+/// Implementations may mutate shared state and may trap. This protocol promises
+/// neither purity, reentrancy, thread safety, nor a limited number of invocations.
+/// Kagari has no separate `FnMut` or `FnOnce` protocols.
+///
+/// # Examples
+///
+/// ```kgr
+/// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }
+/// fn main() {
+///     std::debug::assert(apply(|x| x + 1, 41) == 42, "callable bound");
+/// }
+/// ```
+pub trait Fn<Args> {
+    /// The value returned by a successful call.
+    type Output;
+    /// Invoke this value. Zero arguments use `()`, one uses `(value,)`.
+    fn call(self, args: Args) -> Self::Output;
+}

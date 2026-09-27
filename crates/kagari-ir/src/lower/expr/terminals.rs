@@ -121,7 +121,7 @@ impl FunctionLowerer<'_, '_> {
                 self.ensure_jump(head);
             }
             FindMap => {
-                let mapped = self.iterator_callback(values[1], &result_optional, &[item])?;
+                let mapped = self.call_function_value(values[1], &result_optional, &[item])?;
                 let present =
                     self.standard_enum_op(&result_optional, StandardEnumOp::Test(0), Some(mapped))?;
                 self.emit(Instruction::Move {
@@ -137,7 +137,7 @@ impl FunctionLowerer<'_, '_> {
             Position | Nth => {
                 let counter = counter.unwrap();
                 let matched = if operation == Position {
-                    self.iterator_callback(values[1], &bool_type, &[item])?
+                    self.call_function_value(values[1], &bool_type, &[item])?
                 } else {
                     let zero = self.usize_constant(0);
                     let matched = self.alloc_temp(ValueType::Bool);
@@ -195,7 +195,7 @@ impl FunctionLowerer<'_, '_> {
             }
             Reduce | MinBy | MaxBy | Min | Max | MinByKey | MaxByKey => {
                 let current_key = if key_state.is_some() {
-                    Some(self.iterator_callback(values[1], &arguments[0], &[item])?)
+                    Some(self.call_function_value(values[1], &arguments[0], &[item])?)
                 } else {
                     None
                 };
@@ -213,7 +213,7 @@ impl FunctionLowerer<'_, '_> {
                     self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(result))?;
                 if operation == Reduce {
                     let combined =
-                        self.iterator_callback(values[1], &item_type, &[previous, item])?;
+                        self.call_function_value(values[1], &item_type, &[previous, item])?;
                     let wrapped =
                         self.standard_enum_op(&optional, StandardEnumOp::Make(0), Some(combined))?;
                     self.emit(Instruction::Move {
@@ -227,7 +227,7 @@ impl FunctionLowerer<'_, '_> {
                         args: vec![],
                     };
                     let comparison = if matches!(operation, MinBy | MaxBy) {
-                        self.iterator_callback(values[1], &ordering, &[previous, item])?
+                        self.call_function_value(values[1], &ordering, &[previous, item])?
                     } else {
                         let (ty, left, right) = if let Some((state, option)) = &key_state {
                             (
@@ -284,7 +284,7 @@ impl FunctionLowerer<'_, '_> {
                 self.ensure_jump(head);
             }
             Find | Any | All => {
-                let predicate = self.iterator_callback(values[1], &bool_type, &[item])?;
+                let predicate = self.call_function_value(values[1], &bool_type, &[item])?;
                 let found = self.new_block();
                 let (then_block, else_block) = if operation == All {
                     (head, found)
@@ -324,7 +324,7 @@ impl FunctionLowerer<'_, '_> {
                 self.ensure_jump(head);
             }
             Fold => {
-                let next = self.iterator_callback(values[2], &arguments[0], &[result, item])?;
+                let next = self.call_function_value(values[2], &arguments[0], &[result, item])?;
                 self.emit(Instruction::Move {
                     dst: result,
                     src: next,
@@ -332,11 +332,11 @@ impl FunctionLowerer<'_, '_> {
                 self.ensure_jump(head);
             }
             ForEach => {
-                self.iterator_callback(values[1], &unit_type, &[item])?;
+                self.call_function_value(values[1], &unit_type, &[item])?;
                 self.ensure_jump(head);
             }
             Partition => {
-                let predicate = self.iterator_callback(values[1], &bool_type, &[item])?;
+                let predicate = self.call_function_value(values[1], &bool_type, &[item])?;
                 let yes = self.new_block();
                 let no = self.new_block();
                 self.set_terminator(Terminator::Branch {
@@ -353,7 +353,7 @@ impl FunctionLowerer<'_, '_> {
             }
             GroupBy => {
                 let key_type = &arguments[0];
-                let key = self.iterator_callback(values[1], key_type, &[item])?;
+                let key = self.call_function_value(values[1], key_type, &[item])?;
                 let custom = self.has_custom_protocol(key_type);
                 let group = if custom {
                     self.lower_key_operation(StandardIntrinsic::MapGet, key_type, &[result, key])?

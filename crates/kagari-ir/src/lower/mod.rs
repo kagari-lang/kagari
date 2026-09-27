@@ -110,7 +110,9 @@ pub(crate) fn lower_to_ir_with_requests<'a>(
             .iter()
             .find(|function| function.id == instance.function)
             .ok_or(IrLoweringError::MissingTypedFunction(instance.function))?;
-        functions.push(if instance.native_method.is_some() {
+        functions.push(if instance.callable.is_some() {
+            function::lower_callable(origin, function, instance, &mut planner)?
+        } else if instance.native_method.is_some() {
             function::lower_native_method(origin, function, instance, &mut planner)?
         } else if instance.iterator.is_some() {
             function::lower_iterator(origin, function, instance, &mut planner)?

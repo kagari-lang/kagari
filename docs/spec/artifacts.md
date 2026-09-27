@@ -720,3 +720,8 @@ KBC/runtime ABI v100 adds a typed private iterator-resume operation. Before a
 window/chunk step reads source slots, it validates retained native source revisions
 and reestablishes source guards released by early pipeline closure. A structurally
 changed source traps; unchanged sources can continue from the saved position.
+
+KBC/runtime ABI v101 adds the standard `Fn` protocol identity and callable
+specializations. Callable adapters use the existing closure instruction and
+semantic signature validation, including capture and return contracts. Earlier
+artifacts are rejected; no legacy callable dispatch or migration is provided.

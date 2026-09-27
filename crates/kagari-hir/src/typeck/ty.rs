@@ -267,6 +267,7 @@ pub(super) fn resolve_type_in(
             args,
             bindings,
             positional_after_binding,
+            callable_syntax,
         } => {
             let reference = resolve_named_type(name, context);
             target = reference.target;
@@ -327,7 +328,11 @@ pub(super) fn resolve_type_in(
                 TypeId::Trait(mut nominal)
                     if nominal.arguments.len() == args.len()
                         && (!nominal.arguments.is_empty() || !bindings.is_empty())
-                        && !*positional_after_binding =>
+                        && !*positional_after_binding
+                        && (!*callable_syntax
+                            || crate::builtin::traits::StandardTrait::from_id(
+                                &nominal.declaration,
+                            ) == Some(crate::builtin::traits::StandardTrait::Fn)) =>
                 {
                     nominal.arguments = args;
                     let members = super::associated::members(

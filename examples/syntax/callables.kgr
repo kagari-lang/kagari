@@ -1,0 +1,20 @@
+// The same callable protocol supports closures and stateful objects.
+struct Counter { var value: i32 }
+impl Fn<(i32,)> for Counter {
+    type Output = i32;
+    fn call(self, args: (i32,)) -> i32 {
+        self.value += args[0];
+        self.value
+    }
+}
+fn apply<T, R, F: Fn(T) -> R>(value: T, f: F) -> R { f(value) }
+fn visit<F: Fn()>(f: F) { f(); }
+fn main() -> i32 {
+    val counter = Counter { value: 0 };
+    std::debug::assert(apply(20, counter) == 20, "stateful callable");
+    val callback: fn(i32) -> i32 = counter;
+    std::debug::assert(callback(1) == 21, "callback shares the receiver");
+    visit(|| { counter.value += 1; });
+    std::debug::assert(apply(21, |x| x * 2) == 42, "inferred closure");
+    counter(20)
+}

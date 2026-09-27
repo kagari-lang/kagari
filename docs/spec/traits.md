@@ -818,3 +818,42 @@ Ordinary user trait interfaces retain their existing dynamic behavior. See
 Clone, writable indexing, compound-assignment overrides, generic propagation,
 and Error context are later
 extensions over this shared identity and bound infrastructure.
+
+## Unified callable protocol
+
+`std::ops::Fn<Args>` is a prelude trait with an associated `Output` and
+`fn call(self, args: Args) -> Self::Output`. Values of type `fn(...) -> R`, including closures, automatically
+implement it for their parameter tuple and result. User types may implement it
+with the ordinary `impl Fn<(T,)> for Receiver` syntax.
+
+In a trait reference, `Fn(A, B) -> R` abbreviates
+`Fn<(A, B), Output = R>`. Zero arguments use `()`, a single argument uses `(A,)`,
+and an omitted arrow means `Output = ()`. The shorthand resolves the standard
+trait identity, including qualified paths and import aliases. It does not add a
+new function-value type: stored callbacks still use `fn(A, B) -> R`.
+
+```kgr
+fn apply<T, R, F: Fn(T) -> R>(value: T, f: F) -> R { f(value) }
+fn main() {
+    std::debug::assert(apply(21, |x| x * 2) == 42, "callable inference");
+}
+```
+
+The bound supplies contextual closure parameter types and participates in result
+inference. A callable generic parameter or object supports `f(arguments)`; an
+explicit `f.call((arguments,))` uses the same protocol. The receiver is evaluated
+once before the arguments, which are also evaluated once from left to right.
+Ambiguous callable implementations require an explicit trait method selection.
+
+A compatible callable object can be passed, assigned, or returned where a
+`fn(...) -> R` value is expected. The compiler captures the receiver in an ordinary
+closure adapter; it does not copy the object. Captured objects remain GC roots as
+long as the callback is reachable. Existing standard-library callback parameters
+therefore accept these objects as well as functions and closures.
+
+`Fn` allows mutation through shared references, including stateful captured
+variables. It does not imply purity, reentrancy, cross-thread safety, consumption,
+or a promise about the number of calls. There are no `FnMut` or `FnOnce` protocols.
+Calling or adapting a callable retains ordinary trap, budget, and resource-cleanup
+behavior. Generic callable constraints reuse specialization; function values retain
+indirect closure dispatch. No inlining guarantee is part of this contract.

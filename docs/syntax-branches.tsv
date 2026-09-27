@@ -125,3 +125,5 @@ assign_op	11	witnessed	examples/syntax/bitwise.kgr	-	">>="
 range_expr	1	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr? ".." logic_or_expr?
 range_expr	2	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr? "..=" logic_or_expr
 range_expr	3	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr
+trait_arguments	1	witnessed	examples/syntax/callables.kgr	-	generic_args
+trait_arguments	2	witnessed	examples/syntax/callables.kgr	-	callable_arguments

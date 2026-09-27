@@ -35,6 +35,7 @@ impl Default for IrLoweringOptions {
 
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
+    pub callable: Option<CallableInstance>,
     pub iterator: Option<IteratorInstance>,
     pub origin: kagari_common::identity::ModuleIdentity,
     pub id: InstanceId,
@@ -48,6 +49,13 @@ pub(super) struct Instance {
         kagari_common::identity::DefinitionId,
     )>,
     pub protocol: Option<(kagari_hir::builtin::traits::StandardTrait, TypeId)>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct CallableInstance {
+    pub receiver: TypeId,
+    pub interface: kagari_hir::types::NominalType,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +90,60 @@ pub(super) struct InstancePlanner<'a> {
 }
 
 impl<'a> InstancePlanner<'a> {
+    pub fn enqueue_callable(
+        &mut self,
+        parent: &Instance,
+        mut body: CallableInstance,
+    ) -> Result<InstanceId, IrLoweringError> {
+        self.check()?;
+        body.receiver = self
+            .arguments(&[body.receiver], &parent.substitution, body.span)?
+            .remove(0);
+        let TypeId::Trait(interface) = self
+            .arguments(
+                &[TypeId::Trait(body.interface)],
+                &parent.substitution,
+                body.span,
+            )?
+            .remove(0)
+        else {
+            unreachable!()
+        };
+        body.interface = interface;
+        let mut declaration = parent.key.declaration.clone();
+        declaration
+            .path
+            .push(kagari_common::identity::DefinitionPathSegment {
+                kind: kagari_common::identity::DefinitionKind::Function,
+                name: "$callable".into(),
+                occurrence: body.span.start as u32,
+            });
+        let key = FunctionInstance {
+            declaration,
+            arguments: vec![body.receiver.clone(), TypeId::Trait(body.interface.clone())],
+        };
+        if let Some(id) = self.keys.get(&key) {
+            return Ok(*id);
+        }
+        self.charge_layout_instance(body.span)?;
+        self.record_layout_root(&body.receiver, &Default::default(), body.span)?;
+        let id = InstanceId::new(self.instances.len());
+        self.keys.insert(key.clone(), id);
+        self.instances.push(Instance {
+            callable: Some(body),
+            iterator: None,
+            origin: parent.origin.clone(),
+            id,
+            function: parent.function,
+            key,
+            substitution: parent.substitution.clone(),
+            closure: None,
+            native_method: None,
+            protocol: None,
+        });
+        Ok(id)
+    }
+
     pub fn enqueue_iterator(
         &mut self,
         parent: &Instance,
@@ -115,6 +177,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            callable: None,
             origin: parent.origin.clone(),
             id,
             function: parent.function,
@@ -194,6 +257,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            callable: None,
             origin: parent.origin.clone(),
             id,
             function: parent.function,
@@ -294,6 +358,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            callable: None,
             origin,
             id,
             function,
@@ -422,6 +487,7 @@ impl<'a> InstancePlanner<'a> {
             let instance_id = InstanceId::new(self.instances.len());
             self.keys.insert(key.clone(), instance_id);
             self.instances.push(Instance {
+                callable: None,
                 origin: parent.origin.clone(),
                 id: instance_id,
                 function: parent.function,
@@ -649,6 +715,7 @@ impl<'a> InstancePlanner<'a> {
             .collect();
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            callable: None,
             origin: self.module.lowered.source.module_identity().clone(),
             id,
             function,
@@ -694,6 +761,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
+            callable: None,
             origin: parent.origin.clone(),
             id,
             function: parent.function,

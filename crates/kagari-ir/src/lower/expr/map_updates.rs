@@ -20,7 +20,7 @@ impl FunctionLowerer<'_, '_> {
         self.emit_intrinsic(CollectionMutationBegin, &[args[0]], ValueType::Unit);
         let previous = self.lower_native_collection_method(source, "get", &args[..2])?;
         let prepare = |this: &mut Self, input: &[IrValue]| -> Result<IrValue, IrLoweringError> {
-            let result = this.iterator_callback(args[2], value, input)?;
+            let result = this.call_function_value(args[2], value, input)?;
             this.emit_intrinsic(CollectionMutationEnd, &[args[0]], ValueType::Unit);
             this.lower_native_collection_method(source, "insert", &[args[0], args[1], result])?;
             Ok(result)

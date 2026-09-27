@@ -145,7 +145,7 @@ impl FunctionLowerer<'_, '_> {
                 } else {
                     vec![value]
                 };
-                let keep = this.iterator_callback(args[1], &boolean, &arguments)?;
+                let keep = this.call_function_value(args[1], &boolean, &arguments)?;
                 this.collection_insert(&mask_type, mask, keep)
             },
         )?;
@@ -237,7 +237,7 @@ impl FunctionLowerer<'_, '_> {
         self.prepared_indices(len, |this, index| {
             let value = this.prepared_read(args[0], index, item)?;
             let value = if let Some(key) = key {
-                let extracted = this.iterator_callback(args[1], key, &[value])?;
+                let extracted = this.call_function_value(args[1], key, &[value])?;
                 let pair = this.alloc_temp(ValueType::HeapObject);
                 this.emit(Instruction::MakeTuple {
                     dst: pair,
@@ -319,7 +319,7 @@ impl FunctionLowerer<'_, '_> {
                                                 let b =
                                                     this.prepared_read(values, right, &decorated)?;
                                                 let compared = if operation == ArraySortBy {
-                                                    this.iterator_callback(
+                                                    this.call_function_value(
                                                         args[1],
                                                         &ordering,
                                                         &[a, b],

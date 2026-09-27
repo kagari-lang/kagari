@@ -7,6 +7,96 @@ use crate::module::function::{IrCapturedBindingDebugInfo, IrParameter};
 use crate::module::{function::IrFunction, instruction::Terminator};
 use kagari_hir::resolver::ResolvedName;
 
+pub(crate) fn lower_callable<'a>(
+    module: &'a AnalyzedModule,
+    parent: &hir::Function,
+    instance: super::instances::Instance,
+    planner: &mut super::instances::InstancePlanner<'a>,
+) -> Result<IrFunction, IrLoweringError> {
+    use crate::module::{ValueType, instruction::Instruction};
+    use kagari_hir::{
+        builtin::traits::{StandardTrait, callable_signature},
+        types::TypeId,
+    };
+    let body = instance.callable.clone().expect("callable adapter");
+    let Some(TypeId::Function { params, result }) = callable_signature(&body.interface) else {
+        return Err(IrLoweringError::MissingBinding(
+            "callable adapter signature",
+        ));
+    };
+    let typed = kagari_hir::typeck::TypedFunction {
+        generic_params: vec![],
+        bounds: Default::default(),
+        id: parent.id,
+        name: "$callable".into(),
+        params: Default::default(),
+        return_type: *result,
+    };
+    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    lowerer.function.name = typed.name;
+    lowerer.function.debug.source_span = body.span;
+    let mut values = Vec::new();
+    for (index, ty) in std::iter::once(&body.receiver)
+        .chain(params.iter())
+        .enumerate()
+    {
+        let physical = lowerer.value_type(ty)?;
+        let name = if index == 0 {
+            "receiver".into()
+        } else {
+            format!("arg_{}", index - 1)
+        };
+        let local = lowerer.alloc_local(name.clone(), physical, body.span);
+        lowerer
+            .function
+            .debug
+            .locals
+            .last_mut()
+            .unwrap()
+            .is_parameter = true;
+        lowerer.function.params.push(IrParameter {
+            name,
+            ty: physical,
+            local,
+        });
+        let semantic = lowerer.semantic_type(ty)?;
+        lowerer
+            .function
+            .semantic
+            .params
+            .insert(index, semantic.clone());
+        lowerer
+            .function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
+        let value = lowerer.alloc_temp(physical);
+        lowerer.emit(Instruction::LoadLocal { dst: value, local });
+        values.push(value);
+    }
+    let result = lowerer.with_debug_span(body.span, |lowerer| {
+        let packed = if params.is_empty() {
+            lowerer.lower_unit()
+        } else {
+            let dst = lowerer.alloc_temp(ValueType::HeapObject);
+            lowerer.emit(Instruction::MakeTuple {
+                dst,
+                elements: values[1..].iter().copied().collect(),
+            });
+            dst
+        };
+        lowerer.lower_applied_operator(
+            body.interface,
+            body.receiver,
+            &StandardTrait::Fn.contract().methods[0].id,
+            &[values[0], packed],
+        )
+    })?;
+    lowerer.set_terminator(Terminator::Return(Some(result)));
+    lowerer.planner.check()?;
+    Ok(lowerer.finish())
+}
+
 pub(crate) fn lower_iterator<'a>(
     module: &'a AnalyzedModule,
     parent: &hir::Function,

@@ -243,7 +243,7 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    pub(super) fn iterator_callback(
+    pub(super) fn call_function_value(
         &mut self,
         callback: IrValue,
         result: &TypeId,
@@ -424,7 +424,11 @@ impl FunctionLowerer<'_, '_> {
             let value = match body.operation {
                 Fuse => value,
                 Inspect => {
-                    self.iterator_callback(args[1], &TypeId::Builtin(BuiltinType::Unit), &[value])?;
+                    self.call_function_value(
+                        args[1],
+                        &TypeId::Builtin(BuiltinType::Unit),
+                        &[value],
+                    )?;
                     value
                 }
                 TakeWhile | SkipWhile => {
@@ -439,7 +443,7 @@ impl FunctionLowerer<'_, '_> {
                         });
                         self.switch_to_block(test);
                     }
-                    let keep = self.iterator_callback(
+                    let keep = self.call_function_value(
                         args[1],
                         &TypeId::Builtin(BuiltinType::Bool),
                         &[value],
@@ -465,9 +469,9 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(yield_item);
                     value
                 }
-                Map => self.iterator_callback(args[1], &body.output, &[value])?,
+                Map => self.call_function_value(args[1], &body.output, &[value])?,
                 Filter => {
-                    let keep = self.iterator_callback(
+                    let keep = self.call_function_value(
                         args[1],
                         &TypeId::Builtin(BuiltinType::Bool),
                         &[value],
@@ -482,7 +486,7 @@ impl FunctionLowerer<'_, '_> {
                     value
                 }
                 FilterMap => {
-                    let mapped = self.iterator_callback(args[1], &output_option, &[value])?;
+                    let mapped = self.call_function_value(args[1], &output_option, &[value])?;
                     let present = self.standard_enum_op(
                         &output_option,
                         StandardEnumOp::Test(0),
@@ -660,7 +664,7 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(start_inner);
         let value = self.standard_enum_op(&input_option, StandardEnumOp::Read(0), Some(next))?;
         let value = if body.operation == NativeDefaultMethod::FlatMap {
-            self.iterator_callback(args[3], inner_source, &[value])?
+            self.call_function_value(args[3], inner_source, &[value])?
         } else {
             value
         };

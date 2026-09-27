@@ -97,6 +97,17 @@ impl Solver {
             match (&left, &right) {
                 (TypeId::Unknown | TypeId::Error, _) | (_, TypeId::Unknown | TypeId::Error) => {}
                 (TypeId::Inference(id), ty) | (ty, TypeId::Inference(id)) => {
+                    // Recovery placeholders are not inference variables. Freezing one
+                    // inside a callable signature would prevent later rounds from
+                    // recovering its result after the receiver type becomes known.
+                    let mut recovery = false;
+                    ty.substitute_once(|member| {
+                        recovery |= matches!(member, TypeId::Unknown | TypeId::Error);
+                        None
+                    });
+                    if recovery {
+                        continue;
+                    }
                     if let Some(fallback) = self.numeric.get(id).copied() {
                         let floating = fallback == crate::types::BuiltinType::F64;
                         let admissible = match ty {
@@ -213,6 +224,30 @@ mod tests {
             solver.resolve(&a),
             TypeId::Array(Box::new(integer), CollectionAccess::Mutable)
         );
+    }
+
+    #[test]
+    fn recovering_callable_results_do_not_poison_inference_variables() {
+        let mut solver = Solver {
+            bindings: vec![None],
+            ..Default::default()
+        };
+        let variable = TypeId::Inference(0);
+        let cancel = CancellationToken::default();
+        for recovery in [TypeId::Unknown, TypeId::Error] {
+            let signature = TypeId::Function {
+                params: vec![],
+                result: Box::new(recovery),
+            };
+            assert!(solver.constrain(&variable, &signature, &cancel).unwrap());
+            assert_eq!(solver.resolve(&variable), variable);
+        }
+        let signature = TypeId::Function {
+            params: vec![],
+            result: Box::new(TypeId::Builtin(BuiltinType::I32)),
+        };
+        assert!(solver.constrain(&variable, &signature, &cancel).unwrap());
+        assert_eq!(solver.resolve(&variable), signature);
     }
 
     #[test]

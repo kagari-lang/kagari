@@ -64,7 +64,7 @@ generic_args	2	?	(",")
 path	1	*	("::" path_segment)
 where_clause	1	*	("," where_predicate)
 where_clause	2	?	(",")
-trait_ref	1	?	generic_args
+trait_ref	1	?	trait_arguments
 inherent_impl	1	?	generic_param_clause
 inherent_impl	2	?	where_clause
 inherent_impl	3	*	impl_item
@@ -145,3 +145,5 @@ bit_xor_expr	1	*	("^" bit_and_expr)
 bit_and_expr	1	*	("&" shift_expr)
 shift_expr	1	*	(("<<" | ">>") additive_expr)
 cast_expr	1	*	("as" type)
+callable_arguments	1	?	type_list
+callable_arguments	2	?	("->" type)

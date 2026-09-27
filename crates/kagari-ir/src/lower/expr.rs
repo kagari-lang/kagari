@@ -106,6 +106,30 @@ impl FunctionLowerer<'_, '_> {
         let mut value = self.lower_expr_value(expr_id)?;
         if !self.current_block_terminated() {
             self.record_expr_layout(expr_id)?;
+            if let Some((receiver, interface)) = self
+                .analyzed
+                .typed
+                .type_table
+                .callable_coercion(expr_id)
+                .cloned()
+            {
+                let function = self.planner.enqueue_callable(
+                    &self.instance,
+                    super::instances::CallableInstance {
+                        receiver,
+                        interface,
+                        span: self.analyzed.lowered.source_map.expr_span(expr_id),
+                    },
+                )?;
+                let dst = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::MakeClosure {
+                    dst,
+                    function,
+                    captures: smallvec::smallvec![value],
+                });
+                value = dst;
+            }
+
             if let Some(coercion) = self
                 .analyzed
                 .typed
@@ -236,9 +260,7 @@ impl FunctionLowerer<'_, '_> {
                 .analyzed
                 .typed
                 .type_table
-                .interface_coercion(expr_id)
-                .map(|coercion| kagari_hir::types::TypeId::Trait(coercion.interface_type.clone()))
-                .or_else(|| self.analyzed.typed.type_table.expr_type(expr_id))
+                .coerced_expr_type(expr_id)
                 .ok_or(IrLoweringError::MissingExprType(expr_id))?;
             if ty != kagari_hir::types::TypeId::Unknown && ty != kagari_hir::types::TypeId::Error {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
@@ -1531,6 +1553,37 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             };
+            if kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                == Some(kagari_hir::builtin::traits::StandardTrait::Fn)
+                && matches!(&self.analyzed.lowered.module.expr(expr).kind, hir::ExprKind::Call { callee, .. } if *callee == receiver)
+            {
+                let receiver_type = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(receiver)
+                    .ok_or(IrLoweringError::MissingExprType(receiver))?;
+                let receiver_type = self
+                    .planner
+                    .arguments(&[receiver_type], &self.instance.substitution, span)?
+                    .remove(0);
+                if let kagari_hir::types::TypeId::Function { result, .. } = receiver_type {
+                    // Specializing a callable bound does not allocate an argument tuple for closures.
+                    return self.call_function_value(values[0], &result, &values[1..]);
+                }
+                let packed = if values.len() == 1 {
+                    self.lower_unit()
+                } else {
+                    let dst = self.alloc_temp(ValueType::HeapObject);
+                    self.emit(Instruction::MakeTuple {
+                        dst,
+                        elements: values[1..].iter().copied().collect(),
+                    });
+                    dst
+                };
+                values.truncate(1);
+                values.push(packed);
+            }
             return self.lower_selected_operator(expr, &values);
         }
         if let SemanticCallTarget::TraitMethod { ref interface, .. } = call.target
@@ -1968,7 +2021,7 @@ impl FunctionLowerer<'_, '_> {
                                     .analyzed
                                     .typed
                                     .type_table
-                                    .expr_type(site)
+                                    .coerced_expr_type(site)
                                     .ok_or(IrLoweringError::MissingExprType(site))?;
                                 Some(
                                     self.planner

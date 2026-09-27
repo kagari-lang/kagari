@@ -64,6 +64,7 @@ impl Lowerer {
                                         name,
                                         args,
                                         bindings,
+                                        callable_syntax: false,
                                         positional_after_binding: arguments
                                             .positional_after_binding(),
                                     },
@@ -229,6 +230,7 @@ impl Lowerer {
                                 name,
                                 args,
                                 bindings,
+                                callable_syntax: false,
                                 positional_after_binding: arguments.positional_after_binding(),
                             },
                         },
