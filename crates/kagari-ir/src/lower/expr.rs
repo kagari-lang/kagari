@@ -1993,7 +1993,10 @@ impl FunctionLowerer<'_, '_> {
                         ) {
                             return self.lower_map_snapshot(expr, intrinsic, lowered[0]);
                         }
-                        if intrinsic == StandardIntrinsic::ArrayCopyFrom {
+                        if matches!(
+                            intrinsic,
+                            StandardIntrinsic::ArrayCopyFrom | StandardIntrinsic::ArrayExtend
+                        ) {
                             let source_expr = *args
                                 .last()
                                 .ok_or(IrLoweringError::MissingBinding("copy source"))?;
@@ -2017,7 +2020,12 @@ impl FunctionLowerer<'_, '_> {
                                     self.function.debug.source_span,
                                 )?
                                 .remove(0);
-                            return self.lower_list_copy(source, lowered[0], lowered[1]);
+                            return self.lower_list_copy(
+                                source,
+                                lowered[0],
+                                lowered[1],
+                                intrinsic == StandardIntrinsic::ArrayExtend,
+                            );
                         }
 
                         use kagari_hir::builtin::surface::StandardIntrinsic::*;

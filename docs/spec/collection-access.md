@@ -180,3 +180,13 @@ select any equal position. Empty prefixes/suffixes match. Multi-element queries
 retain an iteration guard while comparison callbacks run, rejecting structural
 changes through aliases of native backing storage. Custom List implementations
 must keep len/get/index and iteration consistent. The default methods are sealed.
+
+MutableList requires swap, reverse, truncate and extend in addition to its basic
+mutators. Native operations prepare before committing; custom implementations
+must uphold the same single-operation failure contract. Extend accepts a readonly
+List and appends its shallow snapshot; extending from the same backing object
+appends the original elements once. Iterator sources can be collected explicitly.
+Swap validates both indices first. Truncate never grows. ArrayList::swap_remove
+returns Option, consistent with remove, and replaces the removed slot with the
+last element; its order is intentionally unstable. Reordering rejects active
+native iteration and invalidates earlier closed cursors through the revision.

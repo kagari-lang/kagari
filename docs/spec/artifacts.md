@@ -668,3 +668,10 @@ KBC/runtime ABI v93 includes source-declared List query defaults. Native witness
 inherit their standard methods without requiring duplicate inherent declarations.
 Queries lower to verified control flow and ordinary comparison dispatch. Previous
 products are rejected.
+
+## List mutation capabilities (v94)
+
+KBC/runtime ABI v94 extends MutableList's required methods and adds verified
+array mutation bindings. Extend source traversal is lowered before one storage
+commit; internal storage arguments must have matching element types. Previous
+products are rejected.

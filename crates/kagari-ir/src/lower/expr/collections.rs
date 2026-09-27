@@ -265,6 +265,14 @@ impl FunctionLowerer<'_, '_> {
             (TypeId::Array(_, _), "pop") => (ArrayPop, ValueType::HeapObject, false),
             (TypeId::Array(_, _), "insert") => (ArrayInsert, ValueType::HeapObject, true),
             (TypeId::Array(_, _), "remove") => (ArrayRemove, ValueType::HeapObject, false),
+            (TypeId::Array(_, _), "swap") => (ArraySwap, ValueType::Unit, false),
+            (TypeId::Array(_, _), "reverse") => (ArrayReverse, ValueType::Unit, false),
+            (TypeId::Array(_, _), "truncate") => (ArrayTruncate, ValueType::Unit, false),
+            (TypeId::Array(item, _), "extend") => {
+                let mut interface = kagari_hir::builtin::traits::StandardTrait::List.nominal();
+                interface.arguments.push((**item).clone());
+                return self.lower_list_copy(TypeId::Trait(interface), args[0], args[1], true);
+            }
             (TypeId::Array(_, _), "clear") => (ArrayClear, ValueType::HeapObject, true),
             (TypeId::Map { key, .. }, "get" | "contains_key" | "insert" | "remove") => {
                 let intrinsic = match name {
@@ -336,6 +344,7 @@ impl FunctionLowerer<'_, '_> {
         source: TypeId,
         destination: IrValue,
         input: IrValue,
+        extend: bool,
     ) -> Result<IrValue, IrLoweringError> {
         let TypeId::Trait(interface) = &source else {
             return Err(IrLoweringError::MissingBinding("list copy source"));
@@ -346,7 +355,11 @@ impl FunctionLowerer<'_, '_> {
         );
         let snapshot = self.lower_collect(&storage, &source, input)?;
         Ok(self.emit_intrinsic(
-            StandardIntrinsic::ArrayCopyFromStorage,
+            if extend {
+                StandardIntrinsic::ArrayExtendStorage
+            } else {
+                StandardIntrinsic::ArrayCopyFromStorage
+            },
             &[destination, snapshot],
             ValueType::Unit,
         ))

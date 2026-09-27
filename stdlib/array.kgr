@@ -37,6 +37,72 @@
 pub type ArrayList<T>;
 
 impl<T> ArrayList<T> {
+    /// Exchange two valid positions. Invalid indices trap before either slot changes.
+    ///
+    /// Payload objects remain shared. Failed preparation preserves target slots.
+    /// Structural changes and reordering are forbidden while a native iterator is active.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val xs=[1,2]; xs.swap(0usize,1usize); std::debug::assert(xs[0usize]==2,"swap");
+    /// ```
+    #[intrinsic(ArraySwap)]
+    pub fn swap(self, a: usize, b: usize) -> ();
+
+    /// Reverse the order in place. This reordering is forbidden during iteration.
+    ///
+    /// Payload objects remain shared. Failed preparation preserves target slots.
+    /// Structural changes and reordering are forbidden while a native iterator is active.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val xs=[1,2]; xs.reverse(); std::debug::assert(xs[0usize]==2,"reverse");
+    /// ```
+    #[intrinsic(ArrayReverse)]
+    pub fn reverse(self) -> ();
+
+    /// Keep at most len elements. A larger length leaves the list unchanged.
+    ///
+    /// Payload objects remain shared. Failed preparation preserves target slots.
+    /// Structural changes and reordering are forbidden while a native iterator is active.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val xs=[1,2]; xs.truncate(1usize); std::debug::assert(xs.len()==1usize,"truncate");
+    /// ```
+    #[intrinsic(ArrayTruncate)]
+    pub fn truncate(self, len: usize) -> ();
+
+    /// Append a prepared shallow snapshot of source. Self-extension appends the original elements once.
+    ///
+    /// Payload objects remain shared. Failed preparation preserves target slots.
+    /// Structural changes and reordering are forbidden while a native iterator is active.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val xs=[1,2]; xs.extend(xs); std::debug::assert(xs.len()==4usize,"self extension");
+    /// ```
+    #[intrinsic(ArrayExtend)]
+    pub fn extend(self, source: List<T>) -> ();
+
+    /// Remove a position by moving the last element into its place. Returns None for an invalid index.
+    ///
+    /// Payload objects remain shared. Failed preparation preserves target slots.
+    /// Structural changes and reordering are forbidden while a native iterator is active.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val xs=[1,2,3]; std::debug::assert(xs.swap_remove(0usize)==Some(1),"removed"); std::debug::assert(xs[0usize]==3,"unordered");
+    /// ```
+    #[intrinsic(ArraySwapRemove)]
+    pub fn swap_remove(self, index: usize) -> Option<T>;
+
+
     /// Return the number of elements.
     ///
     /// The array is a shared object. Reading an element does not copy an object graph; object
@@ -550,6 +616,15 @@ pub trait List<T>: Iterable<Item = T, Iter = Iter<T>> + Index<usize, Output = T>
 /// std::debug::assert_eq(writable.pop(), Some(30), "last item");
 /// ```
 pub trait MutableList<T>: List<T> {
+    /// Exchange two valid positions. Invalid indices trap before either slot changes.
+    fn swap(self, a: usize, b: usize) -> ();
+    /// Reverse the order in place. This reordering is forbidden during iteration.
+    fn reverse(self) -> ();
+    /// Keep at most len elements. A larger length leaves the list unchanged.
+    fn truncate(self, len: usize) -> ();
+    /// Append a prepared shallow snapshot of source. Self-extension appends the original elements once.
+    fn extend(self, source: List<T>) -> ();
+
     /// Appends an element. Failure leaves the sequence unchanged.
     fn push(self, value: T);
     /// Removes and returns the last element, or `None` when empty.
@@ -579,6 +654,19 @@ impl<T> List<T> for ArrayList<T> {
 
 /// Provides the MutableList capability for the native storage class.
 impl<T> MutableList<T> for ArrayList<T> {
+    /// Exchange two valid positions. Invalid indices trap before either slot changes.
+    #[intrinsic(ArraySwap)]
+    fn swap(self, a: usize, b: usize) -> ();
+    /// Reverse the order in place. This reordering is forbidden during iteration.
+    #[intrinsic(ArrayReverse)]
+    fn reverse(self) -> ();
+    /// Keep at most len elements. A larger length leaves the list unchanged.
+    #[intrinsic(ArrayTruncate)]
+    fn truncate(self, len: usize) -> ();
+    /// Append a prepared shallow snapshot of source. Self-extension appends the original elements once.
+    #[intrinsic(ArrayExtend)]
+    fn extend(self, source: List<T>) -> ();
+
     /// Appends an element. Failure leaves the sequence unchanged.
     #[intrinsic(ArrayPush)]
     fn push(self, value: T);

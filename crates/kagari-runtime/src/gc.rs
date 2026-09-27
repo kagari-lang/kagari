@@ -9,6 +9,7 @@ use std::{
 };
 
 use indexmap::IndexMap;
+mod array_ops;
 mod custom_keys;
 mod iter;
 mod string_iter;

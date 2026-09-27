@@ -728,6 +728,7 @@ pub(super) fn verify(
                                     | S::MapValues
                                     | S::MapEntries
                                     | S::ArrayCopyFrom
+                                    | S::ArrayExtend
                                     | S::ArrayCopyWithin
                                     | S::ArrayListFromFn
                                     | S::ArrayListFrom
@@ -738,7 +739,12 @@ pub(super) fn verify(
                             }
                             if matches!(
                                 intrinsic,
-                                S::ArrayPush
+                                S::ArraySwap
+                                    | S::ArrayReverse
+                                    | S::ArrayTruncate
+                                    | S::ArrayExtendStorage
+                                    | S::ArraySwapRemove
+                                    | S::ArrayPush
                                     | S::ArrayPop
                                     | S::ArrayInsert
                                     | S::ArrayRemove
@@ -786,7 +792,8 @@ pub(super) fn verify(
                                     None => {}
                                 }
                             }
-                            if *intrinsic == S::ArrayCopyFromStorage {
+                            if matches!(intrinsic, S::ArrayCopyFromStorage | S::ArrayExtendStorage)
+                            {
                                 let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
                                 else {
                                     return Err(invalid());

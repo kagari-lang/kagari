@@ -624,7 +624,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] S05: FromStr, typed parsing and integer radix parsing.
 - [x] C01: Map snapshot interface methods and copy_from naming.
 - [x] C02: List endpoint, membership, prefix/suffix and binary search queries.
-- [ ] C03: List reordering, truncation, prepared extension and swap removal.
+- [x] C03: List reordering, truncation, prepared extension and swap removal.
 - [ ] C04: Concrete collection capacity construction and reservation.
 - [ ] C05: Set relationships and symmetric difference over readonly interfaces.
 - [ ] C06: Guarded Map get_or_insert_with and update operations.
@@ -672,3 +672,8 @@ another protocol. KBC/runtime ABI is v92.
 C02 validation: native/read-only/custom List queries, generic PartialEq, custom
 ordering, insertion positions, empty inputs and Ord rejection pass across source,
 artifact and JIT fallback with frequent GC. Artifact/runtime ABI is v93.
+
+C03 validation: 25 array/collection tests pass, including interface reordering,
+truncation, prepared self-extension and unordered removal. Failure tests preserve
+slots after invalid swap or mutation during iteration. Extend's readonly List
+input is snapshotted before the storage commit. KBC/runtime ABI is v94.

@@ -253,8 +253,8 @@ impl FileAnalysis {
                         .find(|i| i.trait_declaration().item.identity() == owner_id)
                     {
                         bindings.extend(implementation.arguments(&ty).unwrap());
-                    } else if let TypeId::Trait(interface) = &ty {
-                        if let Some(parent) = self
+                    } else if let TypeId::Trait(interface) = &ty
+                        && let Some(parent) = self
                             .result
                             .facts()
                             .aggregates
@@ -262,9 +262,8 @@ impl FileAnalysis {
                             .unwrap_or_default()
                             .into_iter()
                             .find(|n| n.declaration == owner_id)
-                        {
-                            bindings.extend(owner.generics.iter().copied().zip(parent.arguments));
-                        }
+                    {
+                        bindings.extend(owner.generics.iter().copied().zip(parent.arguments));
                     }
                     let actual = target.instantiate(&bindings);
                     if actual.is_unresolved() {

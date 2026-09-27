@@ -94,6 +94,11 @@ impl List<i32> for Sequence {
     fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
 }
 impl MutableList<i32> for Sequence {
+    fn swap(self,a:usize,b:usize) {self.items.swap(a,b);}
+    fn reverse(self) {self.items.reverse();}
+    fn truncate(self,len:usize) {self.items.truncate(len);}
+    fn extend(self,source:List<i32>) {self.items.extend(source);}
+
     fn push(self, value: i32) { self.items.push(value); }
     fn pop(self) -> Option<i32> { self.items.pop() }
     fn insert(self, index: usize, value: i32) { self.items.insert(index, value); }

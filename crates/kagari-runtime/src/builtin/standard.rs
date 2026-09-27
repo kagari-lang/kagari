@@ -133,6 +133,12 @@ pub fn invoke_with_callbacks(
         ArrayPop => array_pop(gc, args),
         ArrayInsert => array_insert(gc, args),
         ArrayRemove => array_remove(gc, args),
+        ArrayExtend => Err(BuiltinError::new(
+            "extend requires prepared source lowering",
+        )),
+        ArraySwap | ArrayReverse | ArrayTruncate | ArrayExtendStorage | ArraySwapRemove => {
+            array_mutation(gc, intrinsic, args)
+        }
         ArrayJoin => array_join(gc, args),
         ArrayClear => array_clear(gc, args),
         ArrayCopyWithin => Err(BuiltinError::new("range bounds require static lowering")),
@@ -251,6 +257,41 @@ pub fn invoke_with_callbacks(
         DebugAssertEq => debug_assert_eq(gc, args),
         DebugPanic => debug_panic(args),
     }
+}
+
+fn array_mutation(
+    gc: &GcHeap,
+    intrinsic: StandardIntrinsic,
+    args: &[Value],
+) -> Result<Value, BuiltinError> {
+    use StandardIntrinsic::*;
+    let Some(Value::Array(id)) = args.first() else {
+        return Err(BuiltinError::new("array mutation requires an array"));
+    };
+    let index = |value: &Value| match value {
+        Value::U64(n) => {
+            usize::try_from(*n).map_err(|_| BuiltinError::new("array index exceeds capacity"))
+        }
+        _ => Err(BuiltinError::new("invalid array index")),
+    };
+    match (intrinsic, args) {
+        (ArraySwap, [_, a, b]) => gc.array_swap(*id, index(a)?, index(b)?)?,
+        (ArrayReverse, [_]) => gc.array_reverse(*id)?,
+        (ArrayTruncate, [_, len]) => gc.array_truncate(*id, index(len)?)?,
+        (ArrayExtendStorage, [_, Value::Array(source)]) => gc.array_extend(*id, *source)?,
+        (ArraySwapRemove, [_, position]) => {
+            let position = index(position)?;
+            // Prepare the return value before committing removal.
+            let result = match gc.array_get(*id, position) {
+                Some(value) => option_some(gc, value)?,
+                None => option_none(gc)?,
+            };
+            gc.array_swap_remove(*id, position)?;
+            return Ok(result);
+        }
+        _ => return Err(BuiltinError::new("invalid array mutation operands")),
+    }
+    Ok(Value::Unit)
 }
 
 fn array_join(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {

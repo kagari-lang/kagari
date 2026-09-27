@@ -521,6 +521,12 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayPush
             | ArrayPop
             | ArrayInsert
+            | ArraySwap
+            | ArrayReverse
+            | ArrayTruncate
+            | ArrayExtend
+            | ArrayExtendStorage
+            | ArraySwapRemove
             | ArrayRemove
             | ArrayClear
             | ArrayFill
@@ -543,6 +549,12 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | KeyMapRemove
                 | ArrayGet
                 | ArrayPop
+                | ArraySwap
+                | ArrayReverse
+                | ArrayTruncate
+                | ArrayExtend
+                | ArrayExtendStorage
+                | ArraySwapRemove
                 | ArrayRemove
                 | ArrayListNew
                 | LinkedHashMapNew

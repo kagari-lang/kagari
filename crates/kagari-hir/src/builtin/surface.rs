@@ -253,6 +253,13 @@ pub enum StandardIntrinsic {
     ArrayPop,
     ArrayInsert,
     ArrayRemove,
+    ArrayExtendStorage,
+    ArraySwap,
+    ArrayReverse,
+    ArrayTruncate,
+    ArrayExtend,
+    ArraySwapRemove,
+
     ArrayClear,
     ArrayFill,
     ArrayCopyFrom,

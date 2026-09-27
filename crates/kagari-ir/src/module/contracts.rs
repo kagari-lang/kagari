@@ -180,7 +180,7 @@ pub(crate) fn verify_intrinsic(
         ParseNumber(_) => 1,
         ParseRadix(_) => 2,
         ArrayCopyWithinBounds => 4,
-        ArrayCopyFromStorage => 2,
+        ArrayCopyFromStorage | ArrayExtendStorage => 2,
         MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
         KeyLookupBegin => 1,
         KeyCandidates => 2,
@@ -313,17 +313,30 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::Bool)?;
         }
-        ArrayGet | ArrayPop | ArrayRemove => {
+        ArrayGet | ArrayPop | ArrayRemove | ArraySwapRemove => {
             expect_arg_ty(
                 args,
                 0,
                 ValueType::HeapObject,
                 "standard intrinsic argument",
             )?;
-            if matches!(intrinsic, ArrayGet | ArrayRemove) {
+            if matches!(intrinsic, ArrayGet | ArrayRemove | ArraySwapRemove) {
                 expect_arg_ty(args, 1, ValueType::U64, "standard intrinsic index")?;
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
+        }
+        ArraySwap | ArrayReverse | ArrayTruncate | ArrayExtendStorage => {
+            expect_arg_ty(args, 0, ValueType::HeapObject, "array mutation receiver")?;
+            if intrinsic == ArrayExtendStorage {
+                expect_arg_ty(args, 1, ValueType::HeapObject, "array extension storage")?;
+            }
+            if matches!(intrinsic, ArraySwap | ArrayTruncate) {
+                expect_arg_ty(args, 1, ValueType::U64, "array mutation index")?;
+            }
+            if intrinsic == ArraySwap {
+                expect_arg_ty(args, 2, ValueType::U64, "array mutation index")?;
+            }
+            verify_call_dst(dst, ValueType::Unit)?;
         }
         ArrayPush | ArrayInsert => {
             expect_arg_ty(
@@ -337,7 +350,8 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        StringBytes
+        ArrayExtend
+        | StringBytes
         | StringCharIndices
         | StringSplit
         | StringSplitN
