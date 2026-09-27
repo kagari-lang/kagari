@@ -553,9 +553,23 @@ KBC/runtime ABI v80 rejects earlier products.
 - [x] A02: atomic fill and equal-length copy_from_slice on writable arrays.
 - [x] A03: independent range values, lazy integer iteration and range declarations.
 - [x] A04: copy_within with validated ranges and overlap-safe shallow copying.
-- [ ] A05: examples, API documentation, artifacts and workspace validation.
+- [x] A05: examples, API documentation, artifacts and workspace validation.
 
 These are general language and standard-library capabilities. Fixed-size array
 types, compact numeric storage, host buffer exchange and JIT optimization remain
 separate work. Range expressions stop materializing arrays; callers that need
 storage collect the range explicitly. Array copies retain referenced object identity.
+
+Validation: 1,265 workspace tests passed, including 44 standalone examples and
+343 executable standard-library documentation blocks. Range and bulk-copy
+acceptance covers source, encoded artifacts and JIT-enabled interpreter fallback
+with frequent GC. Tests cover lazy wide ranges, inclusive integer maxima, signed
+endpoints, generic RangeBounds inference, custom bound side effects, overlapping
+copies, invalid bounds, resource failures, stale artifact rejection and API
+navigation. Formatting, workspace/all-targets clippy with warnings denied and
+`git diff --check` passed. KBC/runtime ABI v82 rejects earlier products.
+
+Checkpoints: `2e1b50a` implements A01/A02; `719cd5a` implements A03/A04 and
+synchronizes grammar, specifications and API examples. This acceptance record
+closes A05. Range endpoints currently use builtin integers; borrowed slice views,
+range indexing and range comparison/hash protocols are outside this phase.
