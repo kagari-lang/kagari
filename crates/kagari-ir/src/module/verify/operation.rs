@@ -43,6 +43,7 @@ pub(super) fn verify(
                 Constant::I32(_) => ValueType::I32,
                 Constant::I64(_) => ValueType::I64,
                 Constant::F32(_) => ValueType::F32,
+                Constant::F64(_) => ValueType::F64,
                 Constant::Str(_) => ValueType::Str,
             };
             context.expect(dst.ty, ty, "constant destination")?;

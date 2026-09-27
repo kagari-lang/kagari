@@ -33,9 +33,11 @@ pub enum StandardTrait {
     Iterator,
     Iterable,
     FromIterator,
+    Sum,
+    Product,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 24] = [
         Self::PartialEq,
         Self::Eq,
         Self::Hash,
@@ -58,6 +60,8 @@ impl StandardTrait {
         Self::Iterator,
         Self::Iterable,
         Self::FromIterator,
+        Self::Sum,
+        Self::Product,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -83,6 +87,8 @@ impl StandardTrait {
             Self::Iterator => "Iterator",
             Self::Iterable => "Iterable",
             Self::FromIterator => "FromIterator",
+            Self::Sum => "Sum",
+            Self::Product => "Product",
         }
     }
     pub fn namespace(self) -> &'static str {
@@ -97,7 +103,9 @@ impl StandardTrait {
             | Self::Not
             | Self::Index => "ops",
             Self::From | Self::Into | Self::TryFrom | Self::TryInto => "convert",
-            Self::Iterator | Self::Iterable | Self::FromIterator => "iter",
+            Self::Iterator | Self::Iterable | Self::FromIterator | Self::Sum | Self::Product => {
+                "iter"
+            }
             Self::Hash => "hash",
             Self::Debug | Self::Display => "fmt",
         }
@@ -131,6 +139,9 @@ impl StandardTrait {
     }
     pub fn iteration(self) -> bool {
         matches!(self, Self::Iterator | Self::Iterable)
+    }
+    pub fn aggregation(self) -> bool {
+        matches!(self, Self::Sum | Self::Product)
     }
     pub fn conversion(self) -> bool {
         matches!(
@@ -262,6 +273,27 @@ pub fn intrinsic_applies(
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
     };
+    if kind.aggregation() {
+        return interface.arguments.as_slice() == [receiver.clone()]
+            && interface.associated_types.is_empty()
+            && matches!(
+                receiver,
+                TypeId::Builtin(
+                    BuiltinType::I8
+                        | BuiltinType::I16
+                        | BuiltinType::I32
+                        | BuiltinType::I64
+                        | BuiltinType::ISize
+                        | BuiltinType::U8
+                        | BuiltinType::U16
+                        | BuiltinType::U32
+                        | BuiltinType::U64
+                        | BuiltinType::USize
+                        | BuiltinType::F32
+                        | BuiltinType::F64
+                )
+            );
+    }
     if kind == StandardTrait::FromIterator {
         let Some(item) = collection_item(receiver) else {
             return false;
@@ -342,7 +374,7 @@ pub fn intrinsic_holds(
     if protocol.iteration() {
         return iteration_outputs(protocol, ty, catalog, bounds).is_some();
     }
-    if protocol.conversion() || protocol == StandardTrait::FromIterator {
+    if protocol.conversion() || protocol.aggregation() || protocol == StandardTrait::FromIterator {
         return false;
     }
     if protocol.operator() {

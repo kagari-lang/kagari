@@ -52,6 +52,8 @@ impl BodyChecker<'_> {
                         "from" => StandardTrait::From,
                         "try_from" => StandardTrait::TryFrom,
                         "from_iter" => StandardTrait::FromIterator,
+                        "sum" => StandardTrait::Sum,
+                        "product" => StandardTrait::Product,
                         _ => return None,
                     };
                     let context = TypeContext {
@@ -202,7 +204,7 @@ impl BodyChecker<'_> {
         } else {
             target.clone()
         };
-        let input_argument = if protocol == StandardTrait::FromIterator {
+        let input_argument = if protocol == StandardTrait::FromIterator || protocol.aggregation() {
             match self.infer_iteration(site, &input, env) {
                 Some(item) => item,
                 None => {
@@ -258,7 +260,7 @@ impl BodyChecker<'_> {
             },
             source_expr,
         );
-        if protocol == StandardTrait::FromIterator {
+        if protocol == StandardTrait::FromIterator || protocol.aggregation() {
             self.type_table.insert_type_arguments(site, vec![input]);
         }
         Some(match error {

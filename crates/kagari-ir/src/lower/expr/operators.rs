@@ -79,6 +79,23 @@ impl FunctionLowerer<'_, '_> {
                 .is_none()
         {
             use kagari_hir::builtin::declarations::IteratorMethod::*;
+            if matches!(operation, Sum | Product) {
+                let protocol = if operation == Sum {
+                    StandardTrait::Sum
+                } else {
+                    StandardTrait::Product
+                };
+                let target = &method_arguments[0];
+                let mut contract = protocol.nominal();
+                contract.arguments.push(self.iterator_item(&ty)?);
+                return self.lower_applied_method(
+                    contract,
+                    target.clone(),
+                    &protocol.contract().methods[0].id,
+                    std::slice::from_ref(&ty),
+                    args,
+                );
+            }
             if matches!(
                 operation,
                 Find | Any
@@ -128,6 +145,17 @@ impl FunctionLowerer<'_, '_> {
             )
         {
             return self.lower_collect(&ty, &method_arguments[0], args[0]);
+        }
+        if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+            && protocol.aggregation()
+            && kagari_hir::builtin::traits::intrinsic_applies(
+                &interface,
+                &ty,
+                Some(self.planner.catalog),
+                &Default::default(),
+            )
+        {
+            return self.lower_numeric_aggregate(protocol, &ty, &method_arguments[0], args[0]);
         }
 
         if let Some((required, target)) =

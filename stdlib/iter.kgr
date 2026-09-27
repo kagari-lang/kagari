@@ -717,6 +717,45 @@ pub trait Iterator {
     /// ```
     #[intrinsic(IteratorFlatten)]
     fn flatten(self) -> Iter<<Self::Item as Iterable>::Item> where Self::Item: Iterable;
+    /// Aggregate remaining items using the destination's Sum implementation.
+    ///
+    /// Annotate the result to select the destination type. Native numeric inputs
+    /// aggregate from left to right in the same numeric type; empty input returns 0.
+    /// User destinations choose their own construction and identity rules.
+    ///
+    /// # Panics
+    ///
+    /// Integer overflow traps. Source and implementation failures propagate.
+    /// Completed effects remain; native guards are released on completion or failure.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val total: i32 = [20, 22].iter().sum();
+    /// std::debug::assert_eq(total, 42, "aggregate");
+    /// ```
+    #[intrinsic(IteratorSum)]
+    fn sum<S: Sum<Self::Item>>(self) -> S;
+
+    /// Aggregate remaining items using the destination's Product implementation.
+    ///
+    /// Annotate the result to select the destination type. Native numeric inputs
+    /// aggregate from left to right in the same numeric type; empty input returns 1.
+    /// User destinations choose their own construction and identity rules.
+    ///
+    /// # Panics
+    ///
+    /// Integer overflow traps. Source and implementation failures propagate.
+    /// Completed effects remain; native guards are released on completion or failure.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val total: i32 = [6, 7].iter().product();
+    /// std::debug::assert_eq(total, 42, "aggregate");
+    /// ```
+    #[intrinsic(IteratorProduct)]
+    fn product<S: Product<Self::Item>>(self) -> S;
 }
 
 /// Obtain an iterator without transferring ownership of the source.
@@ -831,4 +870,58 @@ impl<T> Iterator for Iter<T> {
     /// ```
     #[intrinsic(IterNext)]
     fn next(self) -> Option<T>;
+}
+
+/// Construct an aggregate from a sequence of input values.
+///
+/// Numeric types implement Sum for the same input type. Empty numeric input
+/// returns 0; integer arithmetic is checked. User types define their own
+/// aggregation behavior and may select a different result representation.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Total { val value: i32 }
+/// impl Sum<i32> for Total {
+///     fn sum<I: Iterable<Item = i32>>(source: I) -> Self {
+///         var value = 0;
+///         for item in source { value += item; }
+///         Total { value }
+///     }
+/// }
+/// fn main() {
+///     val total: Total = [20, 22].iter().sum();
+///     std::debug::assert_eq(total.value, 42, "custom aggregate");
+/// }
+/// ```
+pub trait Sum<T> {
+    /// Aggregate the iterable source into Self.
+    fn sum<I: Iterable<Item = T>>(source: I) -> Self;
+}
+
+/// Construct an aggregate from a sequence of input values.
+///
+/// Numeric types implement Product for the same input type. Empty numeric input
+/// returns 1; integer arithmetic is checked. User types define their own
+/// aggregation behavior and may select a different result representation.
+///
+/// # Examples
+///
+/// ```kgr
+/// struct Total { val value: i32 }
+/// impl Product<i32> for Total {
+///     fn product<I: Iterable<Item = i32>>(source: I) -> Self {
+///         var value = 1;
+///         for item in source { value *= item; }
+///         Total { value }
+///     }
+/// }
+/// fn main() {
+///     val total: Total = [6, 7].iter().product();
+///     std::debug::assert_eq(total.value, 42, "custom aggregate");
+/// }
+/// ```
+pub trait Product<T> {
+    /// Aggregate the iterable source into Self.
+    fn product<I: Iterable<Item = T>>(source: I) -> Self;
 }

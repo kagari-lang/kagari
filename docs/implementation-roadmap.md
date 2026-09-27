@@ -420,7 +420,7 @@ workspace/all-targets clippy with warnings denied and `git diff --check` passed.
 - [x] J01: conditional adapters, inspection/fusion, lookup, reduction and comparator extrema.
 - [x] J02: declaration-level where bounds, ordered extrema and key-based extrema.
 - [x] J03: lazy flat_map/flatten with dynamically retained inner iterators.
-- [ ] J04: Sum/Product protocols and target-directed numeric/user-defined aggregation.
+- [x] J04: Sum/Product protocols and target-directed numeric/user-defined aggregation.
 - [ ] J05: Result/Option FromIterator lifting with short-circuiting and preserved error origins.
 - [ ] J06: explicit native collection Iterable/FromIterator declarations, examples and final validation.
 
@@ -441,3 +441,8 @@ J03 validates lazy one-level flattening, custom Iterable outputs, empty inner
 iterables, shared progress and dynamic guard cleanup with GC at every allocation.
 Canonical native defaults no longer duplicate conditional method signatures in
 every implementation ABI. IR verification tests and iterator route tests passed.
+
+J04 provides target-directed Sum/Product with numeric identity values and ordinary
+user implementations. Tests cover generic callers, custom targets, empty inputs,
+float/double identities and usize aggregation across source/artifact/JIT routes.
+IR and bytecode now represent native f64 constants for the empty product identity.

@@ -12,6 +12,81 @@ use kagari_hir::{
 };
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn lower_numeric_aggregate(
+        &mut self,
+        protocol: StandardTrait,
+        target: &TypeId,
+        source: &TypeId,
+        value: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
+        let one = protocol == StandardTrait::Product;
+        let representation = self.value_type(target)?;
+        let identity = match representation {
+            ValueType::I32 => Constant::I32(i32::from(one)),
+            ValueType::I64 => Constant::I64(i64::from(one)),
+            ValueType::F32 => Constant::F32(if one { 1.0 } else { 0.0 }),
+            ValueType::F64 => Constant::F64(if one { 1.0 } else { 0.0 }),
+            _ => return Err(IrLoweringError::MissingBinding("numeric aggregate")),
+        };
+        let output = self.lower_constant(identity, representation);
+        self.function
+            .semantic
+            .registers
+            .insert(output.temp.index(), AbiType::from_checked_type(target));
+        let iterator_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
+        let iterator = self.lower_applied_operator(
+            StandardTrait::Iterable.nominal(),
+            source.clone(),
+            &StandardTrait::Iterable.contract().methods[0].id,
+            &[value],
+        )?;
+        let optional = TypeId::StandardEnum {
+            kind: StandardEnum::Option,
+            args: vec![target.clone()],
+        };
+        let guarded = matches!(iterator_type, TypeId::Iter(_));
+        if guarded {
+            self.emit(Instruction::BeginIteration {
+                collection: iterator,
+            });
+        }
+        let head = self.new_block();
+        let body = self.new_block();
+        let done = self.new_block();
+        self.ensure_jump(head);
+        self.switch_to_block(head);
+        let next = self.iterator_next(&iterator_type, iterator)?;
+        let present = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(next))?;
+        self.set_terminator(Terminator::Branch {
+            cond: present,
+            then_block: body,
+            else_block: done,
+        });
+        self.switch_to_block(body);
+        let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
+        let next = self.alloc_temp(representation);
+        self.function
+            .semantic
+            .registers
+            .insert(next.temp.index(), AbiType::from_checked_type(target));
+        self.emit(Instruction::Binary {
+            dst: next,
+            op: if one { BinaryOp::Mul } else { BinaryOp::Add },
+            lhs: output,
+            rhs: item,
+        });
+        self.emit(Instruction::Move {
+            dst: output,
+            src: next,
+        });
+        self.ensure_jump(head);
+        self.switch_to_block(done);
+        if guarded {
+            self.iterator_close(&iterator_type, iterator);
+            self.emit(Instruction::EndIteration);
+        }
+        Ok(output)
+    }
     pub(super) fn iteration_output(
         &self,
         protocol: StandardTrait,

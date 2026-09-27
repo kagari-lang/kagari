@@ -656,3 +656,42 @@ fn main() -> i32 {
         );
     }
 }
+
+#[test]
+fn aggregation_protocols_support_numeric_identities_and_user_targets() {
+    execute(
+        r#"
+struct Total { val value: i32 }
+impl Sum<i32> for Total {
+    fn sum<I: Iterable<Item = i32>>(source: I) -> Self {
+        var value = 0;
+        for item in source { value += item; }
+        Total { value }
+    }
+}
+fn aggregate<I: Iterator<Item = i32>>(source: I) -> Total { source.sum() }
+fn main() -> i32 {
+    val empty: MutableArray<i32> = MutableArray::new();
+    val zero: i32 = empty.iter().sum();
+    val one: i32 = empty.iter().product();
+    std::debug::assert_eq(zero, 0, "empty sum");
+    std::debug::assert_eq(one, 1, "empty product");
+    val product: i32 = [6, 7].iter().product();
+    std::debug::assert_eq(product, 42, "product");
+    val floats: f32 = [1.0, 2.0].iter().sum();
+    std::debug::assert_eq(floats, 3.0, "float sum");
+    val doubles: MutableArray<f64> = MutableArray::new();
+    val double_one: f64 = doubles.iter().product();
+    std::debug::assert_eq(f"{double_one}", "1", "double identity");
+    val sizes: usize = ["a".len_bytes(), "ab".len_bytes()].iter().sum();
+    std::debug::assert_eq(sizes, "abc".len_bytes(), "usize sum");
+    val unsigned: MutableArray<u8> = MutableArray::new();
+    val unsigned_one: u8 = unsigned.iter().product();
+    std::debug::assert_eq(f"{unsigned_one}", "1", "unsigned identity");
+    val total = aggregate([20, 22].iter());
+    std::debug::assert_eq(Total::sum([20, 22]).value, 42, "qualified aggregate");
+    total.value
+}
+"#,
+    );
+}

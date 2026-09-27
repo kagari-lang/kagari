@@ -185,7 +185,33 @@ pub(super) fn verify(
                             }
                         }
                         ConstantOperand::F32(_) => B::F32,
+                        ConstantOperand::F64(_) => B::F64,
                         ConstantOperand::Str(_) => B::String,
+                    };
+                    let ty = if matches!(
+                        constant,
+                        ConstantOperand::I32(0 | 1) | ConstantOperand::I64(0 | 1)
+                    ) && let Some(AbiType::Builtin(declared)) =
+                        semantic.registers.get(&dst.index())
+                        && matches!(
+                            declared,
+                            B::I8
+                                | B::I16
+                                | B::I32
+                                | B::I64
+                                | B::ISize
+                                | B::U8
+                                | B::U16
+                                | B::U32
+                                | B::U64
+                                | B::USize
+                        )
+                        && AbiType::Builtin(*declared).representation()
+                            == AbiType::Builtin(ty).representation()
+                    {
+                        *declared
+                    } else {
+                        ty
                     };
                     produced = Some((*dst, Fact::typed(AbiType::Builtin(ty))));
                 }

@@ -58,6 +58,8 @@ pub struct ApiGeneric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IteratorMethod {
     Collect,
+    Sum,
+    Product,
     FlatMap,
     Flatten,
     TakeWhile,

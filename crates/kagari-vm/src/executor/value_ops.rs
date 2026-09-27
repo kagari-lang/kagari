@@ -12,6 +12,7 @@ impl Executor<'_> {
             ConstantOperand::I32(value) => Value::I32(value),
             ConstantOperand::I64(value) => Value::I64(value),
             ConstantOperand::F32(value) => Value::F32(value),
+            ConstantOperand::F64(value) => Value::F64(value),
             ConstantOperand::Str(value) => Value::Str(value),
         }
     }
