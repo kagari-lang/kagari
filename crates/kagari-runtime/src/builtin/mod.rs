@@ -94,6 +94,8 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         SetReserve => "set::reserve",
         ArrayRemove => "std::array::ArrayList::remove",
         ArrayJoin => "std::array::ArrayList::join",
+        ArrayRemoveRange => "std::array::ArrayList::remove_range",
+        ArrayRemoveRangePrepare => "array range removal preparation",
         ArrayCopyWithin => "array.copy_within",
         ArrayCopyWithinBounds => "array.copy_within bounds",
         ArrayFill => "array.fill",

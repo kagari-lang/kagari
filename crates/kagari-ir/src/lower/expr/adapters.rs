@@ -318,6 +318,9 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
     ) -> Result<(), IrLoweringError> {
         use NativeDefaultMethod::*;
+        if matches!(body.operation, ListWindows | ListChunks) {
+            return self.lower_window_step(body, args);
+        }
         if matches!(body.operation, FlatMap | Flatten) {
             return self.lower_flatten_step(body, args);
         }

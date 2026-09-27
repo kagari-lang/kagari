@@ -13,7 +13,7 @@ fn array(item: TypeId) -> TypeId {
 }
 
 impl FunctionLowerer<'_, '_> {
-    fn prepared_read(
+    pub(super) fn prepared_read(
         &mut self,
         source: IrValue,
         index: IrValue,
@@ -27,7 +27,7 @@ impl FunctionLowerer<'_, '_> {
         });
         Ok(dst)
     }
-    fn prepared_field(
+    pub(super) fn prepared_field(
         &mut self,
         value: IrValue,
         field: u64,
@@ -66,7 +66,7 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(done);
         Ok(())
     }
-    fn prepared_indices(
+    pub(super) fn prepared_indices(
         &mut self,
         length: IrValue,
         body: impl FnOnce(&mut Self, IrValue) -> Result<(), IrLoweringError>,
@@ -196,7 +196,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(mask)
     }
 
-    fn sort_bound(
+    pub(super) fn sort_bound(
         &mut self,
         start: IrValue,
         width: IrValue,

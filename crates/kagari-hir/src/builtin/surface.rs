@@ -287,6 +287,8 @@ pub enum StandardIntrinsic {
     ArrayFill,
     ArrayCopyFrom,
     ArrayCopyFromStorage,
+    ArrayRemoveRange,
+    ArrayRemoveRangePrepare,
     ArrayCopyWithin,
     ArrayCopyWithinBounds,
     ArrayJoin,

@@ -59,6 +59,8 @@ pub struct ApiGeneric {
 pub enum NativeDefaultMethod {
     Join,
     ListJoin,
+    ListWindows,
+    ListChunks,
     ListFirst,
     ListLast,
     ListContains,

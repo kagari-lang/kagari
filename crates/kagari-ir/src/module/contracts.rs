@@ -182,6 +182,7 @@ pub(crate) fn verify_intrinsic(
         ArrayCopyWithinBounds => 4,
         ArrayCopyFromStorage | ArrayExtendStorage => 2,
         MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
+        ArrayRemoveRangePrepare => 3,
         ArrayReplaceStorage | CollectionRetainStorage => 2,
         KeyLookupBegin | CollectionMutationBegin | CollectionMutationEnd => 1,
         KeyCandidates => 2,
@@ -256,6 +257,23 @@ pub(crate) fn verify_intrinsic(
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "map update requires static lowering",
+            });
+        }
+        ArrayRemoveRangePrepare => {
+            for index in 0..3 {
+                expect_arg_ty(
+                    args,
+                    index,
+                    ValueType::HeapObject,
+                    "array range preparation",
+                )?;
+            }
+            verify_call_dst(dst, ValueType::HeapObject)?;
+        }
+        ArrayRemoveRange => {
+            return Err(ContractError::Intrinsic {
+                intrinsic,
+                reason: "range removal requires static lowering",
             });
         }
         ArrayReplaceStorage | CollectionRetainStorage => {

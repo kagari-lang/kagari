@@ -420,6 +420,8 @@ pub(crate) fn validate_signatures(
                 Some(
                     crate::builtin::declarations::NativeDefaultMethod::Join
                         | crate::builtin::declarations::NativeDefaultMethod::ListJoin
+                        | crate::builtin::declarations::NativeDefaultMethod::ListWindows
+                        | crate::builtin::declarations::NativeDefaultMethod::ListChunks
                         | crate::builtin::declarations::NativeDefaultMethod::ListFirst
                         | crate::builtin::declarations::NativeDefaultMethod::ListLast
                         | crate::builtin::declarations::NativeDefaultMethod::ListContains

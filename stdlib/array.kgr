@@ -37,6 +37,29 @@
 pub type ArrayList<T>;
 
 impl<T> ArrayList<T> {
+    /// Remove a range immediately and return an independent read-only shallow list.
+    ///
+    /// Resolves start then end bounds once, validates the entire interval, and
+    /// prepares both the removed list and the retained storage before committing.
+    /// The returned list owns its slots; objects remain shared. No lazy drain or
+    /// destructor-triggered mutation is involved. An empty range returns an empty
+    /// list. Completed argument and range-bound effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Reversed or out-of-bounds intervals, active structural iteration, allocation
+    /// failure and cancellation trap without committing the removal.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values = [1, 2, 3, 4];
+    /// val removed: List<i32> = values.remove_range(1usize..3usize);
+    /// std::debug::assert(removed.len() == 2usize && values[1usize] == 4, "removed");
+    /// ```
+    #[intrinsic(ArrayRemoveRange)]
+    pub fn remove_range<R: RangeBounds<usize>>(self, range: R) -> List<T>;
+
     /// Keep elements accepted by predicate, in their original order.
     ///
     /// Prepares independent temporary storage, then commits once. Callback or
@@ -593,6 +616,56 @@ impl<T> FromIterator<T> for ArrayList<T> {
 /// std::debug::assert_eq(view.get(3), None, "out of bounds");
 /// ```
 pub trait List<T>: Iterable<Item = T, Iter = Iter<T>> + Index<usize, Output = T> {
+    /// Overlapping windows of exactly size elements, advancing by one.
+    ///
+    /// Returns a lazy iterator of independent read-only shallow List snapshots.
+    /// Each snapshot copies slots when next is called, not when this method is
+    /// called. Later slot replacement does not change previously yielded lists;
+    /// referenced objects remain shared. Creation does not read element values.
+    /// The source's structural iteration guard lasts until exhaustion or closure.
+    /// Custom List implementations must keep len/get and iteration consistent.
+    /// No borrow, lifetime parameter or live sublist view is exposed.
+    ///
+    /// # Panics
+    ///
+    /// A zero size traps immediately. Source access, allocation and execution
+    /// failures propagate; structural source mutation while active is forbidden.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val source: List<i32> = [1, 2, 3];
+    /// val pieces: ArrayList<List<i32>> = source.windows(2usize).collect();
+    /// std::debug::assert(pieces.len() == 2usize && pieces[0usize][0usize] == 1, "windows");
+    /// ```
+    #[intrinsic(ListWindows)]
+    fn windows(self, size: usize) -> Iter<List<T>>;
+
+    /// Non-overlapping chunks of at most size elements, including a short tail.
+    ///
+    /// Returns a lazy iterator of independent read-only shallow List snapshots.
+    /// Each snapshot copies slots when next is called, not when this method is
+    /// called. Later slot replacement does not change previously yielded lists;
+    /// referenced objects remain shared. Creation does not read element values.
+    /// The source's structural iteration guard lasts until exhaustion or closure.
+    /// Custom List implementations must keep len/get and iteration consistent.
+    /// No borrow, lifetime parameter or live sublist view is exposed.
+    ///
+    /// # Panics
+    ///
+    /// A zero size traps immediately. Source access, allocation and execution
+    /// failures propagate; structural source mutation while active is forbidden.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val source: List<i32> = [1, 2, 3];
+    /// val pieces: ArrayList<List<i32>> = source.chunks(2usize).collect();
+    /// std::debug::assert(pieces.len() == 2usize && pieces[0usize][0usize] == 1, "chunks");
+    /// ```
+    #[intrinsic(ListChunks)]
+    fn chunks(self, size: usize) -> Iter<List<T>>;
+
     /// Return the first element, or None when empty.
     ///
     /// Empty prefixes and suffixes match. Returned object payloads remain shared.

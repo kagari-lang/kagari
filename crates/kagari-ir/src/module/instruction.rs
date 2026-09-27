@@ -535,6 +535,7 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayFill
             | ArrayCopyFrom
             | ArrayCopyFromStorage
+            | ArrayRemoveRange
             | ArrayCopyWithin
             | ArrayCopyWithinBounds
             | ArrayRetain
@@ -560,7 +561,8 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
     let allocating = matches!(intrinsic, Integer(method, _) if method.allocates())
         || matches!(
             intrinsic,
-            KeyCandidates
+            ArrayRemoveRangePrepare
+                | KeyCandidates
                 | KeyMapGet
                 | KeyMapRemove
                 | ArrayGet

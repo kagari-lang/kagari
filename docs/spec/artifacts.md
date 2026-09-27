@@ -705,3 +705,11 @@ User callbacks execute in ordinary frames under mutation guards. Commit performs
 no script calls, checks structure guards and budgets, and preserves identity while
 updating revision and live heap units. Source callback intrinsics are rejected
 unless lowered. Prior formats are rejected.
+
+## List snapshot traversal and immediate range removal (v99)
+
+KBC/runtime ABI v99 adds List window/chunk default identities and private range
+removal preparation. Lazy steps are verified script-backed iterators retaining
+source guards and producing readonly List interfaces. Range removal prepares its
+readonly result before a typed storage commit, including any interface allocation.
+Previous formats are rejected before execution.

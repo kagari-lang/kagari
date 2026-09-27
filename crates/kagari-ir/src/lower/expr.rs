@@ -5,6 +5,7 @@ mod equality;
 mod iterators;
 mod keys;
 mod list_queries;
+mod list_windows;
 mod map_updates;
 mod operators;
 mod prepared_collections;
@@ -2106,7 +2107,7 @@ impl FunctionLowerer<'_, '_> {
                         if intrinsic == ArrayListFromFn {
                             return self.lower_array_from_fn(expr, lowered[0], lowered[1]);
                         }
-                        if intrinsic == ArrayCopyWithin {
+                        if matches!(intrinsic, ArrayCopyWithin | ArrayRemoveRange) {
                             use kagari_hir::builtin::traits::StandardTrait;
                             let input = args[usize::from(call.receiver.is_none())];
                             let source = self
@@ -2136,6 +2137,49 @@ impl FunctionLowerer<'_, '_> {
                                 &methods[1].id,
                                 &[lowered[1]],
                             )?;
+                            if intrinsic == ArrayRemoveRange {
+                                let base = call
+                                    .receiver
+                                    .or_else(|| args.first().copied())
+                                    .ok_or(IrLoweringError::MissingBinding("array receiver"))?;
+                                let ty = self
+                                    .analyzed
+                                    .typed
+                                    .type_table
+                                    .expr_type(base)
+                                    .ok_or(IrLoweringError::MissingExprType(base))?;
+                                let ty = self
+                                    .planner
+                                    .arguments(&[ty], &self.instance.substitution, span)?
+                                    .remove(0);
+                                let kagari_hir::types::TypeId::Array(item, _) = &ty else {
+                                    return Err(IrLoweringError::MissingBinding("array storage"));
+                                };
+                                self.emit_intrinsic(
+                                    CollectionMutationBegin,
+                                    &[lowered[0]],
+                                    ValueType::Unit,
+                                );
+                                let prepared = self.emit_intrinsic(
+                                    ArrayRemoveRangePrepare,
+                                    &[lowered[0], start, end],
+                                    ValueType::HeapObject,
+                                );
+                                let remaining = self.prepared_field(prepared, 0, &ty)?;
+                                let removed = self.prepared_field(prepared, 1, &ty)?;
+                                let result = self.readonly_array((**item).clone(), removed)?;
+                                self.emit_intrinsic(
+                                    CollectionMutationEnd,
+                                    &[lowered[0]],
+                                    ValueType::Unit,
+                                );
+                                self.emit_intrinsic(
+                                    ArrayReplaceStorage,
+                                    &[lowered[0], remaining],
+                                    ValueType::Unit,
+                                );
+                                return Ok(result);
+                            }
                             return Ok(self.emit_intrinsic(
                                 ArrayCopyWithinBounds,
                                 &[lowered[0], start, end, lowered[2]],

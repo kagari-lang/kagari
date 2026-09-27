@@ -146,9 +146,9 @@ and selected methods. Completion exposes only the members of the visible type.
 Native bridge functions are ordinary verified code with concrete signatures;
 interface contracts and parent tables are verified and linked before execution.
 Bytecode rejects forged receiver upgrades and raw storage writes through an
-interface. KBC and runtime ABI v86 encode native bridges, normalized snapshot
-operations and the copy intrinsic; older products are rejected without compatibility
-decoding.
+interface. The current KBC/runtime ABI encodes native bridges and normalized collection
+operations; see [artifact versions](artifacts.md). Older products are rejected
+without compatibility decoding.
 
 The host ABI continues to describe native storage access independently of the
 script interface hierarchy. Native read-only host arrays/maps/sets retain their
@@ -198,3 +198,57 @@ order and identity and does not invalidate positional iteration. Failed capacity
 preparation preserves logical contents. Capacity preparation is charged to the
 allocation budget; live heap units continue counting stored values, not allocator
 capacity or physical bytes. These APIs are concrete-storage operations.
+
+## Set relations and algebra
+
+Set supplies sealed is_subset, is_superset and is_disjoint defaults without Eq/Hash
+bounds. Each query uses the other set's membership policy and short-circuits.
+Implementations used together should agree on equivalence. Union, intersection,
+difference and symmetric_difference accept readonly Set operands and construct
+fresh LinkedHashSet storage, requiring Eq + Hash. Results retain shallow elements
+in left traversal order, followed by newly accepted right elements where needed.
+Both sources remain under iteration protection during traversal.
+
+## Callback mutations and bulk commits
+
+MutableMap requires get_or_insert_with and update. The former calls its factory
+only for an absent key; the latter calls its transform exactly once with Option<V>.
+Both return shallow V values, not entry handles. Native implementations prevent
+all target container writes through aliases during callbacks, including replacing
+an existing value. Reads and changes inside separate referenced payload objects
+remain allowed. Validation, key lookup and allocation complete before committing.
+Custom MutableMap implementations must uphold the same public contract.
+
+ArrayList supplies retain, stable sort/sort_by/sort_by_key and adjacent dedup.
+LinkedHashMap and LinkedHashSet supply retain. These are concrete-storage
+operations: atomic bulk replacement cannot be built from arbitrary user-defined
+individual setters. Preparation runs callbacks on ordinary VM frames, then one
+runtime commit replaces slots/order and updates structural revision. Failure
+leaves the target slots/order unchanged; completed payload and external effects
+remain. Frame cleanup releases both callback mutation guards and temporary roots.
+Native structural iteration rejects the final replacement.
+
+Retain invokes its predicate exactly once per original element in traversal order,
+unless an earlier call fails. Retained map/set keys keep their stored hash tokens;
+user Hash/Eq are not rerun by retention. Sort uses stable bottom-up merging with
+O(n log n) comparisons and O(n) working storage. Key extraction runs once per
+element in original order before comparisons. Comparator consistency is the
+caller's obligation. Dedup compares a candidate with the last retained element,
+keeping the first element of each equal consecutive run; it is not global dedup.
+
+## Lazy list snapshots and range removal
+
+List.windows(size) yields overlapping full windows; List.chunks(size) yields
+disjoint chunks with a possibly shorter tail. Both return Iter<List<T>>, reject
+zero size immediately, and copy slots when each item is yielded. Snapshot slots
+are independent and readonly; payload objects remain shared. Constructor calls
+len/iter but does not read element values. Native source structural guards remain
+active until exhaustion, explicit iterator closure or session cleanup. Ordinary
+slot replacement is visible to later snapshots without changing previous ones.
+Custom List implementations must keep indexed reads and iteration consistent.
+
+ArrayList.remove_range resolves RangeBounds once, validates the interval, prepares
+both remaining slots and the readonly removed List, then commits immediately.
+No removal is deferred to iteration or destruction. Invalid bounds, failed result
+allocation and active structural iteration leave slots unchanged. Completed
+argument/bound-evaluation effects remain. Empty ranges return an empty list.

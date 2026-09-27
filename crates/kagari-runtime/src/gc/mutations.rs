@@ -36,7 +36,7 @@ impl GcHeap {
             let HeapObject::Array(original) = source else {
                 return Err(invalid());
             };
-            if original.len() != input.len() {
+            if original.len() < input.len() {
                 return Err(invalid());
             }
             let mut copy = Vec::new();

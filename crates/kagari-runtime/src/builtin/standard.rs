@@ -152,7 +152,18 @@ pub fn invoke_with_callbacks(
         }
         ArrayJoin => array_join(gc, args),
         ArrayClear => array_clear(gc, args),
-        ArrayCopyWithin => Err(BuiltinError::new("range bounds require static lowering")),
+        ArrayRemoveRangePrepare => {
+            let [Value::Array(target), start, end] = args else {
+                return Err(BuiltinError::new("invalid remove range operands"));
+            };
+            let start = crate::range::index_bound(gc, start)?;
+            let end = crate::range::index_bound(gc, end)?;
+            gc.prepare_array_removal(*target, start, end)
+                .map_err(Into::into)
+        }
+        ArrayRemoveRange | ArrayCopyWithin => {
+            Err(BuiltinError::new("range bounds require static lowering"))
+        }
         ArrayCopyWithinBounds => {
             let [Value::Array(target), start, end, destination] = args else {
                 return Err(BuiltinError::new("invalid copy_within operands"));

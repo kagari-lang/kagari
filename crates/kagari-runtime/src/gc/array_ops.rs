@@ -8,6 +8,42 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
+    pub(crate) fn prepare_array_removal(
+        &self,
+        target: HeapObjectId,
+        start: std::ops::Bound<usize>,
+        end: std::ops::Bound<usize>,
+    ) -> Result<Value, RuntimeError> {
+        use std::ops::Bound;
+        self.ensure_execution_allowed()?;
+        let length = self.array_len(target).ok_or_else(invalid)?;
+        let start = match start {
+            Bound::Unbounded => 0,
+            Bound::Included(n) => n,
+            Bound::Excluded(n) => n.checked_add(1).ok_or_else(invalid)?,
+        };
+        let end = match end {
+            Bound::Unbounded => length,
+            Bound::Included(n) => n.checked_add(1).ok_or_else(invalid)?,
+            Bound::Excluded(n) => n,
+        };
+        if start > end || end > length {
+            return Err(invalid());
+        }
+        let (mut removed, _removed_storage) = self.prepare_array_copy(end - start)?;
+        let (mut remaining, _remaining_storage) =
+            self.prepare_array_copy(length - (end - start))?;
+        self.with_array(target, |values| {
+            removed.extend(values[start..end].iter().cloned());
+            remaining.extend(values[..start].iter().chain(&values[end..]).cloned());
+        })
+        .ok_or_else(invalid)?;
+        let removed = Value::Array(self.alloc_array(removed)?);
+        let _root = self.root_value(removed.clone()).ok_or_else(invalid)?;
+        let remaining = Value::Array(self.alloc_array(remaining)?);
+        Ok(Value::Tuple(vec![remaining, removed]))
+    }
+
     pub fn array_swap(&self, id: HeapObjectId, a: usize, b: usize) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;

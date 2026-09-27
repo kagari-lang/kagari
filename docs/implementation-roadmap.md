@@ -629,7 +629,7 @@ runtime/lowering contracts, documentation and executable acceptance cases.
 - [x] C05: Set relationships and symmetric difference over readonly interfaces.
 - [x] C06: Guarded Map get_or_insert_with and update operations.
 - [x] C07: Prepared retain, stable sorting and adjacent deduplication.
-- [ ] C08: Lazy snapshot windows/chunks and immediate range removal.
+- [x] C08: Lazy snapshot windows/chunks and immediate range removal.
 
 Callback mutations prepare changes before committing; callback failure preserves
 the target's slots/order, while previously completed object side effects remain.
@@ -704,3 +704,9 @@ C07 validation: stable order, once-only key callbacks, merge-run boundaries,
 empty inputs, live readonly aliases, custom map/set keys and adjacent dedup pass
 through source/artifact/JIT fallback. Callback traps and alias mutation preserve
 original array slots. Existing array and Map update tests also pass.
+
+C08 validation: lazy snapshot timing, independent slots/shared objects, custom
+List indexed traversal, zero/oversized windows, short chunks, fused exhaustion and
+early-close guard release pass through source/artifact/JIT fallback. Range removal
+covers readonly results, live aliases, empty/full/prefix/inclusive ranges and
+failure without target modification. Current KBC/runtime ABI is v99.

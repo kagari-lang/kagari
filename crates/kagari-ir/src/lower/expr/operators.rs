@@ -236,6 +236,9 @@ impl FunctionLowerer<'_, '_> {
             ) {
                 return self.lower_set_query(operation, &ty, args);
             }
+            if matches!(operation, ListWindows | ListChunks) {
+                return self.lower_list_windows(operation, &ty, args);
+            }
             if matches!(operation, MapKeysView | MapValuesView | MapEntriesView) {
                 return self.lower_map_view_snapshot(operation, &ty, args[0]);
             }

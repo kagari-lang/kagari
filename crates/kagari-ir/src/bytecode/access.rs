@@ -815,6 +815,22 @@ pub(super) fn verify(
                                     return Err(invalid());
                                 }
                             }
+                            if *intrinsic == S::ArrayRemoveRangePrepare {
+                                let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
+                                else {
+                                    return Err(invalid());
+                                };
+                                let bound = AbiType::StandardEnum {
+                                    kind: surface::StandardEnum::Bound,
+                                    args: vec![AbiType::Builtin(B::USize)],
+                                };
+                                if !flows(&facts[1], &bound) || !flows(&facts[2], &bound) {
+                                    return Err(invalid());
+                                }
+                                let storage = AbiType::Array(item.clone(), Access::Mutable);
+                                result =
+                                    Fact::typed(AbiType::Tuple(vec![storage.clone(), storage]));
+                            }
                             if *intrinsic == S::ArrayCopyWithinBounds {
                                 if !matches!(&facts[0].ty, Some(AbiType::Array(_, Access::Mutable)))
                                 {

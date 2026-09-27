@@ -24,6 +24,11 @@ fn main() -> i32 {
     val shared = ArrayList::from_fn(2, |i| cells[0]);
     shared[0].value = 7;
     std::debug::assert(shared[1].value == 7, "explicit sharing");
+    val grouped: ArrayList<List<i32>> = [1, 2, 3].chunks(2usize).collect();
+    std::debug::assert(grouped[1usize].len() == 1usize, "short final chunk");
+    val intervals = [1, 2, 3, 4];
+    val removed = intervals.remove_range(1usize..3usize);
+    std::debug::assert(removed.len() == 2usize && intervals.len() == 2usize, "immediate removal");
     val sorted = [3, 1, 1, 2];
     sorted.sort();
     sorted.dedup();
