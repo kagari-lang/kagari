@@ -36,6 +36,19 @@ pub(super) fn verify(
         }
     }
     match instruction {
+        Convert {
+            dst,
+            src,
+            conversion,
+        } => {
+            let (input, output) = conversion.contract().ok_or_else(|| {
+                contract(ContractError::InvalidOperation {
+                    reason: "invalid numeric conversion",
+                })
+            })?;
+            context.expect(src.ty, input.representation(), "conversion source")?;
+            context.expect(dst.ty, output.representation(), "conversion destination")?;
+        }
         Numeric {
             dst,
             operation,

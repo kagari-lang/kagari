@@ -260,7 +260,9 @@ shift_expr          ::= additive_expr (("<<" | ">>") additive_expr)* ;
 
 additive_expr       ::= multiplicative_expr (("+" | "-") multiplicative_expr)* ;
 
-multiplicative_expr ::= unary_expr (("*" | "/" | "%") unary_expr)* ;
+multiplicative_expr ::= cast_expr (("*" | "/" | "%") cast_expr)* ;
+
+cast_expr           ::= unary_expr ("as" type)* ;
 
 unary_expr          ::= ("!" | "-") unary_expr
                       | postfix_expr ;

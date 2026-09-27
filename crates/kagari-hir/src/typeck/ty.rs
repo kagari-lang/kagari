@@ -37,6 +37,20 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else if let Some(binding) = context.declarations.names.lookup(name) {
             binding.target().and_then(|resolved| {
                 use crate::resolver::ResolvedName;
+                if let ResolvedName::StandardModule(
+                    kind @ (surface::StandardModule::TryFromIntError
+                    | surface::StandardModule::Infallible),
+                ) = resolved
+                {
+                    return Some(TypeId::StandardEnum {
+                        kind: if kind == surface::StandardModule::TryFromIntError {
+                            surface::StandardEnum::TryFromIntError
+                        } else {
+                            surface::StandardEnum::Infallible
+                        },
+                        args: vec![],
+                    });
+                }
                 if resolved == ResolvedName::StandardModule(surface::StandardModule::Ordering) {
                     return Some(crate::builtin::traits::ordering_type(false));
                 }
@@ -95,6 +109,21 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
         } else if let Some(kind) = context.declarations.standard_trait(name) {
             target = Some(TypeTarget::StandardTrait(kind));
             Some(TypeId::Trait(kind.declaration_type()))
+        } else if matches!(
+            name,
+            "TryFromIntError"
+                | "std::convert::TryFromIntError"
+                | "Infallible"
+                | "std::convert::Infallible"
+        ) {
+            Some(TypeId::StandardEnum {
+                kind: if name.ends_with("Infallible") {
+                    surface::StandardEnum::Infallible
+                } else {
+                    surface::StandardEnum::TryFromIntError
+                },
+                args: vec![],
+            })
         } else if matches!(name, "Ordering" | "std::cmp::Ordering") {
             Some(crate::builtin::traits::ordering_type(false))
         } else if let Some(id) = context.declarations.host_type(name) {

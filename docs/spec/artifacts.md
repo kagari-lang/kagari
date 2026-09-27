@@ -582,3 +582,7 @@ representations and operation arity before execution. Earlier artifacts are reje
 Version 79/runtime ABI v79 add declaration-backed integer method bindings and
 source-width checked compound operations. Numeric bindings include both their
 operation and concrete receiver type; invalid bindings are rejected by verification.
+
+Version 80/runtime ABI v80 add verified numeric conversion descriptors and the
+standard TryFromIntError/Infallible enum identities. Checked conversion results
+carry their concrete Result payload types. Earlier products are rejected.

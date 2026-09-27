@@ -123,3 +123,30 @@ impl ScalarValue {
         }
     }
 }
+
+impl ScalarValue {
+    pub fn cast_numeric(self, target: BuiltinType) -> Option<Self> {
+        use kagari_common::numeric::Number;
+        let TypeId::Builtin(source) = self.ty() else {
+            return None;
+        };
+        if !source.can_cast_to(target) {
+            return None;
+        }
+        let input = match self {
+            Self::Bool(v) => Number::Integer(i128::from(v)),
+            Self::I32(v) => Number::Integer(i128::from(v)),
+            Self::Integer { value, .. } => Number::Integer(value),
+            Self::F32(v) => Number::F32(v),
+            Self::F64(v) => Number::F64(v),
+            _ => return None,
+        };
+        Some(
+            match kagari_common::numeric::cast(input, target.number_type()?) {
+                Number::Integer(v) => Self::integer(v, target).ok()?,
+                Number::F32(v) => Self::F32(v),
+                Number::F64(v) => Self::F64(v),
+            },
+        )
+    }
+}

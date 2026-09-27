@@ -452,6 +452,7 @@ fn successors(terminator: &Terminator) -> smallvec::SmallVec<[BlockId; 2]> {
 fn inputs(instruction: &Instruction) -> smallvec::SmallVec<[IrValue; 4]> {
     use Instruction::*;
     match instruction {
+        Convert { src, .. } => smallvec::smallvec![*src],
         Numeric { lhs, rhs, .. } => std::iter::once(*lhs).chain(rhs.iter().copied()).collect(),
         MapResultError {
             original, error, ..
@@ -544,6 +545,7 @@ fn output(instruction: &Instruction) -> Option<IrValue> {
         | MakeCell { dst, .. }
         | ReadCell { dst, .. }
         | MakeStruct { dst, .. }
+        | Convert { dst, .. }
         | Numeric { dst, .. }
         | MapResultError { dst, .. }
         | Iter { dst, .. }

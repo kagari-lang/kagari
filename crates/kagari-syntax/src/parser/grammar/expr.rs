@@ -224,7 +224,7 @@ impl<'a> Parser<'a> {
 
     fn parse_multiplicative_expr(&mut self) {
         let checkpoint = self.checkpoint();
-        self.parse_prefix_expr();
+        self.parse_cast_expr();
 
         loop {
             self.bump_trivia();
@@ -232,8 +232,23 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.bump();
-            self.parse_prefix_expr();
+            self.parse_cast_expr();
             self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_cast_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_prefix_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::AsKw) {
+                break;
+            }
+            self.bump();
+            self.parse_type_ref();
+            self.start_node_at(checkpoint, SyntaxKind::CastExpr);
             self.finish_node();
         }
     }

@@ -129,6 +129,16 @@ impl Lowerer {
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
             },
+            ast::Expr::CastExpr(cast) => ExprKind::Cast {
+                expr: cast
+                    .expr()
+                    .map(|expr| self.lower_expr(&expr))
+                    .unwrap_or_else(|| self.missing_expr()),
+                target: cast
+                    .ty()
+                    .map(|ty| self.lower_type(&ty))
+                    .unwrap_or_else(|| self.synthetic_named_type("<missing>")),
+            },
             ast::Expr::PrefixExpr(prefix) => ExprKind::Prefix {
                 op: match prefix.operator() {
                     Some(SyntaxKind::Minus) => PrefixOp::Neg,

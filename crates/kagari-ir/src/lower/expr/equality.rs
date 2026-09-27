@@ -219,6 +219,10 @@ impl FunctionLowerer<'_, '_> {
                 args: members,
             } => {
                 let variants = match kind {
+                    kagari_hir::builtin::surface::StandardEnum::TryFromIntError => {
+                        vec![(0, vec![])]
+                    }
+                    kagari_hir::builtin::surface::StandardEnum::Infallible => vec![],
                     kagari_hir::builtin::surface::StandardEnum::Ordering => {
                         vec![(0, vec![]), (1, vec![]), (2, vec![])]
                     }

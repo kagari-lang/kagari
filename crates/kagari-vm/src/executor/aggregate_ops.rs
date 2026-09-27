@@ -267,6 +267,7 @@ impl Executor<'_> {
             StandardEnumOp::Make(v) | StandardEnumOp::Test(v) | StandardEnumOp::Read(v) => v,
         };
         let tag = match (*kind, variant) {
+            (StandardEnumKind::TryFromIntError, 0) => EnumTag::TryFromIntError,
             (StandardEnumKind::Ordering, 0) => EnumTag::OrderingLess,
             (StandardEnumKind::Ordering, 1) => EnumTag::OrderingEqual,
             (StandardEnumKind::Ordering, 2) => EnumTag::OrderingGreater,
@@ -295,6 +296,7 @@ impl Executor<'_> {
                     StandardEnumKind::Ordering,
                     EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater,
                 ) => 0,
+                (StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionNone) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionSome)
                 | (StandardEnumKind::Result, EnumTag::ResultOk | EnumTag::ResultErr) => 1,

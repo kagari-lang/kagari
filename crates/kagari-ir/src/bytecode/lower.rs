@@ -936,6 +936,15 @@ fn lower_instruction(
                 implementation,
             }
         }
+        Instruction::Convert {
+            dst,
+            src,
+            conversion,
+        } => BytecodeInstruction::Convert {
+            dst: lower_value(*dst),
+            src: lower_value(*src),
+            conversion: *conversion,
+        },
         Instruction::Numeric {
             dst,
             operation,

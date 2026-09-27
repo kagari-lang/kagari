@@ -208,6 +208,11 @@ pub enum BinaryOp {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum BytecodeInstruction {
+    Convert {
+        dst: Register,
+        src: Register,
+        conversion: crate::module::numeric::NumericConversion,
+    },
     Numeric {
         dst: Register,
         operation: crate::module::numeric::NumericOperation,

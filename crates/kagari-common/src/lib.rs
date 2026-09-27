@@ -9,6 +9,7 @@ pub mod identity;
 pub mod integer;
 pub mod line_index;
 pub mod literal;
+pub mod numeric;
 pub mod source;
 pub mod source_database;
 pub mod span;

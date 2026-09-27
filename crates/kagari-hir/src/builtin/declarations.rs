@@ -412,6 +412,14 @@ impl ApiType {
                         kind: StandardEnum::Result,
                         args: types,
                     },
+                    ("TryFromIntError", []) => TypeId::StandardEnum {
+                        kind: StandardEnum::TryFromIntError,
+                        args: types,
+                    },
+                    ("Infallible", []) => TypeId::StandardEnum {
+                        kind: StandardEnum::Infallible,
+                        args: types,
+                    },
                     ("Ordering", []) => TypeId::StandardEnum {
                         kind: StandardEnum::Ordering,
                         args: types,

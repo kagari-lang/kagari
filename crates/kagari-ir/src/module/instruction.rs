@@ -29,6 +29,11 @@ pub struct PathRef {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    Convert {
+        dst: IrValue,
+        src: IrValue,
+        conversion: crate::module::numeric::NumericConversion,
+    },
     Numeric {
         dst: IrValue,
         operation: super::numeric::NumericOperation,
@@ -380,6 +385,13 @@ impl Instruction {
     pub fn effects(&self) -> EffectSet {
         match self {
             Self::LoadConst { .. } | Self::Move { .. } => EffectSet::default(),
+            Self::Convert { conversion, .. } => {
+                if conversion.checked {
+                    EffectSet::allocation()
+                } else {
+                    EffectSet::default()
+                }
+            }
             Self::Numeric { .. } => EffectSet {
                 may_trap: true,
                 ..EffectSet::default()

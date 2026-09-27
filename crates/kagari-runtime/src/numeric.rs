@@ -167,3 +167,62 @@ pub fn integer_method(
     }
     Ok(value)
 }
+
+pub fn convert(
+    gc: &crate::gc::GcHeap,
+    conversion: kagari_ir::module::numeric::NumericConversion,
+    value: Value,
+) -> Result<Value, RuntimeError> {
+    use kagari_common::numeric::Number;
+    let fail = || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid numeric conversion");
+    conversion.contract().ok_or_else(fail)?;
+    if conversion.checked && conversion.source == conversion.target {
+        return Ok(Value::Enum(
+            gc.alloc_enum(crate::value::EnumTag::ResultOk, vec![value])?,
+        ));
+    }
+    let value = match value {
+        Value::Bool(v) => Number::Integer(i128::from(v)),
+        Value::I32(v) => Number::Integer(i128::from(v)),
+        Value::I64(v) => Number::Integer(i128::from(v)),
+        Value::U64(v) => Number::Integer(i128::from(v)),
+        Value::F32(v) => Number::F32(v),
+        Value::F64(v) => Number::F64(v),
+        _ => return Err(fail()),
+    };
+    if conversion.checked
+        && let (Number::Integer(input), Some((bits, signed))) =
+            (value, conversion.target.integer_layout())
+    {
+        let (min, max) = kagari_common::integer::bounds(bits, signed);
+        if input < min || input > max {
+            let error = Value::Enum(gc.alloc_enum(crate::value::EnumTag::TryFromIntError, vec![])?);
+            let _root = gc.root_value(error.clone()).ok_or_else(fail)?;
+            return Ok(Value::Enum(
+                gc.alloc_enum(crate::value::EnumTag::ResultErr, vec![error])?,
+            ));
+        }
+    }
+    let value = match kagari_common::numeric::cast(
+        value,
+        conversion.target.number_type().ok_or_else(fail)?,
+    ) {
+        Number::F32(v) => Value::F32(v),
+        Number::F64(v) => Value::F64(v),
+        Number::Integer(v) => {
+            match kagari_ir::module::abi::AbiType::Builtin(conversion.target).representation() {
+                kagari_ir::module::ValueType::I32 => Value::I32(v as i32),
+                kagari_ir::module::ValueType::U64 => Value::U64(v as u64),
+                _ => Value::I64(v as i64),
+            }
+        }
+    };
+    if conversion.checked {
+        Ok(Value::Enum(gc.alloc_enum(
+            crate::value::EnumTag::ResultOk,
+            vec![value],
+        )?))
+    } else {
+        Ok(value)
+    }
+}

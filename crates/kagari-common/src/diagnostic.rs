@@ -98,6 +98,10 @@ pub enum DiagnosticKind {
     UnknownTypeAnnotation {
         type_name: String,
     },
+    InvalidNumericCast {
+        from: String,
+        to: String,
+    },
     InvalidCallTarget {
         type_name: String,
     },
@@ -382,6 +386,7 @@ impl DiagnosticKind {
             Self::InvalidHostPath { .. } => "KG_HOST_PATH_INVALID",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
+            Self::InvalidNumericCast { .. } => "KG_TYPE_INVALID_NUMERIC_CAST",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidClosureCapture { .. } => "KG_TYPE_INVALID_CLOSURE_CAPTURE",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
@@ -537,6 +542,7 @@ impl Display for DiagnosticKind {
             Self::UnknownTypeAnnotation { type_name } => {
                 write!(f, "unknown type annotation `{type_name}`")
             }
+            Self::InvalidNumericCast { from, to } => write!(f, "cannot cast {from} to {to}"),
             Self::InvalidCallTarget { type_name } => {
                 write!(f, "value of type `{type_name}` cannot be called")
             }

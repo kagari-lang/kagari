@@ -92,6 +92,12 @@ impl Evaluator<'_> {
                 ResolvedName::Const(id) => return self.constant(id),
                 _ => return None,
             },
+            ExprKind::Cast { expr, .. } => {
+                let crate::types::TypeId::Builtin(target) = self.type_table.expr_type(id)? else {
+                    return None;
+                };
+                return self.expression(owner, *expr)?.cast_numeric(target);
+            }
             ExprKind::Prefix { op, expr } => match (op, self.expression(owner, *expr)?) {
                 (PrefixOp::Neg, ScalarValue::I32(value)) => arithmetic::i32_neg(value)
                     .map(ScalarValue::I32)

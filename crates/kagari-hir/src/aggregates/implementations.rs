@@ -305,6 +305,16 @@ impl AggregateCatalog {
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         crate::typeck::associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
+                && crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                    == Some(crate::builtin::traits::StandardTrait::TryFrom)
+                && *member == crate::types::associated_type_id(&interface.declaration, "Error")
+                && let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
+                    (receiver, interface.arguments.as_slice())
+            {
+                return crate::builtin::numeric::try_error(*source, *target);
+            }
+
+            if arguments.is_empty()
                 && let Some(kind) =
                     crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
                 && kind.iteration()

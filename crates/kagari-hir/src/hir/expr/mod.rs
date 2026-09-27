@@ -16,6 +16,10 @@ pub struct ExprData {
 #[derive(Debug, Clone)]
 pub enum ExprKind {
     Missing,
+    Cast {
+        expr: ExprId,
+        target: TypeRefId,
+    },
     InterpolatedString(ExprBuffer),
     FormatPart {
         expr: ExprId,

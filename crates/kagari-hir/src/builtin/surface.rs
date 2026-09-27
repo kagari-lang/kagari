@@ -26,6 +26,8 @@ pub struct BuiltinTypeSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum StandardEnum {
+    TryFromIntError,
+    Infallible,
     Option,
     Result,
     Ordering,
@@ -42,6 +44,7 @@ impl StandardEnum {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardVariant {
+    OutOfRange,
     Less,
     Equal,
     Greater,
@@ -54,6 +57,7 @@ pub enum StandardVariant {
 impl StandardVariant {
     pub fn kind(self) -> StandardEnum {
         match self {
+            Self::OutOfRange => StandardEnum::TryFromIntError,
             Self::Less | Self::Equal | Self::Greater => StandardEnum::Ordering,
             Self::Some | Self::None => StandardEnum::Option,
             Self::Ok | Self::Err => StandardEnum::Result,
@@ -61,7 +65,7 @@ impl StandardVariant {
     }
     pub fn index(self) -> usize {
         match self {
-            Self::Less => 0,
+            Self::OutOfRange | Self::Less => 0,
             Self::Equal => 1,
             Self::Greater => 2,
             Self::Some | Self::Ok => 0,
@@ -70,7 +74,7 @@ impl StandardVariant {
     }
     pub fn payload(self) -> Option<usize> {
         match self {
-            Self::None | Self::Less | Self::Equal | Self::Greater => None,
+            Self::OutOfRange | Self::None | Self::Less | Self::Equal | Self::Greater => None,
             Self::Err => Some(1),
             _ => Some(0),
         }
@@ -79,6 +83,9 @@ impl StandardVariant {
 
 pub fn standard_variant(path: &str) -> Option<StandardVariant> {
     Some(match path {
+        "TryFromIntError::OutOfRange" | "std::convert::TryFromIntError::OutOfRange" => {
+            StandardVariant::OutOfRange
+        }
         "Ordering::Less" | "std::cmp::Ordering::Less" => StandardVariant::Less,
         "Ordering::Equal" | "std::cmp::Ordering::Equal" => StandardVariant::Equal,
         "Ordering::Greater" | "std::cmp::Ordering::Greater" => StandardVariant::Greater,
@@ -105,6 +112,8 @@ pub enum StandardTypeConstructor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardModule {
+    TryFromIntError,
+    Infallible,
     Numeric,
     Convert,
     Ordering,
@@ -412,6 +421,14 @@ const STANDARD_MODULES: &[StandardModuleSpec] = &[
         path: "std::convert",
     },
     StandardModuleSpec {
+        kind: StandardModule::TryFromIntError,
+        path: "std::convert::TryFromIntError",
+    },
+    StandardModuleSpec {
+        kind: StandardModule::Infallible,
+        path: "std::convert::Infallible",
+    },
+    StandardModuleSpec {
         kind: StandardModule::Ordering,
         path: "std::cmp::Ordering",
     },
@@ -711,6 +728,7 @@ pub fn standard_variants_in_module(
 ) -> &'static [(&'static str, StandardVariant)] {
     use StandardVariant::*;
     match module {
+        StandardModule::TryFromIntError => &[("OutOfRange", OutOfRange)],
         StandardModule::Ordering => &[("Less", Less), ("Equal", Equal), ("Greater", Greater)],
         StandardModule::Option => &[("Some", Some), ("None", None)],
         StandardModule::Result => &[("Ok", Ok), ("Err", Err)],

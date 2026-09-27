@@ -1603,6 +1603,13 @@ fn validate_const_initializers(
                         ),
                     }
                 }
+                ExprKind::Cast { expr, .. } => {
+                    self.validate_const_expr(owner, *expr);
+                    if !matches!((self.type_table.expr_type(*expr), self.type_table.expr_type(expr_id)), (Some(TypeId::Builtin(a)), Some(TypeId::Builtin(b))) if a.can_cast_to(b))
+                    {
+                        self.emit_invalid_const(owner, expr_id, "unsupported constant cast");
+                    }
+                }
                 ExprKind::Prefix { op, expr } => {
                     self.validate_const_expr(owner, *expr);
 

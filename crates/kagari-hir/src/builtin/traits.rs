@@ -418,6 +418,24 @@ pub fn intrinsic_applies(
         });
     }
     if kind.conversion() {
+        if let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
+            (receiver, interface.arguments.as_slice())
+        {
+            if kind == StandardTrait::From
+                && interface.associated_types.is_empty()
+                && super::numeric::lossless_from(*source, *target)
+            {
+                return true;
+            }
+            if kind == StandardTrait::TryFrom
+                && let Some(error) = super::numeric::try_error(*source, *target)
+            {
+                return interface.associated_types.iter().all(|(member, ty)| {
+                    *member == crate::types::associated_type_id(&interface.declaration, "Error")
+                        && *ty == error
+                });
+            }
+        }
         return kind == StandardTrait::From
             && interface.arguments.as_slice() == [receiver.clone()]
             && interface.associated_types.is_empty();

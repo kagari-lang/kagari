@@ -148,6 +148,7 @@ pub enum SyntaxKind {
     Literal,
     ParenExpr,
     PrefixExpr,
+    CastExpr,
     PropagateExpr,
     BinaryExpr,
     RangeExpr,

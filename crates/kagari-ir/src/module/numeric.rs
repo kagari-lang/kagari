@@ -59,3 +59,30 @@ impl NumericOperation {
         ))
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NumericConversion {
+    pub checked: bool,
+    pub source: BuiltinType,
+    pub target: BuiltinType,
+}
+impl NumericConversion {
+    pub fn contract(self) -> Option<(AbiType, AbiType)> {
+        if self.checked {
+            let error = kagari_hir::builtin::numeric::try_error(self.source, self.target)?;
+            return Some((
+                AbiType::Builtin(self.source),
+                AbiType::StandardEnum {
+                    kind: kagari_hir::builtin::surface::StandardEnum::Result,
+                    args: vec![
+                        AbiType::Builtin(self.target),
+                        AbiType::from_checked_type(&error),
+                    ],
+                },
+            ));
+        }
+        self.source
+            .can_cast_to(self.target)
+            .then_some((AbiType::Builtin(self.source), AbiType::Builtin(self.target)))
+    }
+}

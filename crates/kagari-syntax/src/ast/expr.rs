@@ -15,6 +15,7 @@ ast_node!(PathExpr, PathExpr);
 ast_node!(Literal, Literal);
 ast_node!(ParenExpr, ParenExpr);
 ast_node!(PrefixExpr, PrefixExpr);
+ast_node!(CastExpr, CastExpr);
 ast_node!(PropagateExpr, PropagateExpr);
 ast_node!(BinaryExpr, BinaryExpr);
 ast_node!(RangeExpr, RangeExpr);
@@ -47,6 +48,7 @@ pub enum Expr {
     Literal(Literal),
     ParenExpr(ParenExpr),
     PrefixExpr(PrefixExpr),
+    CastExpr(CastExpr),
     PropagateExpr(PropagateExpr),
     BinaryExpr(BinaryExpr),
     RangeExpr(RangeExpr),
@@ -72,6 +74,7 @@ impl AstNode for Expr {
                 | SyntaxKind::Literal
                 | SyntaxKind::ParenExpr
                 | SyntaxKind::PropagateExpr
+                | SyntaxKind::CastExpr
                 | SyntaxKind::PrefixExpr
                 | SyntaxKind::BinaryExpr
                 | SyntaxKind::RangeExpr
@@ -96,6 +99,7 @@ impl AstNode for Expr {
             SyntaxKind::Literal => Literal::cast(syntax).map(Self::Literal),
             SyntaxKind::ParenExpr => ParenExpr::cast(syntax).map(Self::ParenExpr),
             SyntaxKind::PropagateExpr => PropagateExpr::cast(syntax).map(Self::PropagateExpr),
+            SyntaxKind::CastExpr => CastExpr::cast(syntax).map(Self::CastExpr),
             SyntaxKind::PrefixExpr => PrefixExpr::cast(syntax).map(Self::PrefixExpr),
             SyntaxKind::BinaryExpr => BinaryExpr::cast(syntax).map(Self::BinaryExpr),
             SyntaxKind::RangeExpr => RangeExpr::cast(syntax).map(Self::RangeExpr),
@@ -123,6 +127,7 @@ impl AstNode for Expr {
             Self::Literal(node) => node.syntax(),
             Self::ParenExpr(node) => node.syntax(),
             Self::PropagateExpr(node) => node.syntax(),
+            Self::CastExpr(node) => node.syntax(),
             Self::PrefixExpr(node) => node.syntax(),
             Self::BinaryExpr(node) => node.syntax(),
             Self::RangeExpr(node) => node.syntax(),
@@ -568,5 +573,14 @@ impl Interpolation {
         self.syntax()
             .children_with_tokens()
             .any(|element| element.kind() == SyntaxKind::Colon)
+    }
+}
+
+impl CastExpr {
+    pub fn expr(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
+    pub fn ty(&self) -> Option<super::TypeRef> {
+        support::child(self.syntax())
     }
 }

@@ -847,6 +847,45 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Builtin(BuiltinType::String)
             }
             ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
+            ExprKind::Cast { expr, target } => {
+                let input = self.infer_expr_type(*expr, env);
+                let context = TypeContext {
+                    declarations: self.declarations,
+                    generics: &env.generics,
+                    self_type: None,
+                    implementation: None,
+                };
+                let output = resolve_type_in(
+                    &self.lowered.module,
+                    *target,
+                    context,
+                    self.type_table,
+                    self.cancel,
+                );
+                let completes = super::completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    *expr,
+                    self.cancel,
+                )
+                .unwrap_or(false);
+                if completes
+                    && !matches!(
+                        input,
+                        TypeId::Inference(_) | TypeId::Unknown | TypeId::Error
+                    )
+                    && !matches!((&input, &output), (TypeId::Builtin(a), TypeId::Builtin(b)) if a.can_cast_to(*b))
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidNumericCast {
+                            from: display_type_id(&input),
+                            to: display_type_id(&output),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                }
+                output
+            }
             ExprKind::Prefix { op, expr } => {
                 self.infer_prefix_operator(expr_id, op, expr, env, expected)
             }

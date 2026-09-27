@@ -1016,6 +1016,26 @@ fn verify_instruction(
                 "interface receiver",
             )?;
         }
+        BytecodeInstruction::Convert {
+            dst,
+            src,
+            conversion,
+        } => {
+            let (input, output) =
+                conversion
+                    .contract()
+                    .ok_or(BytecodeVerificationError::InvalidOperation {
+                        function: function.id,
+                        reason: "invalid numeric conversion",
+                    })?;
+            expect_register_ty(function, *src, input.representation(), "conversion source")?;
+            expect_register_ty(
+                function,
+                *dst,
+                output.representation(),
+                "conversion destination",
+            )?;
+        }
         BytecodeInstruction::Numeric {
             dst,
             operation,

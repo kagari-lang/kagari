@@ -253,6 +253,38 @@ impl FunctionLowerer<'_, '_> {
         {
             return Ok(args[0]);
         }
+        if let (
+            Some(protocol @ (StandardTrait::From | StandardTrait::TryFrom)),
+            TypeId::Builtin(target),
+            [TypeId::Builtin(source)],
+        ) = (
+            StandardTrait::from_id(&interface.declaration),
+            &ty,
+            interface.arguments.as_slice(),
+        ) && kagari_hir::builtin::traits::intrinsic_applies(
+            &interface,
+            &ty,
+            Some(self.planner.catalog),
+            &Default::default(),
+        ) {
+            let conversion = crate::module::numeric::NumericConversion {
+                source: *source,
+                target: *target,
+                checked: protocol == StandardTrait::TryFrom,
+            };
+            let (_, output) = conversion
+                .contract()
+                .ok_or(IrLoweringError::MissingBinding(
+                    "numeric conversion contract",
+                ))?;
+            let dst = self.alloc_temp(output.representation());
+            self.emit(Instruction::Convert {
+                dst,
+                src: args[0],
+                conversion,
+            });
+            return Ok(dst);
+        }
         use crate::module::{abi::AbiType, instruction::IterOp};
         let iter_op = match StandardTrait::from_id(&interface.declaration) {
             Some(StandardTrait::Iterable)

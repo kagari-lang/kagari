@@ -385,3 +385,38 @@ Unsigned types provide wrapping_add_signed with the corresponding signed width.
 All integer types provide rotate_left/right with a u32 count reduced modulo the
 receiver width. These methods are pure value operations. Standard declarations
 and examples live in [numeric.kgr](../../stdlib/numeric.kgr).
+
+## Explicit numeric conversions
+
+There are no implicit integer-width, signedness, or integer/float conversions.
+`as` is an explicit numeric cast, evaluated once. It binds tighter than
+multiplication and looser than unary operators. Parenthesize the cast before `<`
+or `<<` when the tokens would otherwise begin generic type arguments.
+
+- Integer to integer: widening sign-extends signed sources and zero-extends
+  unsigned sources; narrowing preserves the low destination bits; equal-width
+  signedness changes reinterpret the same bits.
+- Integer to float: round to the nearest representable value, ties to even.
+- Float to integer: truncate toward zero, saturate to the destination range,
+  and convert NaN to zero. Infinite values saturate too.
+- Float to float: f32 widens exactly to f64; f64 narrows to f32 using the host's
+  Rust cast behavior. This does not promise cross-platform NaN payload identity.
+- Bool to integer: false becomes zero and true becomes one. Other boolean casts,
+  object casts and user-defined `as` hooks are unsupported.
+
+`From` covers lossless portable Rust primitive conversions, with derived `Into`:
+unsigned-to-wider unsigned, signed-to-wider signed, unsigned-to-strictly-wider
+signed; i8/i16/u8/u16 to f32; i8/i16/i32/u8/u16/u32/f32 to f64; bool to integers.
+Identity From remains available. The pointer-sized matrix follows Rust's portable
+rules even though Kagari fixes both sizes at 64 bits: From to usize accepts u8/u16,
+and From to isize accepts i8/i16/u8. Other such conversions use TryFrom or `as`.
+
+All built-in integer pairs support `TryFrom`, with derived `TryInto`. Potentially
+lossy pairs return `Result<T, std::convert::TryFromIntError>` and produce
+`OutOfRange` when the value cannot be represented. Lossless built-in pairs also
+support TryFrom, with `Infallible` as Error; they always return Ok. These bindings
+do not add a general user-defined From-to-TryFrom blanket implementation.
+Fallible floating-point conversions are not provided. Const numeric casts share
+the runtime conversion implementation; trait calls remain outside scalar const-safe.
+
+See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).

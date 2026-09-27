@@ -236,7 +236,10 @@ impl BodyChecker<'_> {
         let source_error = self.inference_variable(site, 2048);
         let context = match &self.expected_return {
             TypeId::StandardEnum { kind, args }
-                if *kind != surface::StandardEnum::Ordering && args.len() == kind.spec().arity =>
+                if matches!(
+                    kind,
+                    surface::StandardEnum::Option | surface::StandardEnum::Result
+                ) && args.len() == kind.spec().arity =>
             {
                 let mut args = args.clone();
                 args[0] = expected.cloned().unwrap_or(TypeId::Unknown);
@@ -271,7 +274,12 @@ impl BodyChecker<'_> {
             }
             return TypeId::Error;
         };
-        if args.len() != kind.spec().arity || *kind == surface::StandardEnum::Ordering {
+        if args.len() != kind.spec().arity
+            || !matches!(
+                kind,
+                surface::StandardEnum::Option | surface::StandardEnum::Result
+            )
+        {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                     function_name: "operator ?".into(),

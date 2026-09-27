@@ -15,6 +15,7 @@ pub struct EnumValueSnapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnumTag {
+    TryFromIntError,
     OrderingLess,
     OrderingEqual,
     OrderingGreater,
@@ -28,6 +29,7 @@ pub enum EnumTag {
 impl EnumTag {
     pub fn type_name(&self) -> &str {
         match self {
+            Self::TryFromIntError => "TryFromIntError",
             Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => "Ordering",
             Self::OptionSome | Self::OptionNone => "Option",
             Self::ResultOk | Self::ResultErr => "Result",
@@ -44,6 +46,7 @@ impl EnumTag {
     }
     pub fn variant_name(&self) -> &str {
         match self {
+            Self::TryFromIntError => "OutOfRange",
             Self::OrderingLess => "Less",
             Self::OrderingEqual => "Equal",
             Self::OrderingGreater => "Greater",
@@ -64,9 +67,11 @@ impl EnumTag {
     }
     pub(crate) fn accepts_representations(&self, fields: &[Value]) -> bool {
         match self {
-            Self::OptionNone | Self::OrderingLess | Self::OrderingEqual | Self::OrderingGreater => {
-                fields.is_empty()
-            }
+            Self::TryFromIntError
+            | Self::OptionNone
+            | Self::OrderingLess
+            | Self::OrderingEqual
+            | Self::OrderingGreater => fields.is_empty(),
             Self::OptionSome | Self::ResultOk | Self::ResultErr => fields.len() == 1,
             Self::Declared(layout) => {
                 fields.len() == layout.variant().payload.len()
@@ -176,6 +181,7 @@ impl MapKey {
                 Value::Enum(id) => {
                     let snapshot = gc.enum_snapshot(id)?;
                     parts.push(match snapshot.tag {
+                        EnumTag::TryFromIntError => KeyPart::StandardEnum(7),
                         EnumTag::OrderingLess => KeyPart::StandardEnum(4),
                         EnumTag::OrderingEqual => KeyPart::StandardEnum(5),
                         EnumTag::OrderingGreater => KeyPart::StandardEnum(6),

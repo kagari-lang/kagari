@@ -530,6 +530,19 @@ pub(super) fn verify(
                     }
                     produced = Some((*dst, Fact::typed(AbiType::Trait(target.clone()))));
                 }
+                I::Convert {
+                    dst,
+                    src,
+                    conversion,
+                } => {
+                    let (input, output) = conversion.contract().ok_or_else(invalid)?;
+                    if let Some(value) = get(*src)
+                        && !flows(&value, &input)
+                    {
+                        return Err(invalid());
+                    }
+                    produced = Some((*dst, Fact::typed(output)));
+                }
                 I::Numeric {
                     dst,
                     operation,

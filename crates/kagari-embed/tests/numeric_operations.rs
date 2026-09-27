@@ -206,3 +206,144 @@ fn explicit_integer_policies() {
     "#,
     );
 }
+
+#[test]
+fn numeric_casts_match_const_and_runtime_rules() {
+    execute(
+        r#"
+        fn assert(value: bool) { std::debug::assert(value, "cast"); }
+        const BYTE: u8 = 256u16 as u8;
+        const SIGN: i8 = 255u8 as i8;
+        const CLAMP: u8 = 999.75 as u8;
+        fn main() -> i32 {
+            assert(BYTE == 0u8);
+            assert(SIGN == -1i8);
+            assert(CLAMP == 255u8);
+            assert((-1i8 as u16) == 65535u16);
+            assert((255u16 as i8) == -1i8);
+            assert((65535u16 as u8) == 255u8);
+            assert((65535u16 as f64) == 65535.0);
+            assert((16777217u32 as f32) == 16777216.0f32);
+            assert((42.9 as u8) == 42u8);
+            assert((-42.9 as i8) == -42i8);
+            assert((-42.9 as u8) == 0u8);
+            assert(((0.0 / 0.0) as u8) == 0u8);
+            assert(((1.0 / 0.0) as u64) == 18446744073709551615u64);
+            assert((true as u8) == 1u8);
+            assert((false as i32) == 0);
+            assert((2u8 as u16 * 21u16) == 42u16);
+            42
+        }
+    "#,
+    );
+}
+
+#[test]
+fn builtin_numeric_conversion_traits() {
+    execute(
+        r#"
+        use std::convert::{From, TryFrom, TryFromIntError, Infallible};
+        fn widen<T: From<u8>>(value: u8) -> T { T::from(value) }
+        fn checked<T: TryFrom<u16>>(value: u16) -> Result<T, T::Error> { T::try_from(value) }
+        fn narrow(value: u16) -> Result<u8, TryFromIntError> { Ok(u8::try_from(value)?) }
+        fn assert(value: bool) { std::debug::assert(value, "numeric conversion"); }
+        fn main() -> i32 {
+            assert(u16::from(255u8) == 255u16);
+            assert(widen::<u32>(42u8) == 42u32);
+            val wide: u16 = 42u8.into();
+            assert(wide == 42u16);
+            assert(f64::from(65535u16) == 65535.0);
+            assert(u8::from(true) == 1u8);
+            assert(narrow(255u16) == Ok(255u8));
+            assert(checked::<u8>(256u16).is_err());
+            assert(narrow(256u16) == Err(TryFromIntError::OutOfRange));
+            assert(u64::try_from(-1i8) == Err(TryFromIntError::OutOfRange));
+            val fail: Result<u8, TryFromIntError> = 256u16.try_into();
+            assert(fail.is_err());
+            val safe: Result<u16, Infallible> = u16::try_from(42u8);
+            assert(safe == Ok(42u16));
+            assert(i8::try_from(127u16) == Ok(127i8));
+            assert(i8::try_from(128u16).is_err());
+            42
+        }
+    "#,
+    );
+}
+
+#[test]
+fn numeric_conversion_example() {
+    execute(include_str!(
+        "../../../examples/syntax/numeric-conversions.kgr"
+    ));
+}
+
+#[test]
+fn conversions_reject_implicit_loss_and_invalid_cast_targets() {
+    let engine = KagariEngine::default();
+    for expr in [
+        "u8::from(256u16)",
+        "i8::from(255u8)",
+        "u16::from(-1i8)",
+        "f32::from(16777217u32)",
+        "f64::from(1u64)",
+        "u8::try_from(1.0)",
+        "1u8 as bool",
+        "true as f64",
+        "1u8 as String",
+        "1u8 as Missing",
+    ] {
+        let result = engine.compile_to_artifact(
+            SourceFile::new(
+                "invalid-cast.kgr",
+                format!("fn main() {{ val value = {expr}; }}"),
+            ),
+            Default::default(),
+            Default::default(),
+        );
+        assert!(result.is_err(), "unexpectedly accepted {expr}");
+    }
+}
+
+#[test]
+fn casts_respect_early_return_and_nested_generics() {
+    execute(
+        r#"
+        fn stop() -> i32 { (if true { return 42; } else { return 1; }) as u8; 0 }
+        fn main() -> i32 {
+            val nested: Array<Array<u8>> = [[8u8 >> 1]];
+            std::debug::assert(nested[0][0] == 4u8, "generic closers");
+            stop()
+        }
+    "#,
+    );
+}
+
+#[test]
+fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
+    use kagari_ir::bytecode::BytecodeInstruction;
+    use kagari_ir::module::abi::BuiltinType;
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("conversion.kgr", "fn main() -> u8 { 256u16 as u8 }"),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    for target in [BuiltinType::Bool, BuiltinType::String] {
+        let mut forged = artifact.clone();
+        let conversion = forged
+            .program
+            .modules
+            .iter_mut()
+            .flat_map(|m| &mut m.functions)
+            .flat_map(|f| &mut f.instructions)
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::Convert { conversion, .. } => Some(conversion),
+                _ => None,
+            })
+            .unwrap();
+        conversion.target = target;
+        assert!(forged.validate_for_loader(&Default::default()).is_err());
+    }
+}

@@ -190,6 +190,7 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Literal(_) => {}
             ExprKind::FormatPart { expr, .. }
             | ExprKind::Propagate { expr }
+            | ExprKind::Cast { expr, .. }
             | ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
             ExprKind::Binary { lhs, rhs, .. }
             | ExprKind::Range {

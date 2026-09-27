@@ -10,6 +10,15 @@ impl<'a> Executor<'a> {
         instruction: BytecodeInstruction,
     ) -> Result<(), VmError> {
         match instruction {
+            BytecodeInstruction::Convert {
+                dst,
+                src,
+                conversion,
+            } => {
+                let value = self.current_frame()?.read_register(src)?;
+                let value = kagari_runtime::numeric::convert(self.runtime.gc(), conversion, value)?;
+                self.current_frame_mut()?.write_register(dst, value)?;
+            }
             BytecodeInstruction::Numeric {
                 dst,
                 operation,

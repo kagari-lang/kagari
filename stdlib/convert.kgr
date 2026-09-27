@@ -116,3 +116,19 @@ pub trait TryInto<Target> {
     /// Perform the explicit conversion.
     fn try_into(self) -> Result<Target, Self::Error>;
 }
+
+/// A checked integer conversion rejected a value outside the destination range.
+///
+/// Integer TryFrom/TryInto return this error for potentially lossy conversions.
+/// The source value is never modified. Use `as` when truncation is intentional.
+#[builtin_enum(TryFromIntError)]
+pub enum TryFromIntError {
+    /// The source value cannot be represented by the destination integer type.
+    OutOfRange,
+}
+
+/// The error type of built-in TryFrom conversions that cannot fail.
+///
+/// This enum has no values. Lossless built-in conversions always return Ok.
+#[builtin_enum(Infallible)]
+pub enum Infallible {}

@@ -93,7 +93,7 @@ logic_and_expr	1	*	("&&" equality_expr)
 equality_expr	1	*	(("==" | "!=" | "===" | "!==") compare_expr)
 compare_expr	1	*	(("<" | "<=" | ">" | ">=") bit_or_expr)
 additive_expr	1	*	(("+" | "-") multiplicative_expr)
-multiplicative_expr	1	*	(("*" | "/" | "%") unary_expr)
+multiplicative_expr	1	*	(("*" | "/" | "%") cast_expr)
 postfix_expr	1	*	postfix_op
 call_suffix	1	?	("::" generic_args)
 call_suffix	2	?	arg_list
@@ -142,3 +142,4 @@ bit_or_expr	1	*	("|" bit_xor_expr)
 bit_xor_expr	1	*	("^" bit_and_expr)
 bit_and_expr	1	*	("&" shift_expr)
 shift_expr	1	*	(("<<" | ">>") additive_expr)
+cast_expr	1	*	("as" type)

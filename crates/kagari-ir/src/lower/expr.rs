@@ -473,6 +473,46 @@ impl FunctionLowerer<'_, '_> {
                 }
                 self.lower_call(expr_id, &[])
             }
+            hir::ExprKind::Cast { expr, .. } => {
+                let src = self.lower_expr(expr)?;
+                if self.current_block_terminated() {
+                    return Ok(src);
+                }
+                let source = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(expr)
+                    .ok_or(IrLoweringError::MissingExprType(expr))?;
+                let target = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(expr_id)
+                    .ok_or(IrLoweringError::MissingExprType(expr_id))?;
+                let (
+                    kagari_hir::types::TypeId::Builtin(source),
+                    kagari_hir::types::TypeId::Builtin(target),
+                ) = (source, target)
+                else {
+                    return Err(IrLoweringError::MissingBinding("concrete numeric cast"));
+                };
+                let conversion = crate::module::numeric::NumericConversion {
+                    source,
+                    target,
+                    checked: false,
+                };
+                let (_, result) = conversion
+                    .contract()
+                    .ok_or(IrLoweringError::MissingBinding("numeric cast"))?;
+                let dst = self.alloc_temp(result.representation());
+                self.emit(Instruction::Convert {
+                    dst,
+                    src,
+                    conversion,
+                });
+                Ok(dst)
+            }
             hir::ExprKind::Prefix { op, expr } => {
                 let operand = self.lower_expr(expr)?;
                 if self.current_block_terminated() {

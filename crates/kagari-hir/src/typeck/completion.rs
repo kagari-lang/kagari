@@ -303,6 +303,7 @@ impl<'a> Completion<'a> {
                             }
                             ExprKind::FormatPart { expr, .. }
                             | ExprKind::Propagate { expr }
+                            | ExprKind::Cast { expr, .. }
                             | ExprKind::Prefix { expr, .. }
                             | ExprKind::Field { receiver: expr, .. } => {
                                 work.push(Task::Visit(Node::Expr(*expr)));

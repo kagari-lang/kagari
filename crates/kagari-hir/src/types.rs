@@ -1088,3 +1088,20 @@ impl BuiltinType {
         })
     }
 }
+
+impl BuiltinType {
+    pub fn number_type(self) -> Option<kagari_common::numeric::NumberType> {
+        use kagari_common::numeric::NumberType;
+        match self {
+            Self::F32 => Some(NumberType::F32),
+            Self::F64 => Some(NumberType::F64),
+            _ => self
+                .integer_layout()
+                .map(|(bits, signed)| NumberType::Integer { bits, signed }),
+        }
+    }
+    pub fn can_cast_to(self, target: Self) -> bool {
+        (self.number_type().is_some() && target.number_type().is_some())
+            || (self == Self::Bool && target.integer_layout().is_some())
+    }
+}

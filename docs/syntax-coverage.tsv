@@ -178,3 +178,4 @@ bit_or_expr	covered	examples/syntax/bitwise.kgr	-
 bit_xor_expr	covered	examples/syntax/bitwise.kgr	-
 bit_and_expr	covered	examples/syntax/bitwise.kgr	-
 shift_expr	covered	examples/syntax/bitwise.kgr	-
+cast_expr	covered	examples/syntax/numeric-conversions.kgr	-
