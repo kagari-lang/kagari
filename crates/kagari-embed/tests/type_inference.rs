@@ -91,3 +91,20 @@ fn inference_order_does_not_change_evaluation_order() {
     "#,
     );
 }
+
+#[test]
+fn expected_collection_types_constrain_sources_and_callbacks() {
+    execute(
+        r#"
+        fn main() -> i32 {
+            val source = [Ok(Some(20)), Ok(Some(22))];
+            val checked: Result<Option<Array<i32>>, String> = source.iter().collect();
+            val selected: Result<Array<i32>, String> = [20, 22].iter().map(|x| Ok(x)).collect();
+            val nested: Array<i32> = [[], [20, 22]].iter().flatten().collect();
+            std::debug::assert_eq(selected.is_ok(), true, "callback result inference");
+            std::debug::assert_eq(checked.is_ok(), true, "nested collection inference");
+            nested.iter().sum()
+        }
+    "#,
+    );
+}

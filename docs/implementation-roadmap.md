@@ -471,7 +471,7 @@ earlier products.
 - [x] T01: body-local inference variables, structural unification, occurs checks and cancellation.
 - [x] T02: infer local bindings and empty containers from subsequent uses.
 - [x] T03: solve calls, constructors, branches and closures independently of source order.
-- [ ] T04: propagate constraints through iterator chains and associated types.
+- [x] T04: propagate constraints through iterator chains and associated types.
 - [ ] T05: numeric suffixes, contextual numeric inference, checked ranges and f64 fallback.
 - [ ] T06: local type placeholders and explicit function/method type arguments.
 - [ ] T07: diagnostics, source/artifact/backend acceptance, examples and final validation.

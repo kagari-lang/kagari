@@ -420,6 +420,14 @@ merely carrying an unknown position through a container does not infer it.
 For tooling, failed inference preserves known members and nominal identities;
 only unresolved positions become error types after the diagnostic. Such results
 remain unavailable to code generation.
+
+Expected result types also constrain intermediate iterator values and callback
+results through declared trait implementations. For example,
+`val values: Result<Array<i32>, String> = [Ok(42)].iter().collect();`
+determines the error type of `Ok`. An unambiguous implementation can supply
+structural equalities; multiple candidates remain deferred until more information
+is available. Associated projections are normalized through their selected
+implementation or declared bounds, never assumed to be injective.
 Constructor field and payload checks use the same finalized recovery types as
 result queries; unresolved positions do not hide conflicts in known siblings.
 Member lookup likewise uses a known nominal declaration even if some of its type

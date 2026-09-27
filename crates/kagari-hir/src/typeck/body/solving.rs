@@ -9,7 +9,7 @@ impl BodyChecker<'_> {
         if !self.solving {
             return;
         }
-        let candidates = crate::builtin::declarations::implementations(actual)
+        let mut candidates = crate::builtin::declarations::implementations(actual)
             .into_iter()
             .filter(|implementation| {
                 implementation.trait_declaration().item.identity() == interface.declaration
@@ -29,6 +29,34 @@ impl BodyChecker<'_> {
                     .then_some(declared)
             })
             .collect::<Vec<_>>();
+        for implementation in self.aggregates.implementations() {
+            if self.cancel.check().is_err() {
+                return;
+            }
+            if implementation.trait_type.declaration != interface.declaration {
+                continue;
+            }
+            let mut substitution = crate::types::TypeSubstitution::default();
+            if super::super::inference::infer(
+                &implementation.for_type,
+                actual,
+                &implementation.generic_params,
+                &mut substitution,
+                self.cancel,
+            )
+            .is_err()
+            {
+                return;
+            }
+            let receiver = implementation.for_type.instantiate(&substitution);
+            let declared = implementation.trait_type.instantiate(&substitution);
+            if !receiver.conflicts_with(actual)
+                && !TypeId::Trait(declared.clone())
+                    .conflicts_with(&TypeId::Trait(interface.clone()))
+            {
+                candidates.push(declared);
+            }
+        }
         if let [declared] = candidates.as_slice() {
             let _ = self.solver.constrain(
                 &TypeId::Trait(declared.clone()),
