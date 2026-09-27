@@ -188,7 +188,7 @@ enum HeapObject {
 impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
-            Self::Cursor(cursor) => 1 + cursor.items.len(),
+            Self::Cursor(_) => 1,
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
             Self::Set(values) => values.len(),
@@ -206,14 +206,14 @@ impl HeapObject {
 #[derive(Debug)]
 pub struct CollectionIteration {
     _children: Vec<CollectionIteration>,
-    cursor_loops: Option<Rc<Cell<usize>>>,
+    cursor_loops: Vec<Rc<Cell<usize>>>,
     active: Rc<RefCell<HashMap<HeapObjectId, usize>>>,
     id: Option<HeapObjectId>,
     _root: RootedValue,
 }
 impl Drop for CollectionIteration {
     fn drop(&mut self) {
-        if let Some(loops) = &self.cursor_loops {
+        for loops in &self.cursor_loops {
             loops.set(loops.get() - 1);
         }
         let Some(id) = self.id else {
@@ -511,61 +511,69 @@ impl GcHeap {
         value: &Value,
     ) -> Result<CollectionIteration, RuntimeError> {
         self.ensure_execution_allowed()?;
-        if let Value::Tuple(fields) = value {
-            let mut children = Vec::new();
-            for field in fields.iter().skip(1) {
-                if matches!(field, Value::GcHandle(_)) {
-                    children.push(self.begin_collection_iteration(field)?);
-                }
-            }
-            return Ok(CollectionIteration {
-                _children: children,
-                cursor_loops: None,
+        if matches!(value, Value::GcHandle(_)) {
+            let mut guard = CollectionIteration {
+                _children: Vec::new(),
+                cursor_loops: Vec::new(),
                 active: self.iterations.clone(),
                 id: None,
                 _root: self.root_value(value.clone()).ok_or_else(|| {
-                    RuntimeError::new(
-                        RuntimeErrorKind::ScriptTrap,
-                        "invalid iterator dependencies",
-                    )
+                    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid cursor")
                 })?,
-            });
-        }
-        if let Value::GcHandle(id) = value {
-            let source = {
-                let objects = self.objects.borrow();
-                match self.readable_object(&objects, *id) {
-                    Some(HeapObject::Cursor(cursor)) => cursor.source.clone(),
-                    _ => {
-                        return Err(RuntimeError::new(
-                            RuntimeErrorKind::ScriptTrap,
-                            "invalid cursor",
-                        ));
+            };
+            let mut pending = vec![value.clone()];
+            let mut visited = HashSet::new();
+            while let Some(value) = pending.pop() {
+                self.ensure_execution_allowed()?;
+                self.resources.consume_instruction_steps(1)?;
+                match value {
+                    Value::GcHandle(id) => {
+                        if !visited.insert(id) {
+                            continue;
+                        }
+                        let mut objects = self.objects.borrow_mut();
+                        let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, id)
+                        else {
+                            return Err(RuntimeError::new(
+                                RuntimeErrorKind::ScriptTrap,
+                                "invalid cursor",
+                            ));
+                        };
+                        let count = cursor
+                            .loops
+                            .get()
+                            .checked_add(1)
+                            .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
+                        guard
+                            .cursor_loops
+                            .try_reserve(1)
+                            .map_err(|_| self.resource_limit("iterator guards"))?;
+                        guard.cursor_loops.push(cursor.loops.clone());
+                        cursor.loops.set(count);
+                        cursor.guard = None;
+                        if let Value::Tuple(fields) = &cursor.source {
+                            pending.extend(
+                                fields
+                                    .iter()
+                                    .skip(1)
+                                    .filter(|v| matches!(v, Value::GcHandle(_)))
+                                    .cloned(),
+                            );
+                        } else {
+                            pending.push(cursor.source.clone());
+                        }
                     }
+                    source => guard
+                        ._children
+                        .push(self.begin_collection_iteration(&source)?),
                 }
-            };
-            let mut guard = self.begin_collection_iteration(&source)?;
-            let mut objects = self.objects.borrow_mut();
-            let Some(HeapObject::Cursor(cursor)) = self.object_mut(&mut objects, *id) else {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "invalid cursor",
-                ));
-            };
-            let count = cursor
-                .loops
-                .get()
-                .checked_add(1)
-                .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
-            cursor.loops.set(count);
-            guard.cursor_loops = Some(cursor.loops.clone());
-            cursor.guard = None;
+            }
             return Ok(guard);
         }
         if matches!(value, Value::Str(_)) {
             return Ok(CollectionIteration {
                 _children: Vec::new(),
-                cursor_loops: None,
+                cursor_loops: Vec::new(),
                 active: self.iterations.clone(),
                 id: None,
                 _root: self.root_value(value.clone()).expect("string root"),
@@ -607,7 +615,7 @@ impl GcHeap {
         active.insert(id, count);
         Ok(CollectionIteration {
             _children: Vec::new(),
-            cursor_loops: None,
+            cursor_loops: Vec::new(),
             active: self.iterations.clone(),
             id: Some(id),
             _root: root,
@@ -1473,7 +1481,6 @@ impl GcHeap {
             match object {
                 HeapObject::Cursor(cursor) => {
                     pending.push(&cursor.source);
-                    pending.extend(cursor.items.iter().rev());
                 }
                 HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
                 HeapObject::Map(entries) => {

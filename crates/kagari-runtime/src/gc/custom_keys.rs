@@ -59,7 +59,7 @@ impl GcHeap {
         active.insert(id, count);
         Ok(CollectionIteration {
             _children: Vec::new(),
-            cursor_loops: None,
+            cursor_loops: Vec::new(),
             active: self.key_lookups.clone(),
             id: Some(id),
             _root: root,

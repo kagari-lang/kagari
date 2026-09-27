@@ -325,7 +325,7 @@ Commit. No compatibility aliases are retained.
   and user-defined collections; fresh shallow construction and checked key insertion.
 - [x] I04: lazy map, filter, filter_map, take, skip, enumerate, zip and chain.
 - [x] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
-- [ ] I06: shared iterator progress, short-circuit continuation, guard lifetimes,
+- [x] I06: shared iterator progress, short-circuit continuation, guard lifetimes,
   callback failures, budgets and GC retention across adapter chains.
 - [ ] I07: executable English API documentation, examples, source/artifact/backend
   conformance and final workspace formatting, clippy and test validation.
@@ -368,3 +368,12 @@ v68 rejects older intrinsic encodings. HIR, IR, runtime, VM and embedding tests
 passed after updating the renamed native diagnostic expectation. Tests include
 short-circuit continuation, empty inputs, custom collection targets, colliding
 custom keys, negative callback/bound checks and inference-error preservation.
+
+I06 replaces native cursor snapshots with on-demand indexed reads and UTF-8 scalar
+progress. Source shape is checked at construction and yielded payloads are checked
+before progress commits. Guard acquisition/cleanup use explicit work lists, share
+duplicate dependencies and retain roots across ordinary callback frames. Runtime,
+VM and embedding tests passed, with additional acceptance for 1,500 adapter layers,
+constant cursor allocation size, live slot replacement, trap/budget cleanup, and
+rooted pipelines resumed through host reentry after GC between root sessions.
+KBC/runtime ABI v69 rejects artifacts with earlier iteration semantics.

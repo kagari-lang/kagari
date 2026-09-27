@@ -656,9 +656,9 @@ Arrays, Map, Set and String implement Iterable using the opaque shared
 `Cursor<Item>` type. Cursor implements Iterator and identity Iterable.
 Array/Set items are elements, Map items are `(key, value)` tuples in insertion
 order, and String items are single Unicode scalars represented as String.
-Cursor construction takes a shallow snapshot, preserving existing native for-loop
-semantics: contained objects retain their identity. Copying a Cursor shares its
-position; converting a collection again creates a new position and snapshot.
+Cursor construction retains the source and reads each slot on demand, without
+copying all items. Contained objects retain their identity. Copying a Cursor shares
+its position; converting a collection again creates independent progress.
 A custom iterator owns its state and consistency rules; no automatic clone,
 reset, exact-length or fused-iterator promise is imposed on its implementation.
 
@@ -668,13 +668,14 @@ nested loops retain independent guards. Direct iter/next use keeps its guard
 until None or the end of the root execution session. Root-session cleanup also
 runs after trap, cancellation and budget exhaustion, independently of GC timing.
 A rooted Cursor can survive between calls and resume. Resuming after its source
-was structurally changed traps; nonstructural updates preserve the snapshot.
+was structurally changed traps; nonstructural replacements are visible when their
+positions are subsequently visited. Already yielded values remain ordinary values.
 For loops suspend a native cursor on exit, so the same cursor may resume later
 if the source structure is unchanged. Custom iterators have no implicit native
 source guard: wrappers that acquire native cursors follow the direct-call rules.
 
 Host retention uses the normal rooted-value API. Cursor handles are runtime-owned,
-generation checked, and trace both their source and snapshot. They retain their
+generation checked, and trace their source, callbacks and adapter state. They retain their
 execution version; they are not transferable across runtimes. They provide no
 Eq/Hash, serialization of execution state, or script constructor.
 See [iterators.kgr](../../examples/syntax/iterators.kgr).

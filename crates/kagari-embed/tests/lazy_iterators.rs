@@ -135,6 +135,208 @@ fn pipelines_reject_invalid_callbacks_keys_and_removed_helpers() {
 }
 
 #[test]
+fn native_iteration_reads_live_slots_and_does_not_snapshot_items() {
+    execute(
+        r#"
+    struct Item { val value: i32 }
+    fn main() -> i32 {
+        val source = [Item { value: 1 }, Item { value: 2 }];
+        val cursor = source.iter();
+        source[0] = Item { value: 20 };
+        val first = cursor.next().unwrap_or(Item { value: 0 });
+        source[1] = Item { value: 22 };
+        val rest: Array<Item> = cursor.collect();
+        val text: Array<String> = "中😀é".iter().collect();
+        std::debug::assert_eq(text[1], "😀", "scalar iteration");
+        std::debug::assert_eq(text[2], "é", "UTF-8 progress");
+        source.push(Item { value: 99 });
+        first.value + rest[0].value
+    }
+    "#,
+    );
+}
+
+#[test]
+fn duplicate_cursor_dependencies_and_deep_adapter_chains_release_guards() {
+    execute(
+        r#"
+    fn main() -> i32 {
+        val source = [20, 22];
+        val cursor = source.iter();
+        val pairs: Array<(i32,i32)> = cursor.zip(cursor).collect();
+        std::debug::assert_eq(pairs[0][0] + pairs[0][1], 42, "shared zip");
+        source.push(99);
+        var deep = source.iter();
+        var depth = 0;
+        while depth < 1500 { deep = deep.map(|x| x); depth += 1; }
+        std::debug::assert_eq(deep.take("".len_bytes()).count(), "".len_bytes(), "take zero");
+        source.push(100);
+        42
+    }
+    "#,
+    );
+}
+
+#[test]
+fn adapter_traps_budgets_and_changed_sources_leave_runtime_usable() {
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "pipeline-failure.kgr",
+                r#"
+        fn trap(){ [1].iter().map(|x| x / 0).for_each(|x| {}); }
+        fn structural(){ val a=[1]; a.iter().filter(|x| {a.push(2);true}).count(); }
+        fn changed(){ val a=[1,2];val i=a.iter().map(|x| x);i.any(|x|true);a.push(3);i.next(); }
+        struct Forever {}
+        impl Iterator for Forever { type Item=i32; fn next(self)->Option<i32>{Some(1)} }
+        fn exhaust(){ Forever{}.filter(|x|false).count(); }
+        fn healthy()->i32 {42}
+    "#,
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    for entry in ["trap", "structural", "changed", "exhaust"] {
+        let mut options = context.clone();
+        if entry == "exhaust" {
+            options.resources.max_instruction_steps = Some(150);
+        }
+        let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
+        assert!(!format!("{error:?}").contains("UnsupportedExecution"));
+        assert_eq!(runtime.runtime().gc().active_roots(), 0, "{entry}");
+        assert!(runtime.runtime().execution_root().is_none());
+        assert!(!runtime.runtime().is_quarantined());
+        assert_eq!(
+            runtime
+                .execute(&loaded, "healthy", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+    }
+}
+
+#[test]
+fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
+    use kagari_common::host_interface::{HostInterface, standard_log};
+    use kagari_runtime::host::HostFunction;
+    use std::{cell::RefCell, rc::Rc};
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(HostInterface {
+            functions: vec![standard_log()],
+            types: vec![],
+            paths: vec![],
+        })
+        .unwrap();
+    let mut context = ExecutionContext::default();
+    context.language_profile.allow_host_calls = true;
+    context.capabilities.host_calls = true;
+    context.host_policy.allowed_host_functions = vec!["host.log".into()];
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "retained-pipeline.kgr",
+                r#"
+        struct Offset { val value: i32 }
+        fn make()->Cursor<i32>{val offset=Offset{value:1};[19,21].iter().map(|x|x+offset.value)}
+        fn read(cursor:Cursor<i32>)->i32 {cursor.next().unwrap_or(0)}
+        fn main(){print("read");}
+    "#,
+            ),
+            kagari_embed::CompileOptions {
+                language_profile: context.language_profile.clone(),
+            },
+            Default::default(),
+        )
+        .unwrap();
+    let read = artifact.program.modules[0]
+        .functions
+        .iter()
+        .find(|f| f.name == "read")
+        .unwrap()
+        .id;
+    let retained = Rc::new(RefCell::new(None::<kagari_runtime::gc::RootedValue>));
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let (input, output) = (retained.clone(), seen.clone());
+    let mut runtime = engine.runtime(context.clone());
+    runtime
+        .register_host_function(HostFunction::new(standard_log(), move |context, _| {
+            context.runtime().collect_garbage().unwrap();
+            let root = context.runtime().execution_root().unwrap();
+            let value = input.borrow().as_ref().unwrap().value();
+            let value = kagari_vm::reenter(context, &root, read, &[value]).unwrap();
+            context.runtime().collect_garbage().unwrap();
+            output.borrow_mut().push(value.value());
+            Ok(Value::Unit)
+        }))
+        .unwrap();
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let value = runtime
+        .execute(&loaded, "make", &[], &context)
+        .unwrap()
+        .return_value;
+    *retained.borrow_mut() = Some(runtime.runtime().root_value(value).unwrap());
+    for _ in 0..3 {
+        runtime.runtime().collect_garbage().unwrap();
+        runtime.execute(&loaded, "main", &[], &context).unwrap();
+    }
+    assert_eq!(
+        *seen.borrow(),
+        vec![Value::I32(20), Value::I32(22), Value::I32(0)]
+    );
+    retained.borrow_mut().take();
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn native_cursor_allocation_is_independent_of_source_length() {
+    use kagari_ir::module::{
+        abi::{AbiType, BuiltinType},
+        instruction::CursorOp,
+    };
+    let engine = KagariEngine::default();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("cursor-allocation.kgr", "fn main(){}"),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    let mut runtime = engine.runtime(Default::default());
+    let loaded = runtime.load_program(artifact, Default::default()).unwrap();
+    let rt = runtime.runtime();
+    let array = rt.gc().alloc_array(vec![Value::I32(7); 10_000]).unwrap();
+    let root = rt.root_value(Value::Array(array)).unwrap();
+    let session = rt.begin_execution(&loaded, Default::default()).unwrap();
+    let before = rt.gc().stats().allocation_units;
+    let value = rt
+        .cursor_operation(
+            &loaded,
+            &root.value(),
+            &AbiType::Array(
+                Box::new(AbiType::Builtin(BuiltinType::I32)),
+                kagari_common::collection::CollectionAccess::Mutable,
+            ),
+            CursorOp::New,
+        )
+        .unwrap();
+    let cursor = rt.root_value(value).unwrap();
+    assert!(rt.gc().stats().allocation_units - before <= 2);
+    drop(session);
+    drop(cursor);
+    drop(root);
+    rt.collect_garbage().unwrap();
+    assert_eq!(rt.gc().active_roots(), 0);
+}
+
+#[test]
 fn adapters_are_lazy_shared_and_collect_without_intermediate_arrays() {
     execute(
         r#"
