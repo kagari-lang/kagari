@@ -51,7 +51,7 @@ fn declaration_parsing_observes_cancellation() {
 fn opaque_native_types_are_restricted_to_declaration_mode() {
     let source = SourceFile::new(
         "native.kgr",
-        "/// A native array.\n#[builtin_type(Array)] pub type Array<T>;",
+        "/// A native array.\n#[builtin_type(Array)] pub type List<T>;",
     );
     let parsed =
         parse_declarations(&source, Default::default(), &CancellationToken::default()).unwrap();

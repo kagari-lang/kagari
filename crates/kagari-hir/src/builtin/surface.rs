@@ -122,15 +122,12 @@ pub enum StandardTypeConstructor {
     RangeTo,
     RangeToInclusive,
     RangeFull,
-    Array,
-    MutableArray,
-    MutableMap,
-    MutableSet,
+    ArrayList,
+    LinkedHashMap,
+    LinkedHashSet,
     Iter,
     Option,
     Result,
-    Map,
-    Set,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -201,17 +198,13 @@ pub enum StandardIntrinsic {
     ValueHash,
     ValueDebug,
     ValueDisplay,
-    ArrayNew,
-    ArrayFrom,
-    MutableArrayNew,
-    MutableArrayFrom,
-    MutableArrayFromFn,
-    MutableMapNew,
-    MapFrom,
-    MutableMapFrom,
-    MutableSetNew,
-    SetFrom,
-    MutableSetFrom,
+    ArrayListNew,
+    ArrayListFrom,
+    ArrayListFromFn,
+    LinkedHashMapNew,
+    LinkedHashMapFrom,
+    LinkedHashSetNew,
+    LinkedHashSetFrom,
     ArrayLen,
     ArrayIsEmpty,
     ArrayGet,
@@ -222,10 +215,10 @@ pub enum StandardIntrinsic {
     ArrayClear,
     ArrayFill,
     ArrayCopyFromSlice,
+    ArrayCopyFromStorage,
     ArrayCopyWithin,
     ArrayCopyWithinBounds,
     ArrayJoin,
-    MapNew,
     MapLen,
     MapIsEmpty,
     MapContainsKey,
@@ -236,7 +229,6 @@ pub enum StandardIntrinsic {
     MapKeys,
     MapValues,
     MapEntries,
-    SetNew,
     SetLen,
     SetIsEmpty,
     SetContains,
@@ -679,45 +671,25 @@ pub fn standard_generic_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {
         StandardTypeConstructor::Bound
         | StandardTypeConstructor::Option
         | StandardTypeConstructor::Result => standard_enum_type(name, args),
-        StandardTypeConstructor::Map | StandardTypeConstructor::MutableMap => {
+        StandardTypeConstructor::LinkedHashMap => {
             let [key, value] = args.try_into().ok()?;
             Some(TypeId::Map {
                 key: Box::new(key),
                 value: Box::new(value),
-                access: if spec.kind == StandardTypeConstructor::Map {
-                    CollectionAccess::ReadOnly
-                } else {
-                    CollectionAccess::Mutable
-                },
+                access: CollectionAccess::Mutable,
             })
         }
         StandardTypeConstructor::Iter => {
             let [item] = args.try_into().ok()?;
             Some(TypeId::Iter(Box::new(item)))
         }
-        StandardTypeConstructor::Set
-        | StandardTypeConstructor::MutableSet
-        | StandardTypeConstructor::Array
-        | StandardTypeConstructor::MutableArray => {
+        StandardTypeConstructor::LinkedHashSet | StandardTypeConstructor::ArrayList => {
             let [item] = args.try_into().ok()?;
-            let access = if matches!(
-                spec.kind,
-                StandardTypeConstructor::Set | StandardTypeConstructor::Array
-            ) {
-                CollectionAccess::ReadOnly
+            Some(if spec.kind == StandardTypeConstructor::ArrayList {
+                TypeId::Array(Box::new(item), CollectionAccess::Mutable)
             } else {
-                CollectionAccess::Mutable
-            };
-            Some(
-                if matches!(
-                    spec.kind,
-                    StandardTypeConstructor::Array | StandardTypeConstructor::MutableArray
-                ) {
-                    TypeId::Array(Box::new(item), access)
-                } else {
-                    TypeId::Set(Box::new(item), access)
-                },
-            )
+                TypeId::Set(Box::new(item), CollectionAccess::Mutable)
+            })
         }
     }
 }
@@ -816,4 +788,29 @@ pub fn range_kind(name: &str) -> Option<kagari_common::range::RangeKind> {
         "RangeFull" => Full,
         _ => return None,
     })
+}
+
+pub fn collection_read_method(intrinsic: StandardIntrinsic) -> bool {
+    use StandardIntrinsic::*;
+    matches!(
+        intrinsic,
+        ArrayLen
+            | ArrayIsEmpty
+            | ArrayGet
+            | ArrayJoin
+            | MapLen
+            | MapIsEmpty
+            | MapContainsKey
+            | MapGet
+            | MapKeys
+            | MapValues
+            | MapEntries
+            | SetLen
+            | SetIsEmpty
+            | SetContains
+            | SetToArray
+            | SetUnion
+            | SetIntersection
+            | SetDifference
+    )
 }

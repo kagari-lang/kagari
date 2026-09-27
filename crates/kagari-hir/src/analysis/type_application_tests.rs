@@ -80,7 +80,7 @@ fn annotation_navigation_uses_type_names_not_application_punctuation() {
 #[test]
 fn explicit_bindings_shadow_all_standard_type_constructors() {
     for (name, args) in [
-        ("MutableMap", "i32, String"),
+        ("LinkedHashMap", "i32, String"),
         ("Set", "i32"),
         ("Option", "i32"),
         ("Result", "i32, String"),

@@ -315,3 +315,82 @@ pub(crate) fn lower_closure<'a>(
     lowerer.planner.check()?;
     Ok(lowerer.finish())
 }
+
+pub(crate) fn lower_native_method<'a>(
+    module: &'a AnalyzedModule,
+    parent: &hir::Function,
+    instance: super::instances::Instance,
+    planner: &mut super::instances::InstancePlanner<'a>,
+) -> Result<IrFunction, IrLoweringError> {
+    use crate::module::instruction::Instruction;
+    let (receiver, interface, method) = instance.native_method.clone().expect("native method");
+    let contract = planner
+        .catalog
+        .trait_(&interface.declaration)
+        .ok_or(IrLoweringError::MissingBinding("native trait"))?;
+    let signature = planner
+        .catalog
+        .trait_method(&method)
+        .ok_or(IrLoweringError::MissingBinding("native method"))?;
+    let substitution: kagari_hir::types::TypeSubstitution = contract
+        .generic_params
+        .iter()
+        .cloned()
+        .zip(interface.arguments.iter().cloned())
+        .collect();
+    let instantiate = |ty: &kagari_hir::types::TypeId| {
+        ty.with_self(&contract.id, &receiver)
+            .instantiate(&substitution)
+            .with_associated_types(&interface)
+    };
+    let params: Vec<_> = signature
+        .params
+        .iter()
+        .map(|p| (p.name.clone(), instantiate(&p.ty)))
+        .collect();
+    let typed = kagari_hir::typeck::TypedFunction {
+        generic_params: vec![],
+        bounds: Default::default(),
+        id: parent.id,
+        name: String::new(),
+        params: Default::default(),
+        return_type: instantiate(&signature.return_type),
+    };
+    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    lowerer.function.name = format!("$native_{}", lowerer.function.id.index());
+    let mut args = Vec::new();
+    for (index, (name, ty)) in params.iter().enumerate() {
+        let physical = lowerer.value_type(ty)?;
+        let local = lowerer.alloc_local(name.clone(), physical, lowerer.function.debug.source_span);
+        lowerer
+            .function
+            .debug
+            .locals
+            .last_mut()
+            .unwrap()
+            .is_parameter = true;
+        lowerer.function.params.push(IrParameter {
+            name: name.clone(),
+            ty: physical,
+            local,
+        });
+        let semantic = lowerer.semantic_type(ty)?;
+        lowerer
+            .function
+            .semantic
+            .params
+            .insert(index, semantic.clone());
+        lowerer
+            .function
+            .semantic
+            .locals
+            .insert(local.index(), semantic);
+        let value = lowerer.alloc_temp(physical);
+        lowerer.emit(Instruction::LoadLocal { dst: value, local });
+        args.push(value);
+    }
+    let value = lowerer.lower_applied_operator(interface, receiver, &method, &args)?;
+    lowerer.set_terminator(Terminator::Return(Some(value)));
+    lowerer.planner.check()?;
+    Ok(lowerer.finish())
+}

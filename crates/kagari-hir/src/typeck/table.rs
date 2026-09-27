@@ -138,6 +138,7 @@ pub struct ResolvedInterfaceCoercion {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedInterfaceImplementation {
+    Native,
     Upcast,
     Script {
         declaration: DefinitionId,

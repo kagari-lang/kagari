@@ -29,7 +29,7 @@ Runtime-native functions intentionally have no Kagari body.
 Examples use Kagari syntax. A snippet without `fn main` can be placed inside a
 `main` function. A snippet containing `fn main` is a complete program. Standard
 methods live in `impl` blocks: `values.get(index)` calls the same declaration as
-`Array::get(values, index)`. Constructors such as `Array::new()` omit `self`.
+`ArrayList::get(values, index)`. Constructors such as `ArrayList::new()` omit `self`.
 Generic impl parameters describe the receiver; method generics describe additional
 types introduced by that operation. Free functions such as `std::math::min` remain
 at module scope.
@@ -74,3 +74,8 @@ Use `{{` and `}}` for literal braces. Expressions are evaluated once, in order;
 formatting failures propagate normally. Join already formatted strings with
 `["red", "green"].join(", ")`. Two strings can still be joined with `concat`.
 See [the runnable example](../examples/syntax/string-interpolation.kgr).
+
+Collection interfaces (`List`/`MutableList`, `Map`/`MutableMap`, `Set`/`MutableSet`)
+are declared alongside their native impl witnesses. Constructors belong to
+`ArrayList`, `LinkedHashMap`, and `LinkedHashSet`. `[T]` is the List interface;
+array literals create ArrayList storage. See the collection-access specification.

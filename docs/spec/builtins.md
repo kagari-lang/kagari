@@ -101,9 +101,9 @@ The semantics do not import Rust ownership or borrowing.
 
 The collection surface includes:
 
-- `Array<T>` (`[T]`) and `MutableArray<T>` resizable arrays
-- `Map<K, V>` and `MutableMap<K, V>` insertion-ordered maps
-- `Set<T>` and `MutableSet<T>` insertion-ordered sets
+- `List<T>` (`[T]`) and `MutableList<T>` interfaces, implemented by `ArrayList<T>`
+- `Map<K, V>` and `MutableMap<K, V>` interfaces, implemented by `LinkedHashMap<K,V>`
+- `Set<T>` and `MutableSet<T>` interfaces, implemented by `LinkedHashSet<T>`
 - tuple values
 - string values
 
@@ -111,7 +111,7 @@ Collection storage is runtime-native.
 It is not implemented by Kagari source-level data structures.
 The compiler, IR, bytecode verifier, runtime, GC, reload validation, reflection metadata, debugger, and JIT boundary must all understand these collection categories structurally.
 
-`Map` and `Set` are deterministic insertion-ordered collections.
+`LinkedHashMap` and `LinkedHashSet` preserve insertion order; interfaces leave order to their implementation.
 The Rust runtime implementation should use `indexmap` for their backing storage unless a future implementation proves an equivalent deterministic order, hash behavior, and performance profile.
 
 The [equality and hashing contract](value-semantics.md#equality-and-hashing)
@@ -375,20 +375,13 @@ The same ordering is used by `keys`, `values`, `entries`, `to_array`, set algebr
 
 ### Standard Module Shape
 
-The collection modules provide paired native types and associated factories:
-
-| Module | Read-only type | Writable type | Constructors |
-| --- | --- | --- | --- |
-| `std::array` | `Array<T>` / `[T]` | `MutableArray<T>` | `Type::new()`, `Type::from(items)` |
-| `std::map` | `Map<K,V>` | `MutableMap<K,V>` | `Type::new()`, `Type::from(entries)` |
-| `std::set` | `Set<T>` | `MutableSet<T>` | `Type::new()`, `Type::from(items)` |
-
-Factories accept arrays; map entries are `(K, V)` tuples. Empty construction
-needs sufficient type context. Map keys and set elements require `Eq + Hash`.
-Read methods accept either access type; mutators require `Mutable*` receivers.
-Array literals infer `MutableArray<T>`. Returned key/value/entry arrays and set
-algebra results are fresh writable containers. `from` always allocates fresh
-shallow storage, while assignment to a read-only type creates a live alias.
+Collection modules declare read-only and writable interfaces alongside concrete
+storage classes. Constructors (`new`, `from`, `from_iter`) belong to `ArrayList`,
+`LinkedHashMap` and `LinkedHashSet`, not the interfaces. Map factory inputs contain
+`(K,V)` tuples. Hash storage requires Eq + Hash; interfaces do not impose this.
+Literals create ArrayList; `[T]` annotates a read-only List. Mutators are available
+on concrete storage and writable interfaces. Fresh result containers are shallow
+copies; interface conversion preserves the underlying object.
 
 Full signatures, failure behavior and examples live in the source declarations:
 [array](../../stdlib/array.kgr), [map](../../stdlib/map.kgr),
@@ -434,7 +427,7 @@ They are not magic control-flow constructs.
 - `len<I>(value: I) -> usize where I: Iterable`
 - `is_empty<I>(value: I) -> bool where I: Iterable`
 - `get<I>(value: I, index: usize) -> Option<Item<I>> where I: Iterable`
-- `to_array<I>(value: I) -> MutableArray<Item<I>> where I: Iterable`
+- `to_array<I>(value: I) -> ArrayList<Item<I>> where I: Iterable`
 - `for_each<I>(value: I, callback: fn(Item<I>) -> ()) where I: Iterable`
 
 The iterable protocol is represented in type checking and lowering, not implemented through runtime reflection.
@@ -472,11 +465,11 @@ fn main() -> (usize, bool, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
 
-    val scores: MutableMap<String, i32> = MutableMap::new();
+    val scores: MutableMap<String, i32> = LinkedHashMap::new();
     scores.insert("alice", 10);
     scores.insert("bob", 12);
 
-    val names: MutableSet<String> = MutableSet::new();
+    val names: MutableSet<String> = LinkedHashSet::new();
     names.insert("alice");
     names.insert("bob");
 
@@ -702,7 +695,7 @@ See [iterators.kgr](../../examples/syntax/iterators.kgr).
 
 ## String construction
 
-`std::array::Array::join(value: [String], separator: String) -> String`, also available as
+`std::array::ArrayList::join(value: ArrayList<String>, separator: String) -> String`, also available as
 `value.join(separator)`, joins already formatted strings. Empty input returns an
 empty string; separators appear only between adjacent elements. It does not mutate
 its source or call user code. Size arithmetic is checked and result allocation is
@@ -721,14 +714,13 @@ from the expected result type. It consumes remaining progress through the first
 None; calling iter on a collection starts independent progress. Both protocols are
 static-only. The same generic contract applies to user-defined destinations.
 
-Array<T> and MutableArray<T> preserve input order. Set<T> and MutableSet<T> deduplicate
-with the canonical Eq/Hash protocol. Map<K,V> and MutableMap<K,V> accept (K,V) pairs;
-the last value wins for equal keys. Set elements and map keys require Eq + Hash.
-All native constructors create fresh shallow storage; read-only destinations do
-not reuse the input container. References inside elements preserve identity.
-Existing from(array) factories share this construction implementation.
+ArrayList<T> preserves traversal order. LinkedHashSet<T> deduplicates with Eq/Hash;
+LinkedHashMap<K,V> accepts (K,V) pairs and keeps the last value for equal keys.
+All native constructors create fresh shallow storage; interfaces are not collect
+destinations. References inside elements preserve identity. Existing from(list)
+factories share this construction implementation.
 
-Native associated calls such as Array::from_iter(source) infer item types from the
+Native associated calls such as ArrayList::from_iter(source) infer item types from the
 source. User implementations can use ordinary script loops and return their own
 nominal type. Construction failures do not return a partial destination; completed
 callback side effects remain. Native iter guards release on exhaustion, loop
@@ -752,11 +744,11 @@ and applies its callback from left to right; for_each requires a unit callback.
 All terminals stop at the first None and release native source guards on exit.
 collect and partition select their destination through FromIterator. partition
 buffers matching and nonmatching items in two shallow arrays, then constructs
-the two destinations in that order; `(Array<T>, Array<T>)` and user destinations
+the two destinations in that order; `(ArrayList<T>, ArrayList<T>)` and user destinations
 are supported. Each predicate is evaluated once per visited item.
 
 group_by is a Kagari extension that groups the entire remaining input, rather
-than only adjacent runs. Its result is MutableMap<K, MutableArray<Item>> with
+than only adjacent runs. Its result is LinkedHashMap<K, ArrayList<Item>> with
 K: Eq + Hash. It computes each key once, uses the canonical custom key protocol,
 preserves first-key insertion order and preserves item order within each group.
 Keys must remain stable while stored, as for ordinary maps. No terminal returns

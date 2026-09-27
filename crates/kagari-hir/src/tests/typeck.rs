@@ -15,7 +15,7 @@ use crate::{
 fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
     let source = SourceFile::new(
         "holes.kgr",
-        "fn bad() { val partial: (i32, Array<_>) = (42, []); partial } fn good() -> u8 { 42 }",
+        "fn bad() { val partial: (i32, List<_>) = (42, []); partial } fn good() -> u8 { 42 }",
     );
     let result = crate::analyze_source(&source, Default::default());
     assert!(!result.diagnostics().is_empty());
@@ -277,7 +277,7 @@ fn rejects_heap_backed_const_types() {
         r#"
 struct Point { var x: i32, var y: i32 }
 const PAIR: (i32, i32) = (1, 2);
-const VALUES: MutableArray<i32> = [3, 4];
+const VALUES: ArrayList<i32> = [3, 4];
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );
@@ -301,7 +301,7 @@ const POINT: Point = Point { x: 5, y: 6 };
             == DiagnosticKind::InvalidConstInitializer {
                 const_name: "VALUES".to_string(),
                 reason:
-                    "const type `MutableArray<i32>` is heap-backed; const supports value types only"
+                    "const type `ArrayList<i32>` is heap-backed; const supports value types only"
                         .to_string(),
             }
     }));
@@ -524,13 +524,13 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
     assert_eq!(result.variants[0].name, "Ok");
     assert_eq!(result.variants[1].name, "Err");
     assert_eq!(
-        surface::standard_type_constructor("Map")
+        surface::standard_type_constructor("LinkedHashMap")
             .expect("Map should be standard")
             .arity,
         2
     );
     assert_eq!(
-        surface::standard_type_constructor("Set")
+        surface::standard_type_constructor("LinkedHashSet")
             .expect("Set should be standard")
             .arity,
         1
@@ -554,8 +554,8 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
     assert!(!surface::supports_hash_key(&TypeId::Builtin(
         BuiltinType::F64
     )));
-    let map_get = surface::standard_function(surface::StandardModule::Map, "Map::get")
-        .expect("std::map::Map::get should be standard");
+    let map_get = surface::standard_function(surface::StandardModule::Map, "LinkedHashMap::get")
+        .expect("std::map::LinkedHashMap::get should be standard");
     assert_eq!(map_get.intrinsic, surface::StandardIntrinsic::MapGet);
     assert_eq!(
         map_get.constraints[0].constraint,
@@ -601,8 +601,8 @@ fn resolves_stdlib_standard_builtin_type_annotations() {
         r#"
 fn choose(value: Option<i32>) -> Option<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
-fn lookup(value: MutableMap<String, i32>) -> MutableMap<String, i32> { value }
-fn unique(value: MutableSet<String>) -> MutableSet<String> { value }
+fn lookup(value: LinkedHashMap<String, i32>) -> LinkedHashMap<String, i32> { value }
+fn unique(value: LinkedHashSet<String>) -> LinkedHashSet<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
@@ -656,9 +656,9 @@ fn resolves_standard_module_imports_facade_exports_and_function_calls() {
     let lowered = common::lower_ok(
         r#"
 pub use std::math as math;
-use std::map::Map::len as map_len;
+use std::map::LinkedHashMap::len as map_len;
 
-fn size(values: MutableMap<String, i32>) -> usize {
+fn size(values: LinkedHashMap<String, i32>) -> usize {
     map_len(values)
 }
 
@@ -740,7 +740,7 @@ fn clamp(value: i32) -> i32 {
 fn type_checks_standard_methods_and_records_intrinsics() {
     let lowered = common::lower_ok(
         r#"
-fn keys(values: MutableMap<String, i32>) -> MutableArray<String> {
+fn keys(values: LinkedHashMap<String, i32>) -> ArrayList<String> {
     values.keys()
 }
 
@@ -748,7 +748,7 @@ fn chars(value: String) -> usize {
     value.len_chars()
 }
 
-fn popped(values: MutableArray<i32>) -> Option<i32> {
+fn popped(values: ArrayList<i32>) -> Option<i32> {
     values.pop()
 }
 "#,
@@ -815,12 +815,12 @@ fn popped(values: MutableArray<i32>) -> Option<i32> {
 fn enforces_standard_hash_key_constraints_for_collections_and_generic_calls() {
     let lowered = common::lower_ok(
         r#"
-fn contains<K: Eq + Hash, V>(values: MutableMap<K, V>, key: K) -> bool {
-    std::map::Map::contains_key(values, key)
+fn contains<K: Eq + Hash, V>(values: LinkedHashMap<K, V>, key: K) -> bool {
+    std::map::LinkedHashMap::contains_key(values, key)
 }
 
-fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
-    std::set::Set::len(values)
+fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
+    std::set::LinkedHashSet::len(values)
 }
 "#,
     );
@@ -832,7 +832,7 @@ fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
         .expect("hash-key constrained generics should type check");
 
     let lowered = common::lower_ok(
-        "fn bad(values: MutableMap<f64, i32>) -> usize { std::map::Map::len(values) }",
+        "fn bad(values: LinkedHashMap<f64, i32>) -> usize { std::map::LinkedHashMap::len(values) }",
     );
     let names = resolve_names(&lowered)
         .into_checked()
@@ -849,7 +849,7 @@ fn unique<T: Eq + Hash>(values: MutableSet<T>) -> usize {
     }));
 
     let lowered = common::lower_ok(
-        "fn bad<K, V>(values: MutableMap<K, V>) -> usize { std::map::Map::len(values) }",
+        "fn bad<K, V>(values: LinkedHashMap<K, V>) -> usize { std::map::LinkedHashMap::len(values) }",
     );
     let names = resolve_names(&lowered)
         .into_checked()
@@ -886,7 +886,7 @@ fn rejects_standard_library_invalid_arity_and_argument_types() {
 
     let lowered = common::lower_ok(
         r#"
-fn bad(values: MutableMap<String, i32>) -> bool {
+fn bad(values: LinkedHashMap<String, i32>) -> bool {
     values.contains_key(1)
 }
 "#,
@@ -900,7 +900,7 @@ fn bad(values: MutableMap<String, i32>) -> bool {
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::ArgumentTypeMismatch {
-                function_name: "std::map::Map::contains_key".to_owned(),
+                function_name: "std::map::LinkedHashMap::contains_key".to_owned(),
                 parameter_name: "key".to_owned(),
                 expected: "String".to_owned(),
                 found: "i32".to_owned(),

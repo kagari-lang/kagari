@@ -152,6 +152,10 @@ impl FunctionLowerer<'_, '_> {
                     .require_parent_interfaces(&types[0], interface, span)?;
                 let (implementation, arguments) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
+                    ResolvedInterfaceImplementation::Native => (
+                        self.planner.native_interface(&types[0], interface, span)?,
+                        Vec::new(),
+                    ),
                     ResolvedInterfaceImplementation::Host => {
                         let mut types = self
                             .planner
@@ -1504,6 +1508,7 @@ impl FunctionLowerer<'_, '_> {
             && kagari_hir::builtin::traits::StandardTrait::from_id(&interface.declaration)
                 .is_some_and(|kind| {
                     kind.operator()
+                        || kind.collection()
                         || kind.iteration()
                         || kind == kagari_hir::builtin::traits::StandardTrait::RangeBounds
                 })
@@ -1925,8 +1930,35 @@ impl FunctionLowerer<'_, '_> {
                         ))
                     }
                     SemanticCallTarget::StandardIntrinsic(intrinsic) => {
+                        if intrinsic == StandardIntrinsic::ArrayCopyFromSlice {
+                            let source_expr = *args
+                                .last()
+                                .ok_or(IrLoweringError::MissingBinding("copy source"))?;
+                            let source = self
+                                .analyzed
+                                .typed
+                                .type_table
+                                .interface_coercion(source_expr)
+                                .map(|coercion| {
+                                    kagari_hir::types::TypeId::Trait(
+                                        coercion.interface_type.clone(),
+                                    )
+                                })
+                                .or_else(|| self.analyzed.typed.type_table.expr_type(source_expr))
+                                .ok_or(IrLoweringError::MissingExprType(source_expr))?;
+                            let source = self
+                                .planner
+                                .arguments(
+                                    &[source],
+                                    &self.instance.substitution,
+                                    self.function.debug.source_span,
+                                )?
+                                .remove(0);
+                            return self.lower_list_copy(source, lowered[0], lowered[1]);
+                        }
+
                         use kagari_hir::builtin::surface::StandardIntrinsic::*;
-                        if intrinsic == MutableArrayFromFn {
+                        if intrinsic == ArrayListFromFn {
                             return self.lower_array_from_fn(expr, lowered[0], lowered[1]);
                         }
                         if intrinsic == ArrayCopyWithin {
@@ -1967,12 +1999,7 @@ impl FunctionLowerer<'_, '_> {
                         }
                         if matches!(
                             intrinsic,
-                            ArrayFrom
-                                | MutableArrayFrom
-                                | MapFrom
-                                | MutableMapFrom
-                                | SetFrom
-                                | MutableSetFrom
+                            ArrayListFrom | LinkedHashMapFrom | LinkedHashSetFrom
                         ) {
                             return self.lower_collection_factory(expr, lowered[0]);
                         }

@@ -68,20 +68,20 @@ impl FromIterator<i32> for Total {
 }
 fn build<I:Iterator<Item=i32>, C:FromIterator<i32>>(source:I)->C {source.collect()}
 fn main()->i32 {
-    val array:Array<i32> = [20,22].iter().collect();
-    val mutable:MutableArray<i32> = array.iter().collect(); mutable.push(20);
-    val set:Set<i32> = mutable.iter().collect();
-    val writable:MutableSet<i32> = mutable.iter().collect(); writable.insert(22);
-    val map:Map<String,i32> = [("key",20),("key",22)].iter().collect();
-    val writable_map:MutableMap<String,i32> = map.iter().collect();
+    val array:ArrayList<i32> = [20,22].iter().collect();
+    val mutable:ArrayList<i32> = array.iter().collect(); mutable.push(20);
+    val set:LinkedHashSet<i32> = mutable.iter().collect();
+    val writable:LinkedHashSet<i32> = mutable.iter().collect(); writable.insert(22);
+    val map:LinkedHashMap<String,i32> = [("key",20),("key",22)].iter().collect();
+    val writable_map:LinkedHashMap<String,i32> = map.iter().collect();
     writable_map.insert("other",20);
     std::debug::assert_eq(set.len(),[0,0].len(),"deduplication");
     std::debug::assert_eq(map.get("key"),Some(22),"last value wins");
     val total:Total=build(array.iter());
     std::debug::assert_eq(Total::from_iter(array).value,42,"associated construction");
-    val copied=Array::from_iter(array.iter());
-    val copied_set=MutableSet::from_iter(copied);
-    val copied_map=Map::from_iter([("answer",42)]);
+    val copied=ArrayList::from_iter(array.iter());
+    val copied_set=LinkedHashSet::from_iter(copied);
+    val copied_map=LinkedHashMap::from_iter([("answer",42)]);
     std::debug::assert_eq(copied_set.len(),[0,0].len(),"inferred set constructor");
     std::debug::assert_eq(copied_map.get("answer"),Some(42),"inferred map constructor");
     total.value
@@ -104,10 +104,10 @@ fn main()->i32 {
     std::debug::assert_eq(first(iter),22,"shared iter");
     std::debug::assert_eq(first(iter),0,"exhausted");
     a.push(5);
-    val scores:MutableMap<String,i32> =MutableMap::new();scores.insert("a",20);scores.insert("b",22);
+    val scores:LinkedHashMap<String,i32> =LinkedHashMap::new();scores.insert("a",20);scores.insert("b",22);
     var total=0;for (key,value) in scores {total+=value;}
     std::debug::assert_eq(total,42,"map");
-    val values:MutableSet<i32> =MutableSet::new();values.insert(20);values.insert(22);
+    val values:LinkedHashSet<i32> =LinkedHashSet::new();values.insert(20);values.insert(22);
     std::debug::assert_eq(sum(values),42,"set");
     var count=0;for ch in "中😀".iter(){count+=1;}
     std::debug::assert_eq(count,2,"unicode");
@@ -138,7 +138,7 @@ fn main()->i32 {
 fn returning_from_native_loop_releases_its_guard_before_caller_resumes() {
     execute(
         r#"
-fn head(values:MutableArray<i32>)->i32 {for x in values {return x;}0}
+fn head(values:ArrayList<i32>)->i32 {for x in values {return x;}0}
 fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 "#,
     );
@@ -285,7 +285,7 @@ fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
 fn native_iter_type_and_iterable_associated_type_resolve_independently() {
     execute(
         r#"
-        struct Values { val items: Array<i32> }
+        struct Values { val items: List<i32> }
         impl Iterable for Values {
             type Item = i32;
             type Iter = Iter<i32>;
@@ -438,13 +438,13 @@ fn main()->i32{val calls=Calls{source:0,into:0,next:0};var total=0;for x in make
 #[test]
 fn collection_protocol_bounds_reject_invalid_sources_and_destinations() {
     for source in [
-        "fn main(){ val a: Array<String> = [1].iter().collect(); }",
+        "fn main(){ val a: List<String> = [1].iter().collect(); }",
         "fn main(){ val a: Set<f32> = [1.0].iter().collect(); }",
         "fn main(){ val a: Map<i32,i32> = [1].iter().collect(); }",
         "fn main(){ val a: i32 = [1].iter().collect(); }",
         "fn main(){ [1].iter().collect(); }",
-        "fn main(){ Array<i32>::from_iter(1); }",
-        "impl FromIterator<i32> for MutableArray<i32>{ fn from_iter<I:Iterable<Item=i32>>(source:I)->Self { [] } }",
+        "fn main(){ List<i32>::from_iter(1); }",
+        "impl FromIterator<i32> for ArrayList<i32>{ fn from_iter<I:Iterable<Item=i32>>(source:I)->Self { [] } }",
         "struct C{} impl FromIterator<i32> for C{ fn from_iter<I:Iterable<Item=String>>(source:I)->Self { C{} } }",
     ] {
         assert!(

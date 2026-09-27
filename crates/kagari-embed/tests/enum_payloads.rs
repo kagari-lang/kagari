@@ -1,5 +1,4 @@
 use kagari_common::SourceFile;
-use kagari_common::collection::CollectionAccess;
 use kagari_embed::{BytecodeArtifact, KagariEngine};
 use kagari_hir::types::BuiltinType;
 use kagari_ir::module::{PublicAbiItem, abi::AbiType};
@@ -39,7 +38,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     };
     let engine = KagariEngine::default();
     let mut runtime = engine.runtime(Default::default());
-    let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, [i32]) } fn main() -> Option { Option::Some(42) }";
+    let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, ArrayList<i32>) } fn main() -> Option { Option::Some(42) }";
     let original = compile(&engine, source);
     let loaded = runtime
         .load_program(original.clone(), Default::default())
@@ -236,16 +235,20 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     assert!(
         matches!(&variant.payload[0], AbiType::Struct(id) if id.declaration.module == module.identity && id.declaration.path[0].name == "Point")
     );
+    let AbiType::Tuple(payload) = &variant.payload[1] else {
+        panic!("tuple payload")
+    };
+    assert_eq!(payload[0], AbiType::Builtin(BuiltinType::I32));
+    let AbiType::Trait(list) = &payload[1] else {
+        panic!("list interface payload")
+    };
     assert_eq!(
-        variant.payload[1],
-        AbiType::Tuple(vec![
-            AbiType::Builtin(BuiltinType::I32),
-            AbiType::Array(
-                Box::new(AbiType::Builtin(BuiltinType::String)),
-                CollectionAccess::ReadOnly
-            ),
-        ])
+        list.declaration,
+        kagari_hir::builtin::traits::StandardTrait::List
+            .contract()
+            .id
     );
+    assert_eq!(list.arguments, vec![AbiType::Builtin(BuiltinType::String)]);
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
     decoded.validate_for_loader(&Default::default()).unwrap();
     assert_eq!(

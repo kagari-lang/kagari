@@ -23,7 +23,7 @@ fn main() -> i32 {
     val total: Total = pipeline.sum();
     std::debug::assert_eq(observed, 42, "observed traversal");
 
-    val expanded: Array<i32> = [20, 22].iter().flat_map(|x| [x]).collect();
+    val expanded: ArrayList<i32> = [20, 22].iter().flat_map(|x| [x]).collect();
     std::debug::assert_eq(expanded.iter().min(), Some(20), "minimum");
     std::debug::assert_eq(expanded.iter().max_by_key(|x| x), Some(22), "maximum");
     std::debug::assert_eq(expanded.iter().reduce(|a, b| a + b), Some(42), "reduction");
@@ -31,11 +31,11 @@ fn main() -> i32 {
     std::debug::assert_eq(product, 42, "product");
 
     // The expected result type selects fallible collection, preserving Err origins.
-    val checked: Result<Array<i32>, String> = expanded.iter().map(|x| read(x)).collect();
+    val checked: Result<ArrayList<i32>, String> = expanded.iter().map(|x| read(x)).collect();
     std::debug::assert_eq(checked.map(|x| x.len()), Ok("ab".len_bytes()), "checked collection");
-    val failed: Result<Array<i32>, String> = [20, -1, 22].iter().map(|x| read(x)).collect();
+    val failed: Result<ArrayList<i32>, String> = [20, -1, 22].iter().map(|x| read(x)).collect();
     std::debug::assert(failed.is_err(), "short circuit");
-    val missing: Option<Array<i32>> = [Some(20), None].iter().collect();
+    val missing: Option<ArrayList<i32>> = [Some(20), None].iter().collect();
     std::debug::assert_eq(missing, None, "missing item");
 
     val iter = expanded.iter().fuse();

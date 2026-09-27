@@ -180,6 +180,9 @@ impl MapKey {
                 return None;
             }
             match value {
+                Value::Interface(_) => {
+                    pending.push(crate::value_semantics::collection_data(gc, &value)?)
+                }
                 Value::Unit => parts.push(KeyPart::Unit),
                 Value::Bool(v) => parts.push(KeyPart::Bool(v)),
                 Value::I32(v) => parts.push(KeyPart::I32(v)),

@@ -300,10 +300,13 @@ fn main() {
             {
                 let method = name;
                 assert!(arity > 0, "method needs a receiver");
-                let receiver = owner
-                    .as_deref()
-                    .expect("method owner")
-                    .trim_start_matches("Mutable");
+                let receiver = owner.as_deref().expect("method owner");
+                let receiver = match receiver {
+                    "ArrayList" => "Array",
+                    "LinkedHashMap" => "Map",
+                    "LinkedHashSet" => "Set",
+                    other => other,
+                };
                 assert!(
                     method_bindings.insert((receiver.to_owned(), method.clone())),
                     "duplicate method binding"

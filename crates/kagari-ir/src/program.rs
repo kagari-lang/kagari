@@ -421,6 +421,24 @@ pub fn verify_program(
                     &kagari_hir::types::TypeId::Trait(source.to_checked_type()),
                     cancel,
                     &|id| {
+                        if let Some(record) = crate::module::abi::standard_trait_contract(id) {
+                            return Some((
+                                record
+                                    .generic_params
+                                    .iter()
+                                    .map(|p| kagari_hir::types::GenericParameterType {
+                                        owner: p.owner.clone(),
+                                        position: p.position,
+                                        name: String::new(),
+                                    })
+                                    .collect(),
+                                record
+                                    .supertraits
+                                    .iter()
+                                    .map(|p| p.to_checked_type())
+                                    .collect(),
+                            ));
+                        }
                         let owner = *indices.get(&id.module)?;
                         if owner != index && !dependencies.contains(&owner) {
                             return None;
@@ -479,6 +497,10 @@ pub fn verify_program(
             {
                 let valid = indices
                     .get(&contract.interface.declaration.module)
+                    .or_else(|| {
+                        crate::module::abi::standard_trait_contract(&contract.interface.declaration)
+                            .map(|_| &index)
+                    })
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         let owner = &modules[*target];

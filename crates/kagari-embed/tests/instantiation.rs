@@ -121,7 +121,7 @@ fn terminating_assignment_places_stop_before_later_indexes() {
     ] {
         execute_contextual_source(
             &format!(
-                "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> MutableArray<MutableArray<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} += grow(2); 9 }}"
+                "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> ArrayList<ArrayList<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} += grow(2); 9 }}"
             ),
             42,
         );
@@ -203,7 +203,7 @@ fn assignment_targets_supply_constructor_context() {
         fn main() -> i32 {
             var local: Marker<i32> = Marker { value: 0 };
             val object = Box { marker: Marker { value: 0 } };
-            val array: MutableArray<Marker<bool>> = [Marker { value: 0 }];
+            val array: ArrayList<Marker<bool>> = [Marker { value: 0 }];
             var token: Token<i32> = Token::Empty;
             local = Marker { value: 10 };
             object.marker = Marker { value: 12 };
@@ -220,18 +220,18 @@ fn assignment_targets_supply_constructor_context() {
 fn empty_container_context_reaches_returns_fields_and_arguments() {
     execute_contextual_source(
         r#"
-        struct Values { val array: MutableArray<i32>, val map: MutableMap<i32, bool>, val set: MutableSet<i32> }
-        fn array() -> MutableArray<i32> { [] }
-        fn map() -> MutableMap<i32, bool> { MutableMap::new() }
-        fn set() -> MutableSet<i32> { MutableSet::new() }
-        fn empty(a: MutableArray<i32>, m: MutableMap<i32, bool>, s: MutableSet<i32>) -> bool {
+        struct Values { val array: ArrayList<i32>, val map: LinkedHashMap<i32, bool>, val set: LinkedHashSet<i32> }
+        fn array() -> ArrayList<i32> { [] }
+        fn map() -> LinkedHashMap<i32, bool> { LinkedHashMap::new() }
+        fn set() -> LinkedHashSet<i32> { LinkedHashSet::new() }
+        fn empty(a: ArrayList<i32>, m: LinkedHashMap<i32, bool>, s: LinkedHashSet<i32>) -> bool {
             a.is_empty() && m.is_empty() && s.is_empty()
         }
         fn main() -> i32 {
-            val value = Values { array: [], map: MutableMap::new(), set: MutableSet::new() };
-            var replacement: MutableMap<i32, bool> = map();
-            replacement = MutableMap::new();
-            if empty([], MutableMap::new(), MutableSet::new())
+            val value = Values { array: [], map: LinkedHashMap::new(), set: LinkedHashSet::new() };
+            var replacement: LinkedHashMap<i32, bool> = map();
+            replacement = LinkedHashMap::new();
+            if empty([], LinkedHashMap::new(), LinkedHashSet::new())
                 && empty(array(), map(), set()) && empty(value.array, value.map, value.set)
                 && replacement.is_empty() { 42 } else { 0 }
         }
@@ -387,7 +387,7 @@ fn cancelled_instantiation_keeps_the_checked_module_reusable() {
 fn unresolved_container_inference_is_a_diagnostic_before_codegen() {
     let engine = KagariEngine::default();
     let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(
-        SourceFile::new("inference.kgr", "fn main() { MutableMap::new(); }"),
+        SourceFile::new("inference.kgr", "fn main() { LinkedHashMap::new(); }"),
         Default::default(),
     ) else {
         panic!("unresolved type must not enter checked HIR");
@@ -414,7 +414,7 @@ fn partial_constructor_member_context_executes_for_structs_and_enums() {
 #[test]
 fn reflective_write_targets_supply_generic_constructor_context() {
     execute_contextual_source_with_writes(
-        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: MutableArray<Marker<i32>> = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
+        "struct Marker<T> { val value: i32 } struct Box { var value: Marker<i32> } fn main() -> i32 { val box = Box { value: Marker { value: 0 } }; val array: ArrayList<Marker<i32>> = [Marker { value: 0 }]; set_field(box, \"value\", Marker { value: 20 }); set_index(array, 0, Marker { value: 22 }); box.value.value + array[0].value }",
         42,
         true,
     );
@@ -423,7 +423,7 @@ fn reflective_write_targets_supply_generic_constructor_context() {
 #[test]
 fn standard_container_context_executes_through_methods_and_qualified_calls() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: MutableArray<Marker<i32>> = []; values.push(Marker { value: 10 }); std::array::MutableArray::push(values, Marker { value: 10 }); val map: MutableMap<i32, Marker<i32>> = MutableMap::new(); std::map::MutableMap::insert(map, 1, Marker { value: 22 }); values[0].value + values[1].value + map.get(1).unwrap_or(Marker { value: 0 }).value }",
+        "struct Marker<T> { val value: i32 } fn main() -> i32 { val values: ArrayList<Marker<i32>> = []; values.push(Marker { value: 10 }); std::array::ArrayList::push(values, Marker { value: 10 }); val map: LinkedHashMap<i32, Marker<i32>> = LinkedHashMap::new(); std::map::LinkedHashMap::insert(map, 1, Marker { value: 22 }); values[0].value + values[1].value + map.get(1).unwrap_or(Marker { value: 0 }).value }",
         42,
     );
 }
@@ -635,7 +635,7 @@ fn terminating_reflection_values_preserve_effects_without_committing_writes() {
         let body = call.replace("VALUE", "if tick(count) { return 30; } else { return 0; }");
         execute_contextual_source_with_writes(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count, array: MutableArray<i32>) -> i32 {{ {body}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn run(count: Count, array: ArrayList<i32>) -> i32 {{ {body}; 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
             ),
             42,
             true,
@@ -657,7 +657,7 @@ fn terminating_indexes_skip_reads_rhs_effects_and_writes() {
             statement.replace("INDEX", "if tick(count) { return 30; } else { return 0; }");
         execute_contextual_source_with_writes(
             &format!(
-                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 99 }} fn run(count: Count, array: MutableArray<i32>) -> i32 {{ var tuple = (1, true); {statement} 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
+                "struct Count {{ var value: i32 }} fn tick(count: Count) -> bool {{ count.value += 1; true }} fn later(count: Count) -> i32 {{ count.value += 100; 99 }} fn run(count: Count, array: ArrayList<i32>) -> i32 {{ var tuple = (1, true); {statement} 0 }} fn main() -> i32 {{ val count = Count {{ value: 1 }}; val array = [10]; run(count, array) + count.value + array[0] }}"
             ),
             42,
             true,
@@ -712,13 +712,13 @@ fn terminating_index_receivers_skip_index_effects_and_reads() {
 #[test]
 fn terminating_standard_receivers_skip_container_and_string_operations() {
     for call in [
-        "std::array::Array::len(ARG)",
-        "std::map::Map::len(ARG)",
-        "std::set::Set::len(ARG)",
+        "std::array::ArrayList::len(ARG)",
+        "std::map::LinkedHashMap::len(ARG)",
+        "std::set::LinkedHashSet::len(ARG)",
         "std::string::String::len_bytes(ARG)",
         "std::option::Option::is_some(ARG)",
         "std::result::Result::is_ok(ARG)",
-        "std::array::MutableArray::push(ARG, tick(count))",
+        "std::array::ArrayList::push(ARG, tick(count))",
     ] {
         let expression = call.replace("ARG", "if tick(count) { return 40; } else { return 0; }");
         execute_contextual_source(
@@ -774,7 +774,7 @@ fn annotated_const_dependencies_execute_independently_of_declaration_order() {
 #[test]
 fn concrete_nested_struct_fields_execute_on_all_existing_routes() {
     execute_contextual_source(
-        "struct Item { val value: i32 } struct Box<T> { var items: MutableArray<T> } fn main() -> i32 { val box = Box<Item> { items: [Item { value: 1 }] }; box.items = [Item { value: 42 }]; box.items[0].value }",
+        "struct Item { val value: i32 } struct Box<T> { var items: ArrayList<T> } fn main() -> i32 { val box = Box<Item> { items: [Item { value: 1 }] }; box.items = [Item { value: 42 }]; box.items[0].value }",
         42,
     );
 }

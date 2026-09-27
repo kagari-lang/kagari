@@ -810,8 +810,11 @@ type's defining module. Native host tables may implement Debug/Display, but not
 these operator, ordering or equality protocols. Applied operator inputs and
 associated Output identities are checked before static specialization and again
 when loading portable implementation metadata.
-Standard protocols and their subtraits currently cannot be erased into interface
-values. Ordinary user trait interfaces retain their existing dynamic behavior.
+Most standard protocols remain static-only. Collection interfaces (List/MutableList,
+Map/MutableMap and Set/MutableSet), and their object-safe Index/Iterable parents,
+can be used dynamically with concrete type arguments and associated outputs.
+Ordinary user trait interfaces retain their existing dynamic behavior. See
+[collection interfaces](collection-access.md) for access and storage contracts.
 Clone, writable indexing, compound-assignment overrides, generic propagation,
 and Error context are later
 extensions over this shared identity and bound infrastructure.

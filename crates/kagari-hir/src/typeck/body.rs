@@ -502,9 +502,20 @@ impl<'a> BodyChecker<'a> {
                 writable.then_some(ty)
             }
             PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_readable_place_type(*base, env);
-                self.infer_expr_type(*index, env);
-                let base_ty = base_ty?;
+                let base_ty = self
+                    .resolve_readable_place_type(*base, env)
+                    .unwrap_or(TypeId::Error);
+                let context = base_ty
+                    .list_item()
+                    .map(|_| TypeId::Builtin(BuiltinType::USize));
+                let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
+                if let Some(item) = base_ty.list_item() {
+                    self.type_table.insert_place(place_id, item.clone());
+                    self.checked_index_type(*index, &base_ty, &index_ty, *index);
+                    return (base_ty.writable_list()
+                        && index_ty == TypeId::Builtin(BuiltinType::USize))
+                    .then(|| item.clone());
+                }
                 let ty = self.resolve_index_type(*index, &base_ty);
                 let fact = ty.clone().or_else(|| match &base_ty {
                     TypeId::Array(element, _) => Some((**element).clone()),
@@ -574,9 +585,13 @@ impl<'a> BodyChecker<'a> {
                 Some(ty)
             }
             PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_readable_place_type(*base, env);
-                let index_ty = self.infer_expr_type(*index, env);
-                let base_ty = base_ty?;
+                let base_ty = self
+                    .resolve_readable_place_type(*base, env)
+                    .unwrap_or(TypeId::Error);
+                let context = base_ty
+                    .list_item()
+                    .map(|_| TypeId::Builtin(BuiltinType::USize));
+                let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
                 let mut requested = crate::builtin::traits::StandardTrait::Index.nominal();
                 requested.arguments.push(index_ty.clone());
                 if !matches!(base_ty, TypeId::Array(_, _) | TypeId::Tuple(_))
@@ -653,7 +668,9 @@ impl<'a> BodyChecker<'a> {
                 let Some(base_ty) = self.type_table.place_type(*base) else {
                     return self.assignment_target_error_reason(*base, env);
                 };
-                if base_ty.collection_access() == Some(CollectionAccess::ReadOnly) {
+                if base_ty.list_item().is_some() && !base_ty.writable_list()
+                    || base_ty.collection_access() == Some(CollectionAccess::ReadOnly)
+                {
                     "read-only collection cannot be modified; writable collection access is required".to_string()
                 } else if self.resolve_index_type(*index, &base_ty).is_none() {
                     "indexed value is not assignable".to_string()
@@ -1156,6 +1173,28 @@ impl<'a> BodyChecker<'a> {
                             if !then_completes {
                                 then_ty = else_ty;
                             } else if else_completes
+                                && then_ty != else_ty
+                                && then_ty.same_collection_family(&else_ty)
+                            {
+                                let view = then_ty.collection_view().expect("collection join");
+                                if let Some(tail) =
+                                    self.lowered.module.block(*then_branch).tail_expr
+                                {
+                                    self.apply_interface_coercion(
+                                        tail,
+                                        then_ty,
+                                        Some(&view),
+                                        &then_env,
+                                    );
+                                }
+                                self.apply_interface_coercion(
+                                    *else_expr,
+                                    else_ty,
+                                    Some(&view),
+                                    env,
+                                );
+                                then_ty = view;
+                            } else if else_completes
                                 && (then_ty.can_weaken_to(&else_ty)
                                     || else_ty.can_weaken_to(&then_ty))
                             {
@@ -1226,7 +1265,23 @@ impl<'a> BodyChecker<'a> {
                         continue;
                     }
                     if let Some(result) = &mut result {
-                        if found.can_weaken_to(result) || result.can_weaken_to(&found) {
+                        if found != *result && found.same_collection_family(result) {
+                            let view = result.collection_view().expect("collection match join");
+                            for previous in arms {
+                                if let Some(ty) = self.type_table.expr_type(previous.expr) {
+                                    self.apply_interface_coercion(
+                                        previous.expr,
+                                        ty,
+                                        Some(&view),
+                                        env,
+                                    );
+                                }
+                                if previous.expr == arm.expr {
+                                    break;
+                                }
+                            }
+                            *result = view;
+                        } else if found.can_weaken_to(result) || result.can_weaken_to(&found) {
                             *result = result.read_only_view().expect("collection arm join");
                         } else if found.conflicts_with(result) {
                             self.diagnostics.push(
@@ -1281,6 +1336,17 @@ impl<'a> BodyChecker<'a> {
             ExprKind::ArrayRepeat { value, count } => {
                 let member = match expected {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),
+                    Some(TypeId::Trait(interface))
+                        if matches!(
+                            crate::builtin::traits::StandardTrait::from_id(&interface.declaration),
+                            Some(
+                                crate::builtin::traits::StandardTrait::List
+                                    | crate::builtin::traits::StandardTrait::MutableList
+                            )
+                        ) =>
+                    {
+                        interface.arguments.first()
+                    }
                     _ => None,
                 };
                 let element = self.infer_expr_with_coercion(*value, env, member);
@@ -1309,7 +1375,7 @@ impl<'a> BodyChecker<'a> {
                     self.diagnostics.push(Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
                         type_name: element.display_name(),
                         constraint: "array repetition without shared mutable objects".into(),
-                        reason: "use MutableArray::from_fn(count, |index| value) to initialize each element".into(),
+                        reason: "use ArrayList::from_fn(count, |index| value) to initialize each element".into(),
                     }).with_span(self.lowered.source_map.expr_span(*value)));
                 }
                 let length_type = TypeId::Builtin(BuiltinType::USize);
@@ -1329,6 +1395,17 @@ impl<'a> BodyChecker<'a> {
             ExprKind::Array(elements) => {
                 let member = match expected {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),
+                    Some(TypeId::Trait(interface))
+                        if matches!(
+                            crate::builtin::traits::StandardTrait::from_id(&interface.declaration),
+                            Some(
+                                crate::builtin::traits::StandardTrait::List
+                                    | crate::builtin::traits::StandardTrait::MutableList
+                            )
+                        ) =>
+                    {
+                        interface.arguments.first()
+                    }
                     _ => None,
                 };
                 let mut element_ty: Option<TypeId> = None;
@@ -1461,6 +1538,34 @@ impl<'a> BodyChecker<'a> {
                 },
             );
             return target.clone();
+        }
+        let mut native_interface = interface.clone();
+        if let Some(storage) = crate::builtin::traits::collection_storage(interface) {
+            let _ = self.solver.constrain(&storage, &source, self.cancel);
+            if let TypeId::Trait(resolved) = self.solver.resolve(&TypeId::Trait(interface.clone()))
+            {
+                native_interface = resolved;
+            }
+        }
+        if let (Some(TypeId::Trait(expected)), Some(TypeId::Trait(actual))) = (
+            TypeId::Trait(native_interface.clone()).collection_view(),
+            source.collection_view(),
+        ) && expected.declaration == actual.declaration
+        {
+            for (expected, actual) in native_interface.arguments.iter_mut().zip(&actual.arguments) {
+                expected.recover_from(actual);
+            }
+        }
+        if crate::builtin::traits::native_interface_applies(&native_interface, &source) {
+            self.type_table.insert_interface_coercion(
+                expr_id,
+                super::ResolvedInterfaceCoercion {
+                    implementation: super::ResolvedInterfaceImplementation::Native,
+                    concrete_type: source,
+                    interface_type: native_interface.clone(),
+                },
+            );
+            return TypeId::Trait(native_interface);
         }
         if matches!(&source, TypeId::Host(_))
             && self.declarations.hosts.implements(interface, &source)
@@ -1964,6 +2069,15 @@ impl<'a> BodyChecker<'a> {
             }
         }
         if let Some(context) = context {
+            if let TypeId::Trait(interface) = context
+                && let Some(storage) = crate::builtin::traits::collection_storage(interface)
+            {
+                let _ = self.solver.constrain(
+                    &api.result.instantiate(&bindings),
+                    &storage,
+                    self.cancel,
+                );
+            }
             let _ = self
                 .solver
                 .constrain(&api.result.instantiate(&bindings), context, self.cancel);
@@ -2551,10 +2665,17 @@ impl<'a> BodyChecker<'a> {
 
     fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<crate::types::NominalType> {
         if let TypeId::Trait(interface) = ty {
-            return self
+            let mut bounds = self
                 .aggregates
                 .trait_closure(interface, ty, self.cancel)
                 .unwrap_or_default();
+            if crate::builtin::traits::StandardTrait::from_id(&interface.declaration)
+                .is_some_and(crate::builtin::traits::StandardTrait::collection)
+            {
+                use crate::builtin::traits::StandardTrait as S;
+                bounds.extend([S::PartialEq, S::Eq, S::Hash, S::Debug].map(|kind| kind.nominal()));
+            }
+            return bounds;
         }
         if !matches!(
             ty,
@@ -3874,17 +3995,19 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => {
                 if (lhs_ty.conflicts_with(&rhs_ty)
                     && !lhs_ty.can_weaken_to(&rhs_ty)
-                    && !rhs_ty.can_weaken_to(&lhs_ty))
+                    && !rhs_ty.can_weaken_to(&lhs_ty)
+                    && !lhs_ty.same_collection_family(&rhs_ty))
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
-                        !matches!(
-                            ty,
-                            TypeId::Unknown
-                                | TypeId::Error
-                                | TypeId::Struct(_)
-                                | TypeId::Array(_, _)
-                                | TypeId::Map { .. }
-                                | TypeId::Set(_, _)
-                        )
+                        ty.collection_view().is_none()
+                            && !matches!(
+                                ty,
+                                TypeId::Unknown
+                                    | TypeId::Error
+                                    | TypeId::Struct(_)
+                                    | TypeId::Array(_, _)
+                                    | TypeId::Map { .. }
+                                    | TypeId::Set(_, _)
+                            )
                     })
                 {
                     self.emit_binary_operand_type_mismatch(
@@ -3900,7 +4023,8 @@ impl<'a> BodyChecker<'a> {
             BinaryOp::Eq | BinaryOp::NotEq => {
                 if (lhs_ty.conflicts_with(&rhs_ty)
                     && !lhs_ty.can_weaken_to(&rhs_ty)
-                    && !rhs_ty.can_weaken_to(&lhs_ty))
+                    && !rhs_ty.can_weaken_to(&lhs_ty)
+                    && !lhs_ty.same_collection_family(&rhs_ty))
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !crate::builtin::traits::intrinsic_holds(
@@ -4247,7 +4371,7 @@ impl<'a> BodyChecker<'a> {
         // A tuple still needs a valid constant index to select a member.
         result.or_else(|| match receiver {
             TypeId::Array(element, _) => Some((**element).clone()),
-            _ => None,
+            _ => receiver.list_item().cloned(),
         })
     }
 
@@ -4267,10 +4391,18 @@ impl<'a> BodyChecker<'a> {
                 _ => None,
             };
         }
-        if !self.type_table.expr_type(index_expr)?.is_integer() {
+        if !self.type_table.expr_type(index_expr)?.is_integer()
+            && !(matches!(receiver, TypeId::Tuple(_)) && self.tuple_index(index_expr).is_some())
+        {
             return None;
         }
         match receiver {
+            TypeId::Trait(_)
+                if self.type_table.expr_type(index_expr)?
+                    == TypeId::Builtin(BuiltinType::USize) =>
+            {
+                receiver.list_item().cloned()
+            }
             TypeId::Array(element, _) => Some((**element).clone()),
             TypeId::Tuple(elements) => self
                 .tuple_index(index_expr)
@@ -4280,7 +4412,17 @@ impl<'a> BodyChecker<'a> {
     }
 
     fn tuple_index(&self, index_expr: ExprId) -> Option<usize> {
-        match self.type_table.scalar_value(index_expr)? {
+        let literal;
+        let scalar = if let Some(value) = self.type_table.scalar_value(index_expr) {
+            value
+        } else if let ExprKind::Literal(value) = &self.lowered.module.expr(index_expr).kind {
+            // Tuple positions select a type even before unsuffixed numbers default.
+            literal = super::ScalarValue::parse(value).ok()?;
+            &literal
+        } else {
+            return None;
+        };
+        match scalar {
             super::ScalarValue::I32(value) => usize::try_from(*value).ok(),
             _ => None,
         }

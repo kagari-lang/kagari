@@ -1,19 +1,19 @@
 //! Resizable arrays with shared object identity. Element reads and copies are shallow.
 //!
-//! `Array` provides read-only access; `MutableArray` also permits writes.
+//! `List` provides read-only access; `MutableList` adds writes; `ArrayList` supplies storage.
 //! Read-only views share storage and observe changes through writable aliases.
 //! `from` constructs fresh shallow storage; referenced elements retain identity.
 //!
 //! `[value; count]` evaluates its value once and requires a value-only element type.
 //! Tuple and enum members are checked recursively; object/container references,
 //! interfaces and closures are rejected even for zero repetitions. Construct
-//! independent objects with `MutableArray::from_fn(count, |index| expression)`.
+//! independent objects with `ArrayList::from_fn(count, |index| expression)`.
 //!
 //! Resource exhaustion and cancellation follow the execution-session contract.
 
-/// A resizable sequence of elements, written `[T]` in type annotations.
+/// A resizable sequence backed by native array storage. Literals create `ArrayList<T>`.
 ///
-/// Arrays share object storage. `Array<T>` permits reading its slots. Assignment keeps the
+/// Arrays share object storage. `ArrayList<T>` permits reads and writes. Assignment keeps the
 /// same object; mutations through either binding are visible through the other.
 /// `val` prevents rebinding, not mutation of the array. `==` compares array identity.
 ///
@@ -32,50 +32,11 @@
 /// std::debug::assert(values.get(values.len()) == None, "past the end");
 /// std::debug::assert(values.remove(values.len()) == None, "nothing removed");
 /// ```
-#[builtin_type(Array)]
-pub type Array<T>;
 
-/// A writable shared array. Copies preserve object identity.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = MutableArray::from([1, 2]);
-/// std::debug::assert(!values.is_empty(), "populated");
-/// ```
-#[builtin_type(MutableArray)]
-pub type MutableArray<T>;
+#[builtin_type(ArrayList)]
+pub type ArrayList<T>;
 
-impl<T> Array<T> {
-    /// Create a fresh empty array with read-only access.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: Array<i32> = Array::new();
-    /// std::debug::assert(values.is_empty(), "empty");
-    /// ```
-    #[intrinsic(ArrayNew)]
-    pub fn new() -> Self;
-
-    /// Construct a fresh shallow array from the supplied elements.
-    ///
-    /// Referenced objects retain identity. The result does not share input slots.
-    /// The copy preserves input order and never invokes element equality or hashing.
-    ///
-    /// # Panics
-    ///
-    /// Allocation or resource exhaustion terminates execution without returning a partial result.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values = Array::from([1, 2]);
-    /// std::debug::assert(!values.is_empty(), "populated");
-    /// ```
-    #[intrinsic(ArrayFrom)]
-    pub fn from(items: [T]) -> Self;
-
+impl<T> ArrayList<T> {
     /// Return the number of elements.
     ///
     /// The array is a shared object. Reading an element does not copy an object graph; object
@@ -97,13 +58,13 @@ impl<T> Array<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableArray<i32> = [];
+    /// val values: ArrayList<i32> = [];
     /// std::debug::assert(values.is_empty(), "empty");
     /// ```
     #[intrinsic(ArrayIsEmpty)]
     pub fn is_empty(self) -> bool;
 
-    /// Return the element at index, or None when out of bounds. Object elements retain their
+    /// Return the element at index, or None when out of bounds. Object elements retain identity.
     ///
     /// The array is a shared object. Reading an element does not copy an object graph; object
     /// elements keep their identity.
@@ -121,7 +82,7 @@ impl<T> Array<T> {
     pub fn get(self, index: usize) -> Option<T>;
 }
 
-impl<T> MutableArray<T> {
+impl<T> ArrayList<T> {
     /// Construct a fresh array by calling `initializer` once for every index.
     ///
     /// Calls run in increasing index order, from zero to `count - 1`. Zero length
@@ -141,12 +102,12 @@ impl<T> MutableArray<T> {
     /// ```kgr
     /// struct Cell { var value: usize }
     /// fn main() {
-    ///     val cells = MutableArray::from_fn(2, |i| Cell { value: i });
+    ///     val cells = ArrayList::from_fn(2, |i| Cell { value: i });
     ///     cells[0].value = 42usize;
     ///     std::debug::assert(cells[1].value == 1usize, "independent objects");
     /// }
     /// ```
-    #[intrinsic(MutableArrayFromFn)]
+    #[intrinsic(ArrayListFromFn)]
     pub fn from_fn(count: usize, initializer: fn(usize) -> T) -> Self;
 
     /// Create a fresh empty array with writable access.
@@ -154,10 +115,10 @@ impl<T> MutableArray<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableArray<i32> = MutableArray::new();
+    /// val values: ArrayList<i32> = ArrayList::new();
     /// std::debug::assert(values.is_empty(), "empty");
     /// ```
-    #[intrinsic(MutableArrayNew)]
+    #[intrinsic(ArrayListNew)]
     pub fn new() -> Self;
 
     /// Construct a fresh shallow array from the supplied elements.
@@ -172,10 +133,10 @@ impl<T> MutableArray<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values = MutableArray::from([1, 2]);
+    /// val values = ArrayList::from([1, 2]);
     /// std::debug::assert(!values.is_empty(), "populated");
     /// ```
-    #[intrinsic(MutableArrayFrom)]
+    #[intrinsic(ArrayListFrom)]
     pub fn from(items: [T]) -> Self;
 
     /// Append an element and return the same array. Aliases observe the change.
@@ -200,7 +161,7 @@ impl<T> MutableArray<T> {
     /// std::debug::assert(alias.get([0].len()) == Some(20), "shared array");
     /// ```
     #[intrinsic(ArrayPush)]
-    pub fn push(self, item: T) -> MutableArray<T>;
+    pub fn push(self, item: T) -> ArrayList<T>;
 
     /// Remove and return the last element, or None when empty.
     ///
@@ -252,7 +213,7 @@ impl<T> MutableArray<T> {
     /// std::debug::assert(values.get([0].len()) == Some(20), "inserted");
     /// ```
     #[intrinsic(ArrayInsert)]
-    pub fn insert(self, index: usize, item: T) -> MutableArray<T>;
+    pub fn insert(self, index: usize, item: T) -> ArrayList<T>;
 
     /// Remove the element at index, or return None when out of bounds.
     ///
@@ -300,7 +261,7 @@ impl<T> MutableArray<T> {
     /// std::debug::assert(values.is_empty(), "cleared");
     /// ```
     #[intrinsic(ArrayClear)]
-    pub fn clear(self) -> MutableArray<T>;
+    pub fn clear(self) -> ArrayList<T>;
 
     /// Replace every element with a shallow copy of `value`.
     ///
@@ -339,7 +300,7 @@ impl<T> MutableArray<T> {
     ///
     /// ```kgr
     /// val destination = [0; 3];
-    /// val source: Array<i32> = [4, 5, 6];
+    /// val source: List<i32> = [4, 5, 6];
     /// destination.copy_from_slice(source);
     /// std::debug::assert(destination[1] == 5, "copied");
     /// ```
@@ -370,7 +331,7 @@ impl<T> MutableArray<T> {
 
 }
 
-impl Array<String> {
+impl ArrayList<String> {
     /// Join strings into one string, placing `separator` between adjacent elements.
     ///
     /// An empty array produces an empty string. A one-element array returns that
@@ -388,7 +349,7 @@ impl Array<String> {
     ///
     /// ```kgr
     /// std::debug::assert(["red", "green", "blue"].join(", ") == "red, green, blue", "joined");
-    /// val empty: MutableArray<String> = [];
+    /// val empty: ArrayList<String> = [];
     /// std::debug::assert(empty.join(",") == "", "empty input");
     /// std::debug::assert(["one"].join(",") == "one", "no extra separator");
     /// ```
@@ -397,7 +358,7 @@ impl Array<String> {
 }
 
 /// Produce a fresh iterator over this shared source.
-impl<T> Iterable for Array<T> {
+impl<T> Iterable for ArrayList<T> {
     /// The value yielded at each traversal position.
     type Item = T;
     /// The native iterator retaining this source and its current position.
@@ -411,7 +372,7 @@ impl<T> Iterable for Array<T> {
 }
 
 /// Construct fresh shallow storage from an iterable source.
-impl<T> FromIterator<T> for Array<T> {
+impl<T> FromIterator<T> for ArrayList<T> {
     /// Collect the source in traversal order into a fresh collection.
     ///
     /// Referenced objects retain identity. Sets discard equal duplicates; maps
@@ -421,41 +382,110 @@ impl<T> FromIterator<T> for Array<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [20, 22].iter().collect();
+    /// val values: ArrayList<i32> = [20, 22].iter().collect();
     /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
     /// ```
     #[intrinsic(CollectionFromIterator)]
     fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
 }
 
-/// Produce a fresh iterator over this shared source.
-impl<T> Iterable for MutableArray<T> {
-    /// The value yielded at each traversal position.
-    type Item = T;
-    /// The native iterator retaining this source and its current position.
-    type Iter = Iter<T>;
-    /// Begin a new traversal without copying elements or transferring ownership.
-    ///
-    /// Native collection guards prevent structural mutation during traversal.
-    /// Strings yield one Unicode scalar string at a time.
-    #[intrinsic(CollectionIter)]
-    fn iter(self) -> Iter<T>;
+/// Read-only access to an ordered sequence, also written `[T]`.
+///
+/// This interface describes access, not storage or immutability. `ArrayList<T>`
+/// implements it, and scripts can implement it for their own objects. A view shares
+/// its underlying object: changes through a writable alias remain visible. Element
+/// reads are shallow, so mutable fields of an object element can still be changed.
+/// Type arguments are invariant. There is no implicit conversion back to `MutableList`.
+///
+/// Indexing uses `usize` and traps for an invalid position; `get` returns `None`.
+/// `iter` returns `Iter<T>`. Equality and hashing use the underlying object identity.
+/// Construct an `ArrayList` or another implementation, then pass it as a `List`.
+///
+/// # Examples
+///
+/// ```kgr
+/// val storage = [10, 20];
+/// val view: [i32] = storage;
+/// storage.push(30);
+/// std::debug::assert_eq(view.len(), 3usize, "live view");
+/// std::debug::assert_eq(view[0], 10, "indexed read");
+/// std::debug::assert_eq(view.get(3), None, "out of bounds");
+/// ```
+pub trait List<T>: Iterable<Item = T, Iter = Iter<T>> + Index<usize, Output = T> {
+    /// Returns the number of elements.
+    fn len(self) -> usize;
+    /// Reports whether the sequence is empty.
+    fn is_empty(self) -> bool;
+    /// Returns an element, or `None` when the index is out of bounds.
+    fn get(self, index: usize) -> Option<T>;
 }
 
-/// Construct fresh shallow storage from an iterable source.
-impl<T> FromIterator<T> for MutableArray<T> {
-    /// Collect the source in traversal order into a fresh collection.
-    ///
-    /// Referenced objects retain identity. Sets discard equal duplicates; maps
-    /// keep the last value for each equal key. Source and key-operation failures
-    /// propagate without rolling back completed callback effects.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: MutableArray<i32> = [20, 22].iter().collect();
-    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
-    /// ```
-    #[intrinsic(CollectionFromIterator)]
-    fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
+/// Writable access to an ordered sequence.
+///
+/// Extends `List<T>` with slot replacement and structural modification. Passing this
+/// view to a `List<T>` parameter preserves identity and hides the mutators. `val`
+/// prevents rebinding the view, not modifying its underlying object. Indexed writes
+/// use `set`; `items[i].field = value` modifies the element object without writing it
+/// back to the list. Structural mutation of native storage during iteration traps.
+/// Implementations must validate and prepare a mutation before committing it.
+///
+/// # Examples
+///
+/// ```kgr
+/// val storage = [10, 20];
+/// val writable: MutableList<i32> = storage;
+/// val readable: List<i32> = writable;
+/// writable[0] += 2;
+/// writable.push(30);
+/// std::debug::assert_eq(readable[0], 12, "shared replacement");
+/// std::debug::assert_eq(writable.pop(), Some(30), "last item");
+/// ```
+pub trait MutableList<T>: List<T> {
+    /// Appends an element. Failure leaves the sequence unchanged.
+    fn push(self, value: T);
+    /// Removes and returns the last element, or `None` when empty.
+    fn pop(self) -> Option<T>;
+    /// Inserts an element before an existing position, or at the end.
+    fn insert(self, index: usize, value: T);
+    /// Removes the element at the index, or returns `None` when out of bounds.
+    fn remove(self, index: usize) -> Option<T>;
+    /// Removes all elements.
+    fn clear(self);
+    /// Replaces an existing element. An invalid index traps without a write.
+    fn set(self, index: usize, value: T);
+}
+
+/// Provides the List capability for the native storage class.
+impl<T> List<T> for ArrayList<T> {
+    /// Returns the number of elements.
+    #[intrinsic(ArrayLen)]
+    fn len(self) -> usize;
+    /// Reports whether the sequence is empty.
+    #[intrinsic(ArrayIsEmpty)]
+    fn is_empty(self) -> bool;
+    /// Returns an element, or `None` when the index is out of bounds.
+    #[intrinsic(ArrayGet)]
+    fn get(self, index: usize) -> Option<T>;
+}
+
+/// Provides the MutableList capability for the native storage class.
+impl<T> MutableList<T> for ArrayList<T> {
+    /// Appends an element. Failure leaves the sequence unchanged.
+    #[intrinsic(ArrayPush)]
+    fn push(self, value: T);
+    /// Removes and returns the last element, or `None` when empty.
+    #[intrinsic(ArrayPop)]
+    fn pop(self) -> Option<T>;
+    /// Inserts an element before an existing position, or at the end.
+    #[intrinsic(ArrayInsert)]
+    fn insert(self, index: usize, value: T);
+    /// Removes the element at the index, or returns `None` when out of bounds.
+    #[intrinsic(ArrayRemove)]
+    fn remove(self, index: usize) -> Option<T>;
+    /// Removes all elements.
+    #[intrinsic(ArrayClear)]
+    fn clear(self);
+    /// Replaces an existing element. An invalid index traps without a write.
+    #[intrinsic(CollectionSet)]
+    fn set(self, index: usize, value: T);
 }

@@ -1,14 +1,14 @@
 // Run: cargo run -p kagari-cli -- run examples/syntax/for-collections.kgr
 // Result: main returns 42.
 fn main() -> i32 {
-    val scores: MutableMap<String, i32> = MutableMap::new();
+    val scores: LinkedHashMap<String, i32> = LinkedHashMap::new();
     scores.insert("a", 20);
     scores.insert("b", 22);
     var total = 0;
     for (key, score) in scores {
         total += score;
     }
-    val names: MutableSet<String> = MutableSet::new();
+    val names: LinkedHashSet<String> = LinkedHashSet::new();
     names.insert("a");
     names.insert("b");
     var count = 0;

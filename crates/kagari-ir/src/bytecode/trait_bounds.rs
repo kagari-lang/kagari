@@ -6,6 +6,7 @@ use crate::module::{
 };
 use kagari_hir::{
     aggregates::{AggregateCatalog, ImplementationSignature},
+    builtin::traits::StandardTrait,
     typeck::ConstraintTarget,
     types::{GenericParameterType, TypeId},
 };
@@ -106,7 +107,9 @@ fn executable_interface(
         return false;
     }
     for view in views {
-        if kagari_hir::builtin::traits::StandardTrait::from_id(&view.declaration).is_some() {
+        if kagari_hir::builtin::traits::StandardTrait::from_id(&view.declaration)
+            .is_some_and(|kind| !kind.dynamic())
+        {
             return false;
         }
         let Some(record) = contract(&view.declaration, closure) else {
@@ -128,6 +131,10 @@ fn executable_interface(
         let Some(owner) = closure
             .iter()
             .find(|module| module.identity == view.declaration.module)
+            .or_else(|| {
+                crate::module::abi::standard_trait_contract(&view.declaration)
+                    .and_then(|_| closure.first())
+            })
         else {
             return false;
         };
@@ -251,6 +258,7 @@ pub(super) fn trait_bounds_match(
         for item in &dependency.public_items {
             if let PublicAbiItem::InterfaceTable(table) = item
                 && !table.host_bridge
+                && !table.native_bridge
             {
                 if signatures.len() == MAX_IMPLEMENTATIONS {
                     return false;
@@ -549,6 +557,20 @@ pub(super) fn trait_bounds_match(
         {
             return false;
         }
+        if table.native_bridge {
+            let storage = table.for_type.to_checked_type();
+            let key = match &storage {
+                TypeId::Map { key, .. } | TypeId::Set(key, _) => Some(key.as_ref()),
+                _ => None,
+            };
+            if key.is_some_and(|key| {
+                [StandardTrait::Eq, StandardTrait::Hash]
+                    .iter()
+                    .any(|kind| !catalog.standard_protocol_holds(*kind, key, &Default::default()))
+            }) {
+                return false;
+            }
+        }
         let checked = interface.to_checked_type();
         let substitution: kagari_hir::types::TypeSubstitution = contract
             .generic_params
@@ -560,7 +582,7 @@ pub(super) fn trait_bounds_match(
             })
             .zip(checked.arguments.iter().cloned())
             .collect();
-        let bridge = if table.host_bridge {
+        let bridge = if table.host_bridge || table.native_bridge {
             signature(table)
         } else {
             None
@@ -690,16 +712,18 @@ pub(super) fn trait_bounds_match(
         let TypeId::Trait(interface) = table.trait_type.to_checked_type() else {
             return false;
         };
-        if !matches!(
-            catalog.implementation_count_bounded(
-                &interface,
-                &table.for_type.to_checked_type(),
-                MAX_MATCH_CHECKS,
-                MAX_PROOF_DEPTH,
-                &cancel
-            ),
-            Ok(1)
-        ) {
+        if !table.native_bridge
+            && !matches!(
+                catalog.implementation_count_bounded(
+                    &interface,
+                    &table.for_type.to_checked_type(),
+                    MAX_MATCH_CHECKS,
+                    MAX_PROOF_DEPTH,
+                    &cancel
+                ),
+                Ok(1)
+            )
+        {
             return false;
         }
     }

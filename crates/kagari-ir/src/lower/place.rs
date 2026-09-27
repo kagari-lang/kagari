@@ -25,6 +25,11 @@ struct Projection {
 enum ProjectionKind {
     Field(AggregateFieldRef),
     Index(IrValue),
+    InterfaceIndex {
+        index: IrValue,
+        read: crate::module::abi::NominalAbiType,
+        write: Option<crate::module::abi::NominalAbiType>,
+    },
 }
 
 impl FunctionLowerer<'_, '_> {
@@ -96,7 +101,8 @@ impl FunctionLowerer<'_, '_> {
                     && matches!(
                         self.analyzed.typed.type_table.place_type(id),
                         Some(
-                            TypeId::Struct(_)
+                            TypeId::Trait(_)
+                                | TypeId::Struct(_)
                                 | TypeId::Array(_, _)
                                 | TypeId::Map { .. }
                                 | TypeId::Set(_, _)
@@ -162,6 +168,53 @@ impl FunctionLowerer<'_, '_> {
                 let Some(mut place) = self.prepare_place_inner(base, true)? else {
                     return Ok(None);
                 };
+                let receiver = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .place_type(base)
+                    .ok_or(IrLoweringError::UnresolvedPlace(base))?;
+                let receiver = self
+                    .planner
+                    .arguments(
+                        &[receiver],
+                        &self.instance.substitution,
+                        self.function.debug.source_span,
+                    )?
+                    .remove(0);
+                if let Some(item) = receiver.list_item() {
+                    use kagari_hir::builtin::traits::StandardTrait;
+                    let mut read = StandardTrait::Index.nominal();
+                    read.arguments
+                        .push(TypeId::Builtin(kagari_hir::types::BuiltinType::USize));
+                    read.associated_types.insert(
+                        kagari_hir::types::associated_type_id(&read.declaration, "Output"),
+                        item.clone(),
+                    );
+                    let write = if receiver.writable_list() {
+                        let mut write = StandardTrait::MutableList.nominal();
+                        write.arguments.push(item.clone());
+                        Some(crate::module::abi::NominalAbiType::from_checked_type(
+                            &write,
+                        ))
+                    } else {
+                        None
+                    };
+                    let index = self.lower_expr(index)?;
+                    if self.current_block_terminated() {
+                        return Ok(None);
+                    }
+                    place.projections.push(Projection {
+                        kind: ProjectionKind::InterfaceIndex {
+                            index,
+                            read: crate::module::abi::NominalAbiType::from_checked_type(&read),
+                            write,
+                        },
+                        ty: self.place_type(id)?,
+                        tuple_base: false,
+                    });
+                    return Ok(Some(place));
+                }
                 if let Some(interface) = self.analyzed.typed.type_table.place_index(id).cloned() {
                     let receiver_ty = self
                         .analyzed
@@ -322,6 +375,27 @@ impl FunctionLowerer<'_, '_> {
                     field,
                     value: result,
                 }),
+                ProjectionKind::InterfaceIndex { index, write, .. } => {
+                    let interface =
+                        write.ok_or(IrLoweringError::MissingBinding("writable list interface"))?;
+                    let slot = kagari_hir::builtin::traits::StandardTrait::MutableList
+                        .contract()
+                        .methods
+                        .iter()
+                        .find(|m| m.name == "set")
+                        .expect("list setter")
+                        .slot;
+                    self.emit(Instruction::Call {
+                        dst: None,
+                        callee: crate::module::CallTarget::InterfaceMethod(Box::new(
+                            crate::module::instruction::InterfaceCallContract {
+                                interface,
+                                method_slot: slot as u32,
+                            },
+                        )),
+                        args: [base, index, result].into_iter().collect(),
+                    });
+                }
                 ProjectionKind::Index(index) => self.emit(Instruction::WriteAggregateIndex {
                     base,
                     index,
@@ -356,6 +430,17 @@ impl FunctionLowerer<'_, '_> {
     fn read_projection(&mut self, base: IrValue, projection: &Projection) -> IrValue {
         let dst = self.alloc_temp(projection.ty);
         match &projection.kind {
+            ProjectionKind::InterfaceIndex { index, read, .. } => self.emit(Instruction::Call {
+                dst: Some(dst),
+                callee: crate::module::CallTarget::InterfaceMethod(Box::new(
+                    crate::module::instruction::InterfaceCallContract {
+                        interface: read.clone(),
+                        method_slot: 0,
+                    },
+                )),
+                args: [base, *index].into_iter().collect(),
+            }),
+
             ProjectionKind::Field(field) => self.emit(Instruction::ReadAggregateField {
                 dst,
                 base,

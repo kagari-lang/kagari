@@ -4,14 +4,14 @@ use super::*;
 fn body_constraints_use_later_arguments_and_local_uses() {
     for body in [
         "val xs = []; xs.push(42);",
-        "val xs = MutableArray::new(); xs.push(42);",
-        "val xs = MutableSet::new(); xs.insert(42);",
-        "val xs = MutableMap::new(); xs.insert(1, true);",
+        "val xs = ArrayList::new(); xs.push(42);",
+        "val xs = LinkedHashSet::new(); xs.insert(42);",
+        "val xs = LinkedHashMap::new(); xs.insert(1, true);",
         "var xs = []; xs = [42];",
         "consume(Marker { value: 7 }, 1);",
         "val callback = |x| x + 1; callback(41);",
         "apply(|x| x + 1, 41);",
-        "val checked: Result<Array<i32>, String> = [Ok(42)].iter().collect();",
+        "val checked: Result<ArrayList<i32>, String> = [Ok(42)].iter().collect();",
     ] {
         let source = SourceFile::new(
             "body-inference.kgr",
@@ -34,7 +34,7 @@ fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
     for body in [
         "val xs = [];",
         "val xs = []; xs.push(1); xs.push(true);",
-        "val xs: Array<i32> = []; xs.push(1);",
+        "val xs: List<i32> = []; xs.push(1);",
     ] {
         let source = SourceFile::new(
             "body-inference-errors.kgr",
@@ -60,7 +60,7 @@ fn explicit_enum_arguments_check_units_payloads_and_constraints() {
         ("val value = Token<i32, bool>::Empty;", false),
         ("val value = Token<Missing>::Empty;", false),
         ("val value = Key<f32>::Empty;", false),
-        ("val value = Token<MutableMap<f32, bool>>::Empty;", false),
+        ("val value = Token<LinkedHashMap<f32, bool>>::Empty;", false),
         ("val value: Token<bool> = Token<i32>::Empty;", false),
         ("val value = Token<i32>::Missing;", false),
         ("val value = std::map<i32>::new();", false),
@@ -113,7 +113,7 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
         ("Eq + Hash", "[Missing]", 0),
         ("Eq + Hash", "Missing", 0),
         ("OrderedNumber", "[Missing]", 1),
-        ("SignedNumber", "MutableMap<i32, Missing>", 1),
+        ("SignedNumber", "LinkedHashMap<i32, Missing>", 1),
         ("Iterable", "[Missing]", 0),
         ("Iterable", "(Missing, i32)", 1),
         ("PartialEq", "(Missing, i32)", 0),
@@ -152,16 +152,16 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
         "struct Item { val field: TYPE }",
         "enum Item { Data(TYPE) }",
         "fn take(value: TYPE) {}",
-        "fn make() -> TYPE { MutableMap::new() }",
+        "fn make() -> TYPE { LinkedHashMap::new() }",
         "const value: TYPE = 0;",
-        "fn main() { val value: TYPE = MutableMap::new(); }",
+        "fn main() { val value: TYPE = LinkedHashMap::new(); }",
         "struct Marker<T> { val value: i32 } fn main() { Marker<TYPE> { value: 7 }; }",
     ] {
         for (annotation, expected_constraints) in [
-            ("MutableMap<f32, Missing>", 1),
-            ("MutableMap<Missing, i32>", 0),
-            ("MutableMap<i32, (Missing, MutableSet<f32>)>", 1),
-            ("MutableMap<MutableMap<f32, Missing>, i32>", 1),
+            ("LinkedHashMap<f32, Missing>", 1),
+            ("LinkedHashMap<Missing, i32>", 0),
+            ("LinkedHashMap<i32, (Missing, LinkedHashSet<f32>)>", 1),
+            ("LinkedHashMap<LinkedHashMap<f32, Missing>, i32>", 1),
         ] {
             let text = template.replace("TYPE", annotation);
             let source = SourceFile::new("partial-constraints.kgr", text.clone());
@@ -226,11 +226,11 @@ fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
     for (body, valid) in [
         ("val value = Marker<i32> { value: 7 };", true),
         (
-            "val value = Marker<MutableMap<i32, bool>> { value: 7 };",
+            "val value = Marker<LinkedHashMap<i32, bool>> { value: 7 };",
             true,
         ),
         (
-            "val value = Marker<MutableMap<f32, bool>> { value: 7 };",
+            "val value = Marker<LinkedHashMap<f32, bool>> { value: 7 };",
             false,
         ),
         ("val value = Marker<> { value: 7 };", false),
@@ -306,27 +306,27 @@ fn earlier_constructor_members_supply_context_to_later_members() {
 fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
     for (source, valid) in [
         (
-            "fn main() { val value: MutableMap<f32, i32> = MutableMap::new(); }",
+            "fn main() { val value: LinkedHashMap<f32, i32> = LinkedHashMap::new(); }",
             false,
         ),
         (
-            "fn main() { val value: MutableSet<f32> = MutableSet::new(); }",
+            "fn main() { val value: LinkedHashSet<f32> = LinkedHashSet::new(); }",
             false,
         ),
         (
-            "fn main() { val value: MutableArray<MutableMap<f32, i32>> = []; }",
+            "fn main() { val value: ArrayList<LinkedHashMap<f32, i32>> = []; }",
             false,
         ),
         (
-            "fn make<T>() { val value: MutableSet<T> = MutableSet::new(); }",
+            "fn make<T>() { val value: LinkedHashSet<T> = LinkedHashSet::new(); }",
             false,
         ),
         (
-            "fn make<T: Eq + Hash>() { val value: MutableSet<T> = MutableSet::new(); }",
+            "fn make<T: Eq + Hash>() { val value: LinkedHashSet<T> = LinkedHashSet::new(); }",
             true,
         ),
         (
-            "fn main() { val value: MutableMap<i32, bool> = MutableMap::new(); }",
+            "fn main() { val value: LinkedHashMap<i32, bool> = LinkedHashMap::new(); }",
             true,
         ),
     ] {
@@ -354,11 +354,11 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
 fn empty_container_context_is_shared_by_all_expression_positions() {
     for body in [
         "fn make() -> [i32] { [] }",
-        "fn make() -> MutableMap<i32, bool> { MutableMap::new() }",
-        "fn make() -> MutableSet<i32> { MutableSet::new() }",
-        "fn take(values: MutableArray<i32>, map: MutableMap<i32, bool>, set: MutableSet<i32>) {} fn main() { take([], MutableMap::new(), MutableSet::new()); }",
-        "struct Values { val array: MutableArray<i32>, val map: MutableMap<i32, bool>, val set: MutableSet<i32> } fn main() { Values { array: [], map: MutableMap::new(), set: MutableSet::new() }; }",
-        "fn main() { var map: MutableMap<i32, bool> = MutableMap::new(); map = MutableMap::new(); }",
+        "fn make() -> LinkedHashMap<i32, bool> { LinkedHashMap::new() }",
+        "fn make() -> LinkedHashSet<i32> { LinkedHashSet::new() }",
+        "fn take(values: ArrayList<i32>, map: LinkedHashMap<i32, bool>, set: LinkedHashSet<i32>) {} fn main() { take([], LinkedHashMap::new(), LinkedHashSet::new()); }",
+        "struct Values { val array: ArrayList<i32>, val map: LinkedHashMap<i32, bool>, val set: LinkedHashSet<i32> } fn main() { Values { array: [], map: LinkedHashMap::new(), set: LinkedHashSet::new() }; }",
+        "fn main() { var map: LinkedHashMap<i32, bool> = LinkedHashMap::new(); map = LinkedHashMap::new(); }",
     ] {
         let source = SourceFile::new("empty-context.kgr", body);
         let analysis = crate::analyze_source(&source, Default::default());
@@ -370,8 +370,8 @@ fn empty_container_context_is_shared_by_all_expression_positions() {
         assert!(analysis.into_codegen().is_ok());
     }
     for source in [
-        "fn make() -> MutableMap<i32, bool> { std::map::new(1) }",
-        "fn make() -> MutableMap<i32, bool> { MutableSet::new() }",
+        "fn make() -> LinkedHashMap<i32, bool> { std::map::new(1) }",
+        "fn make() -> LinkedHashMap<i32, bool> { LinkedHashSet::new() }",
         "fn make() -> [i32] { [true] }",
     ] {
         let analysis = crate::analyze_source(
@@ -394,7 +394,7 @@ fn assignment_context_uses_checked_target_types_without_bypassing_writeability()
             true,
         ),
         (
-            "val values: MutableArray<Marker<i32>> = [Marker { value: 1 }]; values[0] = Marker { value: 2 };",
+            "val values: ArrayList<Marker<i32>> = [Marker { value: 1 }]; values[0] = Marker { value: 2 };",
             true,
         ),
         (
@@ -799,7 +799,7 @@ fn composite_annotations_retain_structure_without_authorizing_codegen() {
     for annotation in [
         "(i32, Missing)",
         "[Missing]",
-        "MutableMap<i32, Missing>",
+        "LinkedHashMap<i32, Missing>",
         "Cell<Missing>",
     ] {
         for declaration in [
@@ -1037,7 +1037,7 @@ fn aggregate_bounds_are_checked_for_annotations_constructors_and_forwarded_param
     }
     let source = SourceFile::new(
         "bounds.kgr",
-        "struct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(MutableSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
+        "struct Key<T: Eq + Hash> { val value: T } enum Items<T: Eq + Hash> { Values(LinkedHashSet<T>) } fn pass<T: Eq + Hash>(value: T) -> Key<T> { Key { value: value } }",
     );
     let analysis = crate::analyze_source(&source, Default::default());
     assert!(
@@ -1147,8 +1147,8 @@ fn generic_parameter_context_preserves_known_members_beside_uninferred_binders()
         ("take((Token<i32>::Empty, true));", true),
         ("take((Token<bool>::Empty, true));", false),
         ("unseeded(Token::Empty);", false),
-        ("identity(MutableMap::new());", false),
-        ("identity(MutableSet::new());", false),
+        ("identity(LinkedHashMap::new());", false),
+        ("identity(LinkedHashSet::new());", false),
     ] {
         let source = SourceFile::new(
             "partial-parameter-context.kgr",
@@ -1185,7 +1185,7 @@ fn constructor_fields_share_partial_argument_context_and_reject_unseeded_members
             false,
         ),
         (
-            "val item = Pair { pair: (Token::Empty, MutableMap::new()) };",
+            "val item = Pair { pair: (Token::Empty, LinkedHashMap::new()) };",
             false,
         ),
     ] {
@@ -1211,17 +1211,17 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
     for (declaration, initializer, nominal) in [
         (
             "fn identity<T>(value: T) -> T { value }",
-            "identity((7, MutableMap::new()))",
+            "identity((7, LinkedHashMap::new()))",
             false,
         ),
         (
             "struct Wrap<T> { val value: T }",
-            "Wrap { value: (7, MutableMap::new()) }",
+            "Wrap { value: (7, LinkedHashMap::new()) }",
             true,
         ),
         (
             "enum Wrap<T> { Value(T) }",
-            "Wrap::Value((7, MutableMap::new()))",
+            "Wrap::Value((7, LinkedHashMap::new()))",
             true,
         ),
     ] {
@@ -1270,11 +1270,11 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
     for (declaration, initializer) in [
         (
             "struct Pair<T> { val first: T, val second: T }",
-            "Pair { first: (1, MutableMap::new()), second: (true, MutableMap::new()) }",
+            "Pair { first: (1, LinkedHashMap::new()), second: (true, LinkedHashMap::new()) }",
         ),
         (
             "enum Pair<T> { Values(T, T) }",
-            "Pair::Values((1, MutableMap::new()), (true, MutableMap::new()))",
+            "Pair::Values((1, LinkedHashMap::new()), (true, LinkedHashMap::new()))",
         ),
     ] {
         let source = SourceFile::new(
@@ -1294,7 +1294,7 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
             })
             .expect("known i32/bool conflict survives recovery");
         assert_eq!(
-            mismatch, "(i32, MutableMap<<error>, <error>>)",
+            mismatch, "(i32, LinkedHashMap<<error>, <error>>)",
             "{initializer}"
         );
         assert!(analysis.into_codegen().is_err());
@@ -1328,7 +1328,7 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
         let source = SourceFile::new(
             "reflective-context.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: MutableArray<Marker<i32>> = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
+                "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: ArrayList<Marker<i32>> = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
             ),
         );
         let analysis = crate::analyze_source(
@@ -1362,16 +1362,13 @@ fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
     for (body, mismatch) in [
         ("values.push((1, missing));", false),
         ("values.push((true, missing));", true),
+        ("std::array::ArrayList::push(values, (1, missing));", false),
         (
-            "std::array::MutableArray::push(values, (1, missing));",
-            false,
-        ),
-        (
-            "std::array::MutableArray::push(values, (true, missing));",
+            "std::array::ArrayList::push(values, (true, missing));",
             true,
         ),
-        ("std::array::Array::len(missing);", false),
-        ("std::array::Array::len((1, missing));", true),
+        ("std::array::ArrayList::len(missing);", false),
+        ("std::array::ArrayList::len((1, missing));", true),
         ("std::string::String::contains(missing, \"x\");", false),
         ("std::string::String::contains(\"x\", missing);", false),
         ("std::string::String::contains(\"x\", (1, missing));", true),
@@ -1409,17 +1406,17 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
             true,
         ),
         (
-            "std::array::MutableArray::push(values, Marker { value: 7 });",
+            "std::array::ArrayList::push(values, Marker { value: 7 });",
             true,
         ),
         ("map.insert(1, Marker { value: 7 });", true),
         (
-            "std::map::MutableMap::insert(map, 1, Marker { value: 7 });",
+            "std::map::LinkedHashMap::insert(map, 1, Marker { value: 7 });",
             true,
         ),
         ("values.push(Marker<bool> { value: 7 });", false),
         (
-            "std::map::MutableMap::insert(map, 1, Marker<bool> { value: 7 });",
+            "std::map::LinkedHashMap::insert(map, 1, Marker<bool> { value: 7 });",
             false,
         ),
         ("values.push(Marker { value: true });", false),
@@ -1427,7 +1424,7 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
         let source = SourceFile::new(
             "standard-context.kgr",
             format!(
-                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: MutableArray<Marker<i32>> = []; val map: MutableMap<i32, Marker<i32>> = MutableMap::new(); {body} }}"
+                "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: ArrayList<Marker<i32>> = []; val map: LinkedHashMap<i32, Marker<i32>> = LinkedHashMap::new(); {body} }}"
             ),
         );
         let analysis = crate::analyze_source(&source, Default::default());
@@ -1444,8 +1441,8 @@ fn standard_container_operands_supply_constructor_context_in_both_call_forms() {
 #[test]
 fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
     for body in [
-        "keys.union(MutableSet::new());",
-        "std::set::Set::intersection(keys, MutableSet::new());",
+        "keys.union(LinkedHashSet::new());",
+        "std::set::LinkedHashSet::intersection(keys, LinkedHashSet::new());",
         "result.unwrap_or(Marker { value: 7 });",
         "std::result::Result::unwrap_or(result, Marker { value: 7 });",
     ] {
@@ -1453,7 +1450,7 @@ fn standard_set_and_result_context_preserves_concrete_receiver_arguments() {
             &SourceFile::new(
                 "standard-fallback-context.kgr",
                 format!(
-                    "struct Marker<T> {{ val value: i32 }} fn check(keys: MutableSet<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
+                    "struct Marker<T> {{ val value: i32 }} fn check(keys: LinkedHashSet<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
                 ),
             ),
             Default::default(),
@@ -2296,9 +2293,9 @@ fn index_reads_require_a_receiver_value_but_keep_inner_index_errors() {
 #[test]
 fn standard_receiver_shapes_require_normally_produced_values() {
     for call in [
-        "std::array::Array::len(ARG)",
-        "std::map::Map::len(ARG)",
-        "std::set::Set::len(ARG)",
+        "std::array::ArrayList::len(ARG)",
+        "std::map::LinkedHashMap::len(ARG)",
+        "std::set::LinkedHashSet::len(ARG)",
         "std::string::String::len_bytes(ARG)",
         "std::option::Option::is_some(ARG)",
         "std::result::Result::is_ok(ARG)",

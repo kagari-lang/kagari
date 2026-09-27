@@ -33,13 +33,13 @@ duplicate bindings/exports/method views, missing documentation and function bodi
 fail the standard-library build. The engine bundles the exact parsed source text.
 
 Generic inherent blocks own their receiver parameters, for example
-`impl<T> Array<T> { pub fn get(self, index: usize) -> Option<T>; }`.
+`impl<T> ArrayList<T> { pub fn get(self, index: usize) -> Option<T>; }`.
 Associated constructors omit `self`. Method-specific generic parameters extend
 the impl parameters; `Self` resolves to the impl target. Concrete targets such as
-`impl Array<String>` restrict methods to that receiver shape. Metadata and source
+`impl ArrayList<String>` restrict methods to that receiver shape. Metadata and source
 identities are generated from these declarations, including read-only versus
 mutable receiver access. Method syntax and qualified calls such as
-`Array::get(values, index)` share the same checked signature. Old module-level
+`ArrayList::get(values, index)` share the same checked signature. Old module-level
 method functions are removed. Genuine free functions remain at module scope.
 Native `Iterable`, `OrderedNumber` and `SignedNumber` constraints retain their
 existing restricted meanings. They do not grant arbitrary Iterator or operator
@@ -111,7 +111,10 @@ is checked at call sites and retained in portable method contracts.
 
 
 Collection SDK files explicitly declare Iterable and FromIterator implementations
-for Array/MutableArray, Map/MutableMap and Set/MutableSet; String declares Iterable.
+for ArrayList, LinkedHashMap and LinkedHashSet; String declares Iterable.
+The same files declare List/MutableList, Map/MutableMap and Set/MutableSet
+traits and native impl witnesses. Their inherited members and source locations
+are available to semantic queries, including read-only member completion.
 Result and Option declare their conditional FromIterator implementations. Generic
 arguments, key constraints, destination bounds, associated outputs and member
 locations come from those declarations. The build validates the supported native

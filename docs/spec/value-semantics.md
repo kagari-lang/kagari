@@ -15,10 +15,11 @@ argument passing, and returns share their identity. `val` prevents rebinding a
 slot, not mutation of the referenced object. Container copy operations are
 shallow. There is no generic deep-copy or deep-freeze operation in v1.
 
-[Collection access](collection-access.md) distinguishes read-only `Array<T>`
-(`[T]`), `Map<K, V>` and `Set<T>` from writable `MutableArray<T>`,
-`MutableMap<K, V>` and `MutableSet<T>`. Literals infer writable arrays. Access
-weakening shares storage; `Type::from(array)` creates a fresh shallow container.
+[Collection access](collection-access.md) distinguishes read-only `List<T>`
+(`[T]`), `Map<K, V>` and `Set<T>` from writable `MutableList<T>`,
+`MutableMap<K, V>` and `MutableSet<T>`. Concrete storage is `ArrayList`,
+`LinkedHashMap` and `LinkedHashSet`. Literals infer `ArrayList<T>`. Access
+conversion preserves the underlying object; `Type::from(array)` creates a fresh shallow container.
 Read-only views do not freeze referenced objects or other writable aliases.
 
 An interface may retain a checked durable host root as its concrete payload;
@@ -88,8 +89,10 @@ immutability. `.eq()` and generic comparisons use the same implementation as `==
 `===` and `!==` compare object identity and cannot be overridden. They apply to
 Struct, Array, Map and Set, using stable runtime-owned identity rather than a
 physical address. Scalar, String, Tuple and enum values do not acquire identity
-operators merely because their implementation allocates storage. Interface and
-host identity comparisons are outside this extension.
+operators merely because their implementation allocates storage. Collection views
+over shared objects preserve the identity of that underlying object, including
+views backed by different storage implementations. Other interface and host
+identity comparisons are outside this extension.
 
 The defaults differ by type, but follow the same selection rule:
 
@@ -104,8 +107,9 @@ The defaults differ by type, but follow the same selection rule:
 | Float | IEEE comparison | None | No override |
 
 Struct defaults supply PartialEq, Eq and Hash regardless of field types. Default
-Tuple and enum protocols are conditional, as described below. Interfaces, host
-handles/paths and function values remain outside general equality and hashing;
+Tuple and enum protocols are conditional, as described below. Collection views
+retain object-identity equality and hashing. Other interfaces, host handles/paths
+and function values remain outside general equality and hashing;
 this extension does not open host equality implementations.
 
 ### Explicit Struct and enum implementations
@@ -424,7 +428,7 @@ See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
 
 ## Repeat arrays and bulk replacement
 
-`[value; count]` constructs a fresh `MutableArray<T>`, not a fixed-length array.
+`[value; count]` constructs a fresh `ArrayList<T>`, not a fixed-length array.
 Evaluate `value`, then the `usize` count, exactly once. The value is evaluated even
 for zero length. Repetition requires a type proven to contain no shared mutable
 object identity: scalars, String and integer ranges qualify; Tuple and enum payloads
@@ -434,7 +438,7 @@ also applies at lengths zero and one and to an empty variant such as `None` in
 `Option<Struct>`. An unconstrained generic element type cannot prove the requirement.
 The count may be a runtime expression. Allocation and execution budgets are checked.
 
-`MutableArray::from_fn(count, initializer)` accepts every valid array element type.
+`ArrayList::from_fn(count, initializer)` accepts every valid array element type.
 Evaluate the usize count and closure expressions once, in that order. Invoke the
 closure with each index from zero to count minus one; zero length makes no calls.
 An object constructed inside the closure is independent on each call. Returning an
@@ -443,7 +447,7 @@ cloning. Construction uses ordinary script frames and resource budgets. Trap or
 termination returns no partial array and releases execution roots; completed
 callback side effects remain visible. Generic code can use this API explicitly.
 
-`MutableArray<T>.fill(value)` and `copy_from_slice(source: Array<T>)` return unit.
+`ArrayList<T>.fill(value)` and `copy_from_slice(source: List<T>)` return unit.
 Copying requires equal lengths, supports self-copy, and preserves referenced object
 identities. Both methods replace slots without changing length, so they are allowed
 during iteration. Preparation validates inputs, charges work and temporary storage,
@@ -458,7 +462,7 @@ Range expressions are immutable bounds values rather than arrays. See
 [stdlib/ops.kgr](../../stdlib/ops.kgr). Iterators own their cursor; assigning a
 range copies its bounds, and iterating it twice creates independent cursors.
 
-`MutableArray<T>.copy_within<R: RangeBounds<usize>>(source, destination)` replaces
+`ArrayList<T>.copy_within<R: RangeBounds<usize>>(source, destination)` replaces
 slots in the same array and returns unit. Evaluate the receiver, source and
 `usize` destination once, left to right; then call `start_bound` and `end_bound`
 once each, in that order. These calls may execute script code. After they return,
@@ -474,5 +478,5 @@ storage and check cancellation during preparation. Committing slots runs no scri
 code and performs no allocation. Failure before commit leaves the copy destination
 unchanged; argument and custom bound-method side effects remain visible.
 
-`copy_from_slice` uses Kagari's read-only `Array<T>` view. It does not introduce
+`copy_from_slice` uses Kagari's read-only `List<T>` view. It does not introduce
 Rust borrowed slices or a `Copy` bound. No operation performs object graph cloning.

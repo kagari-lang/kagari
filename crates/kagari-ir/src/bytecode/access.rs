@@ -702,14 +702,12 @@ pub(super) fn verify(
                         CallTarget::StandardIntrinsic(intrinsic) => {
                             if matches!(
                                 intrinsic,
-                                S::ArrayCopyWithin
-                                    | S::MutableArrayFromFn
-                                    | S::ArrayFrom
-                                    | S::MutableArrayFrom
-                                    | S::MapFrom
-                                    | S::MutableMapFrom
-                                    | S::SetFrom
-                                    | S::MutableSetFrom
+                                S::ArrayCopyFromSlice
+                                    | S::ArrayCopyWithin
+                                    | S::ArrayListFromFn
+                                    | S::ArrayListFrom
+                                    | S::LinkedHashMapFrom
+                                    | S::LinkedHashSetFrom
                             ) {
                                 return Err(invalid());
                             }
@@ -721,7 +719,7 @@ pub(super) fn verify(
                                     | S::ArrayRemove
                                     | S::ArrayClear
                                     | S::ArrayFill
-                                    | S::ArrayCopyFromSlice
+                                    | S::ArrayCopyFromStorage
                                     | S::ArrayCopyWithinBounds
                                     | S::MapInsert
                                     | S::MapRemove
@@ -738,6 +736,18 @@ pub(super) fn verify(
                                 .is_some_and(|f| f.access == Some(Access::ReadOnly))
                             {
                                 return Err(invalid());
+                            }
+                            if *intrinsic == S::ArrayCopyFromStorage {
+                                let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
+                                else {
+                                    return Err(invalid());
+                                };
+                                if !flows(
+                                    &facts[1],
+                                    &AbiType::Array(item.clone(), Access::ReadOnly),
+                                ) {
+                                    return Err(invalid());
+                                }
                             }
                             if *intrinsic == S::ArrayCopyWithinBounds {
                                 if !matches!(&facts[0].ty, Some(AbiType::Array(_, Access::Mutable)))
@@ -809,8 +819,13 @@ pub(super) fn verify(
                                         parameter.ty.infer(&ty.to_checked_type(), &mut bindings);
                                     }
                                 }
-                                for (parameter, actual) in spec.api.params.iter().zip(&facts) {
-                                    let expected = parameter.ty.instantiate(&bindings);
+                                for (index, (parameter, actual)) in
+                                    spec.api.params.iter().zip(&facts).enumerate()
+                                {
+                                    let mut expected = parameter.ty.instantiate(&bindings);
+                                    if index == 0 && surface::collection_read_method(*intrinsic) {
+                                        expected = expected.read_only_view().unwrap_or(expected);
+                                    }
                                     if expected.is_concrete()
                                         && !flows(actual, &AbiType::from_checked_type(&expected))
                                     {
@@ -860,6 +875,25 @@ pub(super) fn verify(
                                 *method_slot as usize,
                             )
                             .ok_or_else(invalid)?;
+                            if let Some(AbiType::Trait(actual)) = &facts[0].ty {
+                                let modules: Vec<_> = program.map_or_else(
+                                    || vec![module],
+                                    |program| program.modules.iter().collect(),
+                                );
+                                if !super::trait_bounds::interface_ancestors(
+                                    actual,
+                                    &AbiType::Trait(actual.clone()),
+                                    &modules,
+                                )
+                                .is_some_and(|parents| parents.contains(interface))
+                                {
+                                    return Err(invalid());
+                                }
+                            } else if crate::module::abi::is_collection_interface(
+                                &interface.declaration,
+                            ) {
+                                return Err(invalid());
+                            }
                             for (value, expected) in facts.iter().skip(1).zip(params.iter().skip(1))
                             {
                                 if !flows(value, expected) {

@@ -1,12 +1,12 @@
 //! Hash maps using Eq and Hash. Keys must keep stable equality and hash behavior while stored.
 //!
-//! `Map` provides read-only access; `MutableMap` also permits writes.
+//! `Map` provides read-only access; `LinkedHashMap` also permits writes.
 //! Read-only views share storage and observe changes through writable aliases.
 //! `from` constructs fresh shallow storage; referenced elements retain identity.
 //!
 //! Resource exhaustion and cancellation follow the execution-session contract.
 
-/// Read-only access to an insertion-ordered map from `K` to `V`.
+/// A writable insertion-ordered hash map from `K` to `V`.
 ///
 /// Keys require `Eq + Hash`. Equal keys must produce equal hashes; equal hashes do
 /// not imply equal keys. Inserting an existing key replaces its value. The caller
@@ -21,58 +21,17 @@
 /// # Examples
 ///
 /// ```kgr
-/// val names: MutableMap<i32, String> = MutableMap::new();
+/// val names: LinkedHashMap<i32, String> = LinkedHashMap::new();
 /// names.insert(1, "first");
 /// names.insert(1, "updated");
 /// std::debug::assert(names.get(1) == Some("updated"), "lookup");
 /// std::debug::assert(names.get(2) == None, "absent key");
 /// ```
-#[builtin_type(Map)]
-pub type Map<K, V>;
 
-/// A writable shared map. Copies preserve object identity.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = MutableMap::from([("one", 1), ("two", 2)]);
-/// std::debug::assert(!values.is_empty(), "populated");
-/// ```
-#[builtin_type(MutableMap)]
-pub type MutableMap<K, V>;
+#[builtin_type(LinkedHashMap)]
+pub type LinkedHashMap<K, V>;
 
-impl<K: Eq + Hash, V> Map<K, V> {
-    /// Create a fresh empty map with read-only access.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: Map<String, i32> = Map::new();
-    /// std::debug::assert(values.is_empty(), "empty");
-    /// ```
-    #[intrinsic(MapNew)]
-    pub fn new() -> Self;
-
-    /// Construct a fresh shallow map from the supplied elements.
-    ///
-    /// Referenced objects retain identity. The result does not share input slots.
-    /// Equal keys keep the last supplied value. Keys must remain stable while stored.
-    /// Input is traversed in order using the selected Eq and Hash implementations.
-    ///
-    /// # Panics
-    ///
-    /// Propagates traps from user comparison or hashing. No partial result is returned.
-    /// Completed callback effects are not rolled back.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values = Map::from([("one", 1), ("two", 2)]);
-    /// std::debug::assert(!values.is_empty(), "populated");
-    /// ```
-    #[intrinsic(MapFrom)]
-    pub fn from(items: [(K, V)]) -> Self;
-
+impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// Return the number of entries.
     ///
     /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
@@ -84,7 +43,7 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.len() == [0].len(), "length");
     /// ```
@@ -102,7 +61,7 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// std::debug::assert(values.is_empty(), "empty");
     /// ```
     #[intrinsic(MapIsEmpty)]
@@ -124,7 +83,7 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.contains_key(1), "key");
     /// ```
@@ -147,7 +106,7 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.get(1) == Some("one"), "value");
     /// std::debug::assert(values.get(2) == None, "absent");
@@ -174,12 +133,12 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.keys().get("".len_bytes()) == Some(1), "key snapshot");
     /// ```
     #[intrinsic(MapKeys)]
-    pub fn keys(self) -> MutableArray<K>;
+    pub fn keys(self) -> ArrayList<K>;
 
     /// Return a shallow array of values.
     ///
@@ -200,12 +159,12 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.values().get("".len_bytes()) == Some("one"), "value snapshot");
     /// ```
     #[intrinsic(MapValues)]
-    pub fn values(self) -> MutableArray<V>;
+    pub fn values(self) -> ArrayList<V>;
 
     /// Return a shallow array of key/value tuples.
     ///
@@ -226,24 +185,24 @@ impl<K: Eq + Hash, V> Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.entries().get("".len_bytes()) == Some((1, "one")), "entry snapshot");
     /// ```
     #[intrinsic(MapEntries)]
-    pub fn entries(self) -> MutableArray<(K, V)>;
+    pub fn entries(self) -> ArrayList<(K, V)>;
 }
 
-impl<K: Eq + Hash, V> MutableMap<K, V> {
+impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// Create a fresh empty map with writable access.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<String, i32> = MutableMap::new();
+    /// val values: LinkedHashMap<String, i32> = LinkedHashMap::new();
     /// std::debug::assert(values.is_empty(), "empty");
     /// ```
-    #[intrinsic(MutableMapNew)]
+    #[intrinsic(LinkedHashMapNew)]
     pub fn new() -> Self;
 
     /// Construct a fresh shallow map from the supplied elements.
@@ -260,10 +219,10 @@ impl<K: Eq + Hash, V> MutableMap<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values = MutableMap::from([("one", 1), ("two", 2)]);
+    /// val values = LinkedHashMap::from([("one", 1), ("two", 2)]);
     /// std::debug::assert(!values.is_empty(), "populated");
     /// ```
-    #[intrinsic(MutableMapFrom)]
+    #[intrinsic(LinkedHashMapFrom)]
     pub fn from(items: [(K, V)]) -> Self;
 
     /// Insert or replace an entry and return the same map.
@@ -285,13 +244,13 @@ impl<K: Eq + Hash, V> MutableMap<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "old");
     /// values.insert(1, "new");
     /// std::debug::assert(values.get(1) == Some("new") && values.len() == [0].len(), "replaced");
     /// ```
     #[intrinsic(MapInsert)]
-    pub fn insert(self, key: K, item: V) -> MutableMap<K, V>;
+    pub fn insert(self, key: K, item: V) -> LinkedHashMap<K, V>;
 
     /// Remove the entry and return its value, or None if absent.
     ///
@@ -312,7 +271,7 @@ impl<K: Eq + Hash, V> MutableMap<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// std::debug::assert(values.remove(1) == Some("one"), "removed");
     /// std::debug::assert(values.remove(1) == None, "absent");
@@ -339,17 +298,17 @@ impl<K: Eq + Hash, V> MutableMap<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableMap<i32, String> = MutableMap::new();
+    /// val values: LinkedHashMap<i32, String> = LinkedHashMap::new();
     /// values.insert(1, "one");
     /// values.clear();
     /// std::debug::assert(values.is_empty(), "cleared");
     /// ```
     #[intrinsic(MapClear)]
-    pub fn clear(self) -> MutableMap<K, V>;
+    pub fn clear(self) -> LinkedHashMap<K, V>;
 }
 
 /// Produce a fresh iterator over this shared source.
-impl<K: Eq + Hash, V> Iterable for Map<K, V> {
+impl<K: Eq + Hash, V> Iterable for LinkedHashMap<K, V> {
     /// The value yielded at each traversal position.
     type Item = (K, V);
     /// The native iterator retaining this source and its current position.
@@ -363,7 +322,7 @@ impl<K: Eq + Hash, V> Iterable for Map<K, V> {
 }
 
 /// Construct fresh shallow storage from an iterable source.
-impl<K: Eq + Hash, V> FromIterator<(K, V)> for Map<K, V> {
+impl<K: Eq + Hash, V> FromIterator<(K, V)> for LinkedHashMap<K, V> {
     /// Collect the source in traversal order into a fresh collection.
     ///
     /// Referenced objects retain identity. Sets discard equal duplicates; maps
@@ -373,41 +332,95 @@ impl<K: Eq + Hash, V> FromIterator<(K, V)> for Map<K, V> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Map<i32, i32> = [(1, 20), (2, 22)].iter().collect();
+    /// val values: LinkedHashMap<i32, i32> = [(1, 20), (2, 22)].iter().collect();
     /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
     /// ```
     #[intrinsic(CollectionFromIterator)]
     fn from_iter<I: Iterable<Item = (K, V)>>(source: I) -> Self;
 }
 
-/// Produce a fresh iterator over this shared source.
-impl<K: Eq + Hash, V> Iterable for MutableMap<K, V> {
-    /// The value yielded at each traversal position.
-    type Item = (K, V);
-    /// The native iterator retaining this source and its current position.
-    type Iter = Iter<(K, V)>;
-    /// Begin a new traversal without copying elements or transferring ownership.
-    ///
-    /// Native collection guards prevent structural mutation during traversal.
-    /// Strings yield one Unicode scalar string at a time.
-    #[intrinsic(CollectionIter)]
-    fn iter(self) -> Iter<(K, V)>;
+/// Read-only access to key-value associations.
+///
+/// The interface does not require `Eq + Hash` and does not prescribe an iteration
+/// order. Those choices belong to the implementation. `LinkedHashMap<K, V>` requires
+/// `K: Eq + Hash` and traverses entries in insertion order. Scripts can provide other
+/// implementations. `get` returns `None` for an absent key; `iter` yields `(K, V)` pairs.
+///
+/// A view shares its object with writable aliases and does not freeze keys or values.
+/// Type arguments are invariant. Equality and hashing use underlying object identity.
+/// Construct a concrete implementation before converting it to this interface.
+///
+/// # Examples
+///
+/// ```kgr
+/// val storage = LinkedHashMap::from([("answer", 20)]);
+/// val view: Map<String, i32> = storage;
+/// storage.insert("answer", 42);
+/// std::debug::assert_eq(view.get("answer"), Some(42), "live view");
+/// std::debug::assert_eq(view.get("missing"), None, "absent");
+/// ```
+pub trait Map<K, V>: Iterable<Item = (K, V), Iter = Iter<(K, V)>> {
+    /// Returns the number of entries.
+    fn len(self) -> usize;
+    /// Reports whether the map is empty.
+    fn is_empty(self) -> bool;
+    /// Tests whether the map contains a key.
+    fn contains_key(self, key: K) -> bool;
+    /// Returns the value for a key, or `None`.
+    fn get(self, key: K) -> Option<V>;
 }
 
-/// Construct fresh shallow storage from an iterable source.
-impl<K: Eq + Hash, V> FromIterator<(K, V)> for MutableMap<K, V> {
-    /// Collect the source in traversal order into a fresh collection.
-    ///
-    /// Referenced objects retain identity. Sets discard equal duplicates; maps
-    /// keep the last value for each equal key. Source and key-operation failures
-    /// propagate without rolling back completed callback effects.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: MutableMap<i32, i32> = [(1, 20), (2, 22)].iter().collect();
-    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
-    /// ```
-    #[intrinsic(CollectionFromIterator)]
-    fn from_iter<I: Iterable<Item = (K, V)>>(source: I) -> Self;
+/// Writable access to key-value associations.
+///
+/// Extends `Map<K, V>` with insertion, removal and clearing. Inserting a key already
+/// present replaces its value. `insert` returns unit; `remove` returns the previous
+/// value, or `None`. A mutable view can be passed as a read-only `Map` without copying.
+/// Key equivalence and traversal order are selected by the implementation.
+/// Implementations must validate and prepare a mutation before committing it.
+///
+/// # Examples
+///
+/// ```kgr
+/// val view: MutableMap<String, i32> = LinkedHashMap::new();
+/// view.insert("answer", 42);
+/// val readable: Map<String, i32> = view;
+/// std::debug::assert_eq(readable.get("answer"), Some(42), "shared view");
+/// std::debug::assert_eq(view.remove("answer"), Some(42), "removed");
+/// ```
+pub trait MutableMap<K, V>: Map<K, V> {
+    /// Associates a key with a value, replacing an existing value.
+    fn insert(self, key: K, value: V) -> ();
+    /// Removes and returns the value for a key, or `None`.
+    fn remove(self, key: K) -> Option<V>;
+    /// Removes all entries.
+    fn clear(self) -> ();
+}
+
+/// Provides the Map capability for the native storage class.
+impl<K: Eq + Hash, V> Map<K, V> for LinkedHashMap<K, V> {
+    /// Returns the number of entries.
+    #[intrinsic(MapLen)]
+    fn len(self) -> usize;
+    /// Reports whether the map is empty.
+    #[intrinsic(MapIsEmpty)]
+    fn is_empty(self) -> bool;
+    /// Tests whether the map contains a key.
+    #[intrinsic(MapContainsKey)]
+    fn contains_key(self, key: K) -> bool;
+    /// Returns the value for a key, or `None`.
+    #[intrinsic(MapGet)]
+    fn get(self, key: K) -> Option<V>;
+}
+
+/// Provides the MutableMap capability for the native storage class.
+impl<K: Eq + Hash, V> MutableMap<K, V> for LinkedHashMap<K, V> {
+    /// Associates a key with a value, replacing an existing value.
+    #[intrinsic(MapInsert)]
+    fn insert(self, key: K, value: V) -> ();
+    /// Removes and returns the value for a key, or `None`.
+    #[intrinsic(MapRemove)]
+    fn remove(self, key: K) -> Option<V>;
+    /// Removes all entries.
+    #[intrinsic(MapClear)]
+    fn clear(self) -> ();
 }

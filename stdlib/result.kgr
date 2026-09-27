@@ -194,8 +194,8 @@ impl<T, E, C: FromIterator<T>> FromIterator<Result<T, E>> for Result<C, E> {
     /// # Examples
     ///
     /// ```kgr
-    /// val items: Array<Result<i32, String>> = [Ok(20), Ok(22)];
-    /// val result: Result<Array<i32>, String> = items.iter().collect();
+    /// val items: ArrayList<Result<i32, String>> = [Ok(20), Ok(22)];
+    /// val result: Result<ArrayList<i32>, String> = items.iter().collect();
     /// std::debug::assert_eq(result.map(|x| x[0] + x[1]), Ok(42), "success");
     /// ```
     #[intrinsic(ResultFromIterator)]

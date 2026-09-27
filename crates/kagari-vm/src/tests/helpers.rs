@@ -466,7 +466,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             security.capabilities.jit = true;
             runtime.set_security_context(security);
             let bytecode = compile_test_bytecode(
-                "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> MutableArray<i32> { [7] }",
+                "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> ArrayList<i32> { [7] }",
             );
             let compute = bytecode
                 .functions
@@ -1166,7 +1166,7 @@ fn main() -> i32 {
 fn executes_source_lowered_set_index_helper() {
     let (runtime, loaded) = load_reflection_test_module(
         r#"
-fn main() -> MutableArray<i32> {
+fn main() -> ArrayList<i32> {
     val values = [1, 2];
     set_index(values, 0, 9)
 }
@@ -1237,14 +1237,14 @@ fn executes_source_standard_collection_string_math_and_debug_modules() {
     let (runtime, loaded) = load_test_module(
         r#"
 fn main() -> (usize, bool, usize, usize, usize, usize, usize, usize, bool, bool, bool, i32) {
-    val map: MutableMap<String, i32> = MutableMap::new();
+    val map: LinkedHashMap<String, i32> = LinkedHashMap::new();
     map.insert("a", 1);
     map.insert("b", 2);
     val keys = map.keys();
     val values = map.values();
     val entries = map.entries();
 
-    val set: MutableSet<String> = MutableSet::new();
+    val set: LinkedHashSet<String> = LinkedHashSet::new();
     set.insert("x");
     set.insert("y");
     val set_items = set.to_array();
@@ -1303,7 +1303,7 @@ fn executes_bytecode_standard_collection_intrinsics() {
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(1)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MutableMapNew),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashMapNew),
                     args: vec![],
                 },
                 BytecodeInstruction::LoadConst {
@@ -1337,7 +1337,7 @@ fn executes_bytecode_standard_collection_intrinsics() {
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(8)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MutableSetNew),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashSetNew),
                     args: vec![],
                 },
                 BytecodeInstruction::Call {
@@ -1400,7 +1400,7 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MutableMapNew),
+                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashMapNew),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
@@ -1490,12 +1490,12 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
             vec![
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(0)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MutableMapNew),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashMapNew),
                     args: vec![],
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(1)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MutableSetNew),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashSetNew),
                     args: vec![],
                 },
                 BytecodeInstruction::Call {

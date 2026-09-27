@@ -192,7 +192,7 @@ fn main()->Result<i32,String>{
     val a=origin();val b:Result<i32,String> = Err("same");
     std::debug::assert(a==b,"equality ignores trace");
     std::debug::assert(a.hash()==b.hash(),"hash ignores trace");
-    val set:MutableSet<Result<i32,String>> = MutableSet::new();set.insert(a);
+    val set:LinkedHashSet<Result<i32,String>> = LinkedHashSet::new();set.insert(a);
     std::debug::assert(set.contains(b),"key lookup ignores trace");
     a
 }
@@ -480,7 +480,7 @@ fn imported_error_frames_keep_their_own_source_locations() {
 #[test]
 fn collecting_results_preserves_original_error_stack() {
     run_failure(
-        "fn read(x:i32)->Result<i32,String> {\n    if x < 0 { Err(\"negative\") } else { Ok(x) }\n}\nfn main()->Result<Array<i32>,String> { [20,-1,22].iter().map(|x| read(x)).collect() }",
+        "fn read(x:i32)->Result<i32,String> {\n    if x < 0 { Err(\"negative\") } else { Ok(x) }\n}\nfn main()->Result<ArrayList<i32>,String> { [20,-1,22].iter().map(|x| read(x)).collect() }",
         "read",
         2,
         "negative",

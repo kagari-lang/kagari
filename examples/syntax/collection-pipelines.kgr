@@ -17,13 +17,13 @@ fn main() -> i32 {
         .map(|item| { calls += 1; item * 2 })
         .take("ab".len_bytes());
     std::debug::assert_eq(calls, 0, "construction is lazy");
-    val values: Array<i32> = pipeline.collect();
+    val values: ArrayList<i32> = pipeline.collect();
     std::debug::assert_eq(calls, 2, "no callback for the later item");
     source.push(100);
 
     // The expected type selects fresh read-only or mutable destination storage.
-    val unique: Set<i32> = [20, 20, 22].iter().collect();
-    val labels: MutableMap<i32, String> = [20, 22].iter().zip(["left", "right"]).collect();
+    val unique: LinkedHashSet<i32> = [20, 20, 22].iter().collect();
+    val labels: LinkedHashMap<i32, String> = [20, 22].iter().zip(["left", "right"]).collect();
     std::debug::assert(unique.contains(20), "collected set");
     std::debug::assert_eq(labels.get(22).unwrap_or("missing"), "right", "collected map");
 
@@ -31,7 +31,7 @@ fn main() -> i32 {
     val groups = [20, 1, 22, 3].iter().group_by(|item| item % 2);
     val even = groups.get(0).unwrap_or([0]);
     std::debug::assert_eq(even[0] + even[1], 42, "whole-input grouping");
-    val split: (Array<i32>, Array<i32>) = [20, 1, 22].iter().partition(|item| item % 2 == 0);
+    val split: (ArrayList<i32>, ArrayList<i32>) = [20, 1, 22].iter().partition(|item| item % 2 == 0);
     std::debug::assert_eq(split[1][0], 1, "nonmatching destination");
 
     // Short-circuit terminals preserve progress shared by iterator aliases.

@@ -177,7 +177,8 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                         .expect("standard contract");
                 if !kind.host_implementable()
                     && matches!(table.for_type, crate::module::abi::AbiType::Host(_))
-                    || !kind.conversion()
+                    || !table.native_bridge
+                        && !kind.conversion()
                         && !matches!(
                             table.for_type,
                             crate::module::abi::AbiType::Struct(_)

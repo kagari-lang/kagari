@@ -35,7 +35,7 @@ fn branch_without_carry(pc_next: u16, encoded_offset: u8) -> u16 {
 }
 
 fn main() -> i32 {
-    val ram: MutableArray<u8> = [];
+    val ram: ArrayList<u8> = [];
     for index in 0..2048 { ram.push(0u8); }
     val pc = (u16::from(0x12u8) << 8) | u16::from(0x34u8);
     std::debug::assert(pc == 0x1234u16, "address join");

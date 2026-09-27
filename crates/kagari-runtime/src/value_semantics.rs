@@ -5,22 +5,36 @@ use crate::{
     value::Value,
 };
 
+/// Collection interface boxes preserve the identity of their underlying object.
+pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
+    let Value::Interface(id) = value else {
+        return None;
+    };
+    let snapshot = gc.interface_snapshot(*id)?;
+    kagari_ir::module::abi::is_collection_interface(&snapshot.interface_type.declaration)
+        .then_some(snapshot.data)
+}
+
 /// Identity is available only for script object categories, never allocation
 /// details of values such as strings, tuples or enums.
 pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
-    let (a, b, kind) = match (lhs, rhs) {
-        (Value::Struct(a), Value::Struct(b)) => (a, b, GcObjectKind::Struct),
-        (Value::Array(a), Value::Array(b)) => (a, b, GcObjectKind::Array),
-        (Value::Map(a), Value::Map(b)) => (a, b, GcObjectKind::Map),
-        (Value::Set(a), Value::Set(b)) => (a, b, GcObjectKind::Set),
-        _ => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "identity comparison requires matching object categories",
-            ));
-        }
+    let left = collection_data(gc, lhs);
+    let right = collection_data(gc, rhs);
+    let (lhs, rhs) = (left.as_ref().unwrap_or(lhs), right.as_ref().unwrap_or(rhs));
+    let object = |value: &Value| match value {
+        Value::Struct(id) => Some((*id, GcObjectKind::Struct)),
+        Value::Array(id) => Some((*id, GcObjectKind::Array)),
+        Value::Map(id) => Some((*id, GcObjectKind::Map)),
+        Value::Set(id) => Some((*id, GcObjectKind::Set)),
+        _ => None,
     };
-    if gc.object_kind(*a) != Some(kind) || gc.object_kind(*b) != Some(kind) {
+    let (Some((a, a_kind)), Some((b, b_kind))) = (object(lhs), object(rhs)) else {
+        return Err(RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "identity comparison requires object references",
+        ));
+    };
+    if gc.object_kind(a) != Some(a_kind) || gc.object_kind(b) != Some(b_kind) {
         return Err(RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
             "invalid heap handle in identity comparison",
@@ -31,6 +45,9 @@ pub fn identity_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, Run
 
 pub fn script_equal(gc: &GcHeap, lhs: &Value, rhs: &Value) -> Result<bool, RuntimeError> {
     use Value::*;
+    let left = collection_data(gc, lhs);
+    let right = collection_data(gc, rhs);
+    let (lhs, rhs) = (left.as_ref().unwrap_or(lhs), right.as_ref().unwrap_or(rhs));
     let invalid = || {
         RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,

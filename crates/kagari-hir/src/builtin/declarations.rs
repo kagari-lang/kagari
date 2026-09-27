@@ -147,7 +147,11 @@ impl ApiImplementation {
             .collect();
         self.target.infer(receiver, &mut arguments);
         arguments.insert("Self", receiver.clone());
-        (self.target.instantiate(&arguments) == *receiver).then_some(arguments)
+        let instantiated = self.target.instantiate(&arguments);
+        (instantiated == *receiver
+            || matches!(self.interface, "Iterable" | "List" | "Map" | "Set")
+                && instantiated.can_weaken_to(receiver))
+        .then_some(arguments)
     }
 
     pub fn applied_arguments(
@@ -165,7 +169,9 @@ impl ApiImplementation {
         for (declared, actual) in self.trait_arguments.iter().zip(&interface.arguments) {
             declared.infer(actual, &mut arguments);
         }
-        (self.target.instantiate(&arguments) == *receiver
+        ((self.target.instantiate(&arguments) == *receiver
+            || matches!(self.interface, "Iterable" | "List" | "Map" | "Set")
+                && self.target.instantiate(&arguments).can_weaken_to(receiver))
             && self
                 .trait_arguments
                 .iter()
@@ -275,8 +281,8 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
             ));
         }
         TypeId::Builtin(BuiltinType::String) => "String",
-        TypeId::Array(_, CollectionAccess::ReadOnly) => "Array",
-        TypeId::Array(_, CollectionAccess::Mutable) => "MutableArray",
+        TypeId::Array(_, CollectionAccess::ReadOnly) => "List",
+        TypeId::Array(_, CollectionAccess::Mutable) => "ArrayList",
         TypeId::Map {
             access: CollectionAccess::ReadOnly,
             ..
@@ -284,9 +290,9 @@ pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
         TypeId::Map {
             access: CollectionAccess::Mutable,
             ..
-        } => "MutableMap",
+        } => "LinkedHashMap",
         TypeId::Set(_, CollectionAccess::ReadOnly) => "Set",
-        TypeId::Set(_, CollectionAccess::Mutable) => "MutableSet",
+        TypeId::Set(_, CollectionAccess::Mutable) => "LinkedHashSet",
         TypeId::Iter(_) => "Iter",
         TypeId::Range(_, kind) => kind.name(),
         TypeId::StandardEnum { kind, .. } => kind.spec().name,
@@ -352,10 +358,11 @@ impl ApiType {
                     arguments: vec![],
                 }
             }
-            Self::Array(element) => TypeId::Array(
-                Box::new(element.instantiate(arguments)),
-                CollectionAccess::ReadOnly,
-            ),
+            Self::Array(element) => {
+                let mut interface = super::traits::StandardTrait::List.nominal();
+                interface.arguments.push(element.instantiate(arguments));
+                TypeId::Trait(interface)
+            }
             Self::Tuple([]) => TypeId::Builtin(BuiltinType::Unit),
             Self::Tuple(items) => {
                 TypeId::Tuple(items.iter().map(|t| t.instantiate(arguments)).collect())
@@ -404,8 +411,13 @@ impl ApiType {
                 if surface::range_kind(name).is_some() {
                     return surface::standard_generic_type(name, types).unwrap_or(TypeId::Error);
                 }
+                if let Some(kind) = super::traits::StandardTrait::from_name(name) {
+                    let mut interface = kind.nominal();
+                    interface.arguments = types;
+                    return TypeId::Trait(interface);
+                }
                 match (*name, types.as_slice()) {
-                    ("Array" | "MutableArray" | "Map" | "MutableMap" | "Set" | "MutableSet", _) => {
+                    ("ArrayList" | "LinkedHashMap" | "LinkedHashSet", _) => {
                         surface::standard_generic_type(name, types).unwrap_or(TypeId::Error)
                     }
                     ("Iter", [item]) => TypeId::Iter(Box::new(item.clone())),
@@ -442,6 +454,46 @@ impl ApiType {
     /// Infer only declared parameters; concrete mismatches remain diagnostics.
     pub fn infer(&self, actual: &TypeId, arguments: &mut Arguments) {
         match (self, actual) {
+            (Self::Named(name, params), TypeId::Trait(interface))
+                if super::traits::StandardTrait::from_id(&interface.declaration).is_some_and(
+                    |kind| match *name {
+                        "ArrayList" => matches!(
+                            kind,
+                            super::traits::StandardTrait::List
+                                | super::traits::StandardTrait::MutableList
+                        ),
+                        "LinkedHashMap" => matches!(
+                            kind,
+                            super::traits::StandardTrait::Map
+                                | super::traits::StandardTrait::MutableMap
+                        ),
+                        "LinkedHashSet" => matches!(
+                            kind,
+                            super::traits::StandardTrait::Set
+                                | super::traits::StandardTrait::MutableSet
+                        ),
+                        _ => kind.name() == *name,
+                    },
+                ) && params.len() == interface.arguments.len() =>
+            {
+                for (param, actual) in params.iter().zip(&interface.arguments) {
+                    param.infer(actual, arguments);
+                }
+            }
+            (Self::Array(item), TypeId::Trait(interface))
+                if matches!(
+                    super::traits::StandardTrait::from_id(&interface.declaration),
+                    Some(
+                        super::traits::StandardTrait::List
+                            | super::traits::StandardTrait::MutableList
+                    )
+                ) =>
+            {
+                if let [actual] = interface.arguments.as_slice() {
+                    item.infer(actual, arguments);
+                }
+            }
+
             (Self::Named(name, []), actual) if arguments.contains_key(name) => {
                 let argument = arguments.get_mut(name).unwrap();
                 if *argument == TypeId::Unknown {
@@ -454,7 +506,7 @@ impl ApiType {
                 item.infer(actual, arguments)
             }
             (Self::Array(element), TypeId::Array(actual, _)) => element.infer(actual, arguments),
-            (Self::Named("Array" | "MutableArray", [element]), TypeId::Array(actual, _)) => {
+            (Self::Named("ArrayList", [element]), TypeId::Array(actual, _)) => {
                 element.infer(actual, arguments)
             }
             (Self::Tuple(items), TypeId::Tuple(actual)) if items.len() == actual.len() => {
@@ -475,7 +527,7 @@ impl ApiType {
                 result.infer(output, arguments);
             }
             (
-                Self::Named("Map" | "MutableMap", [key, value]),
+                Self::Named("Map" | "LinkedHashMap", [key, value]),
                 TypeId::Map {
                     key: actual,
                     value: output,
@@ -485,7 +537,7 @@ impl ApiType {
                 key.infer(actual, arguments);
                 value.infer(output, arguments);
             }
-            (Self::Named("Set" | "MutableSet", [item]), TypeId::Set(actual, _))
+            (Self::Named("Set" | "LinkedHashSet", [item]), TypeId::Set(actual, _))
             | (Self::Named("Iter", [item]), TypeId::Iter(actual)) => item.infer(actual, arguments),
             (Self::Named(name, params), TypeId::StandardEnum { kind, args })
                 if *name == kind.spec().name && params.len() == args.len() =>

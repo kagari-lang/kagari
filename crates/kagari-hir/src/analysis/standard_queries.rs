@@ -203,6 +203,28 @@ impl FileAnalysis {
                     .map(|m| &m.item),
             );
         }
+        if let TypeId::Trait(interface) = &ty {
+            for parent in self
+                .result
+                .facts()
+                .aggregates
+                .trait_closure(interface, &ty, &Default::default())
+                .unwrap_or_default()
+            {
+                if let Some(contract) = surface::STANDARD_TRAITS
+                    .iter()
+                    .find(|t| t.item.identity() == parent.declaration)
+                {
+                    candidates.extend(
+                        contract
+                            .methods
+                            .iter()
+                            .filter(|m| m.params.first().is_some_and(|p| p.name == "self"))
+                            .map(|m| &m.item),
+                    );
+                }
+            }
+        }
         candidates
     }
 }
@@ -328,10 +350,10 @@ mod tests {
         let target = TypeId::Map {
             key: Box::new(integer.clone()),
             value: Box::new(string.clone()),
-            access: CollectionAccess::ReadOnly,
+            access: CollectionAccess::Mutable,
         };
         let implementations = declarations::implementations(&target);
-        assert_eq!(implementations.len(), 2);
+        assert_eq!(implementations.len(), 4);
         let collect = implementations
             .iter()
             .find(|i| i.interface == "FromIterator")
@@ -386,7 +408,7 @@ mod tests {
 
     #[test]
     fn native_calls_types_and_variants_navigate_to_documented_source() {
-        let text = "use std::array::Array::get as lookup; fn main() { val value: Result<i32,String> = Ok(7); val values=[7]; lookup(values, values.len()); value.is_ok(); }";
+        let text = "use std::array::ArrayList::get as lookup; fn main() { val value: Result<i32,String> = Ok(7); val values=[7]; lookup(values, values.len()); value.is_ok(); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("main.kgr", text.into(), SourceLayer::Base)
@@ -429,7 +451,7 @@ mod tests {
             signature.parameters[0].1,
             TypeId::Array(
                 Box::new(TypeId::Builtin(crate::types::BuiltinType::I32)),
-                CollectionAccess::ReadOnly
+                CollectionAccess::Mutable
             )
         );
         let signature = analysis
@@ -483,7 +505,7 @@ mod trait_tests {
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
     fn iterator_defaults_navigate_to_source_and_expose_checked_signatures() {
-        let text = "fn main(){val result: Array<i32> = [20,22].iter().map(|x|x).collect();}";
+        let text = "fn main(){val result: ArrayList<i32> = [20,22].iter().map(|x|x).collect();}";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("pipeline.kgr", text.into(), SourceLayer::Base)
@@ -649,8 +671,76 @@ mod collection_access_tests {
     use super::*;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
+    fn native_collection_witnesses_match_the_declared_interface_signatures() {
+        use crate::builtin::traits::StandardTrait as S;
+        let integer = TypeId::Builtin(crate::types::BuiltinType::I32);
+        let receivers = [
+            TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
+            TypeId::Map {
+                key: Box::new(integer.clone()),
+                value: Box::new(integer.clone()),
+                access: CollectionAccess::Mutable,
+            },
+            TypeId::Set(Box::new(integer), CollectionAccess::Mutable),
+        ];
+        let mut checked = 0;
+        for receiver in receivers {
+            for implementation in declarations::implementations(&receiver) {
+                let kind = S::from_name(implementation.interface).unwrap();
+                if !kind.collection() {
+                    continue;
+                }
+                let arguments = implementation.arguments(&receiver).unwrap();
+                let mut interface = kind.nominal();
+                interface.arguments = implementation
+                    .trait_arguments
+                    .iter()
+                    .map(|ty| ty.instantiate(&arguments))
+                    .collect();
+                let contract = kind.contract();
+                let substitution = contract
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(interface.arguments.iter().cloned())
+                    .collect();
+                let instantiate = |ty: &TypeId| {
+                    ty.with_self(&contract.id, &receiver)
+                        .instantiate(&substitution)
+                };
+                assert_eq!(implementation.methods.len(), contract.methods.len());
+                for method in implementation.methods {
+                    let declared = contract
+                        .methods
+                        .iter()
+                        .find(|m| m.name == method.item.path.last().unwrap().1)
+                        .unwrap();
+                    assert_eq!(
+                        method
+                            .params
+                            .iter()
+                            .map(|p| p.ty.instantiate(&arguments))
+                            .collect::<Vec<_>>(),
+                        declared
+                            .params
+                            .iter()
+                            .map(|p| instantiate(&p.ty))
+                            .collect::<Vec<_>>()
+                    );
+                    assert_eq!(
+                        method.result.instantiate(&arguments),
+                        instantiate(&declared.return_type)
+                    );
+                }
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 6);
+    }
+
+    #[test]
     fn constructors_navigate_to_distinct_documented_members() {
-        let text = "fn main() { val a = Array::from([1]); val b = MutableArray::from(a); val c: Map<i32,i32> = Map::new(); val d: MutableMap<i32,i32> = MutableMap::new(); val e=Set::from([1]); val f=MutableSet::from([1]); }";
+        let text = "fn main() { val a = ArrayList::from([1]); val b = ArrayList::from(a); val c: Map<i32,i32> = LinkedHashMap::new(); val d: LinkedHashMap<i32,i32> = LinkedHashMap::new(); val e=LinkedHashSet::from([1]); val f=LinkedHashSet::from([1]); }";
         let mut sources = SourceDatabase::default();
         let file = sources
             .set("constructors.kgr", text.into(), SourceLayer::Base)
@@ -666,12 +756,9 @@ mod collection_access_tests {
         );
         let mut identities = std::collections::HashSet::new();
         for spelling in [
-            "Array::from",
-            "MutableArray::from",
-            "Map::new",
-            "MutableMap::new",
-            "Set::from",
-            "MutableSet::from",
+            "ArrayList::from",
+            "LinkedHashMap::new",
+            "LinkedHashSet::from",
         ] {
             let offset = text.find(spelling).unwrap() + spelling.find("::").unwrap() + 2;
             let definition = file.definition_at(offset).unwrap();
@@ -687,15 +774,30 @@ mod collection_access_tests {
     }
     #[test]
     fn readonly_member_completion_excludes_mutators() {
-        for (constructor, mutable, write) in [
-            ("Array::from([1])", false, "push"),
-            ("MutableArray::from([1])", true, "push"),
-            ("Map::from([(1,2)])", false, "insert"),
-            ("MutableMap::from([(1,2)])", true, "insert"),
-            ("Set::from([1])", false, "insert"),
-            ("MutableSet::from([1])", true, "insert"),
+        for (annotation, constructor, mutable, write) in [
+            ("List<i32>", "ArrayList::from([1])", false, "push"),
+            ("ArrayList<i32>", "ArrayList::from([1])", true, "push"),
+            (
+                "Map<i32,i32>",
+                "LinkedHashMap::from([(1,2)])",
+                false,
+                "insert",
+            ),
+            (
+                "LinkedHashMap<i32,i32>",
+                "LinkedHashMap::from([(1,2)])",
+                true,
+                "insert",
+            ),
+            ("Set<i32>", "LinkedHashSet::from([1])", false, "insert"),
+            (
+                "LinkedHashSet<i32>",
+                "LinkedHashSet::from([1])",
+                true,
+                "insert",
+            ),
         ] {
-            let text = format!("fn main() {{ val values={constructor}; values. }}");
+            let text = format!("fn main() {{ val values: {annotation}={constructor}; values. }}");
             let mut sources = SourceDatabase::default();
             let id = sources
                 .set("completion.kgr", text.clone(), SourceLayer::Base)

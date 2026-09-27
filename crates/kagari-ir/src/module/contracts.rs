@@ -178,6 +178,7 @@ pub(crate) fn verify_intrinsic(
 
     let arity = match intrinsic {
         ArrayCopyWithinBounds => 4,
+        ArrayCopyFromStorage => 2,
         KeyLookupBegin => 1,
         KeyCandidates => 2,
         KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
@@ -309,7 +310,7 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayCopyWithin | MutableArrayFromFn => {
+        ArrayCopyFromSlice | ArrayCopyWithin | ArrayListFromFn => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "callback and protocol calls require static lowering",
@@ -322,9 +323,9 @@ pub(crate) fn verify_intrinsic(
             expect_arg_ty(args, 3, ValueType::U64, "array copy destination")?;
             verify_call_dst(dst, ValueType::Unit)?;
         }
-        ArrayFill | ArrayCopyFromSlice => {
+        ArrayFill | ArrayCopyFromStorage => {
             expect_arg_ty(args, 0, ValueType::HeapObject, "array target")?;
-            if intrinsic == ArrayCopyFromSlice {
+            if intrinsic == ArrayCopyFromStorage {
                 expect_arg_ty(args, 1, ValueType::HeapObject, "array source")?;
             }
             verify_call_dst(dst, ValueType::Unit)?;
@@ -338,10 +339,10 @@ pub(crate) fn verify_intrinsic(
             )?;
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        MapNew | SetNew | MutableMapNew | MutableSetNew | ArrayNew | MutableArrayNew => {
+        LinkedHashMapNew | LinkedHashSetNew | ArrayListNew => {
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom | MutableSetFrom => {
+        ArrayListFrom | LinkedHashMapFrom | LinkedHashSetFrom => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "collection factories require checked construction lowering",

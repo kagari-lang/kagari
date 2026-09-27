@@ -8,9 +8,9 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
     let engine = KagariEngine::default();
     for body in [
         "std::array::len([1]);",
-        "std::set::contains(Set::from([1]), 1);",
+        "std::set::contains(LinkedHashSet::from([1]), 1);",
         "[1].join(\",\");",
-        "val a: Array<i32> = [1]; MutableArray::push(a, 2);",
+        "val a: List<i32> = [1]; ArrayList::push(a, 2);",
     ] {
         assert!(
             engine

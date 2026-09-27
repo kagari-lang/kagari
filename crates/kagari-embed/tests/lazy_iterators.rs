@@ -72,7 +72,7 @@ fn partition_and_group_by_build_fresh_typed_destinations() {
     execute(
         r#"
     fn main() -> i32 {
-        val split: (Array<i32>, Array<i32>) = [20, 1, 22, 3].iter().partition(|x| x % 2 == 0);
+        val split: (ArrayList<i32>, ArrayList<i32>) = [20, 1, 22, 3].iter().partition(|x| x % 2 == 0);
         std::debug::assert_eq(split[1][1], 3, "rejected order");
         val groups = [20, 1, 22, 3].iter().group_by(|x| x % 2);
         std::debug::assert_eq(groups.get(1).unwrap_or([0])[1], 3, "group order");
@@ -116,7 +116,7 @@ fn pipelines_reject_invalid_callbacks_keys_and_removed_helpers() {
     for source in [
         "fn main(){[1].iter().filter(|x| x);}",
         "fn main(){[1].iter().group_by(|x| 1.0);}",
-        "fn main(){val x:(Array<String>,Array<String>)=[1].iter().partition(|x|true);}",
+        "fn main(){val x:(ArrayList<String>,ArrayList<String>)=[1].iter().partition(|x|true);}",
         "fn main(){[1].iter().filter_map(|x|{val unknown=None;if x==0 {None}else{Some(x)}});}",
         "fn main(){std::iter::len([1]);}",
         "fn main(){std::iter::for_each([1],|x|{});}",
@@ -139,9 +139,9 @@ fn native_from_iter_supports_qualified_declaration_paths() {
     execute(
         r#"
     fn main()->i32 {
-        val values=std::array::Array::from_iter([20,22]);
-        val unique=std::set::MutableSet::from_iter(values);
-        val map=std::map::Map::from_iter([(1,20),(2,22)]);
+        val values=std::array::ArrayList::from_iter([20,22]);
+        val unique=std::set::LinkedHashSet::from_iter(values);
+        val map=std::map::LinkedHashMap::from_iter([(1,20),(2,22)]);
         std::debug::assert_eq(unique.len(),values.len(),"qualified constructor");
         map.get(1).unwrap_or(0)+map.get(2).unwrap_or(0)
     }
@@ -181,7 +181,7 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
         .compile_to_artifact(
             SourceFile::new(
                 "invalid-iter-wire.kgr",
-                "fn main(){val a:Array<(usize,i32)> = [1].iter().enumerate().collect();}",
+                "fn main(){val a:ArrayList<(usize,i32)> = [1].iter().enumerate().collect();}",
             ),
             Default::default(),
             Default::default(),
@@ -251,8 +251,8 @@ fn native_iteration_reads_live_slots_and_does_not_snapshot_items() {
         source[0] = Item { value: 20 };
         val first = iter.next().unwrap_or(Item { value: 0 });
         source[1] = Item { value: 22 };
-        val rest: Array<Item> = iter.collect();
-        val text: Array<String> = "中😀é".iter().collect();
+        val rest: ArrayList<Item> = iter.collect();
+        val text: ArrayList<String> = "中😀é".iter().collect();
         std::debug::assert_eq(text[1], "😀", "scalar iteration");
         std::debug::assert_eq(text[2], "é", "UTF-8 progress");
         source.push(Item { value: 99 });
@@ -269,7 +269,7 @@ fn duplicate_iter_dependencies_and_deep_adapter_chains_release_guards() {
     fn main() -> i32 {
         val source = [20, 22];
         val iter = source.iter();
-        val pairs: Array<(i32,i32)> = iter.zip(iter).collect();
+        val pairs: ArrayList<(i32,i32)> = iter.zip(iter).collect();
         std::debug::assert_eq(pairs[0][0] + pairs[0][1], 42, "shared zip");
         source.push(99);
         var deep = source.iter();
@@ -302,15 +302,15 @@ fn adapter_traps_budgets_and_changed_sources_leave_runtime_usable() {
         fn sum_overflow()->i32 { [2147483647, 1].iter().sum() }
         fn product_overflow()->i32 { [2147483647, 2].iter().product() }
         fn narrow_sum_overflow()->i8 {
-            val empty: MutableArray<i8> = MutableArray::new();
+            val empty: ArrayList<i8> = ArrayList::new();
             val one: i8 = empty.iter().product();
-            val values: MutableArray<i8> = MutableArray::new();
+            val values: ArrayList<i8> = ArrayList::new();
             var index = 0;
             while index < 128 { values.push(one); index += 1; }
             values.iter().sum()
         }
         fn narrow_product_overflow()->u8 {
-            val empty: MutableArray<u8> = MutableArray::new();
+            val empty: ArrayList<u8> = ArrayList::new();
             val one: u8 = empty.iter().product();
             val two: u8 = [one, one].iter().sum();
             [two, two, two, two, two, two, two, two].iter().product()
@@ -486,7 +486,7 @@ fn main()->i32 {
     std::debug::assert_eq(alias.next(),None,"take stops");
     std::debug::assert_eq(calls.count,2,"no extra callback");
     values.push(200);
-    val result:Array<i32> = [0,20,0,22].iter().filter_map(|x| if x==0 {None}else{Some(x)}).collect();
+    val result:ArrayList<i32> = [0,20,0,22].iter().filter_map(|x| if x==0 {None}else{Some(x)}).collect();
     result[0]+result[1]
 }
 "#,
@@ -499,11 +499,11 @@ fn skip_enumerate_zip_and_chain_preserve_order() {
         r#"
 fn main()->i32 {
     val pipeline=[99,20,22].iter().skip([0].len()).enumerate().zip(["a","b"]);
-    val pairs:Array<((usize,i32),String)> = pipeline.collect();
+    val pairs:ArrayList<((usize,i32),String)> = pipeline.collect();
     std::debug::assert_eq(pairs[0][0][0],"".len_bytes(),"zero index");
     std::debug::assert_eq(pairs[1][0][0],"a".len_bytes(),"next index");
     std::debug::assert_eq(pairs[1][1],"b","right input");
-    val chained:Array<i32> = [20].iter().chain([22]).collect();
+    val chained:ArrayList<i32> = [20].iter().chain([22]).collect();
     chained[0]+chained[1]
 }
 "#,
@@ -517,7 +517,7 @@ fn custom_iterators_use_native_defaults_and_generic_callbacks() {
 struct Counter {var value:i32}
 impl Iterator for Counter {type Item=i32;fn next(self)->Option<i32>{if self.value>22 {None}else{val n=self.value;self.value+=1;Some(n)}}}
 fn transform<I:Iterator<Item=i32>>(source:I)->Iter<i32> {source.filter(|x|x!=21).map(|x|x)}
-fn main()->i32 {val result:Array<i32> = transform(Counter{value:20}).collect();result[0]+result[1]}
+fn main()->i32 {val result:ArrayList<i32> = transform(Counter{value:20}).collect();result[0]+result[1]}
 "#,
     );
 }
@@ -532,7 +532,7 @@ fn main() -> i32 {
     val source = [1, 2, 3, 1, 9].iter();
     val items = source.skip_while(|x| { checks += 1; x < 3 }).inspect(|x| { observed += x; }).take_while(|x| x < 9);
     std::debug::assert_eq(checks, 0, "lazy predicate");
-    val collected: Array<i32> = items.collect();
+    val collected: ArrayList<i32> = items.collect();
     std::debug::assert_eq(collected.len(), "ab".len_bytes(), "suffix prefix");
     std::debug::assert_eq(checks, 3, "stops testing after rejection");
     std::debug::assert_eq(observed, 13, "includes rejected take item");
@@ -592,7 +592,7 @@ fn main() -> i32 {
     std::debug::assert_eq(smallest([20, 22].iter()), Some(20), "generic bound");
     std::debug::assert_eq([20, 22].iter().max(), Some(22), "max");
     std::debug::assert_eq(entries.iter().max_by_key(|x| x[0]), Some((2, 22)), "max key");
-    val empty: MutableArray<i32> = MutableArray::new();
+    val empty: ArrayList<i32> = ArrayList::new();
     std::debug::assert_eq(empty.iter().min(), None, "empty");
     42
 }
@@ -633,13 +633,13 @@ fn main() -> i32 {
     first.push(7);
     second.push(100);
     source.push([0]);
-    val empty: MutableArray<i32> = MutableArray::new();
+    val empty: ArrayList<i32> = ArrayList::new();
     val nested = [empty, [20], empty, [22]].iter().flatten();
     std::debug::assert_eq(nested.reduce(|a, b| a + b), Some(42), "skip empty inners");
     val before = [1];
     val after = [2];
     var switched = 0;
-    val released: Array<i32> = [before, after].iter().flat_map(|x| {
+    val released: ArrayList<i32> = [before, after].iter().flat_map(|x| {
         switched += 1;
         if switched == 2 { before.push(3); }
         x
@@ -662,7 +662,7 @@ impl Iterable for Pair {
     type Iter = Iter<i32>;
     fn iter(self) -> Iter<i32> { [self.a, self.b].iter() }
 }
-fn expand<I: Iterator<Item = Pair>>(source: I) -> Array<i32> { source.flatten().collect() }
+fn expand<I: Iterator<Item = Pair>>(source: I) -> ArrayList<i32> { source.flatten().collect() }
 fn main() -> i32 {
     val values = expand([Pair { a: 20, b: 22 }].iter());
     values[0] + values[1]
@@ -702,7 +702,7 @@ fn aggregate<I: Iterator<Item = i32>>(source: I) -> Total { source.sum() }
 fn iterable_sum<I: Iterable<Item = i32>>(source: I) -> i32 { source.iter().map(|x| x).sum() }
 fn iterable_fold<I: Iterable<Item = i32>>(source: I) -> i32 { source.iter().fold(0, |a, b| a + b) }
 fn main() -> i32 {
-    val empty: MutableArray<i32> = MutableArray::new();
+    val empty: ArrayList<i32> = ArrayList::new();
     val zero: i32 = empty.iter().sum();
     val one: i32 = empty.iter().product();
     std::debug::assert_eq(zero, 0, "empty sum");
@@ -711,12 +711,12 @@ fn main() -> i32 {
     std::debug::assert_eq(product, 42, "product");
     val floats: f32 = [1.0, 2.0].iter().sum();
     std::debug::assert_eq(floats, 3.0, "float sum");
-    val doubles: MutableArray<f64> = MutableArray::new();
+    val doubles: ArrayList<f64> = ArrayList::new();
     val double_one: f64 = doubles.iter().product();
     std::debug::assert_eq(f"{double_one}", "1", "double identity");
     val sizes: usize = ["a".len_bytes(), "ab".len_bytes()].iter().sum();
     std::debug::assert_eq(sizes, "abc".len_bytes(), "usize sum");
-    val unsigned: MutableArray<u8> = MutableArray::new();
+    val unsigned: ArrayList<u8> = ArrayList::new();
     val unsigned_one: u8 = unsigned.iter().product();
     std::debug::assert_eq(f"{unsigned_one}", "1", "unsigned identity");
     std::debug::assert_eq(iterable_sum([20, 22]), 42, "associated bounds on iterable");
@@ -759,16 +759,16 @@ fn main() -> i32 {
     std::debug::assert_eq(iter.next(), Some(Ok(22)), "remaining source");
     std::debug::assert_eq(iter.next(), None, "exhausted after resumption");
     values.push(7);
-    val none: Option<Array<i32>> = [Some(20), None, Some(22)].iter().collect();
+    val none: Option<ArrayList<i32>> = [Some(20), None, Some(22)].iter().collect();
     std::debug::assert_eq(none, None, "option short circuit");
     val success: Result<Total, String> = collect_checked([20, 22].iter().map(|x| read(x)));
-    val empty: MutableArray<Result<i32, String>> = MutableArray::new();
+    val empty: ArrayList<Result<i32, String>> = ArrayList::new();
     val empty_result: Result<Total, String> = empty.iter().collect();
     std::debug::assert_eq(empty_result.map(|x| x.value), Ok(0), "empty constructs destination");
     val optional: Option<Total> = [Some(20), Some(22)].iter().collect();
     std::debug::assert_eq(optional.map(|x| x.value), Some(42), "custom option target");
-    val nested_input: Array<Result<Option<i32>, String>> = [Ok(Some(20)), Ok(Some(22))];
-    val nested: Result<Option<Array<i32>>, String> = nested_input.iter().collect();
+    val nested_input: ArrayList<Result<Option<i32>, String>> = [Ok(Some(20)), Ok(Some(22))];
+    val nested: Result<Option<ArrayList<i32>>, String> = nested_input.iter().collect();
     std::debug::assert(nested.is_ok(), "nested lifting");
     success.map(|x| x.value).unwrap_or(0)
 }

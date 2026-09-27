@@ -1,6 +1,6 @@
 //! Hash sets using Eq and Hash. Equal values occupy one membership entry.
 //!
-//! `Set` provides read-only access; `MutableSet` also permits writes.
+//! `Set` provides read-only access; `LinkedHashSet` also permits writes.
 //! Read-only views share storage and observe changes through writable aliases.
 //! `from` constructs fresh shallow storage; referenced elements retain identity.
 //!
@@ -22,58 +22,17 @@
 /// # Examples
 ///
 /// ```kgr
-/// val values: MutableSet<i32> = MutableSet::new();
+/// val values: LinkedHashSet<i32> = LinkedHashSet::new();
 /// values.insert(7);
 /// values.insert(7);
 /// std::debug::assert(values.len() == [0].len(), "one distinct member");
 /// std::debug::assert(values.contains(7), "membership");
 /// ```
-#[builtin_type(Set)]
-pub type Set<T>;
 
-/// A writable shared set. Copies preserve object identity.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = MutableSet::from([1, 2]);
-/// std::debug::assert(!values.is_empty(), "populated");
-/// ```
-#[builtin_type(MutableSet)]
-pub type MutableSet<T>;
+#[builtin_type(LinkedHashSet)]
+pub type LinkedHashSet<T>;
 
-impl<T: Eq + Hash> Set<T> {
-    /// Create a fresh empty set with read-only access.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: Set<i32> = Set::new();
-    /// std::debug::assert(values.is_empty(), "empty");
-    /// ```
-    #[intrinsic(SetNew)]
-    pub fn new() -> Self;
-
-    /// Construct a fresh shallow set from the supplied elements.
-    ///
-    /// Referenced objects retain identity. The result does not share input slots.
-    /// Equal elements are deduplicated. Elements must remain stable while stored.
-    /// Input is traversed in order using the selected Eq and Hash implementations.
-    ///
-    /// # Panics
-    ///
-    /// Propagates traps from user comparison or hashing. No partial result is returned.
-    /// Completed callback effects are not rolled back.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values = Set::from([1, 2]);
-    /// std::debug::assert(!values.is_empty(), "populated");
-    /// ```
-    #[intrinsic(SetFrom)]
-    pub fn from(items: [T]) -> Self;
-
+impl<T: Eq + Hash> LinkedHashSet<T> {
     /// Return the number of elements.
     ///
     /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
@@ -85,7 +44,7 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(7);
     /// std::debug::assert(values.len() == [0].len(), "length");
     /// ```
@@ -103,7 +62,7 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// std::debug::assert(values.is_empty(), "empty");
     /// ```
     #[intrinsic(SetIsEmpty)]
@@ -125,7 +84,7 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(7);
     /// std::debug::assert(values.contains(7), "member");
     /// ```
@@ -151,12 +110,12 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(7);
     /// std::debug::assert(values.to_array().get("".len_bytes()) == Some(7), "snapshot");
     /// ```
     #[intrinsic(SetToArray)]
-    pub fn to_array(self) -> MutableArray<T>;
+    pub fn to_array(self) -> ArrayList<T>;
 
     /// Create a set of elements in either set. Referenced objects remain shared.
     ///
@@ -176,15 +135,15 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(1);
-    /// val other: MutableSet<i32> = MutableSet::new();
+    /// val other: LinkedHashSet<i32> = LinkedHashSet::new();
     /// other.insert(2);
     /// val combined = values.union(other);
     /// std::debug::assert(combined.contains(1) && combined.contains(2), "union");
     /// ```
     #[intrinsic(SetUnion)]
-    pub fn union(self, rhs: Set<T>) -> MutableSet<T>;
+    pub fn union(self, rhs: LinkedHashSet<T>) -> LinkedHashSet<T>;
 
     /// Create a set of elements in both sets. Referenced objects remain shared.
     ///
@@ -204,16 +163,16 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(1);
     /// values.insert(2);
-    /// val other: MutableSet<i32> = MutableSet::new();
+    /// val other: LinkedHashSet<i32> = LinkedHashSet::new();
     /// other.insert(2);
     /// val common = values.intersection(other);
     /// std::debug::assert(common.len() == [0].len() && common.contains(2), "intersection");
     /// ```
     #[intrinsic(SetIntersection)]
-    pub fn intersection(self, rhs: Set<T>) -> MutableSet<T>;
+    pub fn intersection(self, rhs: LinkedHashSet<T>) -> LinkedHashSet<T>;
 
     /// Create a set of elements in the first set but not the second. Referenced objects remain
     ///
@@ -233,28 +192,28 @@ impl<T: Eq + Hash> Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(1);
     /// values.insert(2);
-    /// val other: MutableSet<i32> = MutableSet::new();
+    /// val other: LinkedHashSet<i32> = LinkedHashSet::new();
     /// other.insert(2);
     /// val remaining = values.difference(other);
     /// std::debug::assert(remaining.len() == [0].len() && remaining.contains(1), "difference");
     /// ```
     #[intrinsic(SetDifference)]
-    pub fn difference(self, rhs: Set<T>) -> MutableSet<T>;
+    pub fn difference(self, rhs: LinkedHashSet<T>) -> LinkedHashSet<T>;
 }
 
-impl<T: Eq + Hash> MutableSet<T> {
+impl<T: Eq + Hash> LinkedHashSet<T> {
     /// Create a fresh empty set with writable access.
     ///
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// std::debug::assert(values.is_empty(), "empty");
     /// ```
-    #[intrinsic(MutableSetNew)]
+    #[intrinsic(LinkedHashSetNew)]
     pub fn new() -> Self;
 
     /// Construct a fresh shallow set from the supplied elements.
@@ -271,10 +230,10 @@ impl<T: Eq + Hash> MutableSet<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values = MutableSet::from([1, 2]);
+    /// val values = LinkedHashSet::from([1, 2]);
     /// std::debug::assert(!values.is_empty(), "populated");
     /// ```
-    #[intrinsic(MutableSetFrom)]
+    #[intrinsic(LinkedHashSetFrom)]
     pub fn from(items: [T]) -> Self;
 
     /// Insert an element and return the same set. An equal element is not duplicated.
@@ -296,13 +255,13 @@ impl<T: Eq + Hash> MutableSet<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(7);
     /// values.insert(7);
     /// std::debug::assert(values.len() == [0].len(), "deduplicated");
     /// ```
     #[intrinsic(SetInsert)]
-    pub fn insert(self, item: T) -> MutableSet<T>;
+    pub fn insert(self, item: T) -> LinkedHashSet<T>;
 
     /// Remove an equal element and report whether one existed.
     ///
@@ -323,7 +282,7 @@ impl<T: Eq + Hash> MutableSet<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(7);
     /// std::debug::assert(values.remove(7), "removed");
     /// std::debug::assert(!values.remove(7), "absent");
@@ -350,17 +309,17 @@ impl<T: Eq + Hash> MutableSet<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: MutableSet<i32> = MutableSet::new();
+    /// val values: LinkedHashSet<i32> = LinkedHashSet::new();
     /// values.insert(7);
     /// values.clear();
     /// std::debug::assert(values.is_empty(), "cleared");
     /// ```
     #[intrinsic(SetClear)]
-    pub fn clear(self) -> MutableSet<T>;
+    pub fn clear(self) -> LinkedHashSet<T>;
 }
 
 /// Produce a fresh iterator over this shared source.
-impl<T: Eq + Hash> Iterable for Set<T> {
+impl<T: Eq + Hash> Iterable for LinkedHashSet<T> {
     /// The value yielded at each traversal position.
     type Item = T;
     /// The native iterator retaining this source and its current position.
@@ -374,7 +333,7 @@ impl<T: Eq + Hash> Iterable for Set<T> {
 }
 
 /// Construct fresh shallow storage from an iterable source.
-impl<T: Eq + Hash> FromIterator<T> for Set<T> {
+impl<T: Eq + Hash> FromIterator<T> for LinkedHashSet<T> {
     /// Collect the source in traversal order into a fresh collection.
     ///
     /// Referenced objects retain identity. Sets discard equal duplicates; maps
@@ -384,41 +343,91 @@ impl<T: Eq + Hash> FromIterator<T> for Set<T> {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Set<i32> = [20, 22, 20].iter().collect();
+    /// val values: LinkedHashSet<i32> = [20, 22, 20].iter().collect();
     /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
     /// ```
     #[intrinsic(CollectionFromIterator)]
     fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
 }
 
-/// Produce a fresh iterator over this shared source.
-impl<T: Eq + Hash> Iterable for MutableSet<T> {
-    /// The value yielded at each traversal position.
-    type Item = T;
-    /// The native iterator retaining this source and its current position.
-    type Iter = Iter<T>;
-    /// Begin a new traversal without copying elements or transferring ownership.
-    ///
-    /// Native collection guards prevent structural mutation during traversal.
-    /// Strings yield one Unicode scalar string at a time.
-    #[intrinsic(CollectionIter)]
-    fn iter(self) -> Iter<T>;
+/// Read-only access to a collection of distinct elements.
+///
+/// The interface does not require `Eq + Hash` or prescribe traversal order.
+/// `LinkedHashSet<T>` uses `T: Eq + Hash` and insertion order; scripts may implement
+/// other storage and equivalence policies. `contains` tests membership and `iter`
+/// yields elements. Construct a concrete implementation before requesting a view.
+///
+/// A view shares its underlying object; it is not an immutable snapshot. Element
+/// reads are shallow, type arguments are invariant, and equality and hashing use
+/// the underlying object's identity rather than comparing all elements.
+///
+/// # Examples
+///
+/// ```kgr
+/// val storage = LinkedHashSet::from([10, 20, 10]);
+/// val view: Set<i32> = storage;
+/// storage.insert(30);
+/// std::debug::assert(view.contains(30), "live membership");
+/// std::debug::assert_eq(view.len(), 3usize, "distinct elements");
+/// ```
+pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
+    /// Returns the number of elements.
+    fn len(self) -> usize;
+    /// Reports whether the set is empty.
+    fn is_empty(self) -> bool;
+    /// Tests whether the set contains an element.
+    fn contains(self, value: T) -> bool;
 }
 
-/// Construct fresh shallow storage from an iterable source.
-impl<T: Eq + Hash> FromIterator<T> for MutableSet<T> {
-    /// Collect the source in traversal order into a fresh collection.
-    ///
-    /// Referenced objects retain identity. Sets discard equal duplicates; maps
-    /// keep the last value for each equal key. Source and key-operation failures
-    /// propagate without rolling back completed callback effects.
-    ///
-    /// # Examples
-    ///
-    /// ```kgr
-    /// val values: MutableSet<i32> = [20, 22, 20].iter().collect();
-    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "collected");
-    /// ```
-    #[intrinsic(CollectionFromIterator)]
-    fn from_iter<I: Iterable<Item = T>>(source: I) -> Self;
+/// Writable access to a collection of distinct elements.
+///
+/// Extends `Set<T>` with insertion, removal and clearing. Inserting an existing
+/// element has no effect; `insert` returns unit. `remove` reports whether an element
+/// was removed. Passing a mutable view as `Set<T>` shares the same object.
+/// Implementations must validate and prepare a mutation before committing it.
+/// For hash storage, callers must keep stored elements' equality and hashes stable.
+///
+/// # Examples
+///
+/// ```kgr
+/// val view: MutableSet<i32> = LinkedHashSet::new();
+/// view.insert(42);
+/// view.insert(42);
+/// val readable: Set<i32> = view;
+/// std::debug::assert_eq(readable.len(), 1usize, "unique element");
+/// std::debug::assert(view.remove(42), "removed");
+/// ```
+pub trait MutableSet<T>: Set<T> {
+    /// Adds an element if absent.
+    fn insert(self, value: T) -> ();
+    /// Removes an element and reports whether it existed.
+    fn remove(self, value: T) -> bool;
+    /// Removes all elements.
+    fn clear(self) -> ();
+}
+
+/// Provides the Set capability for the native storage class.
+impl<T: Eq + Hash> Set<T> for LinkedHashSet<T> {
+    /// Returns the number of elements.
+    #[intrinsic(SetLen)]
+    fn len(self) -> usize;
+    /// Reports whether the set is empty.
+    #[intrinsic(SetIsEmpty)]
+    fn is_empty(self) -> bool;
+    /// Tests whether the set contains an element.
+    #[intrinsic(SetContains)]
+    fn contains(self, value: T) -> bool;
+}
+
+/// Provides the MutableSet capability for the native storage class.
+impl<T: Eq + Hash> MutableSet<T> for LinkedHashSet<T> {
+    /// Adds an element if absent.
+    #[intrinsic(SetInsert)]
+    fn insert(self, value: T) -> ();
+    /// Removes an element and reports whether it existed.
+    #[intrinsic(SetRemove)]
+    fn remove(self, value: T) -> bool;
+    /// Removes all elements.
+    #[intrinsic(SetClear)]
+    fn clear(self) -> ();
 }

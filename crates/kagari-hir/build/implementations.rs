@@ -11,6 +11,13 @@ pub fn declaration(
 ) {
     let interface = def.trait_ref().unwrap();
     let protocol = interface.path_text().unwrap();
+    if matches!(
+        protocol.as_str(),
+        "List" | "MutableList" | "Map" | "MutableMap" | "Set" | "MutableSet"
+    ) {
+        collection(def, module, uri, text, items, output);
+        return;
+    }
     if protocol == "RangeBounds" {
         range_bounds(def, module, uri, text, items, output);
         return;
@@ -30,9 +37,9 @@ pub fn declaration(
     assert!(matches!(protocol.as_str(), "Iterable" | "FromIterator"));
     let expected_module = match owner.as_str() {
         "Range" | "RangeInclusive" | "RangeFrom" => "ops",
-        "Array" | "MutableArray" => "array",
-        "Map" | "MutableMap" => "map",
-        "Set" | "MutableSet" => "set",
+        "Array" | "ArrayList" => "array",
+        "Map" | "LinkedHashMap" => "map",
+        "Set" | "LinkedHashSet" => "set",
         "String" if protocol == "Iterable" => "string",
         "Result" if protocol == "FromIterator" => "result",
         "Option" if protocol == "FromIterator" => "option",
@@ -41,12 +48,12 @@ pub fn declaration(
     assert_eq!(module, expected_module);
     let named = |name: &str| format!("ApiType::Named({name:?}, &[])");
     let (arguments, element): (Vec<String>, String) = match owner.as_str() {
-        "Range" | "RangeInclusive" | "RangeFrom" | "Array" | "MutableArray" | "Set"
-        | "MutableSet" => {
+        "Range" | "RangeInclusive" | "RangeFrom" | "Array" | "ArrayList" | "Set"
+        | "LinkedHashSet" => {
             assert_eq!(names.len(), 1);
             (vec![named(&names[0])], named(&names[0]))
         }
-        "Map" | "MutableMap" => {
+        "Map" | "LinkedHashMap" => {
             assert_eq!(names.len(), 2);
             let args = names.iter().map(|n| named(n)).collect::<Vec<_>>();
             (
@@ -86,8 +93,10 @@ pub fn declaration(
     let mut constraints = Vec::new();
     for (index, parameter) in parameters.iter().enumerate() {
         let bounds = api::bounds(parameter.bounds());
-        let expected = if matches!(owner.as_str(), "Map" | "MutableMap" | "Set" | "MutableSet")
-            && index == 0
+        let expected = if matches!(
+            owner.as_str(),
+            "Map" | "LinkedHashMap" | "Set" | "LinkedHashSet"
+        ) && index == 0
         {
             "ApiBound{name:\"Eq\",args:&[],bindings:&[]},ApiBound{name:\"Hash\",args:&[],bindings:&[]}".into()
         } else if matches!(owner.as_str(), "Result" | "Option") && index == parameters.len() - 1 {
@@ -327,4 +336,116 @@ fn range_bounds(
         writeln!(methods, "ApiMethod{{item:{item},iterator:None,generics:&[],bounds:&[],params:&[ApiParameter{{name:\"self\",ty:{target}}}],result:{result}}},").unwrap();
     }
     writeln!(output, "super::declarations::ApiImplementation{{interface:\"RangeBounds\",trait_arguments:&[ApiType::Named(\"T\", &[])],bounds:&[],generics:&{names:?},target:{target},associated_types:&[],methods:&[{methods}]}},").unwrap();
+}
+
+fn collection(
+    def: &ast::ImplBlock,
+    module: &str,
+    uri: &str,
+    text: &str,
+    items: &mut String,
+    output: &mut String,
+) {
+    let interface = def.trait_ref().unwrap();
+    let protocol = interface.path_text().unwrap();
+    let owner = def.target_type().unwrap().name_text().unwrap();
+    assert!(matches!(
+        (protocol.as_str(), owner.as_str()),
+        ("List" | "MutableList", "ArrayList")
+            | ("Map" | "MutableMap", "LinkedHashMap")
+            | ("Set" | "MutableSet", "LinkedHashSet")
+    ));
+    let parameters = def.generic_params().unwrap().params().collect::<Vec<_>>();
+    let names = parameters
+        .iter()
+        .map(|p| p.name_text().unwrap())
+        .collect::<Vec<_>>();
+    let target = ty(def.target_type().unwrap());
+    let arguments = interface
+        .generic_args()
+        .unwrap()
+        .args()
+        .map(ty)
+        .collect::<Vec<_>>()
+        .join(",");
+    let constraints = parameters
+        .iter()
+        .filter_map(|p| {
+            let bounds = api::bounds(p.bounds());
+            (!bounds.is_empty()).then(|| {
+                format!(
+                    "(ApiType::Named({:?}, &[]), &[{bounds}])",
+                    p.name_text().unwrap()
+                )
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    assert!(
+        def.associated_types().next().is_none()
+            && def.associated_consts().next().is_none()
+            && def.where_clause().is_none()
+    );
+    let mut methods = String::new();
+    for method in def.methods() {
+        let name = method.name_text().unwrap();
+        assert!(
+            method.body().is_none()
+                && method.generic_params().is_none()
+                && method.where_clause().is_none()
+        );
+        let prefix = match owner.as_str() {
+            "ArrayList" => "Array",
+            "LinkedHashMap" => "Map",
+            _ => "Set",
+        };
+        let expected = if name == "set" {
+            "CollectionSet".to_owned()
+        } else {
+            format!(
+                "{prefix}{}",
+                name.split('_')
+                    .map(|p| {
+                        let mut chars = p.chars();
+                        chars.next().unwrap().to_uppercase().to_string() + chars.as_str()
+                    })
+                    .collect::<String>()
+            )
+        };
+        assert_eq!(
+            attribute(&method, "intrinsic").as_deref(),
+            Some(expected.as_str())
+        );
+        let item = api::item(
+            &method,
+            method.name().unwrap(),
+            module,
+            uri,
+            text,
+            &[
+                ("Impl", format!("{protocol} for {owner}")),
+                ("Method", name.clone()),
+            ],
+        );
+        writeln!(items, "{item},").unwrap();
+        let params = method
+            .param_list()
+            .unwrap()
+            .params()
+            .map(|p| {
+                format!(
+                    "ApiParameter{{name:{:?},ty:{}}}",
+                    p.name_text().unwrap(),
+                    p.ty().map(ty).unwrap_or_else(|| target.clone())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let result = method
+            .return_type()
+            .map(ty)
+            .unwrap_or("ApiType::Tuple(&[])".into());
+        writeln!(methods, "ApiMethod{{item:{item},iterator:None,generics:&[],bounds:&[],params:&[{params}],result:{result}}},").unwrap();
+    }
+    writeln!(output, "super::declarations::ApiImplementation{{interface:{protocol:?},trait_arguments:&[{arguments}],bounds:&[{constraints}],generics:&{names:?},target:{target},associated_types:&[],methods:&[{methods}]}},").unwrap();
 }

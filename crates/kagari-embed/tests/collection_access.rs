@@ -46,25 +46,25 @@ fn constructors_views_and_shallow_factories() {
     execute(
         r#"
 fn main() -> i32 {
-    val a = MutableArray::from([1, 2]);
+    val a = ArrayList::from([1, 2]);
     val r: [i32] = a;
     a.push(3);
     std::debug::assert(r.len() == [0, 0, 0].len(), "live view");
-    val snapshot = Array::from(a);
+    val snapshot = ArrayList::from(a);
     a.push(4);
     std::debug::assert(snapshot.len() == [0, 0, 0].len(), "snapshot");
-    val m = MutableMap::from([("a", 1), ("a", 2)]);
+    val m = LinkedHashMap::from([("a", 1), ("a", 2)]);
     val mr: Map<String, i32> = m;
     std::debug::assert(mr.get("a") == Some(2), "duplicate");
     m.insert("b", 3);
     std::debug::assert(mr.contains_key("b"), "map view");
-    val s = Set::from([1, 1, 2]);
+    val s = LinkedHashSet::from([1, 1, 2]);
     std::debug::assert(s.len() == [0, 0].len(), "dedup");
-    val ms = MutableSet::from([1]);
+    val ms = LinkedHashSet::from([1]);
     ms.insert(2);
-    val empty: Map<String, i32> = Map::new();
-    val empty_array: MutableArray<i32> = MutableArray::new();
-    val empty_set: Set<i32> = Set::from([]);
+    val empty: Map<String, i32> = LinkedHashMap::new();
+    val empty_array: ArrayList<i32> = ArrayList::new();
+    val empty_set: Set<i32> = LinkedHashSet::from([]);
     std::debug::assert(empty.is_empty() && empty_array.is_empty() && empty_set.is_empty(), "empty");
     42
 }
@@ -78,7 +78,7 @@ fn access_is_shallow_and_preserved_by_calls_closures_and_branch_joins() {
         r#"
 struct Item { var value: i32 }
 struct Shelf { val items: [Item] }
-fn readable<T>(values: MutableArray<T>) -> [T] { values }
+fn readable<T>(values: ArrayList<T>) -> [T] { values }
 fn size<T>(values: [T]) -> usize { values.len() }
 fn main() -> i32 {
     val item = Item { value: 1 };
@@ -86,7 +86,7 @@ fn main() -> i32 {
     val view = readable(writable);
     val shelf = Shelf { items: writable };
     shelf.items[0].value = 40;
-    val copy = Array::from(view);
+    val copy = ArrayList::from(view);
     writable[0] = Item { value: 7 };
     std::debug::assert(copy[0] === item && copy !== view, "shallow independent slots");
     std::debug::assert(view === writable && view == writable, "common access equality");
@@ -95,7 +95,7 @@ fn main() -> i32 {
     val other = match true { true => writable, false => view };
     val inspect = || size(join) == size(other);
     std::debug::assert(inspect(), "captured view");
-    val nested: [MutableArray<i32>] = [[1]];
+    val nested: [ArrayList<i32>] = [[1]];
     nested[0].push(2);
     copy[0].value + nested[0][1]
 }
@@ -109,20 +109,20 @@ fn readonly_operations_cannot_recover_write_access() {
         "fn main() { val a: [i32] = [1]; a.push(2); }",
         "fn main() { var a: [i32] = [1]; a[0] = 2; }",
         "fn main() { val a: [i32] = [1]; a[0] += 2; }",
-        "fn main() { val a: [i32] = [1]; std::array::MutableArray::push(a, 2); }",
+        "fn main() { val a: [i32] = [1]; std::array::ArrayList::push(a, 2); }",
         "fn main() { val a: [i32] = [1]; set_index(a, 0, 2); }",
-        "fn main() { val a = Map::from([(1, 2)]); a.insert(3, 4); }",
-        "fn main() { val a = Map::from([(1, 2)]); std::map::MutableMap::clear(a); }",
-        "fn main() { val a = Set::from([1]); a.remove(1); }",
-        "fn main() { val a = Set::from([1]); std::set::MutableSet::clear(a); }",
-        "fn main() { val a: [i32] = [1]; val b: MutableArray<i32> = a; }",
-        "fn main() { val a = Map::from([(1, 2)]); val b: MutableMap<i32, i32> = a; }",
-        "fn main() { val a = Set::from([1]); val b: MutableSet<i32> = a; }",
-        "fn change<T>(a: MutableArray<T>, v: T) { a.push(v); } fn main() { val a: [i32] = [1]; change(a, 2); }",
-        "fn bad(a: [i32]) -> MutableArray<i32> { a }",
-        "struct Box { val a: MutableArray<i32> } fn main() { val a: [i32] = [1]; Box { a } }",
-        "fn main() { val a = [[1]]; val b: MutableArray<Array<i32>> = a; }",
-        "fn main() { val a = [[1]]; val b: Array<Array<i32>> = a; }",
+        "fn main() { val a: Map<i32, i32> = LinkedHashMap::from([(1, 2)]); a.insert(3, 4); }",
+        "fn main() { val a: Map<i32, i32> = LinkedHashMap::from([(1, 2)]); std::map::LinkedHashMap::clear(a); }",
+        "fn main() { val a: Set<i32> = LinkedHashSet::from([1]); a.remove(1); }",
+        "fn main() { val a: Set<i32> = LinkedHashSet::from([1]); std::set::LinkedHashSet::clear(a); }",
+        "fn main() { val a: [i32] = [1]; val b: ArrayList<i32> = a; }",
+        "fn main() { val a: Map<i32, i32> = LinkedHashMap::from([(1, 2)]); val b: LinkedHashMap<i32, i32> = a; }",
+        "fn main() { val a: Set<i32> = LinkedHashSet::from([1]); val b: LinkedHashSet<i32> = a; }",
+        "fn change<T>(a: ArrayList<T>, v: T) { a.push(v); } fn main() { val a: [i32] = [1]; change(a, 2); }",
+        "fn bad(a: [i32]) -> ArrayList<i32> { a }",
+        "struct Box { val a: ArrayList<i32> } fn main() { val a: [i32] = [1]; Box { a } }",
+        "fn main() { val a = [[1]]; val b: ArrayList<List<i32>> = a; }",
+        "fn main() { val a = [[1]]; val b: List<List<i32>> = a; }",
         "fn main() { val a: [i32] = [1]; val change = || a.push(2); change(); }",
         "fn main() { val a: [i32] = [1]; val b = if true { a } else { [2] }; b.push(3); }",
         "fn main() { val a: [i32] = [1]; val b = match true { true => [2], false => a }; b.push(3); }",
@@ -155,14 +155,14 @@ fn main() -> i32 {
     val first = Key { id: 1 };
     val second = Key { id: 1 };
     val entries = [(first, next(c)), (second, next(c))];
-    val map = Map::from(entries);
-    val mutable = MutableMap::from(entries);
-    val set = Set::from([first, second]);
-    val mutable_set = MutableSet::from([first, second]);
+    val map = LinkedHashMap::from(entries);
+    val mutable = LinkedHashMap::from(entries);
+    val set = LinkedHashSet::from([first, second]);
+    val mutable_set = LinkedHashSet::from([first, second]);
     std::debug::assert(map.get(first) == Some(2) && mutable.get(second) == Some(2), "last value wins");
     std::debug::assert(set.len() == [0].len() && mutable_set.len() == [0].len(), "custom dedup");
     std::debug::assert(c.n == 2, "evaluated once");
-    val writable_copy = MutableArray::from(Array::from([40, 2]));
+    val writable_copy = ArrayList::from(ArrayList::from([40, 2]));
     writable_copy[0] + writable_copy[1]
 }
 "#,
@@ -174,10 +174,10 @@ fn associated_factories_resolve_qualified_names_and_function_aliases() {
     execute(
         r#"
 use std::array as arrays;
-use std::map::Map::from as map_of;
+use std::map::LinkedHashMap::from as map_of;
 fn main() -> i32 {
-    val array = arrays::MutableArray::from([20, 22]);
-    val set = std::set::Set::from([20, 22]);
+    val array = arrays::ArrayList::from([20, 22]);
+    val set = std::set::LinkedHashSet::from([20, 22]);
     val map = map_of([(1, array[0]), (2, array[1])]);
     std::debug::assert(set.contains(22), "qualified factory");
     map.get(1).unwrap_or(0) + map.get(2).unwrap_or(0)
@@ -189,18 +189,18 @@ fn main() -> i32 {
 #[test]
 fn factories_release_input_guards_after_callback_failure() {
     let source = r#"
-struct Key { val input: MutableArray<Key> }
+struct Key { val input: ArrayList<Key> }
 impl PartialEq for Key { fn eq(self, other: Self) -> bool { self === other } }
 impl Eq for Key {}
 impl Hash for Key { fn hash(self) -> i64 { self.input.push(self); 1.hash() } }
 trait Test { fn attempt(self); fn clear(self) -> i32; }
-struct Tester { val input: MutableArray<Key> }
+struct Tester { val input: ArrayList<Key> }
 impl Test for Tester {
-    fn attempt(self) { Set::from(self.input); }
+    fn attempt(self) { LinkedHashSet::from(self.input); }
     fn clear(self) -> i32 { self.input.clear(); 42 }
 }
 fn make() -> Test {
-    val input: MutableArray<Key> = [];
+    val input: ArrayList<Key> = [];
     input.push(Key { input });
     Tester { input }
 }
@@ -263,7 +263,6 @@ fn make() -> Test {
 
 #[test]
 fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
-    use kagari_common::collection::CollectionAccess;
     use kagari_hir::builtin::surface::StandardIntrinsic;
     use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, verify_program};
     use kagari_ir::module::abi::AbiType;
@@ -274,7 +273,7 @@ fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
                 "access-wire.kgr",
                 r#"
 pub fn inspect(values: [i32]) { values.len(); }
-fn main() { val values = Array::from([1, 2]); inspect(values); }
+fn main() { val values = ArrayList::from([1, 2]); inspect(values); }
 "#,
             ),
             Default::default(),
@@ -297,7 +296,7 @@ fn main() { val values = Array::from([1, 2]); inspect(values); }
             matches!(
                 i,
                 BytecodeInstruction::Call {
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
+                    callee: CallTarget::InterfaceMethod { .. },
                     ..
                 }
             )
@@ -314,8 +313,8 @@ fn main() { val values = Array::from([1, 2]); inspect(values); }
     );
     let mut forged = artifact.program.clone();
     let function = &mut forged.modules[root].functions[index];
-    if let Some(AbiType::Array(_, access)) = function.metadata.semantic.params.get_mut(&0) {
-        *access = CollectionAccess::Mutable;
+    if let Some(AbiType::Trait(interface)) = function.metadata.semantic.params.get_mut(&0) {
+        interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
     }
     assert!(verify_program(&forged).is_err());
     let mut forged = artifact.program.clone();
@@ -326,20 +325,12 @@ fn main() { val values = Array::from([1, 2]); inspect(values); }
         .clear();
     assert!(verify_program(&forged).is_err());
     let mut forged = artifact.clone();
-    let main = forged.program.modules[root]
-        .functions
-        .iter_mut()
-        .find(|f| f.name == "main")
-        .unwrap();
-    let ty = main
-        .metadata
-        .semantic
-        .registers
-        .values_mut()
-        .find(|ty| matches!(ty, AbiType::Array(_, CollectionAccess::ReadOnly)))
-        .unwrap();
-    if let AbiType::Array(_, access) = ty {
-        *access = CollectionAccess::Mutable;
+    let table = forged.program.modules[root].public_items.iter_mut().find_map(|item| match item {
+        kagari_ir::module::PublicAbiItem::InterfaceTable(table) if table.native_bridge && matches!(&table.trait_type, AbiType::Trait(interface) if interface.declaration.path.last().unwrap().name == "List") => Some(table),
+        _ => None,
+    }).unwrap();
+    if let AbiType::Trait(interface) = &mut table.trait_type {
+        interface.declaration.path.last_mut().unwrap().name = "MutableList".into();
     }
     assert!(forged.validate_for_loader(&Default::default()).is_err());
 }
@@ -380,7 +371,7 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             )
             .is_err()
     );
-    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = MutableArray::from(source); copy.push(2); copy[0] + copy[1] }"), options, Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = ArrayList::from(source); copy.push(2); copy[0] + copy[1] }"), options, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let mut context = ExecutionContext {
         language_profile: profile,
@@ -443,11 +434,11 @@ struct Key { val id: i32 }
 impl PartialEq for Key { fn eq(self, other: Self) -> bool { print("eq"); self.id == other.id } }
 impl Eq for Key {}
 impl Hash for Key { fn hash(self) -> i64 { print("hash"); 0.hash() } }
-fn scratch() -> [i32] { Array::from([7, 8]) }
+fn scratch() -> [i32] { ArrayList::from([7, 8]) }
 fn main() -> i32 {
     val first = Key { id: 1 };
     val second = Key { id: 2 };
-    val map = Map::from([(first, 20), (second, 22)]);
+    val map = LinkedHashMap::from([(first, 20), (second, 22)]);
     map.get(first).unwrap_or(0) + map.get(second).unwrap_or(0)
 }
 "#,

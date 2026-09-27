@@ -193,6 +193,7 @@ pub(super) fn collect(
                 associated_type_families: Vec::new(),
                 associated_consts: Vec::new(),
                 host_bridge: true,
+                native_bridge: false,
                 declaration,
                 name: format!(
                     "{} as {}",

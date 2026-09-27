@@ -534,6 +534,10 @@ impl Runtime {
                             })
                     })
             })
+            .or_else(|| {
+                kagari_ir::module::abi::standard_trait_contract(&interface_type.declaration)
+                    .cloned()
+            })
             .ok_or_else(invalid)?;
         if trait_contract.methods.len() != table.methods.len() {
             return Err(invalid());

@@ -36,8 +36,8 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [20, 22].iter().collect();
-    /// val unique: MutableSet<i32> = [20, 20, 22].iter().collect();
+    /// val values: ArrayList<i32> = [20, 22].iter().collect();
+    /// val unique: LinkedHashSet<i32> = [20, 20, 22].iter().collect();
     /// std::debug::assert_eq(values.len(), unique.len(), "unique items");
     /// ```
     ///
@@ -52,10 +52,10 @@ pub trait Iterator {
     /// Earlier callback effects remain visible. Nested wrappers apply recursively.
     ///
     /// ```kgr
-    /// val items: Array<Result<i32, String>> = [Ok(20), Ok(22)];
-    /// val result: Result<Array<i32>, String> = items.iter().collect();
+    /// val items: ArrayList<Result<i32, String>> = [Ok(20), Ok(22)];
+    /// val result: Result<ArrayList<i32>, String> = items.iter().collect();
     /// std::debug::assert_eq(result.map(|x| x[0] + x[1]), Ok(42), "collected");
-    /// val missing: Option<Array<i32>> = [Some(20), None].iter().collect();
+    /// val missing: Option<ArrayList<i32>> = [Some(20), None].iter().collect();
     /// std::debug::assert_eq(missing, None, "short circuit");
     /// ```
     #[intrinsic(IteratorCollect)]
@@ -76,7 +76,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [10, 11].iter().map(|x| x * 2).collect();
+    /// val values: ArrayList<i32> = [10, 11].iter().map(|x| x * 2).collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "mapped");
     /// ```
     #[intrinsic(IteratorMap)]
@@ -98,7 +98,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [20, 1, 22].iter().filter(|x| x % 2 == 0).collect();
+    /// val values: ArrayList<i32> = [20, 1, 22].iter().filter(|x| x % 2 == 0).collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "retained");
     /// ```
     #[intrinsic(IteratorFilter)]
@@ -119,7 +119,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [0, 20, 22].iter()
+    /// val values: ArrayList<i32> = [0, 20, 22].iter()
     ///     .filter_map(|x| if x == 0 { None } else { Some(x) }).collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "present values");
     /// ```
@@ -141,7 +141,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [20, 22, 99].iter().take("ab".len_bytes()).collect();
+    /// val values: ArrayList<i32> = [20, 22, 99].iter().take("ab".len_bytes()).collect();
     /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "limited");
     /// ```
     #[intrinsic(IteratorTake)]
@@ -162,7 +162,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [99, 20, 22].iter().skip("a".len_bytes()).collect();
+    /// val values: ArrayList<i32> = [99, 20, 22].iter().skip("a".len_bytes()).collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "remaining");
     /// ```
     #[intrinsic(IteratorSkip)]
@@ -183,7 +183,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<(usize, String)> = ["left", "right"].iter().enumerate().collect();
+    /// val values: ArrayList<(usize, String)> = ["left", "right"].iter().enumerate().collect();
     /// std::debug::assert_eq(values[1][0], "a".len_bytes(), "index");
     /// std::debug::assert_eq(values[1][1], "right", "item");
     /// ```
@@ -207,7 +207,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<(i32, String)> = [20, 22].iter().zip(["left", "right"]).collect();
+    /// val values: ArrayList<(i32, String)> = [20, 22].iter().zip(["left", "right"]).collect();
     /// std::debug::assert_eq(values[1][0], 22, "paired");
     /// ```
     #[intrinsic(IteratorZip)]
@@ -229,7 +229,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [20].iter().chain([22]).collect();
+    /// val values: ArrayList<i32> = [20].iter().chain([22]).collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "chained");
     /// ```
     #[intrinsic(IteratorChain)]
@@ -381,7 +381,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val split: (Array<i32>, Array<i32>) = [20, 1, 22].iter().partition(|x| x % 2 == 0);
+    /// val split: (ArrayList<i32>, ArrayList<i32>) = [20, 1, 22].iter().partition(|x| x % 2 == 0);
     /// std::debug::assert_eq(split[0][0] + split[0][1], 42, "matching");
     /// std::debug::assert_eq(split[1][0], 1, "other");
     /// ```
@@ -412,7 +412,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(groups.keys()[0], 0, "first key order");
     /// ```
     #[intrinsic(IteratorGroupBy)]
-    fn group_by<K: Eq + Hash>(self, key: fn(Self::Item) -> K) -> MutableMap<K, MutableArray<Self::Item>>;
+    fn group_by<K: Eq + Hash>(self, key: fn(Self::Item) -> K) -> LinkedHashMap<K, ArrayList<Self::Item>>;
     /// Yield items while the predicate remains true.
     ///
     /// The first rejected item is consumed. No later source items are requested.
@@ -426,7 +426,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [1, 2, 9].iter().take_while(|x| x < 3).collect();
+    /// val values: ArrayList<i32> = [1, 2, 9].iter().take_while(|x| x < 3).collect();
     /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "prefix");
     /// ```
     #[intrinsic(IteratorTakeWhile)]
@@ -445,7 +445,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [1, 3, 1].iter().skip_while(|x| x < 3).collect();
+    /// val values: ArrayList<i32> = [1, 3, 1].iter().skip_while(|x| x < 3).collect();
     /// std::debug::assert_eq(values[1], 1, "suffix");
     /// ```
     #[intrinsic(IteratorSkipWhile)]
@@ -709,7 +709,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [20, 22].iter().flat_map(|x| [x]).collect();
+    /// val values: ArrayList<i32> = [20, 22].iter().flat_map(|x| [x]).collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "flattened map");
     /// ```
     #[intrinsic(IteratorFlatMap)]
@@ -730,7 +730,7 @@ pub trait Iterator {
     /// # Examples
     ///
     /// ```kgr
-    /// val values: Array<i32> = [[20], [22]].iter().flatten().collect();
+    /// val values: ArrayList<i32> = [[20], [22]].iter().flatten().collect();
     /// std::debug::assert_eq(values[0] + values[1], 42, "flattened");
     /// ```
     #[intrinsic(IteratorFlatten)]
@@ -807,7 +807,7 @@ pub trait Iterable {
 ///
 /// The destination chooses its storage and duplicate policy. Construction uses
 /// ordinary element values and does not deep-copy referenced objects. Native Array,
-/// MutableArray, Set, MutableSet, Map and MutableMap implement this protocol. Their
+/// ArrayList, Set, LinkedHashSet, Map and LinkedHashMap implement this protocol. Their
 /// from_iter constructors infer element types from the source. User-defined
 /// collections can implement this protocol with the same generic source contract.
 ///

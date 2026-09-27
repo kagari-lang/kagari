@@ -160,9 +160,9 @@ fn embedding_conformance_executes_standard_intrinsic_artifacts() {
 fn main() -> (usize, usize, usize, bool, i32) {
     val values = [1, 2];
     values.push(3);
-    val map: MutableMap<String, i32> = MutableMap::new();
+    val map: LinkedHashMap<String, i32> = LinkedHashMap::new();
     map.insert("ok", 7);
-    val set: MutableSet<String> = MutableSet::new();
+    val set: LinkedHashSet<String> = LinkedHashSet::new();
     set.insert("ready");
     (values.len(), "ok".len_chars(), map.len(), set.contains("ready"), std::math::max(4, 7))
 }

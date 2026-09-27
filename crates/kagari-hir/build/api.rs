@@ -371,11 +371,11 @@ pub fn declarations(
             if matches!(
                 binding.as_str(),
                 "Array"
-                    | "MutableArray"
+                    | "ArrayList"
                     | "Map"
-                    | "MutableMap"
+                    | "LinkedHashMap"
                     | "Set"
-                    | "MutableSet"
+                    | "LinkedHashSet"
                     | "Iter"
                     | "Range"
                     | "RangeInclusive"

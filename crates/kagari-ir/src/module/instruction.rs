@@ -525,6 +525,7 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
             | ArrayClear
             | ArrayFill
             | ArrayCopyFromSlice
+            | ArrayCopyFromStorage
             | ArrayCopyWithin
             | ArrayCopyWithinBounds
             | MapInsert
@@ -543,23 +544,17 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | ArrayGet
                 | ArrayPop
                 | ArrayRemove
-                | ArrayNew
-                | MutableArrayNew
-                | MutableMapNew
-                | MutableSetNew
-                | ArrayFrom
-                | MutableArrayFrom
-                | MapFrom
-                | MutableMapFrom
-                | SetFrom
-                | MutableSetFrom
-                | MapNew
+                | ArrayListNew
+                | LinkedHashMapNew
+                | LinkedHashSetNew
+                | ArrayListFrom
+                | LinkedHashMapFrom
+                | LinkedHashSetFrom
                 | MapGet
                 | MapRemove
                 | MapKeys
                 | MapValues
                 | MapEntries
-                | SetNew
                 | SetToArray
                 | SetUnion
                 | SetIntersection

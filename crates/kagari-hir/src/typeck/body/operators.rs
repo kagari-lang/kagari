@@ -183,7 +183,12 @@ impl BodyChecker<'_> {
         env: &mut BodyTypeEnv,
     ) -> TypeId {
         let receiver_ty = self.infer_expr_type(*receiver, env);
-        let index_ty = self.infer_expr_type(*index, env);
+        let context = self
+            .trait_bounds_for(&receiver_ty, env)
+            .into_iter()
+            .find(|t| t.declaration == crate::builtin::traits::StandardTrait::Index.contract().id)
+            .and_then(|t| t.arguments.into_iter().next());
+        let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
         let Ok(completes) = crate::typeck::completion::expr_can_complete(
             &self.lowered.module,
             self.names,

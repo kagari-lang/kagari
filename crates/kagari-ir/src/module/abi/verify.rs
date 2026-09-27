@@ -11,6 +11,21 @@ use std::collections::HashSet;
 
 type Parameters = HashSet<(DefinitionId, usize)>;
 
+fn native_bridge_valid(table: &InterfaceTableAbi) -> bool {
+    let AbiType::Trait(applied) = &table.trait_type else {
+        return false;
+    };
+    !table.host_bridge
+        && table.generic_params.is_empty()
+        && table.bounds.is_empty()
+        && table.trait_type.is_concrete()
+        && table.for_type.is_concrete()
+        && kagari_hir::builtin::traits::native_interface_applies(
+            &applied.to_checked_type(),
+            &table.for_type.to_checked_type(),
+        )
+}
+
 fn scalar_const_type(ty: &AbiType) -> bool {
     matches!(
         ty,
@@ -113,6 +128,7 @@ pub(crate) fn validate(
                         })
                     }) && bounds_valid(&table.bounds, &params, cancel)
                         && families_valid(table, &params, cancel)
+                        && (!table.native_bridge || native_bridge_valid(table))
                         && (!table.host_bridge
                             || (table.generic_params.is_empty()
                                 && table.bounds.is_empty()
@@ -1087,6 +1103,7 @@ mod tests {
             bounds: Vec::new(),
             methods: Vec::new(),
             host_bridge: false,
+            native_bridge: false,
         };
         assert!(same_method_contract(
             &declared,

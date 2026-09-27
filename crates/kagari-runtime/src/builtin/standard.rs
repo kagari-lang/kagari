@@ -113,14 +113,14 @@ pub fn invoke_with_callbacks(
                 .map(Value::Str)
                 .map_err(BuiltinError::from)
         }
-        ArrayNew | MutableArrayNew => {
+        ArrayListNew => {
             if !args.is_empty() {
                 return Err(BuiltinError::new("new expects no arguments"));
             }
             Ok(Value::Array(gc.alloc_array(vec![])?))
         }
-        MutableArrayFromFn | ArrayFrom | MutableArrayFrom | MapFrom | MutableMapFrom | SetFrom
-        | MutableSetFrom => Err(BuiltinError::new(
+        ArrayCopyFromSlice | ArrayListFromFn | ArrayListFrom | LinkedHashMapFrom
+        | LinkedHashSetFrom => Err(BuiltinError::new(
             "collection factories must be lowered to checked construction",
         )),
         ArrayLen => array_len(gc, args),
@@ -154,7 +154,7 @@ pub fn invoke_with_callbacks(
             gc.array_fill(*target, value.clone())?;
             Ok(Value::Unit)
         }
-        ArrayCopyFromSlice => {
+        ArrayCopyFromStorage => {
             let [Value::Array(target), Value::Array(source)] = args else {
                 return Err(BuiltinError::new(
                     "array.copy_from_slice expects two arrays",
@@ -163,7 +163,7 @@ pub fn invoke_with_callbacks(
             gc.array_copy_from_slice(*target, *source)?;
             Ok(Value::Unit)
         }
-        MapNew | MutableMapNew => map_new(gc, args),
+        LinkedHashMapNew => map_new(gc, args),
         MapLen => map_len(gc, args),
         MapIsEmpty => map_is_empty(gc, args),
         MapContainsKey => map_contains_key(gc, args),
@@ -174,7 +174,7 @@ pub fn invoke_with_callbacks(
         MapKeys => map_keys(gc, args),
         MapValues => map_values(gc, args),
         MapEntries => map_entries(gc, args),
-        SetNew | MutableSetNew => set_new(gc, args),
+        LinkedHashSetNew => set_new(gc, args),
         SetLen => set_len(gc, args),
         SetIsEmpty => set_is_empty(gc, args),
         SetContains => set_contains(gc, args),
@@ -1388,7 +1388,7 @@ mod tests {
             GcHeapConfig::default(),
             std::rc::Rc::new(crate::resource::ResourceState::default()),
         );
-        let map = call(&gc, StandardIntrinsic::MapNew, &[]).unwrap();
+        let map = call(&gc, StandardIntrinsic::LinkedHashMapNew, &[]).unwrap();
         call(
             &gc,
             StandardIntrinsic::MapInsert,

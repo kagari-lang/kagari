@@ -436,14 +436,14 @@ For tooling, failed inference preserves known members and nominal identities;
 only unresolved positions become error types after the diagnostic. Such results
 remain unavailable to code generation.
 
-Local annotations may contain `_`, including nested forms such as `Array<_>`
+Local annotations may contain `_`, including nested forms such as `List<_>`
 and `fn(_) -> _`. Each hole is a distinct body-local variable and must resolve
 before code generation. Declaration signatures, fields and associated type
 definitions remain explicit and do not accept inference holes.
 
 Calls accept positional type arguments after `::`, for example
 `identity::<i32>(42)`, `Ok::<i32, String>(42)` and
-`values.iter().collect::<Array<i32>>()`. A method lists its own type parameters;
+`values.iter().collect::<ArrayList<i32>>()`. A method lists its own type parameters;
 parameters fixed by its receiver are not repeated. All parameters must be listed
 when the list is present; `_` requests inference for an individual position.
 Explicit arguments are constraints, not conversions: incompatible arguments or
@@ -453,7 +453,7 @@ are accepted inside a type argument, but not as named call arguments.
 
 Expected result types also constrain intermediate iterator values and callback
 results through declared trait implementations. For example,
-`val values: Result<Array<i32>, String> = [Ok(42)].iter().collect();`
+`val values: Result<ArrayList<i32>, String> = [Ok(42)].iter().collect();`
 determines the error type of `Ok`. An unambiguous implementation can supply
 structural equalities; multiple candidates remain deferred until more information
 is available. Associated projections are normalized through their selected
@@ -867,7 +867,7 @@ literal         ::= INTEGER
   terminates normally. Open-ended iteration traps when the next value would exceed
   its integer type. Iteration consumes execution budget per step.
 - Collect explicitly when storage is needed, for example
-  `(0..4).iter().collect::<MutableArray<i32>>()`. Ranges without a start are bounds
+  `(0..4).iter().collect::<ArrayList<i32>>()`. Ranges without a start are bounds
   descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
   for array interval operations; `RangeFull` implements it for any `T`.
 - This phase does not introduce fixed-size array types or borrowed slice views.
@@ -1129,5 +1129,5 @@ serialization format. Parser depth, diagnostics and cancellation limits apply.
 
 Repeat arrays `[value; count]` evaluate the value once and require its type to
 contain no shared mutable objects, including recursively inside Tuple or enum
-members. Use `MutableArray::from_fn(count, |index| expression)` for per-element
+members. Use `ArrayList::from_fn(count, |index| expression)` for per-element
 object initialization. See [the value contract](value-semantics.md#repeat-arrays-and-bulk-replacement).

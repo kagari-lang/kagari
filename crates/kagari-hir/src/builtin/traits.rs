@@ -11,6 +11,12 @@ use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardTrait {
+    Map,
+    MutableMap,
+    Set,
+    MutableSet,
+    List,
+    MutableList,
     RangeBounds,
     PartialEq,
     Eq,
@@ -44,7 +50,13 @@ pub enum StandardTrait {
     Product,
 }
 impl StandardTrait {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 36] = [
+        Self::Map,
+        Self::MutableMap,
+        Self::Set,
+        Self::MutableSet,
+        Self::List,
+        Self::MutableList,
         Self::RangeBounds,
         Self::PartialEq,
         Self::Eq,
@@ -78,6 +90,12 @@ impl StandardTrait {
     ];
     pub fn name(self) -> &'static str {
         match self {
+            Self::Map => "Map",
+            Self::MutableMap => "MutableMap",
+            Self::Set => "Set",
+            Self::MutableSet => "MutableSet",
+            Self::List => "List",
+            Self::MutableList => "MutableList",
             Self::RangeBounds => "RangeBounds",
             Self::PartialEq => "PartialEq",
             Self::Eq => "Eq",
@@ -113,6 +131,9 @@ impl StandardTrait {
     }
     pub fn namespace(self) -> &'static str {
         match self {
+            Self::List | Self::MutableList => "array",
+            Self::Map | Self::MutableMap => "map",
+            Self::Set | Self::MutableSet => "set",
             Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord => "cmp",
             Self::RangeBounds
             | Self::Add
@@ -162,6 +183,20 @@ impl StandardTrait {
             .map(TypeId::Generic)
             .collect();
         ty
+    }
+    pub fn dynamic(self) -> bool {
+        self.collection() || matches!(self, Self::Index | Self::Iterable)
+    }
+    pub fn collection(self) -> bool {
+        matches!(
+            self,
+            Self::List
+                | Self::MutableList
+                | Self::Map
+                | Self::MutableMap
+                | Self::Set
+                | Self::MutableSet
+        )
     }
     pub fn iteration(self) -> bool {
         matches!(self, Self::Iterator | Self::Iterable)
@@ -355,6 +390,15 @@ pub fn intrinsic_applies(
     let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
         return false;
     };
+    if kind.collection() {
+        return super::declarations::implementations(receiver)
+            .iter()
+            .any(|implementation| {
+                implementation
+                    .applied_arguments(receiver, interface)
+                    .is_some()
+            });
+    }
     if kind.aggregation() {
         return interface.arguments.as_slice() == [receiver.clone()]
             && interface.associated_types.is_empty()
@@ -523,6 +567,9 @@ pub fn intrinsic_holds(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> bool {
+    if protocol.collection() {
+        return false;
+    }
     if protocol.iteration() {
         return iteration_outputs(protocol, ty, catalog, bounds).is_some();
     }
@@ -587,6 +634,10 @@ pub fn intrinsic_holds(
                     return false;
                 }
             }
+            TypeId::Trait(ref interface)
+                if StandardTrait::from_id(&interface.declaration)
+                    .is_some_and(StandardTrait::collection)
+                    && protocol != StandardTrait::Display => {}
             TypeId::Enum(_) | TypeId::Host(_) if protocol == StandardTrait::Debug => {}
             TypeId::Struct(_) | TypeId::Array(_, _) | TypeId::Map { .. } | TypeId::Set(_, _)
                 if protocol != StandardTrait::Display => {}
@@ -672,6 +723,27 @@ pub fn iteration_outputs(
     catalog: Option<&AggregateCatalog>,
     bounds: &GenericBounds,
 ) -> Option<std::collections::BTreeMap<DefinitionId, TypeId>> {
+    if let TypeId::Trait(interface) = receiver {
+        let inherited = crate::aggregates::trait_inheritance_closure(
+            interface,
+            receiver,
+            &Default::default(),
+            &|id| {
+                let contract = StandardTrait::from_id(id)
+                    .map(StandardTrait::contract)
+                    .or_else(|| catalog.and_then(|c| c.trait_(id)))?;
+                Some((
+                    contract.generic_params.clone(),
+                    contract.supertraits.clone(),
+                ))
+            },
+        )
+        .ok()?;
+        return inherited
+            .into_iter()
+            .find(|parent| parent.declaration == kind.contract().id)
+            .map(|parent| parent.associated_types);
+    }
     let declared_kind = if matches!(receiver, TypeId::Iter(_)) && kind == StandardTrait::Iterable {
         StandardTrait::Iterator
     } else {
@@ -779,4 +851,35 @@ pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Optio
         }
     }
     Some(required)
+}
+
+/// Native collection views eligible for ordinary interface dispatch.
+pub fn native_interface_applies(interface: &NominalType, receiver: &TypeId) -> bool {
+    if matches!(receiver, TypeId::Trait(_)) {
+        return false;
+    }
+    StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::dynamic)
+        && intrinsic_applies(interface, receiver, None, &Default::default())
+}
+
+/// The default concrete storage family corresponding to a collection capability.
+pub fn collection_storage(interface: &NominalType) -> Option<TypeId> {
+    use kagari_common::collection::CollectionAccess::Mutable;
+    match (
+        StandardTrait::from_id(&interface.declaration)?,
+        interface.arguments.as_slice(),
+    ) {
+        (StandardTrait::List | StandardTrait::MutableList, [item]) => {
+            Some(TypeId::Array(Box::new(item.clone()), Mutable))
+        }
+        (StandardTrait::Set | StandardTrait::MutableSet, [item]) => {
+            Some(TypeId::Set(Box::new(item.clone()), Mutable))
+        }
+        (StandardTrait::Map | StandardTrait::MutableMap, [key, value]) => Some(TypeId::Map {
+            key: Box::new(key.clone()),
+            value: Box::new(value.clone()),
+            access: Mutable,
+        }),
+        _ => None,
+    }
 }

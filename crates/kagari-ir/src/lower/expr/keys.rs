@@ -9,7 +9,7 @@ impl FunctionLowerer<'_, '_> {
         args: &[IrValue],
     ) -> Result<IrValue, IrLoweringError> {
         use StandardIntrinsic::*;
-        let result = self.emit_intrinsic(MutableSetNew, &[], ValueType::HeapObject);
+        let result = self.emit_intrinsic(LinkedHashSetNew, &[], ValueType::HeapObject);
         self.emit(Instruction::BeginIteration {
             collection: args[0],
         });

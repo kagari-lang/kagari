@@ -502,6 +502,7 @@ pub struct InterfaceTableAbi {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
+    pub native_bridge: bool,
     pub declaration: kagari_common::identity::DefinitionId,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -663,6 +664,7 @@ impl InterfaceTableAbi {
                 .collect::<Option<_>>()?,
             associated_consts: self.associated_consts.clone(),
             host_bridge: self.host_bridge,
+            native_bridge: self.native_bridge,
             declaration: self.declaration.clone(),
             name: self.name.clone(),
             generic_params: Vec::new(),
@@ -701,7 +703,8 @@ pub(crate) fn interface_method_semantics(
 ) -> Option<(Vec<AbiType>, AbiType)> {
     use kagari_common::identity::DefinitionKind;
     let path = &interface.declaration.path;
-    if interface.declaration.module != *owner
+    if (interface.declaration.module != *owner
+        && standard_trait_contract(&interface.declaration).is_none())
         || path.len() != 1
         || path[0].kind != DefinitionKind::Trait
         || path[0].occurrence != 0
@@ -709,18 +712,20 @@ pub(crate) fn interface_method_semantics(
     {
         return None;
     }
-    let trait_abi = trait_contracts
-        .iter()
-        .find(|contract| contract.declaration == interface.declaration)
-        .map(|contract| &contract.abi)
-        .or_else(|| {
-            public_items.iter().find_map(|item| match item {
-                PublicAbiItem::Trait(trait_abi) if trait_abi.name == path[0].name => {
-                    Some(trait_abi)
-                }
-                _ => None,
+    let trait_abi = standard_trait_contract(&interface.declaration).or_else(|| {
+        trait_contracts
+            .iter()
+            .find(|contract| contract.declaration == interface.declaration)
+            .map(|contract| &contract.abi)
+            .or_else(|| {
+                public_items.iter().find_map(|item| match item {
+                    PublicAbiItem::Trait(trait_abi) if trait_abi.name == path[0].name => {
+                        Some(trait_abi)
+                    }
+                    _ => None,
+                })
             })
-        })?;
+    })?;
     if interface.arguments.len() != trait_abi.generic_params.len() {
         return None;
     }
@@ -829,7 +834,7 @@ pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
 pub(crate) mod verify;
 
 /// Canonical standard contracts are engine-owned, never supplied by an artifact.
-pub(crate) fn standard_trait_contract(
+pub fn standard_trait_contract(
     id: &kagari_common::identity::DefinitionId,
 ) -> Option<&'static TraitAbi> {
     use kagari_hir::builtin::traits::StandardTrait;
@@ -924,4 +929,10 @@ fn standard_bounds(mut bounds: Vec<GenericBoundAbi>) -> Vec<GenericBoundAbi> {
     bounds.retain(|bound| !bound.constraints.is_empty());
     bounds.sort_by(|a, b| a.ty.cmp(&b.ty));
     bounds
+}
+
+/// Whether a canonical standard interface uses collection identity semantics.
+pub fn is_collection_interface(id: &kagari_common::identity::DefinitionId) -> bool {
+    kagari_hir::builtin::traits::StandardTrait::from_id(id)
+        .is_some_and(kagari_hir::builtin::traits::StandardTrait::collection)
 }

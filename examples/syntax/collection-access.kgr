@@ -1,24 +1,28 @@
-// Read-only access shares storage; from creates a fresh shallow copy.
+// Interfaces control access; concrete classes choose storage.
+// Read-only views share objects; from creates fresh shallow slots.
+fn append(values: MutableList<i32>, value: i32) { values.push(value); }
+fn size<C: List<i32>>(values: C) -> usize { values.len() }
 fn main() -> i32 {
-    val a = MutableArray::from([1, 2]);
+    val a = ArrayList::from([1, 2]);
     val r: [i32] = a;
-    a.push(3);
+    append(a, 3);
+    std::debug::assert_eq(size(a), 3usize, "generic interface bound");
     std::debug::assert(r.len() == [0, 0, 0].len(), "live view");
-    val snapshot = Array::from(a);
+    val snapshot = ArrayList::from(a);
     a.push(4);
     std::debug::assert(snapshot.len() == [0, 0, 0].len(), "snapshot");
-    val m = MutableMap::from([("a", 1), ("a", 2)]);
+    val m = LinkedHashMap::from([("a", 1), ("a", 2)]);
     val mr: Map<String, i32> = m;
     std::debug::assert(mr.get("a") == Some(2), "duplicate");
     m.insert("b", 3);
     std::debug::assert(mr.contains_key("b"), "map view");
-    val s = Set::from([1, 1, 2]);
+    val s = LinkedHashSet::from([1, 1, 2]);
     std::debug::assert(s.len() == [0, 0].len(), "dedup");
-    val ms = MutableSet::from([1]);
+    val ms = LinkedHashSet::from([1]);
     ms.insert(2);
-    val empty: Map<String, i32> = Map::new();
-    val empty_array: MutableArray<i32> = MutableArray::new();
-    val empty_set: Set<i32> = Set::from([]);
+    val empty: Map<String, i32> = LinkedHashMap::new();
+    val empty_array: ArrayList<i32> = ArrayList::new();
+    val empty_set: Set<i32> = LinkedHashSet::from([]);
     std::debug::assert(empty.is_empty() && empty_array.is_empty() && empty_set.is_empty(), "empty");
     42
 }

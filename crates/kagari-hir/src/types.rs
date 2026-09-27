@@ -216,6 +216,53 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    /// Canonical read-only interface for a native collection or collection view.
+    pub fn collection_view(&self) -> Option<Self> {
+        use crate::builtin::traits::StandardTrait as S;
+        let (kind, arguments) = match self {
+            Self::Array(item, _) => (S::List, vec![item.as_ref().clone()]),
+            Self::Map { key, value, .. } => {
+                (S::Map, vec![key.as_ref().clone(), value.as_ref().clone()])
+            }
+            Self::Set(item, _) => (S::Set, vec![item.as_ref().clone()]),
+            Self::Trait(interface) => (
+                match S::from_id(&interface.declaration)? {
+                    S::List | S::MutableList => S::List,
+                    S::Map | S::MutableMap => S::Map,
+                    S::Set | S::MutableSet => S::Set,
+                    _ => return None,
+                },
+                interface.arguments.clone(),
+            ),
+            _ => return None,
+        };
+        let mut interface = kind.nominal();
+        interface.arguments = arguments;
+        Some(Self::Trait(interface))
+    }
+    pub fn same_collection_family(&self, other: &Self) -> bool {
+        self.collection_view()
+            .is_some_and(|view| other.collection_view().as_ref() == Some(&view))
+    }
+    /// The element type exposed by a standard list interface.
+    pub fn list_item(&self) -> Option<&TypeId> {
+        let Self::Trait(interface) = self else {
+            return None;
+        };
+        matches!(
+            crate::builtin::traits::StandardTrait::from_id(&interface.declaration),
+            Some(
+                crate::builtin::traits::StandardTrait::List
+                    | crate::builtin::traits::StandardTrait::MutableList
+            )
+        )
+        .then(|| interface.arguments.first())
+        .flatten()
+    }
+    pub fn writable_list(&self) -> bool {
+        matches!(self, Self::Trait(interface) if crate::builtin::traits::StandardTrait::from_id(&interface.declaration) == Some(crate::builtin::traits::StandardTrait::MutableList))
+    }
+
     /// Access is part of type identity; it never changes the underlying object.
     pub fn collection_access(&self) -> Option<CollectionAccess> {
         match self {
@@ -976,7 +1023,7 @@ impl TypeId {
                         }));
                         pending.push(Part::Type(item));
                         pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "MutableArray<"
+                            "ArrayList<"
                         } else {
                             "["
                         }));
@@ -987,7 +1034,7 @@ impl TypeId {
                         pending.push(Part::Text(", "));
                         pending.push(Part::Type(key));
                         pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "MutableMap<"
+                            "LinkedHashMap<"
                         } else {
                             "Map<"
                         }));
@@ -996,7 +1043,7 @@ impl TypeId {
                         pending.push(Part::Text(">"));
                         pending.push(Part::Type(item));
                         pending.push(Part::Text(if *access == CollectionAccess::Mutable {
-                            "MutableSet<"
+                            "LinkedHashSet<"
                         } else {
                             "Set<"
                         }));

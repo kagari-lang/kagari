@@ -1,7 +1,6 @@
 use super::{ResolvedTypeRef, TypeTable, TypeTarget};
 use crate::{builtin::surface, hir, types::TypeId};
 use kagari_common::cancellation::CancellationToken;
-use kagari_common::collection::CollectionAccess;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
@@ -386,10 +385,13 @@ pub(super) fn resolve_type_in(
                 TypeId::Tuple(elements)
             }
         }
-        hir::TypeKind::Array(element) => TypeId::Array(
-            Box::new(resolve_type_in(module, *element, context, table, cancel)),
-            CollectionAccess::ReadOnly,
-        ),
+        hir::TypeKind::Array(element) => {
+            let mut interface = crate::builtin::traits::StandardTrait::List.nominal();
+            interface
+                .arguments
+                .push(resolve_type_in(module, *element, context, table, cancel));
+            TypeId::Trait(interface)
+        }
         hir::TypeKind::Function { params, result } => TypeId::Function {
             params: params
                 .iter()

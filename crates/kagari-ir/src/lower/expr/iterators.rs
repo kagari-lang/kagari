@@ -245,15 +245,15 @@ impl FunctionLowerer<'_, '_> {
         use kagari_common::collection::CollectionAccess::Mutable;
         let (new, mutable) = match target {
             TypeId::Array(item, _) => (
-                StandardIntrinsic::MutableArrayNew,
+                StandardIntrinsic::ArrayListNew,
                 TypeId::Array(item.clone(), Mutable),
             ),
             TypeId::Set(item, _) => (
-                StandardIntrinsic::MutableSetNew,
+                StandardIntrinsic::LinkedHashSetNew,
                 TypeId::Set(item.clone(), Mutable),
             ),
             TypeId::Map { key, value, .. } => (
-                StandardIntrinsic::MutableMapNew,
+                StandardIntrinsic::LinkedHashMapNew,
                 TypeId::Map {
                     key: key.clone(),
                     value: value.clone(),

@@ -50,9 +50,9 @@ fn later_collection_uses_preserve_access_and_runtime_values() {
             val alias = values;
             alias.push(20);
             values.push(22);
-            val keys = MutableSet::new();
+            val keys = LinkedHashSet::new();
             keys.insert(values[0]);
-            val map = MutableMap::new();
+            val map = LinkedHashMap::new();
             map.insert("answer", values[1]);
             std::debug::assert(keys.contains(20), "inferred set");
             std::debug::assert_eq(map.get("answer"), Some(22), "inferred map");
@@ -70,7 +70,7 @@ fn inference_order_does_not_change_evaluation_order() {
         struct Pair<T> { val marker: Marker<T>, val seed: T }
         enum Bundle<T> { Pair(Marker<T>, T) }
         fn consume<T>(marker: Marker<T>, seed: T) -> i32 { marker.value }
-        fn record(events: MutableArray<i32>, value: i32) -> i32 {
+        fn record(events: ArrayList<i32>, value: i32) -> i32 {
             events.push(value);
             value
         }
@@ -98,9 +98,9 @@ fn expected_collection_types_constrain_sources_and_callbacks() {
         r#"
         fn main() -> i32 {
             val source = [Ok(Some(20)), Ok(Some(22))];
-            val checked: Result<Option<Array<i32>>, String> = source.iter().collect();
-            val selected: Result<Array<i32>, String> = [20, 22].iter().map(|x| Ok(x)).collect();
-            val nested: Array<i32> = [[], [20, 22]].iter().flatten().collect();
+            val checked: Result<Option<ArrayList<i32>>, String> = source.iter().collect();
+            val selected: Result<ArrayList<i32>, String> = [20, 22].iter().map(|x| Ok(x)).collect();
+            val nested: ArrayList<i32> = [[], [20, 22]].iter().flatten().collect();
             std::debug::assert_eq(selected.is_ok(), true, "callback result inference");
             std::debug::assert_eq(checked.is_ok(), true, "nested collection inference");
             nested.iter().sum()
@@ -129,7 +129,7 @@ fn numeric_suffixes_context_and_full_unsigned_range_execute() {
             std::debug::assert(maximum > 9223372036854775808u64, "unsigned comparison");
             std::debug::assert_eq(maximum / 3u64, 6148914691236517205u64, "unsigned division");
             std::debug::assert_eq(f"{size}", "18446744073709551615", "unsigned formatting");
-            val keys = MutableSet::new();
+            val keys = LinkedHashSet::new();
             keys.insert(maximum);
             std::debug::assert(keys.contains(maximum), "unsigned hash and equality");
             val single: f32 = 1.25;
@@ -214,8 +214,8 @@ fn explicit_type_arguments_and_local_placeholders_execute() {
             fn transform<T>(self, value: T) -> T { value }
         }
         fn main() -> i32 {
-            val values: Array<_> = [20, 22];
-            val copy = values.iter().collect::<Array<i32>>();
+            val values: ArrayList<_> = [20, 22];
+            val copy = values.iter().collect::<ArrayList<i32>>();
             val mapped = Some(42).map::<i64>(|x| 42i64);
             std::debug::assert_eq(mapped, Some(42i64), "native method arguments");
             val success = Ok::<i32, String>(42);
@@ -236,7 +236,7 @@ fn invalid_explicit_arguments_and_unresolved_holes_are_rejected() {
         "fn identity<T>(x: T) -> T { x } fn main() { identity::<Missing>(1); }",
         "fn identity<T>(x: T) -> T { x } fn main() { identity::<T = i32>(1); }",
         "fn main() { val f = |x: i32| x; f::<i32>(1); }",
-        "fn main() { val values: Array<_> = []; }",
+        "fn main() { val values: ArrayList<_> = []; }",
         "fn main(x: _) {}",
         "struct Bad { val field: _ } fn main() {}",
         "fn main() { val x: i64 = Some(1).map::<i32>(|x| x).unwrap(); }",

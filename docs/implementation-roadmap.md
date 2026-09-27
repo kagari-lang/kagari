@@ -242,7 +242,7 @@ lossless nested metadata and following declaration recovery.
   ordinary text escapes and nested interpolation.
 - [x] Canonical Display/Debug selection, left-to-right single evaluation and
   ordinary propagation/trap cleanup through existing call frames.
-- [x] `[String].join(separator)` and `std::array::Array::join`, using checked byte-length
+- [x] `ArrayList<String>.join(separator)` and `std::array::ArrayList::join`, using checked byte-length
   accumulation and one result-buffer reservation; concat remains available.
 - [x] English API docs, runnable example and EBNF coverage inventories.
 
@@ -257,47 +257,34 @@ clippy with warnings denied and `git diff --check` passed.
 
 ## Collection access and construction
 
-The [collection access contract](spec/collection-access.md) defines the implemented
-read-only/writable Array, Map and Set types and paired associated constructors.
-`[T]` means read-only `Array<T>`; literals infer `MutableArray<T>`. The implementation
-keeps shared storage and enforces access in HIR and linked bytecode contracts.
+The authoritative [collection contract](spec/collection-access.md) now separates
+List/MutableList, Map/MutableMap and Set/MutableSet interfaces from ArrayList,
+LinkedHashMap and LinkedHashSet storage. `[T]` means read-only List; literals create
+ArrayList. Constructors and collection destinations name concrete storage.
 
-- [x] C00: document access boundaries, constructor shape and implementation plan.
-- [x] C01a: carry collection access through HIR type identity/substitution, ABI
-  types and bounded host/artifact encoding; migrate existing Rust call sites to
-  explicitly request their current mutable access.
-- [x] C01: source-owned native access types and associated constructors; HIR
-  assignability, generic invariance, branch joins and complete write-access checks.
-- [x] C02: verified IR, artifact encoding/version rejection, host declaration
-  contracts and runtime/backend integration without duplicating collection storage.
-- [x] C03: migrate standard declarations, CLI/embedding examples and executable
-  documentation; implement paired populated `Array`/`Map`/`Set` and `Mutable*`
-  factories with fresh shallow storage, remove old constructors and update
-  authoritative specifications.
-- [x] C04: navigation/completion and source/artifact/backend conformance, negative
-  access tests, GC/alias/iteration coverage and final workspace validation.
+The earlier C00-C04 checkpoints established access checking, host ABI access flags,
+artifact validation, shallow factories and source queries (KBC v63-v64, KHI v12).
+Their public paired-native-type surface is superseded by CI01 below. Host storage
+access flags remain useful independently of script interface dispatch.
 
-C01-C03 land together because the public API, typed execution contracts and
-standard declaration/example migration must agree. No compatibility constructors
-or dual mutability model remain. `Type::from(array)` creates fresh shallow storage;
-map entries use `(K, V)` tuples and both access variants use checked insertion.
-General variance, frozen/persistent collections, deep immutability, general
-copy/clone protocols, capacity APIs and variadic calls remain separate work.
-Arbitrary iterator construction is tracked in the iteration checkpoints below.
+- [x] CI01: declare six storage-independent interfaces and native impl witnesses;
+  support generic and dynamic dispatch, inherited access, native bridge validation,
+  readonly views and script-defined implementations; migrate constructors,
+  collection destinations, documentation and examples; advance KBC/runtime ABI v84.
 
-C01a introduced `CollectionAccess::{ReadOnly, Mutable}` in semantic types, KBC/runtime
-ABI v63 and host interface KHI v12. C01-C03 activate the public access types and
-advance KBC/runtime ABI to v64. Semantic parameter/local/register/result contracts
-are encoded and fingerprinted; loading validates calls, stores and writes before
-execution. Physical frame slots and shared GC storage remain unchanged. Access
-changes participate in host/interface/reload contracts. Earlier artifacts are
-rejected, without migration. Helper ABI remains v6.
+Native direct calls retain intrinsic paths. Dynamic interface values retain their
+underlying object and version through ordinary GC-managed interface wrappers.
+Map/Set interfaces do not require Eq/Hash or define iteration order. Initial linked
+hash implementations require Eq/Hash and preserve current insertion order.
+Other concrete containers, variance, deep freezing and general clone remain
+separate work. Existing failure/identity contracts still apply.
 
-Constructors and methods navigate to source-owned declarations; completion omits
-mutators on read-only receivers. Result/Option propagation retains error provenance
-while explicitly recording the resulting enum contract. Paired factories use
-normal script frames for custom key protocols, preserve argument order and release
-input/lookup guards on failure. Array/Map/Set factory results never reuse input slots.
+CI01 validation: all 1,275 workspace tests passed (1,274 ordinary tests plus the
+standard documentation test executing 337 API examples). Source/artifact/JIT
+fallback coverage includes native and script collection implementations, writable
+views, alias identity/hash, custom keys and access rejection. Workspace formatting,
+clippy with warnings denied, and `git diff --check` passed. The public SDK and
+executable collection examples use the new interface/storage split.
 
 C01a validation: 1,176 workspace tests passed, including 101 executable standard
 API documentation examples. Workspace clippy with warnings denied, formatting
@@ -333,12 +320,12 @@ Commit. No compatibility aliases are retained.
   conformance and final workspace formatting, clippy and test validation.
 
 Kagari uses iter without ownership transfer; callbacks receive ordinary values.
-group_by is a Kagari extension returning MutableMap<K, MutableArray<T>>. flat_map,
+group_by is a Kagari extension returning LinkedHashMap<K, ArrayList<T>>. flat_map,
 flatten, sum/product and Result/Option collection lifting are covered by J01-J06 below.
 
 I01 validation: HIR and embedding tests passed, including executable standard API
 examples, native declaration navigation, removed-export rejection, receiver access
-and concrete Array<String> method checks. Workspace check and git diff --check passed.
+and concrete List<String> method checks. Workspace check and git diff --check passed.
 
 I02 replaces IntoIterator/into_iter with the canonical Iterable/iter protocol and
 associated Iter type. Iterable is no longer resolved as a sealed source constraint.
@@ -578,7 +565,7 @@ range indexing and range comparison/hash protocols are outside this phase.
 ## Safe array initialization
 
 - [x] Restrict repeated elements to types without shared mutable identities, including recursive Tuple/enum checks and artifact verification.
-- [x] Add source-declared MutableArray::from_fn with ordered per-index callbacks and ordinary execution cleanup.
+- [x] Add source-declared ArrayList::from_fn with ordered per-index callbacks and ordinary execution cleanup.
 - [x] Replace the shared-object repetition example with independent initialization and explicit sharing examples.
 - [x] Complete focused and workspace validation; publish KBC/runtime ABI v83.
 

@@ -259,7 +259,7 @@ pub trait Shr<Rhs> {
 ///
 /// ```kgr
 /// val range: Range<u8> = 1u8..4u8;
-/// val values = range.iter().collect::<MutableArray<u8>>();
+/// val values = range.iter().collect::<ArrayList<u8>>();
 /// std::debug::assert(values.len() == 3usize && values[2] == 3u8, "exclusive end");
 /// ```
 #[builtin_type(Range)]
@@ -278,7 +278,7 @@ pub type Range<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values = (254u8..=255u8).iter().collect::<MutableArray<u8>>();
+/// val values = (254u8..=255u8).iter().collect::<ArrayList<u8>>();
 /// std::debug::assert(values.len() == 2usize && values[1] == 255u8, "inclusive maximum");
 /// ```
 #[builtin_type(RangeInclusive)]
@@ -300,7 +300,7 @@ pub type RangeInclusive<T>;
 /// # Examples
 ///
 /// ```kgr
-/// val values = (10u16..).iter().take(3usize).collect::<MutableArray<u16>>();
+/// val values = (10u16..).iter().take(3usize).collect::<ArrayList<u16>>();
 /// std::debug::assert(values[2] == 12u16, "bounded consumption");
 /// ```
 #[builtin_type(RangeFrom)]
@@ -389,7 +389,7 @@ pub enum Bound<T> {
 /// Returned bounds use value semantics; Kagari does not expose borrowed endpoints.
 /// The consumer determines whether bounds are valid for its domain. Implementing
 /// this trait does not itself validate ordering or container length.
-/// `MutableArray.copy_within` evaluates all arguments first, calls `start_bound`
+/// `ArrayList.copy_within` evaluates all arguments first, calls `start_bound`
 /// then `end_bound` once each, and checks both results against the current array.
 ///
 /// # Examples

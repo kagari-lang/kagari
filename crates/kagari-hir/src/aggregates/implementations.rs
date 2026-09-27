@@ -181,6 +181,14 @@ impl AggregateCatalog {
         if visiting.contains(&(protocol.nominal(), ty.clone())) {
             return Ok(false);
         }
+        if let TypeId::Trait(interface) = ty
+            && self
+                .trait_closure(interface, ty, budget.cancel)?
+                .iter()
+                .any(|parent| parent.satisfies(&protocol.nominal()))
+        {
+            return Ok(true);
+        }
         if budget.defaults.contains(&(protocol, ty.clone())) {
             return Ok(true);
         }

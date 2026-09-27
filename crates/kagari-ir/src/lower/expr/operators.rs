@@ -108,6 +108,74 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
+        let interface = if let TypeId::Trait(child) = &ty {
+            self.planner
+                .catalog
+                .trait_closure(child, &ty, &self.planner.options.cancel)
+                .ok()
+                .and_then(|parents| {
+                    parents
+                        .into_iter()
+                        .find(|parent| parent.satisfies(&interface))
+                })
+                .unwrap_or(interface)
+        } else {
+            interface
+        };
+        if let TypeId::Trait(child) = &ty
+            && self
+                .planner
+                .catalog
+                .trait_closure(child, &ty, &self.planner.options.cancel)
+                .is_ok_and(|parents| parents.contains(&interface))
+        {
+            let contract = self
+                .planner
+                .catalog
+                .trait_(&interface.declaration)
+                .ok_or(IrLoweringError::MissingBinding("dynamic protocol"))?;
+            let signature = self
+                .planner
+                .catalog
+                .trait_method(method)
+                .ok_or(IrLoweringError::MissingBinding("dynamic protocol method"))?;
+            let substitution: kagari_hir::types::TypeSubstitution = contract
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(interface.arguments.iter().cloned())
+                .collect();
+            let result = self.planner.catalog.normalize_type(
+                &signature
+                    .return_type
+                    .instantiate(&substitution)
+                    .with_associated_types(&interface),
+            );
+            let dst = self.alloc_temp(self.value_type(&result)?);
+            self.emit(Instruction::Call {
+                dst: Some(dst),
+                callee: CallTarget::InterfaceMethod(Box::new(
+                    crate::module::instruction::InterfaceCallContract {
+                        interface: crate::module::abi::NominalAbiType::from_checked_type(
+                            &interface,
+                        ),
+                        method_slot: signature.slot as u32,
+                    },
+                )),
+                args: args.iter().copied().collect(),
+            });
+            return Ok(dst);
+        }
+        if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
+            && kagari_hir::builtin::traits::native_interface_applies(&interface, &ty)
+        {
+            return self.lower_native_collection_method(
+                &ty,
+                method.path.last().unwrap().name.as_str(),
+                args,
+            );
+        }
+
         if let TypeId::Builtin(input) = &ty {
             use kagari_common::integer::IntegerOp;
             let op = match StandardTrait::from_id(&interface.declaration) {

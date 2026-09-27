@@ -47,7 +47,13 @@ pub fn lower_to_bytecode(ir: &VerifiedIrModule) -> Result<BytecodeModule, Byteco
                 Instruction::Call {
                     callee: IrCallTarget::InterfaceMethod(contract),
                     ..
-                } => contract.interface.declaration.module != ir.identity,
+                } => {
+                    contract.interface.declaration.module != ir.identity
+                        && crate::module::abi::standard_trait_contract(
+                            &contract.interface.declaration,
+                        )
+                        .is_none()
+                }
                 Instruction::MakeInterface { implementation, .. } => {
                     implementation.module != ir.identity
                 }
@@ -251,6 +257,11 @@ struct BytecodeLoweringContext<'a> {
 
 impl BytecodeLoweringContext<'_> {
     fn owner_ref(&self, owner: &kagari_common::identity::ModuleIdentity) -> super::ModuleRef {
+        let owner = if owner.package.0 == "kagari-std" {
+            self.identity.expect("lowering module identity")
+        } else {
+            owner
+        };
         if let Some(program) = self.program {
             let index = program
                 .modules()

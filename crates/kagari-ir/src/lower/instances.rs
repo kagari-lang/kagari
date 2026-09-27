@@ -42,6 +42,11 @@ pub(super) struct Instance {
     pub key: FunctionInstance,
     pub substitution: TypeSubstitution,
     pub closure: Option<hir::ExprId>,
+    pub native_method: Option<(
+        TypeId,
+        kagari_hir::types::NominalType,
+        kagari_common::identity::DefinitionId,
+    )>,
     pub protocol: Option<(kagari_hir::builtin::traits::StandardTrait, TypeId)>,
 }
 
@@ -67,6 +72,7 @@ pub(super) struct InstancePlanner<'a> {
         kagari_hir::types::NominalType,
         Span,
     )>,
+    pub native_tables: Vec<crate::module::abi::InterfaceTableAbi>,
     pub interface_instances: Vec<FunctionInstance>,
     keys: HashMap<FunctionInstance, InstanceId>,
     generic_count: usize,
@@ -115,6 +121,7 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: None,
+            native_method: None,
             protocol: None,
             iterator: Some(body),
         });
@@ -138,6 +145,7 @@ impl<'a> InstancePlanner<'a> {
             host_types: Default::default(),
             host_interfaces: Vec::new(),
             interface_instances: Vec::new(),
+            native_tables: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
             interfaces: Default::default(),
@@ -193,6 +201,7 @@ impl<'a> InstancePlanner<'a> {
             substitution: parent.substitution.clone(),
             closure: None,
             iterator: None,
+            native_method: None,
             protocol: Some((protocol, ty.clone())),
         });
         self.record_layout_root(ty, &Default::default(), span)?;
@@ -292,6 +301,7 @@ impl<'a> InstancePlanner<'a> {
             substitution,
             closure: None,
             iterator: None,
+            native_method: None,
             protocol: None,
         });
         Ok(id)
@@ -324,8 +334,9 @@ impl<'a> InstancePlanner<'a> {
         }
         use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
         let base = self.module.lowered.module.impls.len();
-        let occurrence = u32::try_from(base + self.host_interfaces.len())
-            .map_err(|_| IrLoweringError::MissingBinding("host interface identity limit"))?;
+        let occurrence =
+            u32::try_from(base + self.host_interfaces.len() + self.native_tables.len())
+                .map_err(|_| IrLoweringError::MissingBinding("host interface identity limit"))?;
         let id = DefinitionId {
             module: self.module.lowered.source.module_identity().clone(),
             path: vec![DefinitionPathSegment {
@@ -337,6 +348,121 @@ impl<'a> InstancePlanner<'a> {
         self.host_interfaces
             .push((id.clone(), receiver.clone(), interface.clone(), span));
         Ok(id)
+    }
+
+    pub fn native_interface(
+        &mut self,
+        receiver: &TypeId,
+        interface: &kagari_hir::types::NominalType,
+        span: Span,
+    ) -> Result<kagari_common::identity::DefinitionId, IrLoweringError> {
+        use crate::module::abi::{
+            AbiType, FunctionAbi, InterfaceTableAbi, NominalAbiType, ParameterAbi,
+        };
+        use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+        self.check()?;
+        let concrete = AbiType::from_checked_type(receiver);
+        let applied = AbiType::Trait(NominalAbiType::from_checked_type(interface));
+        if let Some(table) = self
+            .native_tables
+            .iter()
+            .find(|t| t.for_type == concrete && t.trait_type == applied)
+        {
+            return Ok(table.declaration.clone());
+        }
+        self.charge_layout_instance(span)?;
+        let declaration = DefinitionId {
+            module: self.module.lowered.source.module_identity().clone(),
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Impl,
+                name: String::new(),
+                occurrence: u32::try_from(
+                    self.module.lowered.module.impls.len()
+                        + self.host_interfaces.len()
+                        + self.native_tables.len(),
+                )
+                .map_err(|_| IrLoweringError::MissingBinding("native interface limit"))?,
+            }],
+        };
+        let contract = self
+            .catalog
+            .trait_(&interface.declaration)
+            .ok_or(IrLoweringError::MissingBinding("native interface contract"))?;
+        let substitution: TypeSubstitution = contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().cloned())
+            .collect();
+        let instantiate = |ty: &TypeId| {
+            ty.with_self(&contract.id, receiver)
+                .instantiate(&substitution)
+                .with_associated_types(interface)
+        };
+        let parent = self
+            .instances
+            .first()
+            .cloned()
+            .ok_or(IrLoweringError::MissingBinding("native bridge origin"))?;
+        let mut methods = Vec::new();
+        for method in &contract.methods {
+            let mut id = declaration.clone();
+            id.path.push(DefinitionPathSegment {
+                kind: DefinitionKind::Method,
+                name: method.name.clone(),
+                occurrence: 0,
+            });
+            let key = FunctionInstance {
+                declaration: id,
+                arguments: Vec::new(),
+            };
+            let instance_id = InstanceId::new(self.instances.len());
+            self.keys.insert(key.clone(), instance_id);
+            self.instances.push(Instance {
+                origin: parent.origin.clone(),
+                id: instance_id,
+                function: parent.function,
+                key,
+                substitution: Default::default(),
+                closure: None,
+                iterator: None,
+                protocol: None,
+                native_method: Some((receiver.clone(), interface.clone(), method.id.clone())),
+            });
+            methods.push(FunctionAbi {
+                name: method.name.clone(),
+                generic_params: Vec::new(),
+                bounds: Vec::new(),
+                params: method
+                    .params
+                    .iter()
+                    .map(|p| ParameterAbi {
+                        name: p.name.clone(),
+                        mutable: false,
+                        ty: AbiType::from_checked_type(&instantiate(&p.ty)),
+                    })
+                    .collect(),
+                return_type: AbiType::from_checked_type(&instantiate(&method.return_type)),
+            });
+        }
+        self.native_tables.push(InterfaceTableAbi {
+            declaration: declaration.clone(),
+            name: format!(
+                "{} as {}",
+                receiver.display_name(),
+                interface.declaration.path.last().unwrap().name
+            ),
+            host_bridge: false,
+            native_bridge: true,
+            generic_params: Vec::new(),
+            bounds: Vec::new(),
+            trait_type: applied,
+            for_type: concrete,
+            methods,
+            associated_type_families: Vec::new(),
+            associated_consts: Vec::new(),
+        });
+        Ok(declaration)
     }
 
     pub fn charge_instruction(&mut self, span: Span) {
@@ -399,6 +525,10 @@ impl<'a> InstancePlanner<'a> {
             .trait_closure(interface, receiver, &self.options.cancel)
             .map_err(|_| IrLoweringError::MissingBinding("checked inheritance closure"))?;
         for parent in parents.into_iter().skip(1) {
+            if kagari_hir::builtin::traits::native_interface_applies(&parent, receiver) {
+                self.native_interface(receiver, &parent, span)?;
+                continue;
+            }
             if self
                 .module
                 .names
@@ -523,6 +653,7 @@ impl<'a> InstancePlanner<'a> {
             substitution,
             closure: None,
             iterator: None,
+            native_method: None,
             protocol: None,
         });
         Ok(id)
@@ -567,6 +698,7 @@ impl<'a> InstancePlanner<'a> {
             substitution: parent.substitution.clone(),
             closure: Some(closure),
             iterator: None,
+            native_method: None,
             protocol: None,
         });
         Ok(id)

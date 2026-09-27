@@ -8,7 +8,7 @@ fn main() -> i32 {
     std::debug::assert(values[2047] == 7u8, "filled");
 
     val destination = [0; 3];
-    val source: Array<i32> = [10, 20, 30];
+    val source: List<i32> = [10, 20, 30];
     destination.copy_from_slice(source);
     std::debug::assert(destination[1] == 20, "copied");
 
@@ -16,12 +16,12 @@ fn main() -> i32 {
     std::debug::assert(destination[1] == 10 && destination[2] == 20, "overlap");
 
     // Each initializer call constructs an independent object.
-    val cells = MutableArray::from_fn(2, |i| Cell { value: 1 });
+    val cells = ArrayList::from_fn(2, |i| Cell { value: 1 });
     cells[0].value = 42;
     std::debug::assert(cells[1].value == 1, "independent elements");
 
     // Sharing is explicit: return an existing object from the initializer.
-    val shared = MutableArray::from_fn(2, |i| cells[0]);
+    val shared = ArrayList::from_fn(2, |i| cells[0]);
     shared[0].value = 7;
     std::debug::assert(shared[1].value == 7, "explicit sharing");
     42

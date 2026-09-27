@@ -495,7 +495,9 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if crate::builtin::traits::StandardTrait::from_id(&instance.declaration).is_some() {
+                if crate::builtin::traits::StandardTrait::from_id(&instance.declaration)
+                    .is_some_and(|kind| !kind.dynamic())
+                {
                     diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
                 }
                 let erased = catalog.trait_closure(instance, ty, cancel);
@@ -522,7 +524,7 @@ pub(super) fn validate_imported_interface_type(
                             continue;
                         };
                         if crate::builtin::traits::StandardTrait::from_id(&parent.declaration)
-                            .is_some()
+                            .is_some_and(|kind| !kind.dynamic())
                             && index != 0
                         {
                             diagnostics.push(
