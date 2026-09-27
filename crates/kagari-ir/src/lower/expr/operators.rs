@@ -81,7 +81,20 @@ impl FunctionLowerer<'_, '_> {
             use kagari_hir::builtin::declarations::IteratorMethod::*;
             if matches!(
                 operation,
-                Find | Any | All | Count | Fold | ForEach | Partition | GroupBy
+                Find | Any
+                    | All
+                    | Count
+                    | Fold
+                    | ForEach
+                    | Partition
+                    | GroupBy
+                    | FindMap
+                    | Position
+                    | Nth
+                    | Last
+                    | Reduce
+                    | MinBy
+                    | MaxBy
             ) {
                 return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
             }

@@ -395,6 +395,218 @@ pub trait Iterator {
     /// ```
     #[intrinsic(IteratorGroupBy)]
     fn group_by<K: Eq + Hash>(self, key: fn(Self::Item) -> K) -> MutableMap<K, MutableArray<Self::Item>>;
+    /// Yield items while the predicate remains true.
+    ///
+    /// The first rejected item is consumed. No later source items are requested.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [1, 2, 9].iter().take_while(|x| x < 3).collect();
+    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "prefix");
+    /// ```
+    #[intrinsic(IteratorTakeWhile)]
+    fn take_while(self, predicate: fn(Self::Item) -> bool) -> Iter<Self::Item>;
+
+    /// Skip the initial items accepted by the predicate.
+    ///
+    /// After the first rejection, yield every remaining item without testing again.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [1, 3, 1].iter().skip_while(|x| x < 3).collect();
+    /// std::debug::assert_eq(values[1], 1, "suffix");
+    /// ```
+    #[intrinsic(IteratorSkipWhile)]
+    fn skip_while(self, predicate: fn(Self::Item) -> bool) -> Iter<Self::Item>;
+
+    /// Observe each yielded item without replacing it.
+    ///
+    /// The callback runs only when an item is requested downstream.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// var seen = 0;
+    /// val items = [20, 22].iter().inspect(|x| { seen += x; });
+    /// std::debug::assert_eq(seen, 0, "lazy");
+    /// items.count();
+    /// std::debug::assert_eq(seen, 42, "observed");
+    /// ```
+    #[intrinsic(IteratorInspect)]
+    fn inspect(self, callback: fn(Self::Item) -> ()) -> Iter<Self::Item>;
+
+    /// Stop permanently after the first absent item.
+    ///
+    /// Later calls return None without advancing the source again.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val items = [7].iter().fuse();
+    /// std::debug::assert_eq(items.next(), Some(7), "item");
+    /// std::debug::assert_eq(items.next(), None, "end");
+    /// std::debug::assert_eq(items.next(), None, "still ended");
+    /// ```
+    #[intrinsic(IteratorFuse)]
+    fn fuse(self) -> Iter<Self::Item>;
+
+    /// Return the first present callback result.
+    ///
+    /// The matching item is consumed; subsequent source items remain unconsumed.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val found = [1, 20, 22].iter().find_map(|x| if x > 1 { Some(x) } else { None });
+    /// std::debug::assert_eq(found, Some(20), "found");
+    /// ```
+    #[intrinsic(IteratorFindMap)]
+    fn find_map<U>(self, callback: fn(Self::Item) -> Option<U>) -> Option<U>;
+
+    /// Return the zero-based position of the first matching item.
+    ///
+    /// Positions count from the current iterator position. The matching item is consumed.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val found = [20, 22].iter().position(|x| x == 22);
+    /// std::debug::assert_eq(found, Some("a".len_bytes()), "position");
+    /// ```
+    #[intrinsic(IteratorPosition)]
+    fn position(self, predicate: fn(Self::Item) -> bool) -> Option<usize>;
+
+    /// Skip index items and return the following item.
+    ///
+    /// Index zero means the next item. Out-of-range requests exhaust the source.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val items = [1, 20, 22].iter();
+    /// std::debug::assert_eq(items.nth("a".len_bytes()), Some(20), "nth");
+    /// std::debug::assert_eq(items.next(), Some(22), "remaining");
+    /// ```
+    #[intrinsic(IteratorNth)]
+    fn nth(self, index: usize) -> Option<Self::Item>;
+
+    /// Return the last remaining item.
+    ///
+    /// Traverses through the first None. Empty input returns None.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert_eq([20, 22].iter().last(), Some(22), "last");
+    /// ```
+    #[intrinsic(IteratorLast)]
+    fn last(self) -> Option<Self::Item>;
+
+    /// Reduce items from left to right without an initial value.
+    ///
+    /// The first item initializes the accumulator. Empty input returns None.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert_eq([20, 22].iter().reduce(|a, b| a + b), Some(42), "reduced");
+    /// ```
+    #[intrinsic(IteratorReduce)]
+    fn reduce(self, callback: fn(Self::Item, Self::Item) -> Self::Item) -> Option<Self::Item>;
+
+    /// Return the minimum item using a comparison function.
+    ///
+    /// Empty input returns None. Equal minima retain the first item.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val item = [22, 20].iter().min_by(|a, b| a.cmp(b));
+    /// std::debug::assert_eq(item, Some(20), "minimum");
+    /// ```
+    #[intrinsic(IteratorMinBy)]
+    fn min_by(self, compare: fn(Self::Item, Self::Item) -> Ordering) -> Option<Self::Item>;
+
+    /// Return the maximum item using a comparison function.
+    ///
+    /// Empty input returns None. Equal maxima retain the last item.
+    /// Aliases share source progress. Completed callback effects are not rolled back.
+    ///
+    /// # Panics
+    ///
+    /// Source and callback traps, cancellation and resource exhaustion propagate.
+    /// Native iteration guards are released when traversal ends or execution fails.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val item = [22, 20].iter().max_by(|a, b| a.cmp(b));
+    /// std::debug::assert_eq(item, Some(22), "maximum");
+    /// ```
+    #[intrinsic(IteratorMaxBy)]
+    fn max_by(self, compare: fn(Self::Item, Self::Item) -> Ordering) -> Option<Self::Item>;
 }
 
 /// Obtain an iterator without transferring ownership of the source.

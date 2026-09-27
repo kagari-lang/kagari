@@ -23,8 +23,37 @@ impl FunctionLowerer<'_, '_> {
         let array_type = TypeId::Array(Box::new(item_type.clone()), Mutable);
         let bool_type = TypeId::Builtin(BuiltinType::Bool);
         let unit_type = TypeId::Builtin(BuiltinType::Unit);
+        let result_optional = TypeId::StandardEnum {
+            kind: StandardEnum::Option,
+            args: vec![match operation {
+                FindMap => arguments[0].clone(),
+                Position => TypeId::Builtin(BuiltinType::USize),
+                _ => item_type.clone(),
+            }],
+        };
+        let counter = if matches!(operation, Position | Nth) {
+            let initial = if operation == Nth {
+                values[1]
+            } else {
+                self.usize_constant(0)
+            };
+            let counter = self.alloc_temp(ValueType::I64);
+            self.emit(Instruction::Move {
+                dst: counter,
+                src: initial,
+            });
+            self.function
+                .semantic
+                .registers
+                .insert(counter.temp.index(), AbiType::Builtin(BuiltinType::USize));
+            Some(counter)
+        } else {
+            None
+        };
         let result = match operation {
-            Find => self.standard_enum_op(&optional, StandardEnumOp::Make(1), None)?,
+            Find | FindMap | Position | Nth | Last | Reduce | MinBy | MaxBy => {
+                self.standard_enum_op(&result_optional, StandardEnumOp::Make(1), None)?
+            }
             Any | All => self.lower_constant(Constant::Bool(operation == All), ValueType::Bool),
             Count => self.usize_constant(0),
             Fold => {
@@ -74,6 +103,127 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(body);
         let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
         match operation {
+            FindMap => {
+                let mapped = self.iterator_callback(values[1], &result_optional, &[item])?;
+                let present =
+                    self.standard_enum_op(&result_optional, StandardEnumOp::Test(0), Some(mapped))?;
+                self.emit(Instruction::Move {
+                    dst: result,
+                    src: mapped,
+                });
+                self.set_terminator(Terminator::Branch {
+                    cond: present,
+                    then_block: done,
+                    else_block: head,
+                });
+            }
+            Position | Nth => {
+                let counter = counter.unwrap();
+                let matched = if operation == Position {
+                    self.iterator_callback(values[1], &bool_type, &[item])?
+                } else {
+                    let zero = self.usize_constant(0);
+                    let matched = self.alloc_temp(ValueType::Bool);
+                    self.emit(Instruction::Binary {
+                        dst: matched,
+                        op: BinaryOp::Eq,
+                        lhs: counter,
+                        rhs: zero,
+                    });
+                    matched
+                };
+                let found = self.new_block();
+                let advance = self.new_block();
+                self.set_terminator(Terminator::Branch {
+                    cond: matched,
+                    then_block: found,
+                    else_block: advance,
+                });
+                self.switch_to_block(found);
+                let value = if operation == Position {
+                    self.standard_enum_op(&result_optional, StandardEnumOp::Make(0), Some(counter))?
+                } else {
+                    next
+                };
+                self.emit(Instruction::Move {
+                    dst: result,
+                    src: value,
+                });
+                self.ensure_jump(done);
+                self.switch_to_block(advance);
+                let one = self.usize_constant(1);
+                let next_counter = self.alloc_temp(ValueType::I64);
+                self.emit(Instruction::Binary {
+                    dst: next_counter,
+                    op: if operation == Position {
+                        BinaryOp::Add
+                    } else {
+                        BinaryOp::Sub
+                    },
+                    lhs: counter,
+                    rhs: one,
+                });
+                self.emit(Instruction::Move {
+                    dst: counter,
+                    src: next_counter,
+                });
+                self.ensure_jump(head);
+            }
+            Last => {
+                self.emit(Instruction::Move {
+                    dst: result,
+                    src: next,
+                });
+                self.ensure_jump(head);
+            }
+            Reduce | MinBy | MaxBy => {
+                let present =
+                    self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(result))?;
+                let combine = self.new_block();
+                let replace = self.new_block();
+                self.set_terminator(Terminator::Branch {
+                    cond: present,
+                    then_block: combine,
+                    else_block: replace,
+                });
+                self.switch_to_block(combine);
+                let previous =
+                    self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(result))?;
+                if operation == Reduce {
+                    let combined =
+                        self.iterator_callback(values[1], &item_type, &[previous, item])?;
+                    let wrapped =
+                        self.standard_enum_op(&optional, StandardEnumOp::Make(0), Some(combined))?;
+                    self.emit(Instruction::Move {
+                        dst: result,
+                        src: wrapped,
+                    });
+                    self.ensure_jump(head);
+                } else {
+                    let ordering = TypeId::StandardEnum {
+                        kind: StandardEnum::Ordering,
+                        args: vec![],
+                    };
+                    let comparison =
+                        self.iterator_callback(values[1], &ordering, &[previous, item])?;
+                    let greater = self.standard_enum_op(
+                        &ordering,
+                        StandardEnumOp::Test(2),
+                        Some(comparison),
+                    )?;
+                    self.set_terminator(Terminator::Branch {
+                        cond: greater,
+                        then_block: if operation == MinBy { replace } else { head },
+                        else_block: if operation == MinBy { head } else { replace },
+                    });
+                }
+                self.switch_to_block(replace);
+                self.emit(Instruction::Move {
+                    dst: result,
+                    src: next,
+                });
+                self.ensure_jump(head);
+            }
             Find | Any | All => {
                 let predicate = self.iterator_callback(values[1], &bool_type, &[item])?;
                 let found = self.new_block();

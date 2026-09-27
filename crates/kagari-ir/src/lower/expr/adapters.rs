@@ -39,14 +39,15 @@ impl FunctionLowerer<'_, '_> {
         let mut dependencies = vec![values[0]];
         let mut dependency_types = vec![source.clone()];
         let output = match operation {
-            Map | FilterMap | Filter => {
-                let output = if operation == Filter {
+            Map | FilterMap | Filter | Inspect | TakeWhile | SkipWhile => {
+                let output = if matches!(operation, Filter | Inspect | TakeWhile | SkipWhile) {
                     item.clone()
                 } else {
                     arguments[0].clone()
                 };
                 let result = match operation {
-                    Filter => TypeId::Builtin(BuiltinType::Bool),
+                    Filter | TakeWhile | SkipWhile => TypeId::Builtin(BuiltinType::Bool),
+                    Inspect => TypeId::Builtin(BuiltinType::Unit),
                     FilterMap => option(output.clone()),
                     _ => output.clone(),
                 };
@@ -55,7 +56,23 @@ impl FunctionLowerer<'_, '_> {
                     params: vec![item.clone()],
                     result: Box::new(result),
                 });
+                if matches!(operation, TakeWhile | SkipWhile) {
+                    let state = self.new_adapter_flag(false);
+                    captures.push(state);
+                    types.push(TypeId::Array(
+                        Box::new(TypeId::Builtin(BuiltinType::Bool)),
+                        kagari_common::collection::CollectionAccess::Mutable,
+                    ));
+                }
                 output
+            }
+            Fuse => {
+                captures.push(self.new_adapter_flag(false));
+                types.push(TypeId::Array(
+                    Box::new(TypeId::Builtin(BuiltinType::Bool)),
+                    kagari_common::collection::CollectionAccess::Mutable,
+                ));
+                item.clone()
             }
             Take | Skip | Enumerate => {
                 let initial = if operation == Enumerate {
@@ -205,6 +222,22 @@ impl FunctionLowerer<'_, '_> {
         Ok(dst)
     }
 
+    fn new_adapter_flag(&mut self, value: bool) -> IrValue {
+        let initial = self.lower_constant(Constant::Bool(value), ValueType::Bool);
+        let state = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::MakeArray {
+            dst: state,
+            elements: vec![initial].into(),
+        });
+        self.function.semantic.registers.insert(
+            state.temp.index(),
+            AbiType::Array(
+                Box::new(AbiType::Builtin(BuiltinType::Bool)),
+                kagari_common::collection::CollectionAccess::Mutable,
+            ),
+        );
+        state
+    }
     fn adapter_state(&mut self, state: IrValue, ty: ValueType) -> IrValue {
         let index = self.lower_constant(Constant::I32(0), ValueType::I32);
         let dst = self.alloc_temp(ty);
@@ -300,6 +333,17 @@ impl FunctionLowerer<'_, '_> {
             self.switch_to_block(yield_right);
             self.set_terminator(Terminator::Return(Some(next)));
         } else {
+            if matches!(body.operation, Fuse | TakeWhile) {
+                let state = args[if body.operation == Fuse { 1 } else { 2 }];
+                let ended = self.adapter_state(state, ValueType::Bool);
+                let advance = self.new_block();
+                self.set_terminator(Terminator::Branch {
+                    cond: ended,
+                    then_block: done,
+                    else_block: advance,
+                });
+                self.switch_to_block(advance);
+            }
             if body.operation == Take {
                 let count = self.adapter_state(args[1], ValueType::I64);
                 let zero = self.lower_constant(Constant::I64(0), ValueType::I64);
@@ -328,6 +372,49 @@ impl FunctionLowerer<'_, '_> {
             let value =
                 self.standard_enum_op(&input_option, StandardEnumOp::Read(0), Some(next))?;
             let value = match body.operation {
+                Fuse => value,
+                Inspect => {
+                    self.iterator_callback(args[1], &TypeId::Builtin(BuiltinType::Unit), &[value])?;
+                    value
+                }
+                TakeWhile | SkipWhile => {
+                    let yield_item = self.new_block();
+                    if body.operation == SkipWhile {
+                        let passing = self.adapter_state(args[2], ValueType::Bool);
+                        let test = self.new_block();
+                        self.set_terminator(Terminator::Branch {
+                            cond: passing,
+                            then_block: yield_item,
+                            else_block: test,
+                        });
+                        self.switch_to_block(test);
+                    }
+                    let keep = self.iterator_callback(
+                        args[1],
+                        &TypeId::Builtin(BuiltinType::Bool),
+                        &[value],
+                    )?;
+                    if body.operation == TakeWhile {
+                        self.set_terminator(Terminator::Branch {
+                            cond: keep,
+                            then_block: yield_item,
+                            else_block: done,
+                        });
+                    } else {
+                        let stop_skipping = self.new_block();
+                        self.set_terminator(Terminator::Branch {
+                            cond: keep,
+                            then_block: head,
+                            else_block: stop_skipping,
+                        });
+                        self.switch_to_block(stop_skipping);
+                        let passing = self.lower_constant(Constant::Bool(true), ValueType::Bool);
+                        self.set_adapter_state(args[2], passing);
+                        self.ensure_jump(yield_item);
+                    }
+                    self.switch_to_block(yield_item);
+                    value
+                }
                 Map => self.iterator_callback(args[1], &body.output, &[value])?,
                 Filter => {
                     let keep = self.iterator_callback(
@@ -426,6 +513,10 @@ impl FunctionLowerer<'_, '_> {
             self.set_terminator(Terminator::Return(Some(some)));
         }
         self.switch_to_block(done);
+        if matches!(body.operation, Fuse | TakeWhile) {
+            let ended = self.lower_constant(Constant::Bool(true), ValueType::Bool);
+            self.set_adapter_state(args[if body.operation == Fuse { 1 } else { 2 }], ended);
+        }
         if body.operation == Chain {
             let end = self.lower_constant(Constant::I32(2), ValueType::I32);
             self.set_adapter_state(args[2], end);

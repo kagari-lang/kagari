@@ -492,3 +492,59 @@ fn main()->i32 {val result:Array<i32> = transform(Counter{value:20}).collect();r
 "#,
     );
 }
+
+#[test]
+fn conditional_adapters_and_lookup_preserve_lazy_progress() {
+    execute(
+        r#"
+fn main() -> i32 {
+    var checks = 0;
+    var observed = 0;
+    val source = [1, 2, 3, 1, 9].iter();
+    val items = source.skip_while(|x| { checks += 1; x < 3 }).inspect(|x| { observed += x; }).take_while(|x| x < 9);
+    std::debug::assert_eq(checks, 0, "lazy predicate");
+    val collected: Array<i32> = items.collect();
+    std::debug::assert_eq(collected.len(), "ab".len_bytes(), "suffix prefix");
+    std::debug::assert_eq(checks, 3, "stops testing after rejection");
+    std::debug::assert_eq(observed, 13, "includes rejected take item");
+    std::debug::assert_eq(items.next(), None, "take remains ended");
+    val other = [1, 20, 22, 9].iter();
+    std::debug::assert_eq(other.find_map(|x| if x > 1 { Some(x) } else { None }), Some(20), "find map");
+    std::debug::assert_eq(other.position(|x| x == 22), Some("".len_bytes()), "relative position");
+    std::debug::assert_eq(other.nth("".len_bytes()), Some(9), "nth zero");
+    std::debug::assert_eq(other.last(), None, "empty last");
+    std::debug::assert_eq([1, 2, 3].iter().nth("abc".len_bytes()), None, "out of range");
+    [20, 22].iter().reduce(|a, b| a + b).unwrap_or(0)
+}
+"#,
+    );
+}
+
+#[test]
+fn fused_custom_iterators_and_extrema_have_defined_ties() {
+    execute(
+        r#"
+struct Pulse { var step: i32 }
+impl Iterator for Pulse {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        self.step += 1;
+        if self.step == 2 { None } else { Some(self.step) }
+    }
+}
+struct Entry { val key: i32, val label: i32 }
+fn main() -> i32 {
+    val pulse = Pulse { step: 0 };
+    val fused = pulse.fuse();
+    std::debug::assert_eq(fused.next(), Some(1), "first");
+    std::debug::assert_eq(fused.next(), None, "end");
+    std::debug::assert_eq(fused.next(), None, "fused");
+    std::debug::assert_eq(pulse.step, 2, "no resumption");
+    val entries = [Entry { key: 1, label: 20 }, Entry { key: 1, label: 22 }];
+    val first = entries.iter().min_by(|a, b| a.key.cmp(b.key));
+    val last = entries.iter().max_by(|a, b| a.key.cmp(b.key));
+    match (first, last) { (Some(a), Some(b)) => a.label + b.label, _ => 0 }
+}
+"#,
+    );
+}

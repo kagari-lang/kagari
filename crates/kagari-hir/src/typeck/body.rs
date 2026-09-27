@@ -1041,9 +1041,16 @@ impl<'a> BodyChecker<'a> {
                         ) else {
                             return TypeId::Unknown;
                         };
-                        let else_context = expected
-                            .or((condition_completes && then_completes).then_some(&then_ty));
-                        let else_ty = self.infer_expr_with_coercion(*else_expr, env, else_context);
+                        let mut else_context = expected.cloned();
+                        if condition_completes && then_completes {
+                            if let Some(context) = &mut else_context {
+                                context.recover_from(&then_ty);
+                            } else {
+                                else_context = Some(then_ty.clone());
+                            }
+                        }
+                        let else_ty =
+                            self.infer_expr_with_coercion(*else_expr, env, else_context.as_ref());
                         let Ok(else_completes) = super::completion::expr_can_complete(
                             &self.lowered.module,
                             self.names,

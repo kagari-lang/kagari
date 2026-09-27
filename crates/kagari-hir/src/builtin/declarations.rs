@@ -57,6 +57,18 @@ pub struct ApiGeneric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IteratorMethod {
     Collect,
+    TakeWhile,
+    SkipWhile,
+    Inspect,
+    Fuse,
+    FindMap,
+    Position,
+    Nth,
+    Last,
+    Reduce,
+    MinBy,
+    MaxBy,
+
     Map,
     Filter,
     FilterMap,

@@ -414,3 +414,21 @@ Declaration validation: 1,208 workspace tests passed, including implementation
 member locations, incomplete-member completion, source/artifact/JIT iterator
 execution and all executable standard-library documentation. Formatting,
 workspace/all-targets clippy with warnings denied and `git diff --check` passed.
+
+## Iterator extensions
+
+- [x] J01: conditional adapters, inspection/fusion, lookup, reduction and comparator extrema.
+- [ ] J02: declaration-level where bounds, ordered extrema and key-based extrema.
+- [ ] J03: lazy flat_map/flatten with dynamically retained inner iterators.
+- [ ] J04: Sum/Product protocols and target-directed numeric/user-defined aggregation.
+- [ ] J05: Result/Option FromIterator lifting with short-circuiting and preserved error origins.
+- [ ] J06: explicit native collection Iterable/FromIterator declarations, examples and final validation.
+
+Fallible collection first buffers successful items, then invokes the destination's
+FromIterator only after the source ends successfully. A failure returns immediately
+without invoking destination construction; completed source effects remain.
+Generic Try/FromResidual, try_fold/try_for_each, peekable, double-ended iteration
+and exact-length protocols remain separate follow-up work.
+
+J01 validation: HIR tests, lazy iterator source/artifact/JIT tests and all bundled
+API documentation examples passed. KBC/runtime ABI v71 rejects earlier contracts.

@@ -41,7 +41,7 @@ KbcArtifact {
 }
 ```
 
-Format version 70 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 71 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
 virtual segment fingerprints from resolved contract fields. Versions 1 through 69 are rejected; no
 migration or compatibility decoder exists. The format stores a complete
@@ -550,3 +550,6 @@ duplicate or noncanonical keys and applies the existing bounded type node,
 depth, identity and record budgets. Linking verifies the complete output schema
 and bounds even when no trait method is executed. Format 45 retains this metadata;
 all prior formats are rejected.
+
+Version 71 and runtime ABI v71 include the expanded Iterator method contract.
+Earlier products are rejected before execution.
