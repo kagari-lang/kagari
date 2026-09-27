@@ -611,3 +611,10 @@ encode a validated native-bridge flag, and ArrayCopyFromStorage is the normalize
 snapshot-copy intrinsic. Standard interface ancestry is linked without requiring
 a separate executable std module. Public List annotations carry nominal interface
 ABI rather than native array ABI. Earlier products are rejected before execution.
+
+Version 85/runtime ABI v85 make Map keys/values/entries return List interface
+snapshots. Checked lowering emits private MapKeysStorage/MapValuesStorage/
+MapEntriesStorage operations followed by a verified List conversion. The public
+snapshot bindings are rejected if left unlowered, and the storage operations carry
+native array result types through access validation. Version 84 products are
+rejected before execution; there is no compatibility decoder.

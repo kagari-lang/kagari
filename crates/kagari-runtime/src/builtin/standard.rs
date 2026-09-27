@@ -119,8 +119,8 @@ pub fn invoke_with_callbacks(
             }
             Ok(Value::Array(gc.alloc_array(vec![])?))
         }
-        ArrayCopyFromSlice | ArrayListFromFn | ArrayListFrom | LinkedHashMapFrom
-        | LinkedHashSetFrom => Err(BuiltinError::new(
+        MapKeys | MapValues | MapEntries | ArrayCopyFromSlice | ArrayListFromFn | ArrayListFrom
+        | LinkedHashMapFrom | LinkedHashSetFrom => Err(BuiltinError::new(
             "collection factories must be lowered to checked construction",
         )),
         ArrayLen => array_len(gc, args),
@@ -171,9 +171,9 @@ pub fn invoke_with_callbacks(
         MapInsert => map_insert(gc, args),
         MapRemove => map_remove(gc, args),
         MapClear => map_clear(gc, args),
-        MapKeys => map_keys(gc, args),
-        MapValues => map_values(gc, args),
-        MapEntries => map_entries(gc, args),
+        MapKeysStorage => map_keys(gc, args),
+        MapValuesStorage => map_values(gc, args),
+        MapEntriesStorage => map_entries(gc, args),
         LinkedHashSetNew => set_new(gc, args),
         SetLen => set_len(gc, args),
         SetIsEmpty => set_is_empty(gc, args),
@@ -1411,7 +1411,12 @@ mod tests {
             .unwrap(),
             Value::Bool(true)
         );
-        let keys = call(&gc, StandardIntrinsic::MapKeys, std::slice::from_ref(&map)).unwrap();
+        let keys = call(
+            &gc,
+            StandardIntrinsic::MapKeysStorage,
+            std::slice::from_ref(&map),
+        )
+        .unwrap();
         let Value::Array(keys) = keys else {
             panic!("expected key array");
         };

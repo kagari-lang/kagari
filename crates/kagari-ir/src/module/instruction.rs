@@ -555,6 +555,9 @@ fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
                 | MapKeys
                 | MapValues
                 | MapEntries
+                | MapKeysStorage
+                | MapValuesStorage
+                | MapEntriesStorage
                 | SetToArray
                 | SetUnion
                 | SetIntersection

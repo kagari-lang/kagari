@@ -579,3 +579,17 @@ argument/callback order, zero calls, explicit sharing, callback failure side
 effects, cancellation, budget exhaustion and forged repetition bytecode. Source,
 artifact and JIT-enabled fallback paths preserve behavior with frequent GC.
 Formatting, workspace/all-targets clippy with warnings denied and diff checks passed.
+
+## Read-only map snapshots
+
+- [x] Return List from LinkedHashMap keys/values/entries while preserving ordered,
+  independent shallow snapshots; writable copies require ArrayList::from.
+- [x] Normalize native snapshot allocation and List interface construction; encode
+  KBC/runtime ABI v85 and reject unlowered snapshot bindings before execution.
+- [x] Cover inferred readonly results, shallow aliases, writable copies, empty and
+  generic snapshots, qualified calls and source/artifact/JIT fallback execution.
+
+Validation: 1,278 workspace tests passed, including executable standard-library
+documentation and standalone examples. Formatting, workspace/all-targets clippy
+with warnings denied, and diff checks passed. Full tests used an isolated target
+directory after a Windows linker file-access failure in the existing build output.

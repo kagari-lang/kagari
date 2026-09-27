@@ -16,6 +16,12 @@ fn main() -> i32 {
     std::debug::assert(mr.get("a") == Some(2), "duplicate");
     m.insert("b", 3);
     std::debug::assert(mr.contains_key("b"), "map view");
+    val entries = m.entries();
+    m.insert("c", 4);
+    std::debug::assert_eq(entries.len(), 2usize, "read-only entry snapshot");
+    val editable_entries = ArrayList::from(entries);
+    editable_entries.clear();
+    std::debug::assert_eq(m.len(), 3usize, "copy does not modify map");
     val s = LinkedHashSet::from([1, 1, 2]);
     std::debug::assert(s.len() == [0, 0].len(), "dedup");
     val ms = LinkedHashSet::from([1]);

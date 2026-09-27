@@ -740,7 +740,7 @@ fn clamp(value: i32) -> i32 {
 fn type_checks_standard_methods_and_records_intrinsics() {
     let lowered = common::lower_ok(
         r#"
-fn keys(values: LinkedHashMap<String, i32>) -> ArrayList<String> {
+fn keys(values: LinkedHashMap<String, i32>) -> List<String> {
     values.keys()
 }
 
@@ -774,12 +774,11 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
             StandardIntrinsic::MapKeys
         ))
     );
+    let mut list = crate::builtin::traits::StandardTrait::List.nominal();
+    list.arguments.push(TypeId::Builtin(BuiltinType::String));
     assert_eq!(
         typed.type_table.expr_type(keys_tail),
-        Some(TypeId::Array(
-            Box::new(TypeId::Builtin(BuiltinType::String)),
-            CollectionAccess::Mutable
-        ))
+        Some(TypeId::Trait(list))
     );
 
     let chars_tail = lowered

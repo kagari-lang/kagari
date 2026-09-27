@@ -1327,7 +1327,7 @@ fn executes_bytecode_standard_collection_intrinsics() {
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(6)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapKeys),
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapKeysStorage),
                     args: vec![Register::new(1)],
                 },
                 BytecodeInstruction::Call {

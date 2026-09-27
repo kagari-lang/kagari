@@ -145,6 +145,8 @@ fn main() -> i32 {
     val map: MutableMap<Key, i32> = storage;
     map.insert(Key { value: 1 }, 40);
     map.insert(Key { value: 1 }, 42);
+    val snapshot = storage.keys();
+    std::debug::assert(snapshot[0].value == 1, "custom key snapshot");
     val read: Map<Key, i32> = map;
     std::debug::assert(read.len() == 1usize && read.get(Key { value: 1 }) == Some(42), "custom key");
     val set: MutableSet<Key> = LinkedHashSet::new();
@@ -203,4 +205,96 @@ fn main() -> i32 {
 }
 "#,
     );
+}
+
+#[test]
+fn map_snapshots_are_readonly_ordered_and_shallow() {
+    execute(
+        r#"
+struct Cell { var value: i32 }
+fn keys<K: Eq + Hash, V>(map: LinkedHashMap<K,V>) -> List<K> { map.keys() }
+fn main() -> i32 {
+    val cell = Cell { value: 20 };
+    val map = LinkedHashMap::from([("first", cell), ("second", Cell { value: 7 })]);
+    val ks = keys(map);
+    val vs = map.values();
+    val es = std::map::LinkedHashMap::entries(map);
+    map.insert("first", Cell { value: 99 });
+    map.remove("second");
+    map.insert("third", Cell { value: 100 });
+    std::debug::assert(ks[0] == "first" && ks[1] == "second", "ordered key snapshot");
+    std::debug::assert(vs[0] === cell && vs[1].value == 7, "independent slots");
+    vs[0].value += 22;
+    std::debug::assert(es[0][1].value == 42, "shallow object references");
+    val writable = ArrayList::from(ks);
+    writable[0] = "changed";
+    writable.push("extra");
+    std::debug::assert(ks.len() == 2usize && ks[0] == "first", "explicit writable copy");
+    val empty: LinkedHashMap<String,i32> = LinkedHashMap::new();
+    std::debug::assert(empty.keys().is_empty() && empty.values().is_empty() && empty.entries().is_empty(), "empty snapshots");
+    var total = 0;
+    for key in ks { total += key.len_bytes() as i32; }
+    std::debug::assert(total == 11, "snapshot iteration");
+    cell.value
+}
+"#,
+    );
+}
+
+#[test]
+fn map_snapshot_return_types_reject_writes_without_annotations() {
+    let engine = KagariEngine::default();
+    for operation in [
+        "map.keys().push(2);",
+        "map.values()[0] = 3;",
+        "map.entries().clear();",
+        "val values: ArrayList<i32> = map.values();",
+        "val entries: MutableList<(i32,i32)> = map.entries();",
+    ] {
+        let source =
+            format!("fn main() {{ val map = LinkedHashMap::from([(1, 2)]); {operation} }}");
+        assert!(
+            engine
+                .compile_source(
+                    SourceFile::new("snapshot-write.kgr", source),
+                    Default::default()
+                )
+                .is_err(),
+            "{operation}"
+        );
+    }
+}
+
+#[test]
+fn map_snapshot_bindings_must_be_lowered_before_execution() {
+    use kagari_hir::builtin::surface::StandardIntrinsic as S;
+    use kagari_ir::bytecode::{BytecodeInstruction, CallTarget, verify_program};
+    let engine = KagariEngine::default();
+    let artifact = engine.compile_to_artifact(
+        SourceFile::new("snapshot-wire.kgr", "fn main() { val map = LinkedHashMap::from([(1,2)]); map.keys(); map.values(); map.entries(); }"),
+        Default::default(), Default::default()).unwrap();
+    verify_program(&artifact.program).unwrap();
+    for (storage, public) in [
+        (S::MapKeysStorage, S::MapKeys),
+        (S::MapValuesStorage, S::MapValues),
+        (S::MapEntriesStorage, S::MapEntries),
+    ] {
+        let mut forged = artifact.program.clone();
+        let mut replaced = false;
+        for function in &mut forged.modules[artifact.program.root.index()].functions {
+            for instruction in &mut function.instructions {
+                if let BytecodeInstruction::Call {
+                    callee: CallTarget::StandardIntrinsic(intrinsic),
+                    ..
+                } = instruction
+                    && *intrinsic == storage
+                {
+                    *intrinsic = public;
+                    replaced = true;
+                }
+            }
+        }
+        assert!(replaced);
+        assert!(verify_program(&forged).is_err(), "{public:?}");
+    }
 }

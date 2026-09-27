@@ -14,7 +14,7 @@
 /// aliases. Custom comparison and hashing can execute script code and can trap.
 ///
 /// Assignment shares the map. `==` compares map identity. Snapshot operations such
-/// as `keys`, `values`, and `entries` create arrays but keep references to objects
+/// as `keys`, `values`, and `entries` create read-only lists but keep references to objects
 /// inside them. Iteration follows insertion order. Structural mutation during guarded
 /// iteration traps; completed earlier side effects are preserved.
 ///
@@ -114,7 +114,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     #[intrinsic(MapGet)]
     pub fn get(self, key: K) -> Option<V>;
 
-    /// Return a shallow array of keys.
+    /// Return a read-only shallow snapshot of the keys.
     ///
     /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
     /// Equal keys must have equal hashes; a hash collision alone does not imply equality.
@@ -122,13 +122,15 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// Do not change fields used by equality or hashing while a key is stored. Keys and values
     /// containing objects share those objects; this operation does not perform a deep copy.
     ///
-    /// The returned array has independent container storage. Do not rely on a particular
-    /// enumeration order.
+    /// The snapshot preserves insertion order and has independent slots. Later map
+    /// changes do not change those slots; referenced key/value objects remain shared.
+    /// Use `ArrayList::from(snapshot)` for a writable copy, or `iter()` to traverse
+    /// the map without allocating a snapshot.
     ///
     /// # Panics
     ///
-    /// User equality or hashing may trap where invoked. Mutation guards and execution resource
-    /// limits still apply where the operation modifies or allocates storage.
+    /// Allocation failure, cancellation or resource exhaustion terminates construction.
+    /// No partial snapshot is returned. Snapshot creation does not call key Eq/Hash.
     ///
     /// # Examples
     ///
@@ -138,9 +140,9 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// std::debug::assert(values.keys().get("".len_bytes()) == Some(1), "key snapshot");
     /// ```
     #[intrinsic(MapKeys)]
-    pub fn keys(self) -> ArrayList<K>;
+    pub fn keys(self) -> List<K>;
 
-    /// Return a shallow array of values.
+    /// Return a read-only shallow snapshot of the values.
     ///
     /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
     /// Equal keys must have equal hashes; a hash collision alone does not imply equality.
@@ -148,13 +150,15 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// Do not change fields used by equality or hashing while a key is stored. Keys and values
     /// containing objects share those objects; this operation does not perform a deep copy.
     ///
-    /// The returned array has independent container storage. Do not rely on a particular
-    /// enumeration order.
+    /// The snapshot preserves insertion order and has independent slots. Later map
+    /// changes do not change those slots; referenced key/value objects remain shared.
+    /// Use `ArrayList::from(snapshot)` for a writable copy, or `iter()` to traverse
+    /// the map without allocating a snapshot.
     ///
     /// # Panics
     ///
-    /// User equality or hashing may trap where invoked. Mutation guards and execution resource
-    /// limits still apply where the operation modifies or allocates storage.
+    /// Allocation failure, cancellation or resource exhaustion terminates construction.
+    /// No partial snapshot is returned. Snapshot creation does not call key Eq/Hash.
     ///
     /// # Examples
     ///
@@ -164,9 +168,9 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// std::debug::assert(values.values().get("".len_bytes()) == Some("one"), "value snapshot");
     /// ```
     #[intrinsic(MapValues)]
-    pub fn values(self) -> ArrayList<V>;
+    pub fn values(self) -> List<V>;
 
-    /// Return a shallow array of key/value tuples.
+    /// Return a read-only shallow snapshot of key/value tuples.
     ///
     /// Keys are compared with `Eq` and hashed with `Hash`, including user implementations.
     /// Equal keys must have equal hashes; a hash collision alone does not imply equality.
@@ -174,13 +178,15 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// Do not change fields used by equality or hashing while a key is stored. Keys and values
     /// containing objects share those objects; this operation does not perform a deep copy.
     ///
-    /// The returned array has independent container storage. Do not rely on a particular
-    /// enumeration order.
+    /// The snapshot preserves insertion order and has independent slots. Later map
+    /// changes do not change those slots; referenced key/value objects remain shared.
+    /// Use `ArrayList::from(snapshot)` for a writable copy, or `iter()` to traverse
+    /// the map without allocating a snapshot.
     ///
     /// # Panics
     ///
-    /// User equality or hashing may trap where invoked. Mutation guards and execution resource
-    /// limits still apply where the operation modifies or allocates storage.
+    /// Allocation failure, cancellation or resource exhaustion terminates construction.
+    /// No partial snapshot is returned. Snapshot creation does not call key Eq/Hash.
     ///
     /// # Examples
     ///
@@ -190,7 +196,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// std::debug::assert(values.entries().get("".len_bytes()) == Some((1, "one")), "entry snapshot");
     /// ```
     #[intrinsic(MapEntries)]
-    pub fn entries(self) -> ArrayList<(K, V)>;
+    pub fn entries(self) -> List<(K, V)>;
 }
 
 impl<K: Eq + Hash, V> LinkedHashMap<K, V> {

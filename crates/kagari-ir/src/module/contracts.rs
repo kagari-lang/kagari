@@ -179,6 +179,7 @@ pub(crate) fn verify_intrinsic(
     let arity = match intrinsic {
         ArrayCopyWithinBounds => 4,
         ArrayCopyFromStorage => 2,
+        MapKeysStorage | MapValuesStorage | MapEntriesStorage => 1,
         KeyLookupBegin => 1,
         KeyCandidates => 2,
         KeyMapGet | KeyMapRemove | KeySetContains | KeySetRemove => 3,
@@ -310,7 +311,8 @@ pub(crate) fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        ArrayCopyFromSlice | ArrayCopyWithin | ArrayListFromFn => {
+        ArrayCopyFromSlice | ArrayCopyWithin | ArrayListFromFn | MapKeys | MapValues
+        | MapEntries => {
             return Err(ContractError::Intrinsic {
                 intrinsic,
                 reason: "callback and protocol calls require static lowering",
@@ -372,7 +374,8 @@ pub(crate) fn verify_intrinsic(
             };
             verify_call_dst(dst, return_ty)?;
         }
-        MapClear | MapKeys | MapValues | MapEntries | SetClear | SetToArray => {
+        MapClear | MapKeysStorage | MapValuesStorage | MapEntriesStorage | SetClear
+        | SetToArray => {
             expect_arg_ty(
                 args,
                 0,

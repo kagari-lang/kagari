@@ -2,6 +2,53 @@ use super::*;
 use kagari_hir::types::TypeId;
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn lower_map_snapshot(
+        &mut self,
+        site: hir::ExprId,
+        intrinsic: StandardIntrinsic,
+        map: IrValue,
+    ) -> Result<IrValue, IrLoweringError> {
+        let result = self
+            .analyzed
+            .typed
+            .type_table
+            .expr_type(site)
+            .ok_or(IrLoweringError::MissingExprType(site))?;
+        let span = self.analyzed.lowered.source_map.expr_span(site);
+        let result = self
+            .planner
+            .arguments(&[result], &self.instance.substitution, span)?
+            .remove(0);
+        let TypeId::Trait(interface) = result else {
+            return Err(IrLoweringError::MissingBinding("snapshot list interface"));
+        };
+        let [item] = interface.arguments.as_slice() else {
+            return Err(IrLoweringError::MissingBinding("snapshot element type"));
+        };
+        let storage = TypeId::Array(
+            Box::new(item.clone()),
+            kagari_common::collection::CollectionAccess::Mutable,
+        );
+        self.planner
+            .require_parent_interfaces(&storage, &interface, span)?;
+        let implementation = self.planner.native_interface(&storage, &interface, span)?;
+        let raw = match intrinsic {
+            StandardIntrinsic::MapKeys => StandardIntrinsic::MapKeysStorage,
+            StandardIntrinsic::MapValues => StandardIntrinsic::MapValuesStorage,
+            StandardIntrinsic::MapEntries => StandardIntrinsic::MapEntriesStorage,
+            _ => return Err(IrLoweringError::MissingBinding("map snapshot operation")),
+        };
+        let snapshot = self.emit_intrinsic(raw, &[map], ValueType::HeapObject);
+        let dst = self.alloc_temp(ValueType::HeapObject);
+        self.emit(Instruction::MakeInterface {
+            dst,
+            value: snapshot,
+            implementation,
+            arguments: Vec::new(),
+        });
+        Ok(dst)
+    }
+
     pub(super) fn lower_collection_factory(
         &mut self,
         site: hir::ExprId,

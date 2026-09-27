@@ -89,9 +89,15 @@ Map remove returns the previous value or None; Set remove returns a boolean.
 Interface push/insert/set/clear return unit. Existing native fluent push/insert
 methods continue returning their concrete receiver.
 
-Native-only operations such as `fill`, `copy_within`, `copy_from_slice`, snapshots
+Native-only operations such as `fill`, `copy_within`, `copy_from_slice`, map snapshots
 and set algebra remain on the concrete implementation in this batch. The source
 API shows this boundary explicitly. Iterators retain their existing lazy methods.
+
+`LinkedHashMap.keys()`, `values()` and `entries()` return read-only `List<K>`,
+`List<V>` and `List<(K,V)>` snapshots, respectively. They preserve insertion order
+and allocate independent slots; later map changes do not change the snapshot.
+Referenced key/value objects remain shared. Use `ArrayList::from(snapshot)` for
+an explicitly writable copy, or `map.iter()` to traverse without a snapshot.
 
 Custom implementations must uphold their interface contracts, including the
 single-mutation failure guarantee and consistency of get/index/iteration. The
@@ -136,8 +142,9 @@ and selected methods. Completion exposes only the members of the visible type.
 Native bridge functions are ordinary verified code with concrete signatures;
 interface contracts and parent tables are verified and linked before execution.
 Bytecode rejects forged receiver upgrades and raw storage writes through an
-interface. KBC and runtime ABI v84 encode the native bridge distinction and the
-new copy intrinsic; older products are rejected without compatibility decoding.
+interface. KBC and runtime ABI v85 encode native bridges, normalized snapshot
+operations and the copy intrinsic; older products are rejected without compatibility
+decoding.
 
 The host ABI continues to describe native storage access independently of the
 script interface hierarchy. Native read-only host arrays/maps/sets retain their

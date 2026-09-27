@@ -702,7 +702,10 @@ pub(super) fn verify(
                         CallTarget::StandardIntrinsic(intrinsic) => {
                             if matches!(
                                 intrinsic,
-                                S::ArrayCopyFromSlice
+                                S::MapKeys
+                                    | S::MapValues
+                                    | S::MapEntries
+                                    | S::ArrayCopyFromSlice
                                     | S::ArrayCopyWithin
                                     | S::ArrayListFromFn
                                     | S::ArrayListFrom
@@ -736,6 +739,30 @@ pub(super) fn verify(
                                 .is_some_and(|f| f.access == Some(Access::ReadOnly))
                             {
                                 return Err(invalid());
+                            }
+                            if matches!(
+                                intrinsic,
+                                S::MapKeysStorage | S::MapValuesStorage | S::MapEntriesStorage
+                            ) {
+                                result.access = Some(Access::Mutable);
+                                match &facts[0].ty {
+                                    Some(AbiType::Map { key, value, .. }) => {
+                                        let item = match intrinsic {
+                                            S::MapKeysStorage => (**key).clone(),
+                                            S::MapValuesStorage => (**value).clone(),
+                                            _ => AbiType::Tuple(vec![
+                                                (**key).clone(),
+                                                (**value).clone(),
+                                            ]),
+                                        };
+                                        result = Fact::typed(AbiType::Array(
+                                            Box::new(item),
+                                            Access::Mutable,
+                                        ));
+                                    }
+                                    Some(_) => return Err(invalid()),
+                                    None => {}
+                                }
                             }
                             if *intrinsic == S::ArrayCopyFromStorage {
                                 let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
