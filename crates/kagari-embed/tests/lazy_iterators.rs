@@ -135,6 +135,112 @@ fn pipelines_reject_invalid_callbacks_keys_and_removed_helpers() {
 }
 
 #[test]
+fn native_from_iter_supports_qualified_declaration_paths() {
+    execute(
+        r#"
+    fn main()->i32 {
+        val values=std::array::Array::from_iter([20,22]);
+        val unique=std::set::MutableSet::from_iter(values);
+        val map=std::map::Map::from_iter([(1,20),(2,22)]);
+        std::debug::assert_eq(unique.len(),values.len(),"qualified constructor");
+        map.get(1).unwrap_or(0)+map.get(2).unwrap_or(0)
+    }
+    "#,
+    );
+}
+
+#[test]
+fn explicit_iterator_default_override_uses_the_script_implementation() {
+    execute(
+        r#"
+    struct Count {}
+    impl Iterator for Count {
+        type Item=i32;
+        fn next(self)->Option<i32>{None}
+        fn count(self)->usize{"answer".len_bytes()}
+    }
+    fn size<I:Iterator>(source:I)->usize{source.count()}
+    fn main()->i32{
+        std::debug::assert_eq(size(Count{}),"answer".len_bytes(),"override");
+        42
+    }
+    "#,
+    );
+}
+
+#[test]
+fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
+    use kagari_ir::{
+        bytecode::{BytecodeInstruction as I, ConstantOperand},
+        module::{
+            abi::{AbiType, BuiltinType},
+            instruction::CursorOp,
+        },
+    };
+    let artifact = KagariEngine::default()
+        .compile_to_artifact(
+            SourceFile::new(
+                "invalid-cursor-wire.kgr",
+                "fn main(){val a:Array<(usize,i32)> = [1].iter().enumerate().collect();}",
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    for corrupt in 0..3 {
+        let mut program = artifact.program.clone();
+        let function = &mut program.modules[0].functions[0];
+        if corrupt == 2 {
+            let register = *function
+                .metadata
+                .semantic
+                .registers
+                .iter()
+                .find(|(_, ty)| **ty == AbiType::Builtin(BuiltinType::USize))
+                .unwrap()
+                .0;
+            let value = function
+                .instructions
+                .iter_mut()
+                .find_map(|i| match i {
+                    I::LoadConst { dst, constant } if dst.index() == register => Some(constant),
+                    _ => None,
+                })
+                .unwrap();
+            *value = ConstantOperand::I64(-1);
+        } else {
+            let ty = function
+                .instructions
+                .iter_mut()
+                .find_map(|i| match i {
+                    I::Cursor {
+                        ty,
+                        op: CursorOp::FromClosure,
+                        ..
+                    } => Some(ty),
+                    _ => None,
+                })
+                .unwrap();
+            let AbiType::Tuple(fields) = ty else {
+                panic!("adapter captures")
+            };
+            let AbiType::Function { params, result } = &mut fields[0] else {
+                panic!("step signature")
+            };
+            if corrupt == 0 {
+                params.push(AbiType::Builtin(BuiltinType::I32));
+            } else {
+                **result = AbiType::Builtin(BuiltinType::I32);
+            }
+        }
+        assert!(
+            kagari_ir::bytecode::verify_program(&program).is_err(),
+            "mutation {corrupt}"
+        );
+    }
+}
+
+#[test]
 fn native_iteration_reads_live_slots_and_does_not_snapshot_items() {
     execute(
         r#"
@@ -250,7 +356,7 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
     "#,
             ),
             kagari_embed::CompileOptions {
-                language_profile: context.language_profile.clone(),
+                language_profile: context.language_profile,
             },
             Default::default(),
         )

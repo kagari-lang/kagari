@@ -15,7 +15,7 @@
 ///
 /// Assignment shares the map. `==` compares map identity. Snapshot operations such
 /// as `keys`, `values`, and `entries` create arrays but keep references to objects
-/// inside them. Iteration order is unspecified. Structural mutation during guarded
+/// inside them. Iteration follows insertion order. Structural mutation during guarded
 /// iteration traps; completed earlier side effects are preserved.
 ///
 /// # Examples

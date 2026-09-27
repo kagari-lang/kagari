@@ -327,7 +327,7 @@ Commit. No compatibility aliases are retained.
 - [x] I05: find, any, all, count, fold, for_each, partition and whole-input group_by.
 - [x] I06: shared iterator progress, short-circuit continuation, guard lifetimes,
   callback failures, budgets and GC retention across adapter chains.
-- [ ] I07: executable English API documentation, examples, source/artifact/backend
+- [x] I07: executable English API documentation, examples, source/artifact/backend
   conformance and final workspace formatting, clippy and test validation.
 
 Kagari uses iter without ownership transfer; callbacks receive ordinary values.
@@ -377,3 +377,16 @@ VM and embedding tests passed, with additional acceptance for 1,500 adapter laye
 constant cursor allocation size, live slot replacement, trap/budget cleanup, and
 rooted pipelines resumed through host reentry after GC between root sessions.
 KBC/runtime ABI v69 rejects artifacts with earlier iteration semantics.
+
+I07 completes English method documentation and adds collection-pipelines.kgr.
+The bundled API now contains 127 executable documentation blocks. Native qualified
+from_iter paths and trait-default navigation/signature queries have acceptance
+coverage. Generated adapter steps retain their originating call-site identity and
+debug location; removed native-only iterable facts no longer form a parallel
+semantic model. Negative tests reject malformed closure cursor contracts and
+invalid usize state, and explicit user overrides retain ordinary static dispatch.
+
+Final validation: 1,206 workspace tests passed, including source/serialized-artifact
+execution, JIT-enabled fallback, all standalone examples and API documentation.
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace --no-fail-fast` and `git diff --check` passed.

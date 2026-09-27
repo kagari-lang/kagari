@@ -69,6 +69,39 @@ impl FileAnalysis {
             })
             .min_by_key(|(len, _)| *len)?;
         let call = facts.typed.type_table.call_resolution(id)?;
+        if let CallTarget::TraitMethod { method, .. } = &call.target {
+            let api = surface::STANDARD_TRAITS
+                .iter()
+                .flat_map(|t| t.methods)
+                .find(|m| m.item.identity() == *method)?;
+            let ExprKind::Call { args, .. } = &facts.lowered.module.expr(id).kind else {
+                return None;
+            };
+            return Some(StandardSignature {
+                declaration: &api.item,
+                parameters: api
+                    .params
+                    .iter()
+                    .skip(usize::from(call.receiver.is_some()))
+                    .zip(args)
+                    .map(|(p, expr)| {
+                        (
+                            p.name,
+                            facts
+                                .typed
+                                .type_table
+                                .expr_type(*expr)
+                                .unwrap_or(TypeId::Unknown),
+                        )
+                    })
+                    .collect(),
+                result: facts
+                    .typed
+                    .type_table
+                    .expr_type(id)
+                    .unwrap_or(TypeId::Unknown),
+            });
+        }
         let CallTarget::StandardIntrinsic(intrinsic) = call.target else {
             return None;
         };
@@ -105,26 +138,31 @@ impl FileAnalysis {
         };
         surface::standard_methods()
             .iter()
-            .filter(|method| match (&ty, method.receiver) {
-                (TypeId::Array(_, _), Receiver::Array)
-                | (TypeId::Map { .. }, Receiver::Map)
-                | (TypeId::Set(_, _), Receiver::Set)
-                | (TypeId::Builtin(crate::types::BuiltinType::String), Receiver::String)
-                | (
-                    TypeId::StandardEnum {
-                        kind: surface::StandardEnum::Option,
-                        ..
-                    },
-                    Receiver::Option,
+            .filter(|method| {
+                matches!(
+                    (&ty, method.receiver),
+                    (TypeId::Array(_, _), Receiver::Array)
+                        | (TypeId::Map { .. }, Receiver::Map)
+                        | (TypeId::Set(_, _), Receiver::Set)
+                        | (
+                            TypeId::Builtin(crate::types::BuiltinType::String),
+                            Receiver::String
+                        )
+                        | (
+                            TypeId::StandardEnum {
+                                kind: surface::StandardEnum::Option,
+                                ..
+                            },
+                            Receiver::Option,
+                        )
+                        | (
+                            TypeId::StandardEnum {
+                                kind: surface::StandardEnum::Result,
+                                ..
+                            },
+                            Receiver::Result,
+                        )
                 )
-                | (
-                    TypeId::StandardEnum {
-                        kind: surface::StandardEnum::Result,
-                        ..
-                    },
-                    Receiver::Result,
-                ) => true,
-                _ => false,
             })
             .filter(|method| {
                 let Some(spec) = surface::standard_function_by_intrinsic(method.intrinsic) else {
@@ -247,6 +285,33 @@ mod tests {
 mod trait_tests {
     use super::*;
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    #[test]
+    fn iterator_defaults_navigate_to_source_and_expose_checked_signatures() {
+        let text = "fn main(){val result: Array<i32> = [20,22].iter().map(|x|x).collect();}";
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set("pipeline.kgr", text.into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let analysis = snapshot.file(file).unwrap();
+        assert!(
+            analysis.result().diagnostics().is_empty(),
+            "{:?}",
+            analysis.result().diagnostics()
+        );
+        for name in ["iter", "map", "collect"] {
+            let offset = text.find(&format!(".{name}(")).unwrap() + 1;
+            let api = analysis.standard_api_at(offset).unwrap();
+            assert_eq!(api.path.last().unwrap().1, name);
+            assert!(api.uri.ends_with("iter.kgr"));
+            let signature = analysis.standard_signature_at(offset).unwrap();
+            assert_eq!(signature.declaration, api);
+            assert_eq!(signature.parameters.len(), usize::from(name == "map"));
+            assert!(signature.result.is_concrete());
+        }
+    }
     #[test]
     fn standard_trait_members_keep_source_identity_without_user_shadowing() {
         let mut sources = SourceDatabase::default();

@@ -295,14 +295,6 @@ pub struct StandardMethodSpec {
     pub constraints: &'static [StandardConstraintSpec],
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IterableProtocol {
-    Array { item: TypeId },
-    Map { key: TypeId, value: TypeId },
-    Set { item: TypeId },
-    String { item: BuiltinType },
-}
-
 const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
     BuiltinTypeSpec {
         ty: BuiltinType::Unit,
@@ -698,25 +690,6 @@ pub fn supports_hash_key(ty: &TypeId) -> bool {
         None,
         &Default::default(),
     )
-}
-
-pub fn iterable_protocol(ty: &TypeId) -> Option<IterableProtocol> {
-    match ty {
-        TypeId::Array(element, _) => Some(IterableProtocol::Array {
-            item: (**element).clone(),
-        }),
-        TypeId::Map { key, value, .. } => Some(IterableProtocol::Map {
-            key: (**key).clone(),
-            value: (**value).clone(),
-        }),
-        TypeId::Set(element, _) => Some(IterableProtocol::Set {
-            item: (**element).clone(),
-        }),
-        TypeId::Builtin(BuiltinType::String) => Some(IterableProtocol::String {
-            item: BuiltinType::String,
-        }),
-        _ => None,
-    }
 }
 
 fn builtin_family(ty: &TypeId) -> Option<BuiltinTypeFamily> {

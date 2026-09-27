@@ -3,7 +3,7 @@ use kagari_common::{DiagnosticKind, SourceFile, TypePosition};
 use kagari_syntax::parse_module;
 
 use crate::{
-    builtin::surface::{self, IterableProtocol, StandardIntrinsic},
+    builtin::surface::{self, StandardIntrinsic},
     hir::{ExportItem, ExprKind, PatternKind, StmtKind},
     resolver::resolve_names,
     tests::common,
@@ -515,42 +515,6 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
     assert!(!surface::supports_hash_key(&TypeId::Builtin(
         BuiltinType::F64
     )));
-    assert!(matches!(
-        surface::iterable_protocol(&TypeId::Array(
-            Box::new(TypeId::Builtin(BuiltinType::I32)),
-            CollectionAccess::Mutable
-        )),
-        Some(IterableProtocol::Array {
-            item: TypeId::Builtin(BuiltinType::I32)
-        })
-    ));
-    assert!(matches!(
-        surface::iterable_protocol(&TypeId::Builtin(BuiltinType::String)),
-        Some(IterableProtocol::String {
-            item: BuiltinType::String
-        })
-    ));
-    assert!(matches!(
-        surface::iterable_protocol(&TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::String)),
-            value: Box::new(TypeId::Builtin(BuiltinType::I32)),
-            access: CollectionAccess::Mutable
-        }),
-        Some(IterableProtocol::Map {
-            key: TypeId::Builtin(BuiltinType::String),
-            value: TypeId::Builtin(BuiltinType::I32),
-        })
-    ));
-    assert!(matches!(
-        surface::iterable_protocol(&TypeId::Set(
-            Box::new(TypeId::Builtin(BuiltinType::String)),
-            CollectionAccess::Mutable
-        )),
-        Some(IterableProtocol::Set {
-            item: TypeId::Builtin(BuiltinType::String),
-        })
-    ));
-
     let map_get = surface::standard_function(surface::StandardModule::Map, "Map::get")
         .expect("std::map::Map::get should be standard");
     assert_eq!(map_get.intrinsic, surface::StandardIntrinsic::MapGet);

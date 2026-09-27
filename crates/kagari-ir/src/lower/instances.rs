@@ -82,14 +82,14 @@ impl<'a> InstancePlanner<'a> {
         body: IteratorInstance,
     ) -> Result<InstanceId, IrLoweringError> {
         self.check()?;
-        let declaration = kagari_common::identity::DefinitionId {
-            module: self.module.lowered.source.module_identity().clone(),
-            path: vec![kagari_common::identity::DefinitionPathSegment {
+        let mut declaration = parent.key.declaration.clone();
+        declaration
+            .path
+            .push(kagari_common::identity::DefinitionPathSegment {
                 kind: kagari_common::identity::DefinitionKind::Function,
                 name: format!("$iterator_{:?}", body.operation),
-                occurrence: 0,
-            }],
-        };
+                occurrence: body.span.start as u32,
+            });
         let key = FunctionInstance {
             declaration,
             arguments: body

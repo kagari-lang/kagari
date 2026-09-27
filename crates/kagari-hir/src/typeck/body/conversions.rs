@@ -105,6 +105,18 @@ impl BodyChecker<'_> {
                     if protocol == StandardTrait::FromIterator
                         && explicit_type.is_none()
                         && let Some(constructor) = surface::standard_type_constructor(owner)
+                            .or_else(|| {
+                                let (module, name) = owner.rsplit_once("::")?;
+                                surface::STANDARD_ITEMS
+                                    .iter()
+                                    .any(|item| {
+                                        Some(item.module) == module.strip_prefix("std::")
+                                            && item.path.len() == 1
+                                            && item.path[0].1 == name
+                                    })
+                                    .then(|| surface::standard_type_constructor(name))
+                                    .flatten()
+                            })
                         && matches!(
                             constructor.name,
                             "Array" | "MutableArray" | "Set" | "MutableSet" | "Map" | "MutableMap"

@@ -16,7 +16,7 @@
 ///
 /// Assignment shares the set. `==` compares set identity, not membership. Set
 /// operations that return a new set copy element references without deep-copying
-/// objects. Iteration order is unspecified. Structural mutation during guarded
+/// objects. Iteration follows insertion order. Structural mutation during guarded
 /// iteration traps. Custom equality and hash implementations may also trap.
 ///
 /// # Examples

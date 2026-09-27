@@ -127,7 +127,7 @@ impl FunctionLowerer<'_, '_> {
                 operation,
                 captures: types,
                 output: output.clone(),
-                span: self.function.debug.source_span,
+                span: self.debug_span(),
             },
         )?;
         let step = self.alloc_temp(ValueType::HeapObject);

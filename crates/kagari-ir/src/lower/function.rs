@@ -60,7 +60,9 @@ pub(crate) fn lower_iterator<'a>(
         lowerer.emit(crate::module::instruction::Instruction::LoadLocal { dst: value, local });
         args.push(value);
     }
-    lowerer.lower_iterator_step(&body, &args)?;
+    lowerer.with_debug_span(body.span, |lowerer| {
+        lowerer.lower_iterator_step(&body, &args)
+    })?;
     lowerer.planner.check()?;
     Ok(lowerer.finish())
 }

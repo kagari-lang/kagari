@@ -44,72 +44,355 @@ pub trait Iterator {
     fn collect<C: FromIterator<Self::Item>>(self) -> C;
 
     /// Lazily transform each item. Construction does not call the callback.
+    ///
+    ///
+    /// A callback runs once for each item requested by downstream consumers.
+    /// Discarding a pipeline never runs its callback.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [10, 11].iter().map(|x| x * 2).collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "mapped");
+    /// ```
     #[intrinsic(IteratorMap)]
     fn map<U>(self, callback: fn(Self::Item) -> U) -> Cursor<U>;
 
     /// Lazily retain items for which the predicate returns true.
     /// Predicates receive ordinary values, including shared object references.
+    ///
+    ///
+    /// Finding one output may consume many source items. The predicate can mutate
+    /// shared objects, but cannot structurally modify a guarded source.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [20, 1, 22].iter().filter(|x| x % 2 == 0).collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "retained");
+    /// ```
     #[intrinsic(IteratorFilter)]
     fn filter(self, predicate: fn(Self::Item) -> bool) -> Cursor<Self::Item>;
 
     /// Lazily transform items and omit callback results that are None.
+    ///
+    ///
+    /// Some(value) yields one output; None continues searching. Returning None
+    /// does not terminate the source traversal.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [0, 20, 22].iter()
+    ///     .filter_map(|x| if x == 0 { None } else { Some(x) }).collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "present values");
+    /// ```
     #[intrinsic(IteratorFilterMap)]
     fn filter_map<U>(self, callback: fn(Self::Item) -> Option<U>) -> Cursor<U>;
 
     /// Yield at most count items without evaluating any later items.
+    ///
+    ///
+    /// A zero count never calls next on the source. Reaching the limit releases
+    /// this cursor's native source guards when traversal finishes.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [20, 22, 99].iter().take("ab".len_bytes()).collect();
+    /// std::debug::assert_eq(values.len(), "ab".len_bytes(), "limited");
+    /// ```
     #[intrinsic(IteratorTake)]
     fn take(self, count: usize) -> Cursor<Self::Item>;
 
     /// Lazily skip the first count items, then yield remaining items.
+    ///
+    ///
+    /// Skipped items are consumed only when next is requested. Skipping counts
+    /// items, not UTF-8 bytes. A first None ends the current traversal.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [99, 20, 22].iter().skip("a".len_bytes()).collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "remaining");
+    /// ```
     #[intrinsic(IteratorSkip)]
     fn skip(self, count: usize) -> Cursor<Self::Item>;
 
     /// Yield (index, item) pairs starting at zero. Indices use usize.
+    ///
+    ///
+    /// Indices count yielded items, starting at zero for this adapter.
+    /// Index overflow traps instead of wrapping.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<(usize, String)> = ["left", "right"].iter().enumerate().collect();
+    /// std::debug::assert_eq(values[1][0], "a".len_bytes(), "index");
+    /// std::debug::assert_eq(values[1][1], "right", "item");
+    /// ```
     #[intrinsic(IteratorEnumerate)]
     fn enumerate(self) -> Cursor<(usize, Self::Item)>;
 
     /// Lazily pair items, stepping the left iterator before the right iterator.
     /// A missing item on either side ends the current traversal.
+    ///
+    ///
+    /// The other source is converted with iter once during construction. When
+    /// the right side ends first, one unmatched left item may be consumed. Using
+    /// the same iterator on both sides consumes two successive items per pair.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<(i32, String)> = [20, 22].iter().zip(["left", "right"]).collect();
+    /// std::debug::assert_eq(values[1][0], 22, "paired");
+    /// ```
     #[intrinsic(IteratorZip)]
     fn zip<I: Iterable>(self, other: I) -> Cursor<(Self::Item, I::Item)>;
 
     /// Yield this iterator's items, then the other iterable's items.
     /// The first None permanently advances from the first iterator to the second.
+    ///
+    ///
+    /// The other source is converted with iter once during construction. Neither
+    /// side is reset. Once both sides return None, this adapter stays exhausted.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val values: Array<i32> = [20].iter().chain([22]).collect();
+    /// std::debug::assert_eq(values[0] + values[1], 42, "chained");
+    /// ```
     #[intrinsic(IteratorChain)]
     fn chain<I: Iterable<Item = Self::Item>>(self, other: I) -> Cursor<Self::Item>;
 
     /// Return the first matching item, leaving subsequent items unconsumed.
+    ///
+    ///
+    /// The matching item is consumed. Aliases can continue from the following
+    /// item. If no item matches before the first None, returns None.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val cursor = [1, 20, 22].iter();
+    /// std::debug::assert_eq(cursor.find(|x| x == 20), Some(20), "found");
+    /// std::debug::assert_eq(cursor.next(), Some(22), "continuation");
+    /// ```
     #[intrinsic(IteratorFind)]
     fn find(self, predicate: fn(Self::Item) -> bool) -> Option<Self::Item>;
 
     /// Stop at the first true predicate result. Empty iterators return false.
+    ///
+    ///
+    /// Consumes the decisive item and releases native guards before returning.
+    /// Later items remain available through the same iterator.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val cursor = [1, 20, 22].iter();
+    /// std::debug::assert(cursor.any(|x| x == 20), "match");
+    /// std::debug::assert_eq(cursor.next(), Some(22), "continuation");
+    /// ```
     #[intrinsic(IteratorAny)]
     fn any(self, predicate: fn(Self::Item) -> bool) -> bool;
 
     /// Stop at the first false predicate result. Empty iterators return true.
+    ///
+    ///
+    /// Consumes the first failing item and releases native guards before returning.
+    /// Later items remain available through the same iterator.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val cursor = [20, 1, 22].iter();
+    /// std::debug::assert(!cursor.all(|x| x % 2 == 0), "first failure");
+    /// std::debug::assert_eq(cursor.next(), Some(22), "continuation");
+    /// ```
     #[intrinsic(IteratorAll)]
     fn all(self, predicate: fn(Self::Item) -> bool) -> bool;
 
     /// Count remaining items. Overflow traps instead of wrapping.
+    ///
+    ///
+    /// Visits every remaining item through the first None. This is a consuming
+    /// terminal operation, not a constant-time collection size query.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// std::debug::assert_eq([20, 22].iter().count(), "ab".len_bytes(), "count");
+    /// ```
     #[intrinsic(IteratorCount)]
     fn count(self) -> usize;
 
     /// Accumulate remaining items from left to right, starting with initial.
+    ///
+    ///
+    /// The callback receives (accumulator, item). Empty input returns initial
+    /// unchanged. Both values remain rooted during callback execution.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val sum = [20, 22].iter().fold(0, |sum, item| sum + item);
+    /// std::debug::assert_eq(sum, 42, "folded");
+    /// ```
     #[intrinsic(IteratorFold)]
     fn fold<A>(self, initial: A, callback: fn(A, Self::Item) -> A) -> A;
 
     /// Call the callback once for each remaining item. Earlier effects survive traps.
+    ///
+    ///
+    /// Visits items in traversal order until the first None. Use a for loop when
+    /// the body needs break, continue or return from the enclosing function.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// var sum = 0;
+    /// [20, 22].iter().for_each(|item| { sum += item; });
+    /// std::debug::assert_eq(sum, 42, "visited");
+    /// ```
     #[intrinsic(IteratorForEach)]
     fn for_each(self, callback: fn(Self::Item) -> ()) -> ();
 
     /// Split items into matching and nonmatching destinations, preserving order.
     /// Items are buffered in two shallow arrays before invoking FromIterator.
+    ///
+    ///
+    /// The first destination contains matching items; the second contains the
+    /// others. The result type selects C. Predicate effects precede destination
+    /// construction, which runs for the matching side before the other side.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val split: (Array<i32>, Array<i32>) = [20, 1, 22].iter().partition(|x| x % 2 == 0);
+    /// std::debug::assert_eq(split[0][0] + split[0][1], 42, "matching");
+    /// std::debug::assert_eq(split[1][0], 1, "other");
+    /// ```
     #[intrinsic(IteratorPartition)]
     fn partition<C: FromIterator<Self::Item>>(self, predicate: fn(Self::Item) -> bool) -> (C, C);
 
     /// Group the entire input by a key computed once per item.
     /// This Kagari extension returns fresh mutable groups in first-key insertion order.
     /// Items within each group retain traversal order. Keys obey Eq and Hash.
+    ///
+    ///
+    /// Unlike adjacent-run grouping, equal keys anywhere in the input share a
+    /// group. This eagerly consumes remaining input. Keys must keep stable Eq/Hash
+    /// behavior while stored. Containers are fresh; element objects remain shared.
+    ///
+    /// # Panics
+    ///
+    /// Source traps, callback traps, resource exhaustion and cancellation propagate.
+    /// Structural modification of a guarded source traps before the modification.
+    /// Completed callback side effects are not rolled back.
+    ///
+    /// # Examples
+    ///
+    /// ```kgr
+    /// val groups = [20, 1, 22, 3].iter().group_by(|x| x % 2);
+    /// val even = groups.get(0).unwrap_or([0]);
+    /// std::debug::assert_eq(even[0] + even[1], 42, "grouped");
+    /// std::debug::assert_eq(groups.keys()[0], 0, "first key order");
+    /// ```
     #[intrinsic(IteratorGroupBy)]
     fn group_by<K: Eq + Hash>(self, key: fn(Self::Item) -> K) -> MutableMap<K, MutableArray<Self::Item>>;
 }
@@ -179,8 +462,11 @@ pub trait FromIterator<T> {
 ///
 /// The runtime manages structural iteration guards and releases them when the
 /// cursor is closed or execution is cleaned up. Do not structurally modify a guarded
-/// source. Map and set iteration order is unspecified. The representation is opaque;
-/// there is no empty-struct constructor for a cursor.
+/// source. Map and set traversal uses insertion order. The representation is opaque;
+/// there is no empty-struct constructor for a cursor. Native cursors read slots on
+/// demand; replacing an unvisited slot is visible to subsequent steps. A rooted
+/// cursor retains its source, callbacks and captures across execution sessions.
+/// Structural changes after a traversal ends invalidate subsequent resumption.
 ///
 /// # Examples
 ///

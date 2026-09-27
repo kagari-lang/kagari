@@ -295,18 +295,7 @@ impl ApiType {
                             arguments: vec![],
                         };
                     }
-                    return arguments
-                        .get(owner)
-                        .and_then(surface::iterable_protocol)
-                        .map(|p| match p {
-                            surface::IterableProtocol::Array { item }
-                            | surface::IterableProtocol::Set { item } => item,
-                            surface::IterableProtocol::Map { key, value } => {
-                                TypeId::Tuple(vec![key, value])
-                            }
-                            surface::IterableProtocol::String { item } => TypeId::Builtin(item),
-                        })
-                        .unwrap_or(TypeId::Unknown);
+                    return TypeId::Unknown;
                 }
                 if let Some(builtin) = surface::builtin_type(name) {
                     return TypeId::Builtin(builtin);
