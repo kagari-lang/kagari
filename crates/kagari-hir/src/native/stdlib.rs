@@ -9,6 +9,8 @@ use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile, ParsedStdl
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 
+mod enums;
+mod functions;
 #[cfg(test)]
 mod tests;
 
@@ -27,6 +29,8 @@ impl InstalledStdlib {
             let mut lowered =
                 lower_module_controlled(file.source().clone(), &file.parsed().syntax(), cancel);
             install_types(file, &mut lowered, cancel)?;
+            enums::install(file, &mut lowered, cancel)?;
+            functions::install(file, &mut lowered, cancel)?;
             lowered.installed_stdlib = Some(package.clone());
             modules.push(Arc::new(lowered));
         }
@@ -88,6 +92,9 @@ fn install_types(
                 ));
             }
             lowered.native_types.insert(item.id, kind);
+            lowered
+                .native_attributes
+                .insert((marker.span.start, marker.span.end));
         }
     }
     for item in &lowered.module.opaque_types {

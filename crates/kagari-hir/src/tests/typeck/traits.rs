@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
+    let lowered = common::lower_ok(
+        "trait Sequence { type Item; fn size(self) -> usize where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
+    );
+    let names = resolve_names(&lowered).into_checked().expect("trait names");
+    let typed = check_module(&lowered, &names, None)
+        .into_checked()
+        .expect("Self bounds in their declaring trait context");
+    let method = typed
+        .functions
+        .iter()
+        .find(|function| function.name == "size")
+        .unwrap();
+    assert!(
+        method
+            .bounds
+            .keys()
+            .any(|ty| matches!(ty, TypeId::SelfType(_)))
+    );
+    assert!(method.bounds.keys().any(|ty| matches!(ty, TypeId::Projection { receiver, .. } if matches!(receiver.as_ref(), TypeId::SelfType(_)))));
+}
+
+#[test]
+fn trait_name_is_not_a_self_parameter_in_where_bounds() {
+    let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");
+    let names = resolve_names(&lowered).into_checked().expect("trait names");
+    let typed = check_module(&lowered, &names, None);
+    assert!(typed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, kagari_common::DiagnosticKind::InvalidBoundTarget { name } if name == "Sequence")));
+}
+
+#[test]
 fn validates_trait_impl_and_interface_method_calls() {
     let lowered = common::lower_ok(
         r#"

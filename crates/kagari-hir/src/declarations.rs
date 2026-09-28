@@ -10,8 +10,8 @@ use kagari_common::{
 use crate::{
     builtin::{declarations, traits},
     hir::{
-        BodyOwner, ConstOwner, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId, Item,
-        OpaqueTypeId, VariantId,
+        BodyOwner, ConstOwner, EnumId, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId,
+        Item, OpaqueTypeId, VariantId,
     },
     host::{HostDeclarations, HostTypeId},
     imports::{ImportedTypes, ModuleImports},
@@ -72,6 +72,7 @@ pub struct Declarations {
     sites: HashSet<DeclarationKey>,
     impl_identities: HashMap<ImplId, DefinitionId>,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    native_enums: HashMap<EnumId, NativeTypeKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -91,6 +92,9 @@ impl From<ResolvedName> for DeclarationKey {
 impl Declarations {
     pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
         self.native_types.get(&id).copied()
+    }
+    pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind> {
+        self.native_enums.get(&id).copied()
     }
     pub(crate) fn standard_trait(&self, name: &str) -> Option<StandardTrait> {
         if let Some(binding) = self.names.lookup(name) {
@@ -283,6 +287,7 @@ impl Declarations {
                 sites: HashSet::new(),
                 impl_identities: HashMap::new(),
                 native_types: lowered.native_types.clone(),
+                native_enums: lowered.native_enums.clone(),
             },
             occurrences: HashMap::new(),
         };

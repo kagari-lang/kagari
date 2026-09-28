@@ -710,6 +710,55 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 native installation checkpoint: HIR maps installed function annotations
+  to closed intrinsic, integer, radix-parser, protocol-implementation and
+  trait-default operation identities. Unknown/misplaced bindings, a native
+  declaration with a script body, and non-trait functions with neither a body
+  nor a binding are rejected before the installation is published. Trait
+  requirements retain no implementation; installed native defaults are recorded
+  as defaults without fabricating a script block. Only successfully installed
+  annotation spans are recognized by semantic attribute validation.
+- Native enum declarations now retain ordinary enum identities while carrying
+  explicit representation hooks for the seven engine enum families. Installation
+  validates generic arity, variant order/names and payload slots. Local and
+  imported type resolution apply the checked representation hook rather than
+  constructing a second type-expression language.
+- Ordinary constraint resolution now uses the function's trait/impl context for
+  `Self` and `Self::Item` bounds. The trait's spelled name remains a type, not a
+  substitute for its `Self` parameter. Installed engine ownership is retained in
+  implementation facts so native storage can implement its protocols, while user
+  code still needs a type it owns and host restrictions remain enforced. Native
+  generic declarations are distinguished from unsupported generic script exports;
+  user native-looking annotations cannot claim that exemption.
+- Moved `NativeDefaultMethod` out of the generated declaration-descriptor module
+  into the source-free `standard::bindings` operation-identity module, alongside
+  the nine previously generator-specific protocol operation tags. Updated all
+  consumers directly, with no compatibility re-export. These tags are not yet
+  the provider-qualified executable import/contract; numeric receiver application,
+  unified checked callables and native contract/link validation remain ST02/ST03.
+- The native installation checkpoint resolves the two previously carried import
+  signature test failures without changing their assertions. The remaining HIR
+  integration failure is standard navigation comparing old process-global file
+  locations with the analysis-owned installed package. ST02 still owns removal of
+  that metadata path. The carried compiler `Item::OpaqueType` ABI export error is
+  unchanged and remains owned by ST03. ABI source generation and legacy standard
+  namespace/signature/trait catalogs are still active and must be removed; ST01
+  is not complete.
+- Native installation validation: `cargo test -p kagari-abi -p kagari-hir -p
+  kagari-stdlib -p kagari-syntax --no-fail-fast` passes 38 ABI, 367 HIR, five
+  stdlib and 80 syntax tests; the one HIR navigation failure above remains.
+  Eight new tests cover native requirements/defaults, body conflicts, closed
+  operation names, enum discriminants, forged attributes/URIs, and contextual
+  `Self` bounds. Clippy/all-targets with warnings denied passes for all four
+  crates. Structure checking passes for 529 Rust files with no violations or
+  exceptions; format and diff checks pass. Workspace checking still reports the
+  single existing compiler E0004 for `Item::OpaqueType`; workspace-wide test/JIT/
+  feature acceptance remains pending rather than reusing earlier green results.
+- Source API changes at this checkpoint move the native default operation type
+  to `standard::bindings` and attach private engine-ownership provenance to
+  implementation signatures. The new operation tags do not yet participate in
+  executable serialization; no executable format change is claimed here.
+
 - ST01 ordinary declaration import checkpoint: declaration-mode top-level `type`
   nodes now enter AST items and HIR as opaque declarations. Normal declaration
   collection retains visibility, exports, generic identities, bounds, optional
@@ -736,10 +785,10 @@ textual references; renaming an import is not removal of the dependency.
   executable representation/version validation. Opaque names are explicitly
   rejected as local/value expressions; the ABI collector is intentionally not
   given an empty arm or a fabricated layout to conceal the missing contract.
-- Carried HIR integration failures: `cargo test -p kagari-hir` exposes the old
+- HIR integration failures at the ordinary import checkpoint: `cargo test -p kagari-hir` exposes the old
   process-global declaration locations conflicting with the new package-owned
   locations in `native_calls_types_and_variants_navigate_to_documented_source`.
-  ST02 owns removal of that alternate metadata path. The tests
+  ST02 owns removal of that alternate metadata path. At that checkpoint the tests
   `imported_nominal_signatures_distinguish_same_named_types` and
   `exported_signatures_use_imported_types_before_callers_are_checked` now also
   observe standard-module diagnostics: `PublicGenericFunction`, native

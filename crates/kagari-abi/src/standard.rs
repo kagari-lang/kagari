@@ -1,4 +1,5 @@
 pub mod application;
+pub mod bindings;
 pub(crate) mod contracts;
 pub mod declarations;
 pub mod implementation;

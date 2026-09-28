@@ -256,7 +256,7 @@ impl AggregateCatalog {
             );
         }
         self.add_traits(lowered, declarations, signatures, cancel)?;
-        self.add_implementations(declarations, signatures, cancel)?;
+        self.add_implementations(lowered, declarations, signatures, cancel)?;
         for implementation in &lowered.module.impls {
             let Some(owner) = declarations.impl_identity(implementation.id) else {
                 continue;

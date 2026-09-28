@@ -2,7 +2,7 @@ use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
     operations::StandardEnumOp as Op,
     representation::ValueType,
-    standard::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
+    standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_common::collection::CollectionAccess;
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};

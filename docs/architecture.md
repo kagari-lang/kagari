@@ -13,11 +13,13 @@ the standard source package from ABI and establishes a checked HIR handoff for
 native and script implementations. ST00 is complete and ST01 is in progress:
 `kagari-stdlib` owns bundled source text and structural preparation. The analysis
 database caches the installed package and imports its files through ordinary HIR
-declaration collection, including opaque native type declarations and their
-storage representation hooks. Native callable/signature integration and removal
-of ABI's generated declaration catalogs remain pending; the complete target
-handoff is not yet active. Current intermediate failures are recorded in the
-migration plan.
+declaration collection, including opaque types, native enum representation hooks,
+engine function bindings and native trait defaults. Installed declarations use
+ordinary signature and bound checking; source code cannot acquire these bindings
+by copying a native attribute or standard URI. Unified checked Engine/Host call
+contracts, ordinary standard namespace resolution and removal of ABI's generated
+declaration catalogs remain pending. The complete target handoff is not yet
+active; intermediate failures are recorded in the migration plan.
 
 ## Foundation Contracts
 

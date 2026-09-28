@@ -280,7 +280,7 @@ pub fn declarations(
                             "unsupported native default owner"
                         );
                         let operation = binding.strip_prefix("Iterator").unwrap_or(&binding);
-                        format!("Some(super::declarations::NativeDefaultMethod::{operation})")
+                        format!("Some(super::bindings::NativeDefaultMethod::{operation})")
                     })
                     .unwrap_or("None".into());
                 assert!(

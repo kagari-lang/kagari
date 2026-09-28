@@ -9,10 +9,8 @@ use kagari_abi::{
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic,
-        declarations::{self as standard_declarations, NativeDefaultMethod},
-        surface::StandardEnum,
-        traits::StandardTrait,
+        StandardIntrinsic, bindings::NativeDefaultMethod, declarations as standard_declarations,
+        surface::StandardEnum, traits::StandardTrait,
     },
     types::AbiType,
 };

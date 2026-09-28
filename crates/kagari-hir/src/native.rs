@@ -1,9 +1,27 @@
 //! HIR representation hooks supplied only by an installed native declaration.
 use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_common::{collection::CollectionAccess, range::RangeKind};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        surface::StandardEnum,
+    },
+};
+use kagari_common::{collection::CollectionAccess, integer::IntegerMethod, range::RangeKind};
 
 pub(crate) mod stdlib;
+
+/// Installed declaration input, not an executable binding. Numeric owners and
+/// generic arguments still require checked signature application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeFunctionKind {
+    Intrinsic(StandardIntrinsic),
+    Integer(IntegerMethod),
+    ParseRadix,
+    TraitDefault(NativeDefaultMethod),
+    Protocol(NativeProtocolMethod),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeTypeKind {
@@ -13,6 +31,7 @@ pub enum NativeTypeKind {
     LinkedHashSet,
     Iter,
     Range(RangeKind),
+    Enum(StandardEnum),
 }
 
 impl NativeTypeKind {
@@ -35,6 +54,9 @@ impl NativeTypeKind {
 
     pub fn arity(self) -> usize {
         match self {
+            Self::Enum(StandardEnum::Option | StandardEnum::Bound) => 1,
+            Self::Enum(StandardEnum::Result) => 2,
+            Self::Enum(_) => 0,
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::LinkedHashMap => 2,
             _ => 1,
@@ -47,6 +69,10 @@ impl NativeTypeKind {
         }
         let first = || Box::new(arguments[0].clone());
         Some(match self {
+            Self::Enum(kind) => TypeId::StandardEnum {
+                kind,
+                args: arguments.to_vec(),
+            },
             Self::String => TypeId::Builtin(BuiltinType::String),
             Self::ArrayList => TypeId::Array(first(), CollectionAccess::Mutable),
             Self::LinkedHashMap => TypeId::Map {

@@ -2,7 +2,10 @@ use ast::Attribute;
 use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
 use kagari_stdlib::ParsedStdlibPackage;
 use kagari_syntax::parse;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 mod context;
 mod expr;
 mod item;
@@ -12,9 +15,9 @@ mod ty;
 use kagari_syntax::ast::{self, AstNode};
 
 use crate::{
-    hir::{Module, OpaqueTypeId},
+    hir::{EnumId, FunctionId, Module, OpaqueTypeId},
     lower::context::Lowerer,
-    native::NativeTypeKind,
+    native::{NativeFunctionKind, NativeTypeKind},
     source_map::SourceMap,
 };
 
@@ -25,6 +28,9 @@ pub struct LoweredModule {
     pub source_map: SourceMap,
     pub attributes: Vec<AttributeFact>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
+    pub(crate) native_functions: HashMap<FunctionId, NativeFunctionKind>,
+    pub(crate) native_attributes: HashSet<(usize, usize)>,
     pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,
 }
 
@@ -113,6 +119,9 @@ pub(crate) fn lower_module_controlled(
         source_map,
         attributes,
         native_types: HashMap::new(),
+        native_enums: HashMap::new(),
+        native_functions: HashMap::new(),
+        native_attributes: HashSet::new(),
         installed_stdlib: None,
     }
 }

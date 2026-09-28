@@ -203,7 +203,8 @@ pub(super) fn validate_trait_surface(
         let standard = StandardTrait::from_id(&id.declaration);
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
-                || !kind.conversion()
+                || lowered.installed_stdlib.is_none()
+                    && !kind.conversion()
                     && !matches!(
                         for_ty,
                         TypeId::Struct(_) | TypeId::Enum(_) | TypeId::Host(_)

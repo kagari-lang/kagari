@@ -3,7 +3,7 @@
 use crate::hir::ExportItem;
 use crate::{
     DeclaredAnalysis,
-    declarations::Declaration,
+    declarations::{Declaration, DeclarationId},
     imports::{ImportTarget, ModuleImports, SourceImport},
     native::NativeTypeKind,
     resolver::ResolvedName,
@@ -67,10 +67,7 @@ impl ImportedTypes {
         self.types
             .values()
             .chain(self.nominal_types.values())
-            .find(|ty| match &ty.ty {
-                TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty) => &ty.declaration == id,
-                _ => false,
-            })
+            .find(|ty| matches!(&ty.declaration.id, DeclarationId::Definition(declaration) if declaration == id))
     }
 }
 
@@ -213,6 +210,7 @@ impl<'a> TypeCatalog<'a> {
         let identity = module.declarations.definition(resolved)?;
         let native_type = match item {
             ExportItem::OpaqueType(id) => Some(module.declarations.native_type(id)?),
+            ExportItem::Enum(id) => module.declarations.native_enum(id),
             _ => None,
         };
         let nominal = NominalType {
@@ -226,7 +224,7 @@ impl<'a> TypeCatalog<'a> {
                 .collect(),
         };
         let ty = match item {
-            ExportItem::OpaqueType(_) => native_type?.apply(&nominal.arguments)?,
+            _ if native_type.is_some() => native_type?.apply(&nominal.arguments)?,
             ExportItem::Struct(_) => TypeId::Struct(nominal),
             ExportItem::Enum(_) => TypeId::Enum(nominal),
             ExportItem::Trait(_) => TypeId::Trait(nominal),

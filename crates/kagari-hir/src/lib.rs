@@ -408,6 +408,14 @@ pub(crate) fn analyze_parsed(
         analyzed.diagnostics.extend(*diagnostics);
     }
     for attribute in &analyzed.facts.lowered.attributes {
+        if analyzed
+            .facts
+            .lowered
+            .native_attributes
+            .contains(&(attribute.span.start, attribute.span.end))
+        {
+            continue;
+        }
         let kind = match attribute.name.as_str() {
             "meta" => continue,
             "reflect" | "requires" | "profile" => DiagnosticKind::UnsupportedAttribute {

@@ -185,7 +185,7 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         .expect("Set interface default");
     assert_eq!(
         kagari_abi::standard::declarations::native_default_method(&difference.id),
-        Some(kagari_abi::standard::declarations::NativeDefaultMethod::SetDifference)
+        Some(kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference)
     );
     assert_eq!(
         kagari_abi::standard::surface::standard_method(

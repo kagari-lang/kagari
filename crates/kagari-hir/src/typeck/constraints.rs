@@ -1,5 +1,6 @@
 use super::{
     ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget,
+    check::function_type_context,
     ty::{self, TypeContext, resolve_type_in},
 };
 use crate::{
@@ -106,11 +107,10 @@ pub(super) fn resolve_constraints(
         );
     }
     for item in &lowered.module.functions {
-        resolve_owner(
+        resolve_owner_in(
             lowered,
-            &item.generic_params,
             &item.bounds,
-            declarations,
+            function_type_context(&lowered.module, item, declarations),
             table,
             diagnostics,
             cancel,
@@ -165,14 +165,18 @@ pub(super) fn resolve_owner_in(
                 .type_ref(bound.target_ref)
                 .and_then(|reference| reference.target),
             Some(TypeTarget::Generic(_))
+        ) && !matches!(
+            table.type_ref(bound.target_ref).map(|reference| (&reference.ty, reference.target)),
+            Some((TypeId::SelfType(_), Some(TypeTarget::Trait(id)))) if Some(id) == context.self_type
         ) && !(table
             .type_ref(bound.target_ref)
             .is_some_and(|reference| !reference.ty.is_unresolved())
             && match &lowered.module.type_ref(bound.target_ref).kind {
                 TypeKind::Projection { .. } => true,
-                TypeKind::Named(name) => name
-                    .split_once("::")
-                    .is_some_and(|(base, _)| generics.iter().any(|param| param.name == base)),
+                TypeKind::Named(name) => name.split_once("::").is_some_and(|(base, _)| {
+                    generics.iter().any(|param| param.name == base)
+                        || base == "Self" && context.self_type.is_some()
+                }),
                 _ => false,
             })
         {

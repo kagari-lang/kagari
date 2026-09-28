@@ -234,7 +234,10 @@ pub(crate) fn check_signatures(
         if cancel.check().is_err() {
             break;
         }
-        if function.visibility != Visibility::Private && !function.generic_params.is_empty() {
+        if function.visibility != Visibility::Private
+            && !function.generic_params.is_empty()
+            && !lowered.native_functions.contains_key(&function.id)
+        {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PublicGenericFunction {
                     name: function.name.clone(),
@@ -642,7 +645,7 @@ pub(crate) fn check_bodies_controlled(
     }
 }
 
-fn function_type_context<'a>(
+pub(super) fn function_type_context<'a>(
     module: &'a Module,
     function: &'a Function,
     declarations: &'a Declarations,

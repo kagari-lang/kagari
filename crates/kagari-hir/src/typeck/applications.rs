@@ -15,7 +15,10 @@ use crate::{
     lower::LoweredModule,
     types::{TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
+use kagari_abi::standard::{
+    bindings::NativeDefaultMethod, declarations as standard_declarations,
+    surface::StandardTypeConstraint, traits::StandardTrait,
+};
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken, identity::ModuleIdentity,
     range::RangeKind,
@@ -429,28 +432,28 @@ pub(crate) fn validate_signatures(
                 continue;
             };
             if matches!(
-                kagari_abi::standard::declarations::native_default_method(&method.id),
+                standard_declarations::native_default_method(&method.id),
                 Some(
-                    kagari_abi::standard::declarations::NativeDefaultMethod::Join
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListJoin
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListWindows
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListChunks
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListFirst
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListLast
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListContains
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListStartsWith
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListEndsWith
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::ListBinarySearch
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetUnion
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIntersection
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetDifference
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetSymmetricDifference
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIsSubset
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIsSuperset
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::SetIsDisjoint
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::MapKeysView
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::MapValuesView
-                        | kagari_abi::standard::declarations::NativeDefaultMethod::MapEntriesView
+                    NativeDefaultMethod::Join
+                        | NativeDefaultMethod::ListJoin
+                        | NativeDefaultMethod::ListWindows
+                        | NativeDefaultMethod::ListChunks
+                        | NativeDefaultMethod::ListFirst
+                        | NativeDefaultMethod::ListLast
+                        | NativeDefaultMethod::ListContains
+                        | NativeDefaultMethod::ListStartsWith
+                        | NativeDefaultMethod::ListEndsWith
+                        | NativeDefaultMethod::ListBinarySearch
+                        | NativeDefaultMethod::SetUnion
+                        | NativeDefaultMethod::SetIntersection
+                        | NativeDefaultMethod::SetDifference
+                        | NativeDefaultMethod::SetSymmetricDifference
+                        | NativeDefaultMethod::SetIsSubset
+                        | NativeDefaultMethod::SetIsSuperset
+                        | NativeDefaultMethod::SetIsDisjoint
+                        | NativeDefaultMethod::MapKeysView
+                        | NativeDefaultMethod::MapValuesView
+                        | NativeDefaultMethod::MapEntriesView
                 )
             ) {
                 diagnostics.push(

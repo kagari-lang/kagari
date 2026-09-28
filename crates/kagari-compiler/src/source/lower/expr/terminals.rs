@@ -7,7 +7,7 @@ use kagari_abi::{
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic, declarations::NativeDefaultMethod, surface::StandardEnum,
+        StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
         traits::StandardTrait,
     },
     types::AbiType,

@@ -6,7 +6,7 @@ use kagari_abi::{
     operations::{BinaryOp, IterOp, StandardEnumOp},
     representation::ValueType,
     standard::{
-        StandardIntrinsic, declarations::NativeDefaultMethod, surface::StandardEnum,
+        StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
         traits::StandardTrait,
     },
 };

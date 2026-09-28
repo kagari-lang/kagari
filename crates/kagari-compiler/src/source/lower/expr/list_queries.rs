@@ -3,7 +3,7 @@ use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp as Op},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
+    standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
 use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};

@@ -1,5 +1,5 @@
 //! Portable declaration descriptors generated from the bundled standard sources.
-use super::surface;
+use super::{bindings::NativeDefaultMethod, surface};
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
@@ -42,69 +42,6 @@ pub struct ApiGeneric {
     pub name: &'static str,
     pub bounds: &'static [ApiBound],
     pub projection_key: &'static str,
-}
-
-/// Native defaults retain ordinary trait identities and checked generic signatures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativeDefaultMethod {
-    Join,
-    ListJoin,
-    ListWindows,
-    ListChunks,
-    ListFirst,
-    ListLast,
-    ListContains,
-    ListStartsWith,
-    ListEndsWith,
-    ListBinarySearch,
-
-    SetUnion,
-    SetIntersection,
-    SetDifference,
-    SetSymmetricDifference,
-    SetIsSubset,
-    SetIsSuperset,
-    SetIsDisjoint,
-    MapKeysView,
-    MapValuesView,
-    MapEntriesView,
-    Collect,
-    Sum,
-    Product,
-    FlatMap,
-    Flatten,
-    TakeWhile,
-    SkipWhile,
-    Inspect,
-    Fuse,
-    FindMap,
-    Position,
-    Nth,
-    Last,
-    Reduce,
-    Min,
-    Max,
-    MinByKey,
-    MaxByKey,
-    MinBy,
-    MaxBy,
-
-    Map,
-    Filter,
-    FilterMap,
-    Take,
-    Skip,
-    Enumerate,
-    Zip,
-    Chain,
-    Find,
-    Any,
-    All,
-    Count,
-    Fold,
-    ForEach,
-    Partition,
-    GroupBy,
 }
 
 pub fn native_default_method(id: &DefinitionId) -> Option<NativeDefaultMethod> {

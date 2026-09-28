@@ -1,15 +1,17 @@
 use super::*;
 use crate::{
+    analyze_source,
     declarations::DeclarationId,
     declare_analysis,
     hir::{ExportItem, Item, Visibility},
     host::HostDeclarations,
     imports::ModuleGraph,
+    native::NativeFunctionKind,
     resolver::ResolvedName,
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
-use kagari_common::{SourceFile, collection::CollectionAccess};
+use kagari_abi::{scalar::BuiltinType, standard::bindings::NativeDefaultMethod};
+use kagari_common::{DiagnosticKind, SourceFile, collection::CollectionAccess};
 use kagari_syntax::parser;
 
 #[test]
@@ -134,4 +136,119 @@ fn native_storage_arity_is_validated_before_installation() {
         matches!(install_types(file, &mut lowered, &cancel), Err(PackageError::Annotation { message, .. }) if message.contains("parameter count"))
     );
     assert!(lowered.installed_stdlib.is_none());
+}
+
+#[test]
+fn native_defaults_and_required_methods_remain_distinct_without_script_bodies() {
+    let installed = InstalledStdlib::prepare(Default::default(), &Default::default()).unwrap();
+    let module = installed
+        .modules
+        .iter()
+        .find(|module| module.source.name() == "kagari://std/iter.kgr")
+        .unwrap();
+    let iterator = module
+        .module
+        .traits
+        .iter()
+        .find(|item| item.name == "Iterator")
+        .unwrap();
+    let required = iterator
+        .methods
+        .iter()
+        .find(|method| method.name == "next")
+        .unwrap();
+    let default = iterator
+        .methods
+        .iter()
+        .find(|method| method.name == "map")
+        .unwrap();
+    assert!(!required.has_default);
+    assert!(!module.native_functions.contains_key(&required.function));
+    assert!(default.has_default);
+    assert_eq!(
+        module.native_functions.get(&default.function),
+        Some(&NativeFunctionKind::TraitDefault(NativeDefaultMethod::Map))
+    );
+    for method in [required, default] {
+        assert!(
+            module
+                .module
+                .functions
+                .iter()
+                .find(|function| function.id == method.function)
+                .unwrap()
+                .body
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn user_native_annotations_cannot_bypass_generic_export_or_attribute_checks() {
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "kagari://std/debug.kgr",
+            "#[intrinsic(DebugPrint)] pub fn print<T>(value: T) {}",
+        ),
+        Default::default(),
+    );
+    assert!(analysis.facts().lowered.native_functions.is_empty());
+    assert!(analysis.facts().lowered.native_attributes.is_empty());
+    assert!(analysis.diagnostics().iter().any(
+        |d| matches!(&d.kind, DiagnosticKind::UnknownAttribute { name } if name == "intrinsic")
+    ));
+    assert!(analysis.diagnostics().iter().any(
+        |d| matches!(&d.kind, DiagnosticKind::PublicGenericFunction { name } if name == "print")
+    ));
+}
+
+#[test]
+fn standard_uri_does_not_grant_primitive_implementation_ownership() {
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "kagari://std/iter.kgr",
+            "impl Iterable for i32 { type Item = i32; type Iter = Iter<i32>; fn iter(self) -> Iter<i32> { (0..1).iter() } }",
+        ),
+        Default::default(),
+    );
+    assert!(analysis.facts().lowered.installed_stdlib.is_none());
+    assert!(analysis.diagnostics().iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidTraitImpl { reason, .. } if reason.contains("require a script Struct or enum"))));
+}
+
+#[test]
+fn native_enum_discriminants_are_checked_before_installation() {
+    let cancel = Default::default();
+    let package = ParsedStdlibPackage::prepare(Default::default(), &cancel).unwrap();
+    let file = package
+        .files()
+        .iter()
+        .find(|file| file.source().name() == "kagari://std/option.kgr")
+        .unwrap();
+    let mut lowered =
+        lower_module_controlled(file.source().clone(), &file.parsed().syntax(), &cancel);
+    lowered.module.enums[0].variants.swap(0, 1);
+    assert!(
+        matches!(enums::install(file, &mut lowered, &cancel), Err(PackageError::Annotation { message, .. }) if message.contains("discriminants"))
+    );
+    assert!(lowered.native_enums.is_empty());
+    assert!(lowered.installed_stdlib.is_none());
+}
+
+#[test]
+fn native_functions_cannot_also_supply_script_bodies() {
+    let cancel = Default::default();
+    let package = ParsedStdlibPackage::prepare(Default::default(), &cancel).unwrap();
+    let file = package
+        .files()
+        .iter()
+        .find(|file| file.source().name() == "kagari://std/debug.kgr")
+        .unwrap();
+    let mut lowered =
+        lower_module_controlled(file.source().clone(), &file.parsed().syntax(), &cancel);
+    let script = crate::lower::lower_module(&SourceFile::new("script.kgr", "fn body() {}"));
+    lowered.module.functions[0].body = script.module.functions[0].body;
+    assert!(
+        matches!(functions::install(file, &mut lowered, &cancel), Err(PackageError::Annotation { message, .. }) if message.contains("script body"))
+    );
+    assert!(lowered.native_functions.is_empty());
 }

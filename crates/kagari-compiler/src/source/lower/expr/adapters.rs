@@ -6,7 +6,7 @@ use kagari_abi::{
     operations::{BinaryOp, IterOp, StandardEnumOp},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{declarations::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
+    standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_common::collection::CollectionAccess;

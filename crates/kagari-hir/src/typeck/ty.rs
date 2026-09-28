@@ -31,6 +31,7 @@ pub(super) struct TypeContext<'a> {
 fn native_type(target: Option<TypeTarget>, declarations: &Declarations) -> Option<NativeTypeKind> {
     match target? {
         TypeTarget::OpaqueType(id) => declarations.native_type(id),
+        TypeTarget::Enum(id) => declarations.native_enum(id),
         TypeTarget::Source(id) => declarations.imported_types().target(id)?.native_type,
         _ => None,
     }
@@ -117,6 +118,9 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     }
                     ResolvedName::Enum(id) => {
                         target = Some(TypeTarget::Enum(id));
+                        if let Some(kind) = context.declarations.native_enum(id) {
+                            return kind.apply(&arguments);
+                        }
                         TypeId::Enum(NominalType {
                             associated_types: Default::default(),
                             declaration: definition,

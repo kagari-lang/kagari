@@ -5,8 +5,7 @@ use crate::source::{
 use kagari_abi::{
     representation::ValueType,
     standard::{
-        declarations::{self as standard_declarations, NativeDefaultMethod},
-        traits::StandardTrait,
+        bindings::NativeDefaultMethod, declarations as standard_declarations, traits::StandardTrait,
     },
     types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
 };

@@ -5,6 +5,7 @@ use crate::{
         traits::{self, StandardTraitSemantics},
     },
     declarations::Declarations,
+    lower::LoweredModule,
     resolver::ResolvedName,
     typeck::{self, ConstraintTarget, GenericBounds, ModuleSignatures, associated},
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
@@ -50,6 +51,8 @@ impl SearchBudget<'_> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImplementationSignature {
+    /// Derived from the retained installation object, never a source identity.
+    pub(crate) engine_owned: bool,
     pub associated_type_families: BTreeMap<DefinitionId, AssociatedTypeFamily>,
     pub id: DefinitionId,
     pub trait_type: NominalType,
@@ -122,13 +125,14 @@ impl AggregateCatalog {
             let owned=iter::once(&implementation.for_type).chain(&implementation.trait_type.arguments).any(|ty| {
                 matches!(ty,TypeId::Struct(n)|TypeId::Enum(n) if n.declaration.module==implementation.id.module)
             });
-            return (!owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
+            return (!owned && !implementation.engine_owned).then_some("a conversion must belong to the defining module of its nominal source or destination");
         }
         if protocol.host_implementable() {
             return None;
         }
         let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &implementation.for_type else {
-            return Some("standard protocol implementations require a script Struct or enum");
+            return (!implementation.engine_owned)
+                .then_some("standard protocol implementations require a script Struct or enum");
         };
         if nominal.declaration.module != implementation.id.module {
             return Some(
@@ -449,6 +453,7 @@ impl AggregateCatalog {
 
     pub(crate) fn add_implementations(
         &mut self,
+        lowered: &LoweredModule,
         declarations: &Declarations,
         signatures: &ModuleSignatures,
         cancel: &CancellationToken,
@@ -469,6 +474,7 @@ impl AggregateCatalog {
             self.implementations.insert(
                 id.clone(),
                 Arc::new(ImplementationSignature {
+                    engine_owned: lowered.installed_stdlib.is_some(),
                     associated_type_families: signatures
                         .type_table()
                         .associated_type_families
@@ -887,6 +893,7 @@ mod search_tests {
             arguments: vec![argument],
         };
         let signature = ImplementationSignature {
+            engine_owned: false,
             associated_type_families: Default::default(),
             id: owner,
             trait_type: applied(TypeId::Generic(parameter.clone())),
@@ -932,6 +939,7 @@ mod search_tests {
             name: "U".into(),
         };
         let next_signature = ImplementationSignature {
+            engine_owned: false,
             associated_type_families: Default::default(),
             id: next_parameter.owner.clone(),
             trait_type: NominalType {
