@@ -29,3 +29,7 @@ kagari-codegen-cranelift.workspace = true
 [[example]]
 name = "architecture_baseline"
 required-features = ["source", "native"]
+
+[[example]]
+name = "stdlib_baseline"
+required-features = ["source"]

@@ -1,6 +1,6 @@
 # Kagari Implementation Roadmap
 
-## Standard library and HIR integration (proposed)
+## Standard library and HIR integration (active)
 
 The [standard-library integration plan](stdlib-hir-refactor.md) defines the next
 scoped migration: introduce `kagari-stdlib`, import its parsed declarations into
@@ -10,8 +10,8 @@ Existing Rust implementations remain Rust. ST00–ST06 own sequencing, acceptanc
 and the progress ledger. The shared Native callable model distinguishes Engine
 and Host providers while retaining host authority and borrow checks. Generated
 host declaration documents and LSP transport remain later integrations.
-Implementation has not started; the current workspace
-still has the thirteen-crate architecture described below. This proposal precedes
+ST00 baseline and inventory are complete; ST01 is next. The current workspace
+still has the thirteen-crate architecture described below. This migration precedes
 further native backend expansion and does not reopen completed phase ledgers.
 
 ## Never type (complete)

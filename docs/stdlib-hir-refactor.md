@@ -1,6 +1,6 @@
 # Standard Library and HIR Integration Plan
 
-Status: proposed; implementation has not started.
+Status: active; ST00 complete, ST01 package ownership and HIR import next.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -340,22 +340,21 @@ or promise that unrelated shared-mutable-state problems have been solved.
 
 ## Migration phases
 
-Implementation begins only on a subsequent implementation request. All phases
-below are pending. They are ordered, cohesive checkpoints rather than one-file
-tasks; several commits may belong to a phase.
+Implementation is authorized. Work proceeds through the ordered checkpoints
+below; several coherent commits may belong to a phase.
 
 ### ST00 — Baseline and behavior inventory
 
-- [ ] Run the full acceptance commands below on the starting revision.
-- [ ] Measure source-analysis startup, clean/warm build costs and representative
+- [x] Run the full acceptance commands below on the starting revision.
+- [x] Measure source-analysis startup, clean/warm build costs and representative
   native/callback execution workloads; record toolchain, machine, profile,
   features, parallelism and cache state separately from test execution time.
-- [ ] Inventory every standard function/default/constructor and classify its
+- [x] Inventory every standard function/default/constructor and classify its
   current behavior: direct Rust helper, compiler-expanded algorithm, lazy state
   machine, or core language primitive. Record its target owner in this plan.
-- [ ] Record current guards, logical charges, callback order, diagnostic identity,
+- [x] Record current guards, logical charges, callback order, diagnostic identity,
   type constraints and version retention for the families being migrated.
-- [ ] Map all `standard::{surface,declarations,application,implementation}` consumers,
+- [x] Map all `standard::{surface,declarations,application,implementation}` consumers,
   including portable proof/validation code and tooling, to replacement facts.
 
 Exit: a clean baseline and an exhaustive ownership/behavior map. Existing failures
@@ -502,8 +501,268 @@ edges; the CLI retains `jit` as its native-feature spelling. Use workspace
 profiles, default Cargo parallelism and the default target
 directory; store temporary logs and measurement output under ignored `target/`.
 
+## ST00 ownership and behavior inventory
+
+Snapshot: revision `402e089`, before migration, with the artifact fixture correction
+recorded below. The generated surface contains 316 function entries, 281 receiver
+method entries (alternate syntax for those functions), 116 trait methods including
+56 native defaults, 38 explicit native impl blocks, 13 type constructors and seven
+enum declarations. The enumeration below covers the public entries; internal
+lowering helpers are tracked separately. No entry is implicitly deferred.
+
+Classification: **D** = direct Rust helper; **E** = compiler-expanded algorithm or
+protocol dispatch; **L** = lazy state machine (currently split between compiler
+adapters and runtime iterator storage); **C** = core language representation or
+operation. D/E denotes the primitive/custom-key split. All D entries stay in
+runtime engine bindings; E entries move to runtime native implementations with
+checked witnesses and resumable calls where required; L entries move to runtime
+lazy native state. C retains generic MIR/runtime machinery fed by HIR facts.
+The declaration/typechecking/tooling owner for every row becomes HIR.
+
+### Functions and receiver methods
+
+Each name is relative to its explicit owner. Receiver forms share the same row
+and implementation binding; they are not an additional algorithm.
+
+| Owner | Current class | Complete member set |
+| --- | --- | --- |
+| `std::array::ArrayList` | E | `remove_range`, `retain`, `sort`, `sort_by`, `sort_by_key`, `dedup`, `extend`, `from_fn`, `from`, `copy_from`, `copy_within` |
+| `std::array::ArrayList` | D | `swap`, `reverse`, `truncate`, `swap_remove`, `len`, `is_empty`, `get`, `new`, `push`, `pop`, `insert`, `remove`, `clear`, `fill`, `join`, `with_capacity`, `capacity`, `reserve` |
+| `std::map::LinkedHashMap` | E | `retain`, `get_or_insert_with`, `update`, `keys`, `values`, `entries`, `from` |
+| `std::map::LinkedHashMap` | D | `len`, `is_empty`, `new`, `clear`, `with_capacity`, `capacity`, `reserve` |
+| `std::map::LinkedHashMap` | D/E | `contains_key`, `get`, `insert`, `remove` |
+| `std::set::LinkedHashSet` | E | `retain`, `from` |
+| `std::set::LinkedHashSet` | D | `len`, `is_empty`, `to_array`, `new`, `clear`, `with_capacity`, `capacity`, `reserve` |
+| `std::set::LinkedHashSet` | D/E | `contains`, `insert`, `remove` |
+| `std::string::String` | E | `parse` |
+| `std::string::String` | D | `replace`, `replacen`, `repeat`, `is_ascii`, `eq_ignore_ascii_case`, `to_ascii_lowercase`, `to_ascii_uppercase`, `to_lowercase`, `to_uppercase`, `is_char_boundary`, `split_once`, `rsplit_once`, `trim`, `trim_start`, `trim_end`, `find`, `rfind`, `strip_prefix`, `strip_suffix`, `len_bytes`, `len_chars`, `is_empty`, `concat`, `contains`, `starts_with`, `ends_with`, `slice` |
+| `std::string::String` | L | `bytes`, `char_indices`, `split`, `splitn`, `split_whitespace`, `lines` |
+| `std::option::Option` | E | `unwrap_or_else`, `or_else`, `map_or`, `map_or_else`, `filter`, `is_some_and`, `zip`, `map`, `and_then`, `ok_or`, `ok_or_else`, `flatten`, `transpose` |
+| `std::option::Option` | D | `is_some`, `is_none`, `unwrap_or` |
+| `std::result::Result` | E | `unwrap_or_else`, `or_else`, `map_or`, `map_or_else`, `ok`, `err`, `is_ok_and`, `is_err_and`, `map`, `map_err`, `and_then`, `flatten`, `transpose` |
+| `std::result::Result` | D | `is_ok`, `is_err`, `unwrap_or` |
+| `std::math` | D | `min`, `max`, `clamp`, `abs`, `floor`, `ceil`, `round`, `sqrt`, `sin`, `cos`, `tan` |
+| `std::debug` | D | `print`, `assert`, `panic` |
+| `std::debug` | E | `assert_eq` |
+
+The remaining 175 function entries belong to `std::numeric`:
+
+- Each of `i8`, `i16`, `i32`, `i64`, `isize`, `u8`, `u16`, `u32`, `u64`, `usize`
+  has `wrapping_add`, `wrapping_sub`, `wrapping_mul`, `checked_add`, `checked_sub`,
+  `checked_mul`, `checked_div`, `checked_rem`, `overflowing_add`, `overflowing_sub`,
+  `overflowing_mul`, `saturating_add`, `saturating_sub`, `saturating_mul`,
+  `rotate_left`, `rotate_right`, `from_str_radix`.
+- Each unsigned type additionally has `wrapping_add_signed`.
+- All are D, owned by runtime numeric/parsing helpers; `from_str_radix` is an
+  associated function and the other 165 entries also have receiver forms.
+
+### Trait methods and implementations
+
+The following covers all 116 declared methods. Required methods have no default
+algorithm: HIR must select their explicit script/native/host implementation.
+Native defaults are E unless marked L below, and become runtime native bindings.
+
+| Trait | Native defaults | Required methods |
+| --- | --- | --- |
+| `List` | `windows`, `chunks`, `first`, `last`, `contains`, `starts_with`, `ends_with`, `binary_search`, `join` | `len`, `is_empty`, `get` |
+| `MutableList` | — | `swap`, `reverse`, `truncate`, `extend`, `push`, `pop`, `insert`, `remove`, `clear`, `set` |
+| `Map` | `keys`, `values`, `entries` | `len`, `is_empty`, `contains_key`, `get` |
+| `MutableMap` | — | `get_or_insert_with`, `update`, `insert`, `remove`, `clear` |
+| `Set` | `union`, `intersection`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint` | `len`, `is_empty`, `contains` |
+| `MutableSet` | — | `insert`, `remove`, `clear` |
+| `FromStr` | — | `from_str` |
+| `Iterator` | `join`, `collect`, `map`, `filter`, `filter_map`, `take`, `skip`, `enumerate`, `zip`, `chain`, `find`, `any`, `all`, `count`, `fold`, `for_each`, `partition`, `group_by`, `take_while`, `skip_while`, `inspect`, `fuse`, `find_map`, `position`, `nth`, `last`, `reduce`, `min_by`, `max_by`, `min`, `max`, `min_by_key`, `max_by_key`, `flat_map`, `flatten`, `sum`, `product` | `next` |
+| `Iterable` | — | `iter` |
+| `FromIterator` | — | `from_iter` |
+| `Sum` | — | `sum` |
+| `Product` | — | `product` |
+| `PartialEq` | — | `eq` |
+| `PartialOrd` | — | `partial_cmp` |
+| `Ord` | — | `cmp` |
+| `Hash` | — | `hash` |
+| `Debug` | — | `debug` |
+| `Display` | — | `display` |
+| `Add` | — | `add` |
+| `Sub` | — | `sub` |
+| `Mul` | — | `mul` |
+| `Div` | — | `div` |
+| `Rem` | — | `rem` |
+| `Neg` | — | `neg` |
+| `Not` | — | `not` |
+| `Index` | — | `index` |
+| `BitAnd` | — | `bitand` |
+| `BitOr` | — | `bitor` |
+| `BitXor` | — | `bitxor` |
+| `Shl` | — | `shl` |
+| `Shr` | — | `shr` |
+| `RangeBounds` | — | `start_bound`, `end_bound` |
+| `Fn` | — | `call` |
+| `From` | — | `from` |
+| `Into` | — | `into` |
+| `TryFrom` | — | `try_from` |
+| `TryInto` | — | `try_into` |
+
+L defaults: `List::{windows,chunks}` and
+`Iterator::{map,filter,filter_map,take,skip,enumerate,zip,chain,take_while,skip_while,
+inspect,fuse,flat_map,flatten}`. Their creation and each resumption are distinct
+operations. Map views are eager snapshots and set algebra constructs fresh sets;
+these are E. E terminal defaults include protocol delegation (`collect`, `sum`,
+`product`), not only traversal loops.
+
+All 38 source-declared native impl blocks are covered by this map:
+
+| Implemented for | Traits and methods | Current class / target |
+| --- | --- | --- |
+| `ArrayList<T>` | `Iterable::iter`, `FromIterator::from_iter`, `List::{len,is_empty,get}`, `MutableList::{swap,reverse,truncate,extend,push,pop,insert,remove,clear,set}` | L traversal, E construction/extend, D storage; runtime bindings/state |
+| `LinkedHashMap<K,V>` | `Iterable::iter`, `FromIterator::from_iter`, `Map::{len,is_empty,contains_key,get}`, `MutableMap::{get_or_insert_with,update,insert,remove,clear}` | L traversal, E construction/update/custom keys, D primitive keys/storage; runtime bindings/state |
+| `LinkedHashSet<T>` | `Iterable::iter`, `FromIterator::from_iter`, `Set::{len,is_empty,contains}`, `MutableSet::{insert,remove,clear}` | L traversal, E construction/custom keys, D primitive keys/storage; runtime bindings/state |
+| `String` | `Iterable::iter` | L Unicode scalar traversal; runtime state |
+| Ten integer types, `f32`, `f64`, `bool` | `FromStr::from_str` (13 impls) | D numeric/bool parsing; runtime helpers |
+| `Option<C>`, `Result<C,E>` | `FromIterator::from_iter` (two impls) | E short-circuit collection and destination dispatch; runtime continuations |
+| `Iter<T>` | `Iterator::next` | L native or compiler-generated closure resumption; runtime state |
+| `Range<T>`, `RangeInclusive<T>`, `RangeFrom<T>` | `Iterable::iter` (three impls) | L checked integer traversal; runtime state |
+| `Range<T>`, `RangeInclusive<T>`, `RangeFrom<T>`, `RangeTo<T>`, `RangeToInclusive<T>`, `RangeFull` | `RangeBounds::{start_bound,end_bound}` (six impls) | C range field interpretation; runtime primitive adapters |
+
+Implicit built-in implementations currently supplied by the standard trait
+catalog include scalar/operators, equality/order/hash/format, callable values,
+conversion blankets and numeric sum/product. Their signatures, bounds and
+selection become ordinary HIR checked impl facts; primitive arithmetic, numeric
+conversion and closure invocation remain C. Public aggregate sum/product and
+formatting entrypoints remain native library bindings, not compiler algorithms.
+
+### Constructors and core hooks
+
+All 13 type constructors are `ArrayList`, `LinkedHashMap`, `LinkedHashSet`, `Iter`,
+`Option`, `Result`, `Bound`, `Range`, `RangeInclusive`, `RangeFrom`, `RangeTo`,
+`RangeToInclusive`, `RangeFull`. HIR owns their identity, parameters and builtin
+representation hook; portable contracts carry the resolved representation.
+Associated `new`, `from`, `from_fn`, `with_capacity` functions are included above.
+
+The seven enum declarations and all value constructors are:
+`Option::{Some,None}`, `Result::{Ok,Err}`, `Ordering::{Less,Equal,Greater}`,
+`Bound::{Included,Excluded,Unbounded}`,
+`ParseError::{Empty,InvalidDigit,OutOfRange,InvalidRadix,InvalidSyntax}`,
+`TryFromIntError::OutOfRange`, and uninhabited `Infallible`. Enum creation/testing,
+field access and `?` propagation are C; native contracts must validate their
+checked layouts without recovering declaration syntax at runtime.
+
+Internal `CollectionMutationBegin/End`, prepared-storage commits, key lookup
+phases, `IterResume`, enum operations and runtime allocation/helpers are not
+public standard functions. Their guards and representations remain runtime
+primitives; public algorithms must stop exposing a dependency on compiler
+expansion through these helpers.
+
+### Observable behavior to preserve
+
+| Family | Existing contract and migration obligation |
+| --- | --- |
+| Every call | Evaluate receiver then arguments once, left to right. Dispatch after HIR selection, with invariant generic types and checked bounds. Preserve source call origin and native diagnostic identity. |
+| Option/Result | Invoke only the selected callback branch; preserve eager argument evaluation. `map_err`, transpose/flatten, propagation and fallible collect keep the original error provenance. No callback or allocation on an unselected branch. |
+| Iterators and terminals | Consume shared iterator progress in order, stop at the existing decisive element, retain state on partial consumption, and release/reopen structural guards under the existing revision checks. Custom Iterable/Iterator/destination calls use their selected witnesses. |
+| Lazy adapters/windows | Creation retains captures without eagerly visiting items. `next` publishes each result before another safepoint. Windows/chunks copy shallow slots at yield time; guards last until closure/exhaustion. Captured values and source module generations stay pinned. |
+| Prepared sort/retain/dedup | Hold mutation guards while preparing; stable merge ordering, once-per-element key extraction, adjacent dedup and visit order remain unchanged. Commit only after preparation succeeds. Callback side effects already completed survive later failure. |
+| Map/set custom keys and updates | Keep Eq/Hash requirements, lookup guards, collision visit order and selected hash/equality calls. Lazy initializers run only when required; failed preparation does not partially publish a collection update. |
+| Direct helpers | Preserve checked widths/overflow, UTF-8 boundaries, insertion order, allocation limits and native error context; retain existing internal work charges. |
+| Host provider | Preserve passing styles, capability checks, typed paths, call costs, nominal ownership, scoped borrows, cancellation and synchronous same-session reentry. Engine provenance must not grant host authority or vice versa. |
+| All suspended execution | Root temporary/captured values, retain exact callable/dependency generations, release dynamic borrows before callbacks, and unwind only the current session suffix on trap/cancellation/budget failure. |
+
+Current logical budget rule: `kagari-mir/src/verify/analysis.rs` assigns one Step
+before each MIR instruction and terminator; VM execution consumes it before the
+operation. Compiler-expanded loop setup, branch, payload read, callback dispatch,
+update, backedge and teardown each contribute their emitted steps. Callback
+bodies additionally consume their own steps. Runtime helpers may add work units
+(e.g. `gc/iter.rs::resume_iter` charges each visited dependency). A public native
+call cannot replace this schedule with one undifferentiated charge. ST04/ST05
+must preserve the per-family event sequence, including failing budget positions,
+using the starting revision's lowering as the reference. The benchmark below
+records total charges for four fixed execution paths; totals alone do not prove
+failure-order equivalence.
+
+Reference implementations for event order are compiler `expr/{calls,standard,
+enum_extensions,iterators,terminals,adapters,prepared_collections,map_updates,
+keys,list_queries,list_windows,set_queries,collections,operators}.rs`; lifetime
+and cleanup references are runtime `frame.rs`, `session.rs`, `gc/{iter,string_iter}.rs`
+and VM `executor/{mod,dispatch}.rs`. Existing tests named in the acceptance matrix
+exercise these boundaries; phase-specific tests must add suspension/provider
+rejection and preserve existing assertions rather than replace them with totals.
+
+### Source-catalog consumer replacement map
+
+| Existing consumers | Replacement facts / phase |
+| --- | --- |
+| ABI `build/{main,api,implementations}.rs`, `standard/{surface,declarations}.rs` | Installed parsed stdlib package and ordinary HIR import; ST01 removes generator/source descriptors |
+| HIR `builtin/{declarations,surface,traits}`, `resolver`, `imports`, `aggregates`, `typeck` | Unified declarations, resolved types/bounds, checked implementations and call applications; ST01/ST02 |
+| HIR `analysis/{standard_queries,signature_queries,declaration_queries,body_queries}`, declaration/docs/completion/navigation consumers | HIR identities and retained package provenance, same source metadata as checking; ST02 |
+| Compiler `source/lower/{abi,instances,function,stmt,expr}` and `expr/*` standard/protocol lowering | Checked HIR signatures, implementation/provider, substitutions and witness choices; ST02/ST03; algorithms removed ST05 |
+| ABI `standard/{application,implementation,resolve,contracts,traits,native}`, `contracts`, `host`, `types/{verify,proofs/*,wire}`, `layout`, `operations`, `numeric` | Carried portable declarations/layouts/witnesses plus trusted closed native operation contracts; ST03. General primitive classification may remain source-free. |
+| MIR instruction effects and verifier/analysis, bytecode `verifier` and `verifier/*`, `trait_bounds`, `access` | Explicit call/effect/layout/proof facts, checked against executable native contracts; ST03 |
+| Runtime `builtin/{mod,standard}`, `gc`, `objects`, `error_trace`, value/ABI matching and frame invocation | Provider bindings, trusted physical representations, carried origins and continuations; ST03–ST05 |
+| VM `executor/{dispatch,aggregate_ops}`, codegen and Cranelift call/operation consumers | Verified executable calls and generic driver operations; ST03/ST04 |
+| Embed/CLI source tools and offline host interfaces | HIR query facade for analysis; portable metadata for artifact-only execution; ST02/ST06 |
+| Declaration/proof/compiler/runtime integration tests and SDK feature consumers | Update semantic fixtures and maintain rejection/behavior assertions; owning phase and ST06 |
+
+This map includes transitive consumers: importing `StandardTrait`, `StandardEnum`
+or an ABI proof helper currently reaches the source catalog even without spelling
+`standard::surface`. Dependency audits therefore check crate graphs as well as
+textual references; renaming an import is not removal of the dependency.
+
 ## Progress ledger
 
+- ST00: completed the fresh baseline and inventory above. Initial workspace tests
+  failed in `portable_fixture_matches_source_emission`: the checked-in artifact
+  described a 25-byte source while the current LF fixture has 24 bytes. Decoding
+  the regenerated and checked-in MIR isolated the difference to `SourceOrigin.byte_len`
+  (plus derived fingerprints). Regenerated the fixture from its exact current
+  source; retained canonical-byte and interpreter/native execution assertions.
+- ST00 acceptance after correction: structure and format pass, workspace Clippy
+  with warnings denied passes, all 1,442 workspace tests pass, CLI `jit` tests pass
+  (five tests), and all four standalone SDK feature routes pass. Structure checks
+  also include the new baseline example: 517 Rust files, zero violations or
+  documented exceptions. No carried build/test failures.
+- ST00 measurements: Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), Cargo 1.98.1,
+  aarch64-apple-darwin, Apple M1 Max, 32 GiB RAM, ten logical CPUs, macOS 26.6.2;
+  repository lockfile, O1 dev/test profiles, default Cargo parallelism and `target/`.
+  Acceptance used existing caches; its wall times were structure 3.126 s, fmt
+  1.426 s, Clippy 0.426 s, workspace tests 157.719 s, CLI JIT 2.586 s and feature
+  audit 78.169 s. These are check wall times, not compile or runtime benchmarks.
+- ST00 build measurement deliberately cleared the entire dev-profile build cache
+  once with `cargo clean --profile dev` (26.900 s). Package download caches stayed
+  warm. `cargo build --workspace --all-targets` then took 98.260 s; an identical
+  no-change warm invocation took 0.235 s. Both include workspace default features,
+  test/example targets and dependency compilation; neither is a source-analysis
+  latency measurement. Ignored measurement files outside `target/debug` survived.
+- ST00 repeatable runtime workload is
+  [`stdlib_baseline.rs`](../crates/kagari-embed/examples/stdlib_baseline.rs).
+  Build separately, then run `target/debug/examples/stdlib_baseline`: one warmup,
+  21 fresh-engine source-to-artifact samples and 101 interpreter execution samples
+  per workload. Process tables/pages are warm, compilation includes artifact
+  disposal, execution uses one loaded program and includes ordinary call/session
+  teardown; every result equals 42 and roots return to zero. SDK source/native
+  features are compiled, but these four workloads execute in the interpreter.
+  No JIT coverage or speedup is inferred from them.
+
+  | Workload | Compile median (ns) | Execute median (ns) | Logical steps/call | Encoded bytes |
+  | --- | ---: | ---: | ---: | ---: |
+  | Direct string/math helpers | 1,838,791 | 4,500 | 12 | 5,654 |
+  | Option callback | 3,555,709 | 5,334 | 17 | 8,497 |
+  | Lazy map/filter/take/fold | 20,452,958 | 52,917 | 186 | 33,368 |
+  | Prepared sort/retain | 10,842,625 | 81,250 | 400 | 33,513 |
+
+- ST00 existing examples also ran after compilation. `foundation_baseline`:
+  fresh-engine 33-function compilation median 3,877 µs; edit analysis 1,559 µs
+  (one body checked, 32 reused); internal-call workload 1,861 ns mean across
+  10,000 calls. `architecture_baseline`: fresh-engine scalar source-to-artifact
+  median 3,034,291 ns; MIR verification 1,708 ns; decode/native verification
+  67,375 ns; link 4,083 ns; native compile 99,583 ns; cached installation 1,791 ns;
+  interpreter/native entry 1,583/2,000 ns. Workloads, sample counts and memory
+  accounting remain as documented in [performance baseline](performance-baseline.md).
+  These are starting observations, not comparisons with historical machines.
+- Reproduction logs, environment, generated inventory and JSON timings are under
+  ignored `target/stdlib-st00/`; this ledger and the inventory retain the durable
+  results. ST01 is the next owner of migration changes.
+
+- Execution started from clean revision `402e089`. ST00 is in progress; migration
+  code changes wait for its clean baseline and behavior inventory exit gate.
 - Proposal prepared from clean revision `6fafe34`. No implementation phase started.
 - Inspected the ABI generator/descriptors, HIR standard catalogs and call facts,
   compiler standard expansions, runtime helpers, executable validation and SDK
