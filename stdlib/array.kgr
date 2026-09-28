@@ -81,7 +81,7 @@ impl<T> ArrayList<T> {
     /// val a = [1, 2, 3]; a.retain(|n| n > 1); std::debug::assert(a.len() == 2usize, "retain");
     /// ```
     #[intrinsic(ArrayRetain)]
-    pub fn retain(self, predicate: fn(T) -> bool) -> () ;
+    pub fn retain(self, predicate: fn(T) -> bool);
 
     /// Sort in ascending order using Ord. Equal elements retain their order.
     ///
@@ -104,7 +104,7 @@ impl<T> ArrayList<T> {
     /// val a = [3, 1, 2]; a.sort(); std::debug::assert(a[0usize] == 1, "sorted");
     /// ```
     #[intrinsic(ArraySort)]
-    pub fn sort(self) -> () where T: Ord;
+    pub fn sort(self) where T: Ord;
 
     /// Sort stably using the supplied total ordering.
     ///
@@ -127,7 +127,7 @@ impl<T> ArrayList<T> {
     /// val a = [1, 3, 2]; a.sort_by(|a, b| b.cmp(a)); std::debug::assert(a[0usize] == 3, "descending");
     /// ```
     #[intrinsic(ArraySortBy)]
-    pub fn sort_by(self, compare: fn(T, T) -> Ordering) -> () ;
+    pub fn sort_by(self, compare: fn(T, T) -> Ordering);
 
     /// Sort stably by keys computed exactly once per element, from left to right.
     ///
@@ -150,7 +150,7 @@ impl<T> ArrayList<T> {
     /// val a = [3, 1, 2]; a.sort_by_key(|n| -n); std::debug::assert(a[0usize] == 3, "key order");
     /// ```
     #[intrinsic(ArraySortByKey)]
-    pub fn sort_by_key<K>(self, key: fn(T) -> K) -> () where K: Ord;
+    pub fn sort_by_key<K>(self, key: fn(T) -> K) where K: Ord;
 
     /// Remove adjacent equal elements, retaining the first in each consecutive run.
     ///
@@ -173,7 +173,7 @@ impl<T> ArrayList<T> {
     /// val a = [1, 1, 2, 1]; a.dedup(); std::debug::assert(a.len() == 3usize, "adjacent only");
     /// ```
     #[intrinsic(ArrayDedup)]
-    pub fn dedup(self) -> () where T: PartialEq;
+    pub fn dedup(self) where T: PartialEq;
 
     /// Exchange two valid positions. Invalid indices trap before either slot changes.
     ///
@@ -186,7 +186,7 @@ impl<T> ArrayList<T> {
     /// val xs=[1,2]; xs.swap(0usize,1usize); std::debug::assert(xs[0usize]==2,"swap");
     /// ```
     #[intrinsic(ArraySwap)]
-    pub fn swap(self, a: usize, b: usize) -> ();
+    pub fn swap(self, a: usize, b: usize);
 
     /// Reverse the order in place. This reordering is forbidden during iteration.
     ///
@@ -199,7 +199,7 @@ impl<T> ArrayList<T> {
     /// val xs=[1,2]; xs.reverse(); std::debug::assert(xs[0usize]==2,"reverse");
     /// ```
     #[intrinsic(ArrayReverse)]
-    pub fn reverse(self) -> ();
+    pub fn reverse(self);
 
     /// Keep at most len elements. A larger length leaves the list unchanged.
     ///
@@ -212,7 +212,7 @@ impl<T> ArrayList<T> {
     /// val xs=[1,2]; xs.truncate(1usize); std::debug::assert(xs.len()==1usize,"truncate");
     /// ```
     #[intrinsic(ArrayTruncate)]
-    pub fn truncate(self, len: usize) -> ();
+    pub fn truncate(self, len: usize);
 
     /// Append a prepared shallow snapshot of source. Self-extension appends the original elements once.
     ///
@@ -225,7 +225,7 @@ impl<T> ArrayList<T> {
     /// val xs=[1,2]; xs.extend(xs); std::debug::assert(xs.len()==4usize,"self extension");
     /// ```
     #[intrinsic(ArrayExtend)]
-    pub fn extend(self, source: List<T>) -> ();
+    pub fn extend(self, source: List<T>);
 
     /// Remove a position by moving the last element into its place. Returns None for an invalid index.
     ///
@@ -805,13 +805,13 @@ pub trait List<T>: Iterable<Item = T, Iter = Iter<T>> + Index<usize, Output = T>
 /// ```
 pub trait MutableList<T>: List<T> {
     /// Exchange two valid positions. Invalid indices trap before either slot changes.
-    fn swap(self, a: usize, b: usize) -> ();
+    fn swap(self, a: usize, b: usize);
     /// Reverse the order in place. This reordering is forbidden during iteration.
-    fn reverse(self) -> ();
+    fn reverse(self);
     /// Keep at most len elements. A larger length leaves the list unchanged.
-    fn truncate(self, len: usize) -> ();
+    fn truncate(self, len: usize);
     /// Append a prepared shallow snapshot of source. Self-extension appends the original elements once.
-    fn extend(self, source: List<T>) -> ();
+    fn extend(self, source: List<T>);
 
     /// Appends an element. Failure leaves the sequence unchanged.
     fn push(self, value: T);
@@ -844,16 +844,16 @@ impl<T> List<T> for ArrayList<T> {
 impl<T> MutableList<T> for ArrayList<T> {
     /// Exchange two valid positions. Invalid indices trap before either slot changes.
     #[intrinsic(ArraySwap)]
-    fn swap(self, a: usize, b: usize) -> ();
+    fn swap(self, a: usize, b: usize);
     /// Reverse the order in place. This reordering is forbidden during iteration.
     #[intrinsic(ArrayReverse)]
-    fn reverse(self) -> ();
+    fn reverse(self);
     /// Keep at most len elements. A larger length leaves the list unchanged.
     #[intrinsic(ArrayTruncate)]
-    fn truncate(self, len: usize) -> ();
+    fn truncate(self, len: usize);
     /// Append a prepared shallow snapshot of source. Self-extension appends the original elements once.
     #[intrinsic(ArrayExtend)]
-    fn extend(self, source: List<T>) -> ();
+    fn extend(self, source: List<T>);
 
     /// Appends an element. Failure leaves the sequence unchanged.
     #[intrinsic(ArrayPush)]
@@ -922,6 +922,6 @@ impl<T> ArrayList<T> {
     /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
     /// ```
     #[intrinsic(ArrayReserve)]
-    pub fn reserve(self, additional: usize) -> ();
+    pub fn reserve(self, additional: usize);
 
 }

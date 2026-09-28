@@ -246,6 +246,13 @@ Acceptance: 1,159 workspace tests passed. All 100 documentation examples passed
 source and artifact execution; formatting, workspace clippy with warnings denied
 and `git diff --check` passed.
 
+Declaration style follow-up (2026-09-28): 35 standard-library function and method
+declarations now omit redundant unit return annotations. Omitted returns already
+resolve to unit; callback function types retain their required explicit returns.
+The declaration specification records this convention. All three tests in
+`cargo test -p kagari-embed --test standard_declarations` pass, including the
+source/artifact documentation examples. Structure, formatting and diff checks pass.
+
 ## Rust-style outer attributes
 
 The attribute spelling is `#[path(...)]`, including argument-free `#[meta]`.

@@ -13,6 +13,10 @@ requires a body. Parsing an interface does not grant code-generation authority.
 Standard library sources are installed by the engine, not discovered from user
 imports or recognized by a user-controlled file extension.
 
+Functions and methods returning unit omit the return annotation, for example
+`fn clear(self);`. Callback function types still spell out `-> ()`, as in
+`fn for_each(self, callback: fn(Self::Item) -> ());`.
+
 Outer `///` comments belong to the immediately following declaration. They retain
 Markdown including fenced Kagari examples. The CST remains lossless. Existing
 `#[intrinsic(...)]` binds native execution. The installed numeric declarations

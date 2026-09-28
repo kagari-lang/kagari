@@ -388,7 +388,7 @@ pub trait Iterator {
     /// std::debug::assert_eq(sum, 42, "visited");
     /// ```
     #[intrinsic(IteratorForEach)]
-    fn for_each(self, callback: fn(Self::Item) -> ()) -> ();
+    fn for_each(self, callback: fn(Self::Item) -> ());
 
     /// Split items into matching and nonmatching destinations, preserving order.
     /// Items are buffered in two shallow arrays before invoking FromIterator.

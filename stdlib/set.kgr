@@ -54,7 +54,7 @@ impl<T: Eq + Hash> LinkedHashSet<T> {
     /// val s = LinkedHashSet::from([1, 2]); s.retain(|n| n == 2); std::debug::assert(s.len() == 1usize, "retained");
     /// ```
     #[intrinsic(SetRetain)]
-    pub fn retain(self, predicate: fn(T) -> bool) -> () ;
+    pub fn retain(self, predicate: fn(T) -> bool);
 
     /// Return the number of elements.
     ///
@@ -492,11 +492,11 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
 /// ```
 pub trait MutableSet<T>: Set<T> {
     /// Adds an element if absent.
-    fn insert(self, value: T) -> ();
+    fn insert(self, value: T);
     /// Removes an element and reports whether it existed.
     fn remove(self, value: T) -> bool;
     /// Removes all elements.
-    fn clear(self) -> ();
+    fn clear(self);
 }
 
 /// Provides the Set capability for the native storage class.
@@ -516,13 +516,13 @@ impl<T: Eq + Hash> Set<T> for LinkedHashSet<T> {
 impl<T: Eq + Hash> MutableSet<T> for LinkedHashSet<T> {
     /// Adds an element if absent.
     #[intrinsic(SetInsert)]
-    fn insert(self, value: T) -> ();
+    fn insert(self, value: T);
     /// Removes an element and reports whether it existed.
     #[intrinsic(SetRemove)]
     fn remove(self, value: T) -> bool;
     /// Removes all elements.
     #[intrinsic(SetClear)]
-    fn clear(self) -> ();
+    fn clear(self);
 }
 
 impl<T: Eq + Hash> LinkedHashSet<T> {
@@ -572,6 +572,6 @@ impl<T: Eq + Hash> LinkedHashSet<T> {
     /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
     /// ```
     #[intrinsic(SetReserve)]
-    pub fn reserve(self, additional: usize) -> ();
+    pub fn reserve(self, additional: usize);
 
 }

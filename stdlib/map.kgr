@@ -53,7 +53,7 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// val m = LinkedHashMap::from([(1, 2), (3, 4)]); m.retain(|k, v| k == 1); std::debug::assert(m.len() == 1usize, "retained");
     /// ```
     #[intrinsic(MapRetain)]
-    pub fn retain(self, predicate: fn(K, V) -> bool) -> () ;
+    pub fn retain(self, predicate: fn(K, V) -> bool);
 
     /// Use the existing value, or call the factory once and insert its result.
     ///
@@ -551,11 +551,11 @@ pub trait MutableMap<K, V>: Map<K, V> {
     fn update(self, key: K, transform: fn(Option<V>) -> V) -> V;
 
     /// Associates a key with a value, replacing an existing value.
-    fn insert(self, key: K, value: V) -> ();
+    fn insert(self, key: K, value: V);
     /// Removes and returns the value for a key, or `None`.
     fn remove(self, key: K) -> Option<V>;
     /// Removes all entries.
-    fn clear(self) -> ();
+    fn clear(self);
 }
 
 /// Provides the Map capability for the native storage class.
@@ -624,13 +624,13 @@ impl<K: Eq + Hash, V> MutableMap<K, V> for LinkedHashMap<K, V> {
 
     /// Associates a key with a value, replacing an existing value.
     #[intrinsic(MapInsert)]
-    fn insert(self, key: K, value: V) -> ();
+    fn insert(self, key: K, value: V);
     /// Removes and returns the value for a key, or `None`.
     #[intrinsic(MapRemove)]
     fn remove(self, key: K) -> Option<V>;
     /// Removes all entries.
     #[intrinsic(MapClear)]
-    fn clear(self) -> ();
+    fn clear(self);
 }
 
 impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
@@ -680,6 +680,6 @@ impl<K: Eq + Hash, V> LinkedHashMap<K, V> {
     /// std::debug::assert(values.capacity() >= 16usize && values.is_empty(), "capacity");
     /// ```
     #[intrinsic(MapReserve)]
-    pub fn reserve(self, additional: usize) -> ();
+    pub fn reserve(self, additional: usize);
 
 }
