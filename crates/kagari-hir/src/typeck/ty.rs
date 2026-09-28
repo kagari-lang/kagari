@@ -6,6 +6,7 @@ use crate::{
     },
     declarations::Declarations,
     hir,
+    native::NativeTypeKind,
     resolver::ResolvedName,
     types::{NominalType, TypeId},
 };
@@ -25,6 +26,14 @@ pub(super) struct TypeContext<'a> {
     pub generics: &'a [hir::GenericParam],
     pub self_type: Option<hir::TraitId>,
     pub implementation: Option<hir::ImplId>,
+}
+
+fn native_type(target: Option<TypeTarget>, declarations: &Declarations) -> Option<NativeTypeKind> {
+    match target? {
+        TypeTarget::OpaqueType(id) => declarations.native_type(id),
+        TypeTarget::Source(id) => declarations.imported_types().target(id)?.native_type,
+        _ => None,
+    }
 }
 
 pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> ResolvedTypeRef {
@@ -92,8 +101,12 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     .parameters_of(&definition)
                     .into_iter()
                     .map(TypeId::Generic)
-                    .collect();
+                    .collect::<Vec<_>>();
                 Some(match resolved {
+                    ResolvedName::OpaqueType(id) => {
+                        target = Some(TypeTarget::OpaqueType(id));
+                        return context.declarations.native_type(id)?.apply(&arguments);
+                    }
                     ResolvedName::Struct(id) => {
                         target = Some(TypeTarget::Struct(id));
                         TypeId::Struct(NominalType {
@@ -270,6 +283,11 @@ pub(super) fn resolve_type_in(
                 return resolved;
             }
             match &reference.ty {
+                _ if native_type(target, context.declarations)
+                    .is_some_and(|kind| kind.arity() != 0) =>
+                {
+                    TypeId::Error
+                }
                 TypeId::Struct(ty) | TypeId::Enum(ty) | TypeId::Trait(ty)
                     if !ty.arguments.is_empty() =>
                 {
@@ -323,56 +341,62 @@ pub(super) fn resolve_type_in(
                 );
                 return resolved;
             }
-            match reference.ty {
-                TypeId::Struct(mut nominal)
-                    if !nominal.arguments.is_empty()
-                        && nominal.arguments.len() == args.len()
-                        && bindings.is_empty() =>
-                {
-                    nominal.arguments = args;
-                    TypeId::Struct(nominal)
+            match native_type(target, context.declarations) {
+                Some(kind) if bindings.is_empty() && !*callable_syntax => {
+                    kind.apply(&args).unwrap_or(TypeId::Error)
                 }
-                TypeId::Enum(mut nominal)
-                    if !nominal.arguments.is_empty()
-                        && nominal.arguments.len() == args.len()
-                        && bindings.is_empty() =>
-                {
-                    nominal.arguments = args;
-                    TypeId::Enum(nominal)
-                }
-                TypeId::Trait(mut nominal)
-                    if nominal.arguments.len() == args.len()
-                        && (!nominal.arguments.is_empty() || !bindings.is_empty())
-                        && !*positional_after_binding
-                        && (!*callable_syntax
-                            || StandardTrait::from_id(&nominal.declaration)
-                                == Some(StandardTrait::Fn)) =>
-                {
-                    nominal.arguments = args;
-                    let members =
-                        associated::members(module, context.declarations, &nominal.declaration);
-                    let mut valid = true;
-                    for (name, value) in resolved_bindings {
-                        let id = identity::associated_type_id(&nominal.declaration, &name);
-                        valid &= members.contains(&name)
-                            && associated::member_arity(
-                                module,
-                                context.declarations,
-                                &nominal.declaration,
-                                &name,
-                            ) == Some(0)
-                            && nominal.associated_types.insert(id, value).is_none();
+                Some(_) => TypeId::Error,
+                None => match reference.ty {
+                    TypeId::Struct(mut nominal)
+                        if !nominal.arguments.is_empty()
+                            && nominal.arguments.len() == args.len()
+                            && bindings.is_empty() =>
+                    {
+                        nominal.arguments = args;
+                        TypeId::Struct(nominal)
                     }
-                    if valid {
-                        TypeId::Trait(nominal)
-                    } else {
-                        TypeId::Error
+                    TypeId::Enum(mut nominal)
+                        if !nominal.arguments.is_empty()
+                            && nominal.arguments.len() == args.len()
+                            && bindings.is_empty() =>
+                    {
+                        nominal.arguments = args;
+                        TypeId::Enum(nominal)
                     }
-                }
-                _ if prelude && bindings.is_empty() => {
-                    surface::standard_generic_type(name, args).unwrap_or(TypeId::Error)
-                }
-                _ => TypeId::Error,
+                    TypeId::Trait(mut nominal)
+                        if nominal.arguments.len() == args.len()
+                            && (!nominal.arguments.is_empty() || !bindings.is_empty())
+                            && !*positional_after_binding
+                            && (!*callable_syntax
+                                || StandardTrait::from_id(&nominal.declaration)
+                                    == Some(StandardTrait::Fn)) =>
+                    {
+                        nominal.arguments = args;
+                        let members =
+                            associated::members(module, context.declarations, &nominal.declaration);
+                        let mut valid = true;
+                        for (name, value) in resolved_bindings {
+                            let id = identity::associated_type_id(&nominal.declaration, &name);
+                            valid &= members.contains(&name)
+                                && associated::member_arity(
+                                    module,
+                                    context.declarations,
+                                    &nominal.declaration,
+                                    &name,
+                                ) == Some(0)
+                                && nominal.associated_types.insert(id, value).is_none();
+                        }
+                        if valid {
+                            TypeId::Trait(nominal)
+                        } else {
+                            TypeId::Error
+                        }
+                    }
+                    _ if prelude && bindings.is_empty() => {
+                        surface::standard_generic_type(name, args).unwrap_or(TypeId::Error)
+                    }
+                    _ => TypeId::Error,
+                },
             }
         }
         TypeKind::Projection {

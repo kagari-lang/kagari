@@ -36,6 +36,9 @@ ast_node!(EnumDef, EnumDef);
 ast_node!(AssociatedType, AssociatedType);
 
 impl AssociatedType {
+    pub fn visibility(&self) -> Visibility {
+        visibility_of(self.syntax())
+    }
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
@@ -75,6 +78,7 @@ pub(crate) fn visibility_of(syntax: &SyntaxNode) -> Visibility {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
+    TypeDecl(AssociatedType),
     ModuleDef(ModuleDef),
     UseDecl(UseDecl),
     TraitDef(TraitDef),
@@ -89,7 +93,8 @@ impl AstNode for Item {
     fn can_cast(kind: SyntaxKind) -> bool {
         matches!(
             kind,
-            SyntaxKind::ModuleDef
+            SyntaxKind::AssociatedType
+                | SyntaxKind::ModuleDef
                 | SyntaxKind::UseDecl
                 | SyntaxKind::TraitDef
                 | SyntaxKind::ImplBlock
@@ -102,6 +107,7 @@ impl AstNode for Item {
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         match syntax.kind() {
+            SyntaxKind::AssociatedType => AssociatedType::cast(syntax).map(Self::TypeDecl),
             SyntaxKind::ModuleDef => ModuleDef::cast(syntax).map(Self::ModuleDef),
             SyntaxKind::UseDecl => UseDecl::cast(syntax).map(Self::UseDecl),
             SyntaxKind::TraitDef => TraitDef::cast(syntax).map(Self::TraitDef),
@@ -116,6 +122,7 @@ impl AstNode for Item {
 
     fn syntax(&self) -> &SyntaxNode {
         match self {
+            Self::TypeDecl(node) => node.syntax(),
             Self::ModuleDef(node) => node.syntax(),
             Self::UseDecl(node) => node.syntax(),
             Self::TraitDef(node) => node.syntax(),

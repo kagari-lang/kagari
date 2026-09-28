@@ -25,6 +25,17 @@ pub(super) fn resolve_constraints(
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
+    for item in &lowered.module.opaque_types {
+        resolve_owner(
+            lowered,
+            &item.generic_params,
+            &item.bounds,
+            declarations,
+            table,
+            diagnostics,
+            cancel,
+        );
+    }
     for params in lowered
         .module
         .structs

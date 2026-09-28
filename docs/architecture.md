@@ -11,9 +11,13 @@ the semantic specifications.
 The active [standard-library and HIR migration](stdlib-hir-refactor.md) separates
 the standard source package from ABI and establishes a checked HIR handoff for
 native and script implementations. ST00 is complete and ST01 is in progress:
-`kagari-stdlib` owns bundled source text and structural preparation, and HIR source
-queries read its manifest. Semantic import and removal of ABI's generated
-declaration catalogs remain pending; the complete target handoff is not yet active.
+`kagari-stdlib` owns bundled source text and structural preparation. The analysis
+database caches the installed package and imports its files through ordinary HIR
+declaration collection, including opaque native type declarations and their
+storage representation hooks. Native callable/signature integration and removal
+of ABI's generated declaration catalogs remain pending; the complete target
+handoff is not yet active. Current intermediate failures are recorded in the
+migration plan.
 
 ## Foundation Contracts
 

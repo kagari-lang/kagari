@@ -80,6 +80,13 @@ pub(crate) fn check_signatures(
                 .iter()
                 .map(|e| (ResolvedName::Enum(e.id), &e.generic_params)),
         )
+        .chain(
+            lowered
+                .module
+                .opaque_types
+                .iter()
+                .map(|item| (ResolvedName::OpaqueType(item.id), &item.generic_params)),
+        )
     {
         if cancel.check().is_err() {
             break;

@@ -1,7 +1,8 @@
 use ast::Attribute;
 use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
+use kagari_stdlib::ParsedStdlibPackage;
 use kagari_syntax::parse;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 mod context;
 mod expr;
 mod item;
@@ -10,7 +11,12 @@ mod ty;
 
 use kagari_syntax::ast::{self, AstNode};
 
-use crate::{hir::Module, lower::context::Lowerer, source_map::SourceMap};
+use crate::{
+    hir::{Module, OpaqueTypeId},
+    lower::context::Lowerer,
+    native::NativeTypeKind,
+    source_map::SourceMap,
+};
 
 #[derive(Debug, Clone)]
 pub struct LoweredModule {
@@ -18,6 +24,8 @@ pub struct LoweredModule {
     pub module: Module,
     pub source_map: SourceMap,
     pub attributes: Vec<AttributeFact>,
+    pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,5 +112,7 @@ pub(crate) fn lower_module_controlled(
         module,
         source_map,
         attributes,
+        native_types: HashMap::new(),
+        installed_stdlib: None,
     }
 }

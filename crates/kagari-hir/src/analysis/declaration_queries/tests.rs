@@ -12,6 +12,73 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnap
 }
 
 #[test]
+fn installed_package_is_shared_across_user_revisions_and_retained_by_snapshots() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let first = query(&mut db, &sources);
+    let installed = db.stdlib.get().unwrap().clone();
+    let module = installed
+        .modules
+        .iter()
+        .find(|module| module.source.name() == "kagari://std/array.kgr")
+        .unwrap();
+    let file = first.file(module.source.id()).unwrap();
+    assert!(
+        file.declarations()
+            .iter()
+            .any(|declaration| declaration.name == "ArrayList")
+    );
+    sources
+        .set(
+            "main.kgr",
+            "fn main() { val changed = 1; }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let second = query(&mut db, &sources);
+    assert!(Arc::ptr_eq(&installed, db.stdlib.get().unwrap()));
+    assert!(Arc::ptr_eq(file, second.file(module.source.id()).unwrap()));
+    drop(db);
+    assert_eq!(
+        first.file(module.source.id()).unwrap().source().text(),
+        module.source.text()
+    );
+}
+
+#[test]
+fn cancelled_or_invalid_installation_never_publishes_a_package_or_snapshot() {
+    let sources = SourceDatabase::default();
+    let mut db = AnalysisDatabase::default();
+    let cancelled = CancellationToken::default();
+    cancelled.cancel();
+    assert!(matches!(
+        db.declarations(sources.snapshot(), &cancelled),
+        Err(AnalysisError::Cancelled)
+    ));
+    assert!(db.stdlib.get().is_none());
+    assert!(db.declaration_cache.is_none());
+    db.set_parse_limits(parser::ParseLimits {
+        max_tree_depth: 1,
+        ..Default::default()
+    });
+    assert!(matches!(
+        db.declarations(sources.snapshot(), &Default::default()),
+        Err(AnalysisError::StandardLibrary(_))
+    ));
+    assert!(db.stdlib.get().is_none());
+    assert!(db.declaration_cache.is_none());
+    db.set_parse_limits(Default::default());
+    let complete = query(&mut db, &sources);
+    assert_eq!(
+        complete.files.len(),
+        db.stdlib.get().unwrap().package.files().len()
+    );
+}
+
+#[test]
 fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluation() {
     let mut sources = SourceDatabase::default();
     let text = "struct Point { var x: i32 } trait Show { fn show(self) -> i32; } fn bad<T: Absent>(value: Missing) -> Missing { unknown } const BAD: i32 = 1 / 0; fn good(value: i32) -> i32 { val local = value; local }";

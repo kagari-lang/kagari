@@ -2,9 +2,9 @@ use crate::{
     hir::{
         AssociatedConst, AssociatedType, BodyOwner, ConstItem, ConstOwner, Enum, Export,
         ExportItem, Field, FieldId, Function, FunctionKind, GenericParam, HirOwner, Impl,
-        ImplMethod, Import, Item, ModuleDecl, Param, ReceiverKind, Struct, TraitBound, TraitDef,
-        TraitMethod, TraitRef, TypeData, TypeKind, TypeRefId, Variant, VariantId, Visibility,
-        Writeability,
+        ImplMethod, Import, Item, ModuleDecl, OpaqueType, Param, ReceiverKind, Struct, TraitBound,
+        TraitDef, TraitMethod, TraitRef, TypeData, TypeKind, TypeRefId, Variant, VariantId,
+        Visibility, Writeability,
     },
     lower::context::{self, Lowerer, syntax_span, token_span},
 };
@@ -28,6 +28,17 @@ impl Lowerer {
                 break;
             }
             match item {
+                AstItem::TypeDecl(declaration) => {
+                    let item = self.lower_opaque_type(&declaration);
+                    if item.visibility == Visibility::Public {
+                        self.module.exports.push(Export {
+                            name: item.name.clone(),
+                            item: ExportItem::OpaqueType(item.id),
+                        });
+                    }
+                    self.module.items.push(Item::OpaqueType(item.id));
+                    self.module.opaque_types.push(item);
+                }
                 AstItem::ModuleDef(module_def) => {
                     let hir_module = self.lower_module_decl(&module_def);
                     if hir_module.visibility == Visibility::Public {
@@ -101,6 +112,32 @@ impl Lowerer {
                     self.module.enums.push(hir_enum);
                 }
             }
+        }
+    }
+
+    fn lower_opaque_type(&mut self, declaration: &ast::AssociatedType) -> OpaqueType {
+        let id = self.source_map.push_opaque_type(syntax_span(declaration));
+        if let Some(name) = declaration.name() {
+            self.source_map
+                .insert_item_name(Item::OpaqueType(id), token_span(&name));
+        }
+        OpaqueType {
+            id,
+            visibility: lower_visibility(declaration.visibility()),
+            name: declaration.name_text().unwrap_or_default(),
+            generic_params: declaration
+                .generic_params()
+                .map(|params| self.lower_generic_params(&params))
+                .unwrap_or_default(),
+            bounds: declaration
+                .where_clause()
+                .map(|clause| self.lower_where_clause(&clause))
+                .unwrap_or_default(),
+            trait_bounds: declaration
+                .bounds()
+                .map(|bounds| self.lower_trait_refs(bounds.bounds()))
+                .unwrap_or_default(),
+            definition: declaration.ty().map(|ty| self.lower_type(&ty)),
         }
     }
 

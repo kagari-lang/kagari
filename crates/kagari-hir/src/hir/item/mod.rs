@@ -5,7 +5,9 @@ mod function;
 mod module;
 mod storage;
 
-pub use adt::{Enum, EnumBuffer, Field, FieldBuffer, Struct, StructBuffer, Variant, VariantBuffer};
+pub use adt::{
+    Enum, EnumBuffer, Field, FieldBuffer, OpaqueType, Struct, StructBuffer, Variant, VariantBuffer,
+};
 pub use behavior::{
     AssociatedConst, AssociatedType, GenericParam, GenericParamBuffer, Impl, ImplBuffer,
     ImplMethod, ImplMethodBuffer, Method, MethodBuffer, MethodOwner, ReceiverKind, TraitBound,
@@ -20,8 +22,8 @@ pub use storage::{
 
 use crate::hir::{
     BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, ImplId, ModuleId,
-    PatternData, PatternId, PlaceData, PlaceId, StmtData, StmtId, StructId, TraitId, TypeData,
-    TypeRefId,
+    OpaqueTypeId, PatternData, PatternId, PlaceData, PlaceId, StmtData, StmtId, StructId, TraitId,
+    TypeData, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -34,6 +36,7 @@ pub struct Module {
     pub modules: ModuleDeclBuffer,
     pub imports: ImportBuffer,
     pub structs: StructBuffer,
+    pub opaque_types: Vec<OpaqueType>,
     pub enums: EnumBuffer,
     pub traits: TraitBuffer,
     pub impls: ImplBuffer,
@@ -85,6 +88,7 @@ impl Module {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Item {
+    OpaqueType(OpaqueTypeId),
     Function(FunctionId),
     Const(ConstId),
     Module(ModuleId),

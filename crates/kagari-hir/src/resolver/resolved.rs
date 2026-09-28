@@ -2,7 +2,7 @@ use crate::{
     builtin::BuiltinFunction,
     hir::{
         BodyOwner, ConstId, EnumId, ExportItem, ExprId, FunctionId, LocalId, Module, ModuleId,
-        ParamId, PatternId, PatternKind, PlaceId, StructId, TraitId,
+        OpaqueTypeId, ParamId, PatternId, PatternKind, PlaceId, StructId, TraitId,
     },
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     imports::ModuleImports,
@@ -34,6 +34,7 @@ pub struct LexicalScope {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
+    OpaqueType(OpaqueTypeId),
     StandardTrait(StandardTrait),
     SourceImport(usize),
     SourceItem { import: usize, item: ExportItem },

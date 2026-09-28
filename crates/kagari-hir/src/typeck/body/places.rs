@@ -118,6 +118,7 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
                         | ResolvedName::RuntimeHelper(_)
+                        | ResolvedName::OpaqueType(_)
                         | ResolvedName::Struct(_)
                         | ResolvedName::Enum(_)
                         | ResolvedName::Trait(_) => None,
@@ -199,6 +200,7 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::StandardFunction(_) | ResolvedName::RuntimeHelper(_) => {
                         "standard function item is not assignable".to_string()
                     }
+                    ResolvedName::OpaqueType(_) => "opaque type is not assignable".to_string(),
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
                     ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
                     ResolvedName::Trait(_) | ResolvedName::StandardTrait(_) => {

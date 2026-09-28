@@ -363,6 +363,8 @@ must be resolved before migration; historical test counts are not a fresh baseli
 ### ST01 — Package ownership and HIR import
 
 - [x] Add the functional `kagari-stdlib` crate and package preparation API.
+- [x] Cache installed parses in the analysis owner and retain opaque type
+  declarations, their generic syntax and source provenance in ordinary HIR.
 - [ ] Move source/package ownership from ABI, preserving paths, source text,
   declaration locations and deterministic identities.
 - [ ] Import standard declarations and bodies into HIR; map native markers only
@@ -708,6 +710,59 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 ordinary declaration import checkpoint: declaration-mode top-level `type`
+  nodes now enter AST items and HIR as opaque declarations. Normal declaration
+  collection retains visibility, exports, generic identities, bounds, optional
+  alias syntax and exact source spans. Installed storage hooks validate the
+  native binding and parameter count, then supply type representation facts to
+  local/imported type resolution. Ordinary lowering, including a matching
+  `kagari://std` URI and native-looking annotation, cannot install those hooks.
+- The analysis database prepares the installed package once per compatible parser
+  configuration and shares its immutable parse trees/lowered modules across user
+  revisions and snapshots. All installed files enter the ordinary module graph
+  and declaration/signature queries. The package object remains attached as
+  installation provenance. Failed/cancelled preparation publishes neither a
+  package nor a declaration snapshot; changing parser limits invalidates the
+  package cache. Query errors now distinguish cancellation from an invalid
+  installed package, and the SDK preserves that distinction.
+- This is an intermediate integration checkpoint, not ST01 completion. Native
+  callable binding/signature validation, ordinary `std` namespace/prelude
+  resolution, enum representation hooks and removal of generated ABI catalogs
+  remain open. Existing generated catalogs are still active in those consumers;
+  no additional compatibility resolver was introduced.
+- Carried workspace build error: `cargo check --workspace` reports E0004 in
+  `crates/kagari-compiler/src/source/lower/abi.rs` because `Item::OpaqueType` has
+  no portable public type contract yet. ST03 owns this export contract and its
+  executable representation/version validation. Opaque names are explicitly
+  rejected as local/value expressions; the ABI collector is intentionally not
+  given an empty arm or a fabricated layout to conceal the missing contract.
+- Carried HIR integration failures: `cargo test -p kagari-hir` exposes the old
+  process-global declaration locations conflicting with the new package-owned
+  locations in `native_calls_types_and_variants_navigate_to_documented_source`.
+  ST02 owns removal of that alternate metadata path. The tests
+  `imported_nominal_signatures_distinguish_same_named_types` and
+  `exported_signatures_use_imported_types_before_callers_are_checked` now also
+  observe standard-module diagnostics: `PublicGenericFunction`, native
+  `UnknownAttribute`, and unresolved `Self` bounds, followed by further ordinary
+  signature/implementation checks. ST01 native installation and ST02 checked
+  callable/trait integration own these errors. Their assertions remain intact;
+  diagnostics have not been filtered from snapshots to hide the failures.
+- Ordinary import validation: `cargo test -p kagari-hir` passes 357 tests and
+  fails the three recorded integration tests. The six declaration-query tests
+  and four native-installation tests pass, including six new tests for metadata,
+  provenance, storage arity, shared snapshots, cancellation and invalid package
+  preparation. `cargo test -p kagari-stdlib -p kagari-syntax` passes 85 tests.
+  Clippy/all-targets with warnings denied passes for HIR, stdlib and syntax.
+  Structure review passes for 526 Rust files with zero violations/exceptions;
+  format and diff checks pass. Workspace Clippy/test, CLI JIT and feature audits
+  cannot provide a passing integration result until the recorded compiler
+  export error is resolved; the prior green checkpoint is not current acceptance.
+- Breaking source API at this checkpoint: AST/HIR/resolution item enums include
+  opaque declarations; analysis database queries return `AnalysisError` rather
+  than only `Cancelled`. The executable format has not changed yet. The SDK's
+  changed error mapping is source-reviewed but remains downstream of the carried
+  compiler build failure.
+
 - ST01 HIR groundwork validation: workspace Clippy/all-targets with warnings
   denied, all 1,448 workspace tests, format and structure checks pass (522 Rust
   files, zero violations/exceptions). The optional-body API intentionally changes
@@ -730,12 +785,12 @@ textual references; renaming an import is not removal of the dependency.
   caches have not yet been replaced; installed-package import, analysis-owned
   caching and the ordinary declaration/signature integration remain ST01 work.
 
-- Next ST01 integration boundary: declaration mode represents top-level opaque
-  `type` nodes as syntax `AssociatedType`, but `ast::Item` and the ordinary HIR
-  item collector currently omit them. Preserve these declarations explicitly
-  before routing the package through normal scopes/imports; do not reconstruct
-  their generic syntax in an `ApiType` replacement. Native authority must follow
-  the installed package object, not a source URI or a `kagari-std` spelling.
+- Resolved ST01 groundwork gap: declaration mode represents top-level opaque
+  `type` nodes as syntax `AssociatedType`; the ordinary item collector previously
+  omitted them. The ordinary declaration import checkpoint above closes that gap
+  without reconstructing generic syntax in an `ApiType` replacement. Native
+  authority follows the installed package object, not a source URI or a
+  `kagari-std` spelling.
 - ST01 package checkpoint: added the functional `kagari-stdlib` crate with an
   explicit 15-file manifest, exact bundled text, stable package/module identities,
   content fingerprint, immutable parse trees and structural declaration/body/

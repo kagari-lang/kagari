@@ -319,6 +319,13 @@ fn resolve_imports(
                 .map(|item| item.name.as_str()),
         )
         .chain(module.module.modules.iter().map(|item| item.name.as_str()))
+        .chain(
+            module
+                .module
+                .opaque_types
+                .iter()
+                .map(|item| item.name.as_str()),
+        )
         .chain(module.module.structs.iter().map(|item| item.name.as_str()))
         .chain(module.module.enums.iter().map(|item| item.name.as_str()))
         .chain(module.module.traits.iter().map(|item| item.name.as_str()))
@@ -923,6 +930,10 @@ impl<'a> SourceCatalog<'a> {
             for item in &module.module.modules {
                 cancel.check()?;
                 add(&item.name, ExportItem::Module(item.id), item.visibility);
+            }
+            for item in &module.module.opaque_types {
+                cancel.check()?;
+                add(&item.name, ExportItem::OpaqueType(item.id), item.visibility);
             }
             for item in &module.module.structs {
                 cancel.check()?;

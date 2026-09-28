@@ -83,6 +83,7 @@ id_newtype!(ModuleId);
 local_id_newtype!(ParamId);
 local_id_newtype!(LocalId);
 id_newtype!(StructId);
+id_newtype!(OpaqueTypeId);
 id_newtype!(EnumId);
 local_id_newtype!(BlockId);
 local_id_newtype!(ExprId);

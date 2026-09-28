@@ -11,11 +11,12 @@ use crate::{
     builtin::{declarations, traits},
     hir::{
         BodyOwner, ConstOwner, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId, Item,
-        VariantId,
+        OpaqueTypeId, VariantId,
     },
     host::{HostDeclarations, HostTypeId},
     imports::{ImportedTypes, ModuleImports},
     lower::LoweredModule,
+    native::NativeTypeKind,
     resolver::{DeclarationNames, NameTable, ResolvedName, ResolvedNames},
     source_map::SourceMap,
     types::GenericParameterType,
@@ -70,6 +71,7 @@ pub struct Declarations {
     identities: HashMap<DeclarationId, DeclarationKey>,
     sites: HashSet<DeclarationKey>,
     impl_identities: HashMap<ImplId, DefinitionId>,
+    native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -87,6 +89,9 @@ impl From<ResolvedName> for DeclarationKey {
 }
 
 impl Declarations {
+    pub fn native_type(&self, id: OpaqueTypeId) -> Option<NativeTypeKind> {
+        self.native_types.get(&id).copied()
+    }
     pub(crate) fn standard_trait(&self, name: &str) -> Option<StandardTrait> {
         if let Some(binding) = self.names.lookup(name) {
             return match binding.target()? {
@@ -277,6 +282,7 @@ impl Declarations {
                 identities: HashMap::new(),
                 sites: HashSet::new(),
                 impl_identities: HashMap::new(),
+                native_types: lowered.native_types.clone(),
             },
             occurrences: HashMap::new(),
         };
@@ -328,6 +334,20 @@ impl Declarations {
                 map.item_declaration_span(Item::Module(item.id)),
                 map.item_name_span(Item::Module(item.id)).is_some(),
             );
+        }
+        for item in &module.opaque_types {
+            if cancel.check().is_err() {
+                return builder.result;
+            }
+            let owner = builder.definition(
+                ResolvedName::OpaqueType(item.id),
+                &[],
+                DefinitionKind::AssociatedType,
+                &item.name,
+                map.item_declaration_span(Item::OpaqueType(item.id)),
+                map.item_name_span(Item::OpaqueType(item.id)).is_some(),
+            );
+            builder.generic_params(&owner, &item.generic_params, map);
         }
         for item in &module.structs {
             if cancel.check().is_err() {

@@ -1,6 +1,22 @@
-use crate::hir::{EnumId, FieldId, ImplId, MethodId, StructId, TypeRefId, VariantId, Writeability};
+use crate::hir::{
+    EnumId, FieldId, GenericParam, ImplId, MethodId, OpaqueTypeId, StructId, TraitBound, TraitRef,
+    TypeRefId, VariantId, Writeability,
+};
 
 use super::Visibility;
+
+/// A declaration whose storage is supplied by an installed native provider.
+/// Its representation is checked separately from its ordinary generic syntax.
+#[derive(Debug, Clone)]
+pub struct OpaqueType {
+    pub id: OpaqueTypeId,
+    pub visibility: Visibility,
+    pub name: String,
+    pub generic_params: Vec<GenericParam>,
+    pub bounds: Vec<TraitBound>,
+    pub trait_bounds: Vec<TraitRef>,
+    pub definition: Option<TypeRefId>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Struct {

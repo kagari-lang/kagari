@@ -3,15 +3,16 @@ use crate::declare_analysis;
 
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
-    analysis::AnalysisDatabase,
+    analysis::{AnalysisDatabase, AnalysisError},
     declarations::{Declaration, DeclarationId, Declarations},
     imports::ModuleGraph,
     lower,
+    native::stdlib::InstalledStdlib,
     resolver::DeclarationNames,
 };
 use kagari_common::{
     Diagnostic, SourceFile, Span,
-    cancellation::{CancellationToken, Cancelled},
+    cancellation::CancellationToken,
     identity::{FileId, Revision},
     source_database::SourceSnapshot,
 };
@@ -96,7 +97,7 @@ impl AnalysisDatabase {
         &mut self,
         source: SourceSnapshot,
         cancel: &CancellationToken,
-    ) -> Result<DeclarationSnapshot, Cancelled> {
+    ) -> Result<DeclarationSnapshot, AnalysisError> {
         let snapshot = self.prepare_declarations(source, cancel)?;
         cancel.check()?;
         self.publish_declarations(snapshot.clone());
@@ -118,10 +119,28 @@ impl AnalysisDatabase {
         &self,
         source: SourceSnapshot,
         cancel: &CancellationToken,
-    ) -> Result<DeclarationSnapshot, Cancelled> {
+    ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
+        let stdlib = match self.stdlib.get() {
+            Some(stdlib) => stdlib.clone(),
+            None => {
+                let stdlib = Arc::new(InstalledStdlib::prepare(self.parse_limits, cancel)?);
+                // Installation is immutable and independent of user source revisions.
+                // A failed or cancelled preparation never enters the cache.
+                self.stdlib
+                    .set(stdlib.clone())
+                    .expect("single analysis owner installs once");
+                stdlib
+            }
+        };
         let previous = self.declaration_cache.as_ref();
-        let mut lowered_files = BTreeMap::new();
+        let mut lowered_files = stdlib
+            .package
+            .files()
+            .iter()
+            .zip(&stdlib.modules)
+            .map(|(file, lowered)| (file.source().id(), (file.parsed().clone(), lowered.clone())))
+            .collect::<BTreeMap<_, _>>();
         let mut pending = VecDeque::from_iter(source.files().cloned());
         let mut generated = HashSet::new();
         while let Some(file) = pending.pop_front() {

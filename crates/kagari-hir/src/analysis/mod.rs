@@ -9,6 +9,7 @@ use crate::{
     host::HostDeclarations,
     imports::{ImportTarget, ImportedFunction, ModuleGraph, SourceImport},
     lower::LoweredModule,
+    native::stdlib::InstalledStdlib,
     resolver::ResolvedName,
     typeck::{BodyReuse, CallTarget, ConstLimits, ModuleSignatures, TypeTable, TypeTarget},
     types::TypeId,
@@ -22,12 +23,14 @@ use kagari_common::{
 };
 use kagari_syntax::{Parse, ast::SourceFile as AstSourceFile, parser::ParseLimits};
 use std::{
-    cell::RefCell,
+    cell::{OnceCell, RefCell},
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 
+mod error;
 mod standard_queries;
+pub use error::AnalysisError;
 pub use standard_queries::StandardSignature;
 mod body_queries;
 pub use body_queries::FunctionAnalysis;
@@ -533,6 +536,7 @@ fn type_reference_at<'a>(
 ) -> Option<Option<&'a Declaration>> {
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
+            TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
             TypeTarget::StandardTrait(kind) => Some(&kind.contract().declaration),
             TypeTarget::Host(_) => None,
             TypeTarget::Source(id) => declarations
@@ -659,6 +663,7 @@ pub struct AnalysisDatabase {
     latest_revision: Revision,
     hosts: Arc<HostDeclarations>,
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
+    stdlib: OnceCell<Arc<InstalledStdlib>>,
 }
 
 impl Default for AnalysisDatabase {
@@ -675,6 +680,7 @@ impl Default for AnalysisDatabase {
             latest_revision: Revision::default(),
             hosts: HostDeclarations::empty(),
             inline_ids: RefCell::new(HashMap::new()),
+            stdlib: OnceCell::new(),
         }
     }
 }
@@ -703,6 +709,7 @@ impl AnalysisDatabase {
             return;
         }
         self.parse_limits = limits;
+        self.stdlib.take();
         self.declaration_cache = None;
         self.signature_cache = None;
         self.body_cache.clear();
@@ -717,7 +724,7 @@ impl AnalysisDatabase {
         source: SourceSnapshot,
         profile: LanguageFeatureProfile,
         cancel: &CancellationToken,
-    ) -> Result<AnalysisSnapshot, Cancelled> {
+    ) -> Result<AnalysisSnapshot, AnalysisError> {
         cancel.check()?;
         let signature_snapshot = self.prepare_signatures(source.clone(), cancel)?;
         let graph = signature_snapshot.declarations.graph.clone();
@@ -910,6 +917,7 @@ impl AnalysisSnapshot {
         };
         let file = self.file(target.file)?;
         let resolved = match target.item? {
+            ExportItem::OpaqueType(id) => ResolvedName::OpaqueType(id),
             ExportItem::Function(id) => ResolvedName::Function(id),
             ExportItem::Const(id) => ResolvedName::Const(id),
             ExportItem::Module(id) => ResolvedName::Module(id),

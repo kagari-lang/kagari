@@ -82,6 +82,16 @@ pub(crate) fn collect_declarations(
             lowered.source_map.module_span(item.id),
         ));
     }
+    for item in &lowered.module.opaque_types {
+        if cancel.check().is_err() {
+            break;
+        }
+        declarations.push((
+            &item.name,
+            ResolvedName::OpaqueType(item.id),
+            lowered.source_map.opaque_type_span(item.id),
+        ));
+    }
     for item in &lowered.module.structs {
         if cancel.check().is_err() {
             break;

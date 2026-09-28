@@ -2,8 +2,8 @@ use super::{ScalarValue, constraints};
 use crate::{
     builtin::{BuiltinFunction, traits},
     hir::{
-        EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, PatternId, PlaceId, StructId,
-        TraitId, TypeRefId,
+        EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, OpaqueTypeId, PatternId,
+        PlaceId, StructId, TraitId, TypeRefId,
     },
     host::{HostFunctionId, HostTypeId},
     imports::{SourceFunctionId, SourceTypeId},
@@ -33,6 +33,7 @@ pub enum ConstraintTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeTarget {
+    OpaqueType(OpaqueTypeId),
     StandardTrait(StandardTrait),
     Host(HostTypeId),
     Source(SourceTypeId),

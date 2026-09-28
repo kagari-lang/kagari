@@ -5,7 +5,7 @@ use crate::{
     DiagnosticBuffer, PreparedAnalysis,
     aggregates::AggregateCatalog,
     analysis::{
-        AnalysisDatabase,
+        AnalysisDatabase, AnalysisError,
         declaration_queries::{DeclarationSnapshot, FileDeclarations},
         type_at_in, type_reference_at, type_reference_target_at,
     },
@@ -154,7 +154,7 @@ impl AnalysisDatabase {
         &mut self,
         source: SourceSnapshot,
         cancel: &CancellationToken,
-    ) -> Result<SignatureSnapshot, Cancelled> {
+    ) -> Result<SignatureSnapshot, AnalysisError> {
         let snapshot = self.prepare_signatures(source, cancel)?;
         cancel.check()?;
         self.publish_signatures(snapshot.clone());
@@ -176,7 +176,7 @@ impl AnalysisDatabase {
         &self,
         source: SourceSnapshot,
         cancel: &CancellationToken,
-    ) -> Result<SignatureSnapshot, Cancelled> {
+    ) -> Result<SignatureSnapshot, AnalysisError> {
         let declarations = self.prepare_declarations(source, cancel)?;
         let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
         let mut imported_types = HashMap::new();

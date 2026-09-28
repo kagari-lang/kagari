@@ -19,7 +19,9 @@ use kagari_compiler::{
 };
 use kagari_hir::{
     LanguageFeatureProfile,
-    analysis::{AnalysisSnapshot, DeclarationSnapshot, FunctionAnalysis, SignatureSnapshot},
+    analysis::{
+        AnalysisError, AnalysisSnapshot, DeclarationSnapshot, FunctionAnalysis, SignatureSnapshot,
+    },
     host::HostDeclarations,
     imports::ModuleOrderError,
     program::{CheckedProgram, ProgramCheckError},
@@ -32,6 +34,15 @@ use kagari_mir::{
 use kagari_runtime::LanguageProfile;
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
+
+fn analysis_error(error: AnalysisError) -> EmbeddingError {
+    match error {
+        AnalysisError::Cancelled => EmbeddingError::Cancelled,
+        AnalysisError::StandardLibrary(error) => EmbeddingError::Source {
+            message: format!("invalid installed standard library: {error}"),
+        },
+    }
+}
 
 #[derive(Debug)]
 pub struct CheckedModule {
@@ -170,7 +181,7 @@ impl KagariEngine {
                 language_feature_profile_from_runtime(profile),
                 cancel,
             )
-            .map_err(|_| EmbeddingError::Cancelled)
+            .map_err(analysis_error)
     }
 
     /// Parse and collect module declarations without resolving or checking bodies.
@@ -182,7 +193,7 @@ impl KagariEngine {
         self.analysis
             .borrow_mut()
             .declarations(source, cancel)
-            .map_err(|_| EmbeddingError::Cancelled)
+            .map_err(analysis_error)
     }
 
     /// Check declaration signatures without resolving or checking function bodies.
@@ -194,7 +205,7 @@ impl KagariEngine {
         self.analysis
             .borrow_mut()
             .signatures(source, cancel)
-            .map_err(|_| EmbeddingError::Cancelled)
+            .map_err(analysis_error)
     }
 
     /// Query one function body and module-constant prerequisites by declaration identity.
@@ -207,7 +218,7 @@ impl KagariEngine {
         self.analysis
             .borrow_mut()
             .body(source, function, cancel)
-            .map_err(|_| EmbeddingError::Cancelled)
+            .map_err(analysis_error)
     }
 
     pub fn compile_snapshot(

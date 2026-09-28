@@ -409,6 +409,7 @@ dependencies = [
  "kagari-syntax",
  "serde",
  "smallvec",
+ "thiserror",
 ]
 
 [[package]]

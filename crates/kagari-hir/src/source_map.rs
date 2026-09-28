@@ -1,7 +1,7 @@
 use crate::hir::{
     BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId, HirOwner,
-    ImplId, Item, LocalId, ModuleId, ParamId, PatternId, PlaceId, StmtId, StructId, TraitId,
-    TraitMethodId, TypeRefId, VariantId,
+    ImplId, Item, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StmtId, StructId,
+    TraitId, TraitMethodId, TypeRefId, VariantId,
 };
 use kagari_common::Span;
 use std::{collections::HashMap, mem};
@@ -25,6 +25,7 @@ pub struct SourceMap {
     local_spans: Vec<Span>,
     local_owners: Vec<HirOwner>,
     struct_spans: Vec<Span>,
+    opaque_type_spans: Vec<Span>,
     enum_spans: Vec<Span>,
     block_spans: Vec<Span>,
     block_owners: Vec<HirOwner>,
@@ -46,6 +47,15 @@ pub struct SourceMap {
 }
 
 impl SourceMap {
+    pub(crate) fn push_opaque_type(&mut self, span: Span) -> OpaqueTypeId {
+        let id = OpaqueTypeId::new(self.opaque_type_spans.len());
+        self.opaque_type_spans.push(span);
+        id
+    }
+
+    pub fn opaque_type_span(&self, id: OpaqueTypeId) -> Span {
+        self.opaque_type_spans[id.index()]
+    }
     pub(crate) fn insert_variant(&mut self, id: VariantId, span: Span) {
         self.variant_spans.insert(id, span);
     }
@@ -129,6 +139,7 @@ impl SourceMap {
 
     pub fn item_span(&self, item: Item) -> Span {
         match item {
+            Item::OpaqueType(id) => self.opaque_type_span(id),
             Item::Function(id) => self.function_span(id),
             Item::Const(id) => self.const_span(id),
             Item::Module(id) => self.module_span(id),

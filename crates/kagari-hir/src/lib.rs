@@ -19,6 +19,7 @@ pub mod hir;
 pub mod host;
 pub mod imports;
 pub mod lower;
+pub mod native;
 pub mod profile;
 pub mod program;
 pub mod resolver;

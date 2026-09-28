@@ -1,5 +1,6 @@
 use crate::hir::{
-    ConstId, EnumId, ExprId, FunctionId, ImplId, ModuleId, StructId, TraitId, TypeRefId,
+    ConstId, EnumId, ExprId, FunctionId, ImplId, ModuleId, OpaqueTypeId, StructId, TraitId,
+    TypeRefId,
 };
 use kagari_common::identity::ModuleIdentity;
 
@@ -45,6 +46,7 @@ pub enum ConstOwner {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExportItem {
+    OpaqueType(OpaqueTypeId),
     Function(FunctionId),
     Const(ConstId),
     Module(ModuleId),

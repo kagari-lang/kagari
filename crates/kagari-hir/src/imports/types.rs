@@ -5,6 +5,7 @@ use crate::{
     DeclaredAnalysis,
     declarations::Declaration,
     imports::{ImportTarget, ModuleImports, SourceImport},
+    native::NativeTypeKind,
     resolver::ResolvedName,
     typeck,
     types::{NominalType, TypeId},
@@ -27,6 +28,7 @@ pub struct SourceTypeId {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedType {
+    pub native_type: Option<NativeTypeKind>,
     pub associated_arities: BTreeMap<String, usize>,
     pub id: SourceTypeId,
     pub declaration: Declaration,
@@ -200,15 +202,38 @@ impl<'a> TypeCatalog<'a> {
 
     fn surface(module: &DeclaredAnalysis, source: SourceTypeId) -> Option<ImportedType> {
         let item = source.item;
-        let (resolved, make_type): (_, fn(NominalType) -> TypeId) = match item {
-            ExportItem::Struct(id) => (ResolvedName::Struct(id), TypeId::Struct),
-            ExportItem::Enum(id) => (ResolvedName::Enum(id), TypeId::Enum),
-            ExportItem::Trait(id) => (ResolvedName::Trait(id), TypeId::Trait),
+        let resolved = match item {
+            ExportItem::OpaqueType(id) => ResolvedName::OpaqueType(id),
+            ExportItem::Struct(id) => ResolvedName::Struct(id),
+            ExportItem::Enum(id) => ResolvedName::Enum(id),
+            ExportItem::Trait(id) => ResolvedName::Trait(id),
             _ => return None,
         };
         let declaration = module.declarations.target(resolved)?;
         let identity = module.declarations.definition(resolved)?;
+        let native_type = match item {
+            ExportItem::OpaqueType(id) => Some(module.declarations.native_type(id)?),
+            _ => None,
+        };
+        let nominal = NominalType {
+            associated_types: Default::default(),
+            declaration: identity.clone(),
+            arguments: module
+                .declarations
+                .parameters_of(identity)
+                .into_iter()
+                .map(TypeId::Generic)
+                .collect(),
+        };
+        let ty = match item {
+            ExportItem::OpaqueType(_) => native_type?.apply(&nominal.arguments)?,
+            ExportItem::Struct(_) => TypeId::Struct(nominal),
+            ExportItem::Enum(_) => TypeId::Enum(nominal),
+            ExportItem::Trait(_) => TypeId::Trait(nominal),
+            _ => return None,
+        };
         Some(ImportedType {
+            native_type,
             associated_arities: match item {
                 ExportItem::Trait(id) => module
                     .lowered
@@ -242,16 +267,7 @@ impl<'a> TypeCatalog<'a> {
                 item,
             },
             declaration: declaration.clone(),
-            ty: make_type(NominalType {
-                associated_types: Default::default(),
-                declaration: identity.clone(),
-                arguments: module
-                    .declarations
-                    .parameters_of(identity)
-                    .into_iter()
-                    .map(TypeId::Generic)
-                    .collect(),
-            }),
+            ty,
             trait_methods: match item {
                 ExportItem::Trait(id) => module
                     .lowered

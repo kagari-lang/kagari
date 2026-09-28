@@ -283,6 +283,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::StandardModule(_)
                     | ResolvedName::HostFunction(_)
                     | ResolvedName::StandardFunction(_)
+                    | ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => None,

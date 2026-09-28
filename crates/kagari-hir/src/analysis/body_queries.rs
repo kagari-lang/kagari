@@ -4,7 +4,7 @@ use super::signature_queries::BodyEnvironment;
 use crate::{
     AnalysisResult,
     analysis::{
-        AnalysisDatabase,
+        AnalysisDatabase, AnalysisError,
         declaration_queries::DeclarationSnapshot,
         signature_queries::{FileSignatures, SignatureSnapshot},
     },
@@ -16,9 +16,7 @@ use crate::{
     types::TypeId,
 };
 use kagari_common::{
-    Diagnostic, SourceFile,
-    cancellation::{CancellationToken, Cancelled},
-    source_database::SourceSnapshot,
+    Diagnostic, SourceFile, cancellation::CancellationToken, source_database::SourceSnapshot,
 };
 use std::sync::Arc;
 
@@ -100,7 +98,7 @@ impl AnalysisDatabase {
         source: SourceSnapshot,
         owner: &DefinitionId,
         cancel: &CancellationToken,
-    ) -> Result<Option<Arc<FunctionAnalysis>>, Cancelled> {
+    ) -> Result<Option<Arc<FunctionAnalysis>>, AnalysisError> {
         let signatures = self.prepare_signatures(source, cancel)?;
         let target = signatures.files.values().find_map(|file| {
             let ResolvedName::Function(function) = file.declarations().definition_target(owner)?
