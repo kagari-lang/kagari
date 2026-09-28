@@ -1,10 +1,14 @@
-# kagari-syntax: From Source Text to a Recoverable Syntax Tree
+# Syntax Architecture
 
-This is an architecture review sample for the current implementation, inspected
-at commit `6c19c00`. It explains the crate's behavior and boundaries before any
-proposed redesign. The [workspace architecture](../architecture.md) describes
-the wider pipeline; the [syntax specification](../spec/syntax.md) and
-[grammar](../kagari.ebnf) define the language.
+This document describes the responsibilities, data contracts, processing flow
+and ownership model of `kagari-syntax`. It covers the current implementation and
+the constraints its callers must observe.
+
+The [workspace architecture](../architecture.md) defines crate boundaries.
+The [syntax specification](../spec/syntax.md) and [grammar](../kagari.ebnf) define
+language behavior and take precedence over implementation descriptions. Syntax
+coverage and its verification limits are recorded in the
+[coverage audit](../syntax-coverage.md).
 
 ## 1. Purpose and place in the system
 
@@ -36,6 +40,17 @@ time; executable runtime contracts do not invoke the parser.
 | Syntax diagnostics, recovery and parser limits | Deciding whether analysis is valid for code generation |
 | Structured access to syntax nodes | MIR, bytecode, execution, GC and hot reload |
 
+The crate has three direct production dependencies:
+
+| Dependency | Responsibility |
+| --- | --- |
+| `kagari-common` | Source files, byte spans, diagnostics, cancellation and literal decoding |
+| `rowan` | Syntax tree construction, immutable green storage and traversable node handles |
+| `smallvec` | Inline storage for small token and diagnostic buffers, with heap growth when needed |
+
+There is no production dependency on HIR, compiler, bytecode or runtime. Grammar
+recognition must remain independent of name resolution and executable state.
+
 ## 2. Inputs and outputs
 
 The caller supplies a `kagari_common::SourceFile`. Its text is already valid UTF-8
@@ -57,6 +72,11 @@ attach file/revision identities to its result; the caller keeps that association
 | AST view | Structured access to the same tree; optional children may be missing after recovery |
 | `Cancelled` | No parse result is published by the controlled parse entrypoint |
 
+The token buffer is the lexer output and parser input; it is not retained as a
+separate field of `Parse`. The green tree stores node kinds and token text.
+Rowan node handles add navigable tree structure and text ranges, and AST views
+give those handles grammar-specific accessors.
+
 The public entrypoints express different acceptance policies:
 
 | Entrypoint | Result policy |
@@ -67,13 +87,25 @@ The public entrypoints express different acceptance policies:
 | `parse_declarations` | Same parser with declaration mode enabled, caller limits and cancellation |
 | `parse_module` | Convenience wrapper: returns the AST only when diagnostics are empty; otherwise returns diagnostics |
 
-Despite its name, `parse_module` does not load or link modules. It uses default
-limits and does not accept caller cancellation.
+`parse_module` applies a strict syntax acceptance policy. Module loading and
+linking remain outside this crate. This entrypoint uses default limits and does
+not accept caller cancellation.
 
 Declaration mode accepts forms such as `pub fn len<T>(value: [T]) -> usize;`
 and opaque top-level type declarations used by the standard library. It shares
 the lexer, tree model and recovery machinery with ordinary source parsing.
 Its result still carries no executable validation seal.
+
+### Consumer contract
+
+Callers must keep each parse associated with its source identity and revision.
+Tooling may inspect a tree with diagnostics, but must handle absent AST children.
+Compilation must carry syntax diagnostics into the semantic acceptance gate;
+constructing an AST view or receiving `Ok(Parse)` does not establish validity.
+
+The `Parse` representation does not record whether ordinary or declaration mode
+produced it. The caller owns that distinction. Offline declaration acceptance
+must not be used to bypass the ordinary executable-source checks.
 
 ## 3. Internal responsibilities
 
@@ -122,7 +154,7 @@ flowchart TD
     Check -->|"clear"| Result["Parse: tree and diagnostics"]
     Check -->|"cancelled"| Cancel["Return Cancelled; discard result"]
     Lex -.->|"cancellation observed"| Cancel
-    Read -.->|"cancellation observed: unwind and finish"| Check
+    Read -.->|"cancellation observed: stop grammar work"| Finish
     Result --> View["Create AST views when requested"]
 ```
 
@@ -166,10 +198,9 @@ flowchart LR
 
 Arrows here mean ownership or retention, not control flow. Parser mutation is
 local to a call and uses `&mut Parser`. Its token buffer, cursor and builder are
-not shared with callers. No host callback or execution reentry occurs during
-parsing, and the crate's handwritten production source has no explicit `Rc` or
-`RefCell` usage. Rowan manages tree sharing internally; this is not a claim that
-the dependency contains no interior mutability.
+not shared with callers. Parsing invokes no host callbacks and has no execution
+reentry boundary. The handwritten parser state uses neither `Rc` nor `RefCell`;
+Rowan owns the sharing mechanism for tree storage and node handles.
 
 The result does not borrow the input string. AST views can remain alive after
 the `Parse` wrapper or original `SourceFile` is dropped. File identity and
@@ -190,7 +221,8 @@ lexing and parsing.
 | Diagnostic budget exhausted | Stop recovery and preserve the unparsed suffix; add a limit diagnostic | Treat this as incomplete analysis |
 | Nesting or tree depth exhausted | Stop further grammar growth, record the limit and preserve remaining text | Reject executable use; adjust policy only deliberately |
 | Cancellation observed | Controlled entrypoint returns `Err(Cancelled)` | Discard the attempt rather than publish it as a successful analysis |
-| Internal invariant violation | Some paths still use `expect`; raw Rowan kind conversion uses `unsafe` | Do not interpret syntax recovery as a universal panic/safety guarantee |
+| Internal parser invariant violation | Some paths use `expect` and can panic if their assumptions fail | Syntax diagnostics describe source errors, not arbitrary implementation faults |
+| Invalid raw tree kind | The Rowan adapter uses an unchecked conversion that assumes a valid Kagari kind | Raw tree construction must preserve the kind invariant; malformed source recovery does not validate arbitrary raw trees |
 
 Defaults are 256 ordinary diagnostics, 64 simultaneously active recursive
 grammar entries and a completed CST depth threshold of 128. A limit diagnostic
@@ -205,33 +237,34 @@ requires storage proportional to that input. Raising recursion limits can also
 weaken stack protection. Source-size admission policy belongs at the caller
 boundary; this crate currently has no explicit source-byte or token-count limit.
 
-## 7. Architecture assessment
+## 7. Design rationale and current limitations
 
-**The current responsibility split is coherent for source parsing.** Local
-mutable parser state, immutable output storage and separate semantic analysis
-give it a much narrower ownership problem than the execution runtime. Sharing
-one grammar implementation between tooling and compilation also avoids two
-different definitions of ordinary source syntax.
-
-The following are review questions, not implemented changes or claims that every
-listed concern has a demonstrated failing program:
-
-| Observation | Architectural consequence | Review direction |
+| Design | Benefit | Constraint |
 | --- | --- | --- |
-| `Parse` can contain errors and does not encode the selected parse mode | Consumers must retain diagnostics and know whether they requested offline declarations | Check that every path to executable compilation applies the appropriate semantic gate |
-| Public token and Rowan node APIs expose more than `Parse` and AST views | Callers can become coupled to representation; raw kind conversion assumes valid Kagari kinds | Review which construction APIs need to be public and how their invariants are enforced |
-| Parser limits begin after complete tokenization | Deep input is bounded more directly than very wide input | Review source admission across callers before claiming bounded memory use |
-| Grammar recovery is spread across item/type/statement/expression handlers | A new grammar branch can affect progress, diagnostics and text preservation | Keep malformed-input, cancellation and lossless recovery checks alongside grammar changes |
+| Lossless CST with AST views | Tooling and analysis read one representation while retaining exact source text | Consumers must distinguish recovered structure from valid syntax |
+| Per-call mutable parser state | Cursor, builder and recovery state have one owner and a bounded lifetime | Each new parse scans the complete file; reuse belongs to the analysis database |
+| Shared parser with explicit declaration mode | Standard declarations reuse grammar, source locations and recovery | Callers must preserve mode provenance outside `Parse` |
+| Syntax independent of semantic analysis | Parsing can operate on unfinished source without a symbol table or runtime | HIR must resolve names, validate types and establish checked facts afterward |
+| Separate nesting and tree-depth limits | Both recursive grammar and iteratively built deep expressions have stop conditions | These limits do not bound total input size, token storage or execution time |
 
-There is no evidence here that replacing the parser with a new abstraction would
-improve its boundary. The next architecture walkthrough should follow its output
-into HIR: how partial syntax becomes recoverable facts, and where those facts
-become checked input for code generation.
+The public surface includes tokens, syntax kinds and Rowan node construction in
+addition to parsing and AST access. This makes the tree representation part of
+the current integration boundary. In particular, the raw-kind conversion assumes
+its input was created from a valid `SyntaxKind`; it does not perform validation
+for arbitrary externally constructed green trees.
 
-## 8. Evidence and maintenance
+Recovery policy is distributed among grammar handlers. Extending a handler must
+preserve progress on erroneous input, original token text and balanced tree
+construction. The existing tests exercise these properties for selected inputs;
+they do not constitute a complete panic or soundness proof.
 
-These links allow implementation verification without making source reading a
-prerequisite for the preceding explanation.
+Incremental subtree reparsing, total parser memory accounting and validated
+import of arbitrary raw trees are not provided by the current API. These
+limitations must remain distinct from guarantees supplied by an upstream caller.
+
+## 8. Implementation map and verification
+
+The following locations own the contracts described above.
 
 | Contract | Evidence |
 | --- | --- |
@@ -245,7 +278,19 @@ prerequisite for the preceding explanation.
 | Caller-owned parse reuse and HIR lowering | [Analysis queries](../../crates/kagari-hir/src/analysis/declaration_queries.rs) |
 | Grammar coverage and its limits | [Coverage audit](../syntax-coverage.md) |
 
-For changes to syntax behavior, run `cargo test -p kagari-syntax`; grammar changes
-also require the coverage workflow linked above. This documentation sample was
-checked against implementation and existing test assertions; it does not report
-a new test run or a full panic/soundness audit.
+Changes to this crate must preserve:
+
+- Lossless text reconstruction for completed ordinary and recovered parses,
+  including Unicode, comments, line endings and limit-exhausted suffixes.
+- Grammar grouping, operator precedence and the distinction between ordinary
+  source and offline declarations.
+- Diagnostics and usable partial structure for malformed input.
+- Cancellation returning an error rather than publishing a partial success.
+- Nesting, tree-depth and diagnostic limit behavior.
+- Caller ownership of source identity, revision tracking and parse reuse.
+
+Run `cargo test -p kagari-syntax` for syntax behavior changes. Grammar changes
+also require the [coverage workflow](../syntax-coverage.md), including updates
+to the specification and affected inventories. Changes to syntax contracts used
+by HIR or ABI build tooling require the corresponding consumer checks.
+Documentation-only updates require link, content and diff checks.

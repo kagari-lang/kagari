@@ -99,8 +99,8 @@ validated and sealed again. See [artifacts](spec/artifacts.md) and
 
 ## Source Language Layer
 
-The [syntax crate walkthrough](architecture/syntax.md) describes its actual
-inputs, outputs, parsing flow, state ownership and architecture review questions.
+The [syntax architecture](architecture/syntax.md) defines the crate's input and
+output contracts, parsing flow, ownership model and current limitations.
 
 The syntax layer implements the grammar in `docs/spec/syntax.md` and `docs/kagari.ebnf`.
 
