@@ -1,5 +1,16 @@
 # Kagari Implementation Roadmap
 
+## Standard library and HIR integration (proposed)
+
+The [standard-library integration plan](stdlib-hir-refactor.md) defines the next
+scoped migration: introduce `kagari-stdlib`, import its parsed declarations into
+HIR, carry checked callable metadata into executable contracts, and dispatch
+native/script implementations without downstream source-catalog interpretation.
+Existing Rust implementations remain Rust. ST00–ST06 own sequencing, acceptance
+and the progress ledger. Implementation has not started; the current workspace
+still has the thirteen-crate architecture described below. This proposal precedes
+further native backend expansion and does not reopen completed phase ledgers.
+
 ## Never type (complete)
 
 Scope: introduce the uninhabited type `!` in source, checked types, executable

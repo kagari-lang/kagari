@@ -32,7 +32,7 @@ The implementation sequence and acceptance status are tracked in
 
 ## Public functions and method views
 
-The HIR build reads the bundled `.kgr` files with the declaration parser and
+The ABI build reads the bundled `.kgr` files with the declaration parser and
 compiles their AST signatures into immutable metadata. Generated output is a
 build artifact, not a second handwritten API definition. Unknown intrinsic IDs,
 duplicate bindings/exports/method views, missing documentation and function bodies

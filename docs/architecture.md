@@ -8,6 +8,12 @@ The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
 implementation checkpoints and final acceptance. This document describes the current
 thirteen-crate boundaries. Language/runtime behavior follows the semantic specifications.
 
+The proposed [standard-library and HIR migration](stdlib-hir-refactor.md) separates
+the standard source package from ABI and establishes a checked HIR handoff for
+native and script implementations. It is not yet implemented; the current
+boundaries below remain the implementation description until migration checkpoints
+update them.
+
 ## Foundation Contracts
 
 The completed foundation track is [foundation-refactor.md](foundation-refactor.md).
