@@ -1,6 +1,9 @@
-use crate::gc::HeapObjectId;
-use crate::module::StructLayoutRef;
-use crate::{RuntimeError, RuntimeErrorKind, gc::GcHeap, value::Value};
+use crate::{
+    RuntimeError, RuntimeErrorKind,
+    gc::{GcHeap, HeapObjectId},
+    module::StructLayoutRef,
+    value::Value,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReflectionError {

@@ -2,14 +2,22 @@
 //! Nominal overrides, generic assumptions and recursive structural protocols are
 //! resolved by the linked catalog, using the obligations returned here.
 use crate::numeric;
-use crate::scalar::BuiltinType;
-use crate::standard::implementation;
-use crate::standard::surface::STANDARD_IMPLEMENTATIONS;
-use crate::standard::traits::{self, StandardTrait};
-use crate::types::substitution::{TypeSubstitution, TypeTransformError};
-use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::{DefinitionId, associated_type_id};
+use crate::{
+    scalar::BuiltinType,
+    standard::{
+        implementation,
+        surface::STANDARD_IMPLEMENTATIONS,
+        traits::{self, StandardTrait},
+    },
+    types::{
+        AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionId, associated_type_id},
+};
 use std::collections::BTreeMap;
 
 pub fn applied(kind: StandardTrait, arguments: Vec<AbiType>) -> NominalAbiType {

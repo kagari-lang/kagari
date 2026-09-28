@@ -1,19 +1,14 @@
-use crate::ResourceState;
-use crate::RuntimeErrorKind;
-use crate::error::RuntimeError;
-use crate::host::ActiveBorrowFrame;
-use crate::host::BorrowEpoch;
-use crate::host::FrameBorrowRecord;
-use crate::host::FrameHostBorrowToken;
-use crate::host::HostBorrowKind;
-use crate::host::HostBorrowTable;
-use crate::host::HostCallGuard;
-use crate::host::HostFrameId;
-use crate::host::HostObjectId;
-use crate::metadata::TypeId;
-use crate::value::Value;
-use std::rc::Rc;
-use std::rc::Weak;
+use crate::{
+    ResourceState, RuntimeErrorKind,
+    error::RuntimeError,
+    host::{
+        ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
+        HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId,
+    },
+    metadata::TypeId,
+    value::Value,
+};
+use std::rc::{Rc, Weak};
 
 impl HostBorrowTable {
     pub(crate) fn with_resources(resources: &Rc<ResourceState>) -> Self {

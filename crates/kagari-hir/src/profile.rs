@@ -1,5 +1,4 @@
-use kagari_common::Span;
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::{Diagnostic, DiagnosticKind, Span};
 
 use crate::{
     AnalyzedModule, DiagnosticBuffer,

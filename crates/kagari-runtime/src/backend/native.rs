@@ -1,24 +1,25 @@
 //! Installation and invocation of trusted compiler products without a compiler dependency.
 use std::mem;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
-use kagari_abi::native::{
-    ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCompilationProduct,
+use kagari_abi::{
+    native::{ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCompilationProduct},
+    native_call::{
+        JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INTEGER_OVERFLOW,
+        JIT_STATUS_INVALID_HEAP_REFERENCE, JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK,
+        JIT_STATUS_RESOURCE_LIMIT, JitCompiledFunction, JitValue,
+    },
+    representation::ValueType,
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
 };
-use kagari_abi::native_call::{
-    JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INTEGER_OVERFLOW,
-    JIT_STATUS_INVALID_HEAP_REFERENCE, JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK,
-    JIT_STATUS_RESOURCE_LIMIT, JitCompiledFunction, JitValue,
-};
-use kagari_abi::representation::ValueType;
-use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 
-use crate::backend::BackendInvocationError;
-use crate::jit_abi::decode_native_value;
-use crate::module::{LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore};
-use crate::value::Value;
-use crate::{ErrorTrace, Runtime, RuntimeError, RuntimeErrorKind};
+use crate::{
+    ErrorTrace, Runtime, RuntimeError, RuntimeErrorKind,
+    backend::BackendInvocationError,
+    jit_abi::decode_native_value,
+    module::{LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore},
+    value::Value,
+};
 
 /// Callable native code bound to one runtime and its exact dependency versions.
 /// Cloning retains code memory and module instances; its descriptor is immutable.

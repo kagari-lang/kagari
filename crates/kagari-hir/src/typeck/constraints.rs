@@ -1,22 +1,21 @@
-use super::ty;
-use crate::builtin::traits::intrinsic_holds;
-use crate::declarations::Declarations;
-use hir::TypeKind;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
-use smallvec::SmallVec;
-
-use crate::builtin::surface;
-use crate::hir;
-use crate::lower::LoweredModule;
-use crate::types::TypeId;
-use kagari_abi::standard::surface::StandardTypeConstraint;
-
 use super::{
     ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget,
-    ty::{TypeContext, resolve_type_in},
+    ty::{self, TypeContext, resolve_type_in},
 };
+use crate::{
+    builtin::{surface, traits::intrinsic_holds},
+    declarations::Declarations,
+    hir,
+    lower::LoweredModule,
+    types::TypeId,
+};
+use hir::TypeKind;
+use kagari_abi::standard::{
+    surface::{self as standard_surface, StandardTypeConstraint},
+    traits::StandardTrait,
+};
+use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+use smallvec::SmallVec;
 
 /// Resolve bounds once in their declaring context, before signatures and bodies.
 pub(super) fn resolve_constraints(

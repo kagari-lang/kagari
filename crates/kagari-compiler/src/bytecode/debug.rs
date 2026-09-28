@@ -1,18 +1,15 @@
 use crate::bytecode::lower_local;
 use kagari_abi::ids::DebugPointId;
-use kagari_bytecode::BytecodeDebugMetadata;
-use kagari_bytecode::CapturedBindingDebugInfo;
-use kagari_bytecode::FrameLayout;
-use kagari_bytecode::InstructionSourceSpan;
-use kagari_bytecode::LineTableEntry;
-use kagari_bytecode::LocalLiveRange;
-use kagari_bytecode::ModuleRef;
-use kagari_bytecode::SafeDebugPoint;
-use kagari_bytecode::SafeDebugPointKind;
+use kagari_bytecode::{
+    BytecodeDebugMetadata, CapturedBindingDebugInfo, FrameLayout, InstructionSourceSpan,
+    LineTableEntry, LocalLiveRange, ModuleRef, SafeDebugPoint, SafeDebugPointKind,
+};
 use kagari_common::Span;
-use kagari_mir::analysis::{FunctionAnalysis, PointAnalysis};
-use kagari_mir::function::MirFunction;
-use kagari_mir::{BlockId, Instruction, Terminator};
+use kagari_mir::{
+    BlockId, Instruction, Terminator,
+    analysis::{FunctionAnalysis, PointAnalysis},
+    function::MirFunction,
+};
 use std::collections::HashMap;
 pub(super) fn collect_debug_metadata(
     function: &MirFunction,

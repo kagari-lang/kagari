@@ -1,33 +1,22 @@
 //! Access-flow validation runs after physical operand and layout validation.
 
 use kagari_abi::standard::application::StandardArguments;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::types::access;
-use kagari_common::cancellation::CancellationToken;
+use kagari_abi::{
+    operations::{IterOp, StandardEnumOp},
+    scalar::BuiltinType as B,
+    standard::{
+        StandardIntrinsic as S,
+        surface::{self as standard_surface, StandardEnum},
+    },
+    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access, verify as abi_verify},
+};
+use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
 
-use crate::ModuleRef;
-
-use crate::BytecodeFunction;
-use crate::BytecodeInstruction as I;
-use crate::BytecodeModule;
-use crate::BytecodeProgram;
-use crate::BytecodeVerificationError as Error;
-use crate::CallTarget;
-use crate::ConstantOperand;
-use crate::Register;
-use crate::RuntimeHelper;
-use crate::trait_bounds;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::scalar::BuiltinType as B;
-use kagari_abi::standard::StandardIntrinsic as S;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_abi::types::verify as abi_verify;
-use kagari_common::collection::CollectionAccess as Access;
+use crate::{
+    BytecodeFunction, BytecodeInstruction as I, BytecodeModule, BytecodeProgram,
+    BytecodeVerificationError as Error, CallTarget, ConstantOperand, ModuleRef, Register,
+    RuntimeHelper, trait_bounds,
+};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Fact {

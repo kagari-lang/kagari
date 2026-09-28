@@ -5,8 +5,7 @@ use serde::{
     Deserialize, Deserializer,
     de::{self, SeqAccess, Visitor},
 };
-use std::collections::BTreeMap;
-use std::{fmt, marker::PhantomData};
+use std::{collections::BTreeMap, fmt, marker::PhantomData};
 
 pub const MAX_MODULES: usize = 1_024;
 pub const MAX_FUNCTIONS: usize = 65_536;

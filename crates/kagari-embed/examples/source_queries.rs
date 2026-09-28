@@ -7,9 +7,7 @@ use kagari_common::{
     source_database::SourceLayer,
 };
 use kagari_embed::KagariEngine;
-use kagari_hir::declarations::DeclarationId;
-use kagari_hir::resolver::ResolvedName;
-use kagari_hir::types::TypeId;
+use kagari_hir::{declarations::DeclarationId, resolver::ResolvedName, types::TypeId};
 
 fn main() -> kagari_embed::CompileResult<()> {
     let engine = KagariEngine::default();

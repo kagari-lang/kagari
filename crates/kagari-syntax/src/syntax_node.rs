@@ -1,6 +1,5 @@
-use rowan::{GreenNode, Language};
 use rowan::{
-    NodeOrToken, SyntaxKind as RawSyntaxKind, SyntaxNode as RawSyntaxNode,
+    GreenNode, Language, NodeOrToken, SyntaxKind as RawSyntaxKind, SyntaxNode as RawSyntaxNode,
     SyntaxNodeChildren as RawSyntaxNodeChildren, SyntaxToken as RawSyntaxToken,
 };
 use std::mem;

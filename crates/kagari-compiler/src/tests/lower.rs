@@ -1,15 +1,9 @@
-use crate::lower_to_mir;
-use crate::tests::common;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
+use crate::{lower_to_mir, tests::common};
+use kagari_abi::{operations::BinaryOp, representation::ValueType, standard::StandardIntrinsic};
 use kagari_bytecode as bytecode;
-use kagari_mir::CallTarget;
-use kagari_mir::Instruction;
-use kagari_mir::MirFunction;
-use kagari_mir::MirValue;
-use kagari_mir::Terminator;
-use kagari_mir::instruction::RuntimeHelper;
+use kagari_mir::{
+    CallTarget, Instruction, MirFunction, MirValue, Terminator, instruction::RuntimeHelper,
+};
 
 #[test]
 fn generic_interface_instances_share_the_instantiation_budget() {
@@ -865,11 +859,9 @@ fn terminator_values(terminator: &Terminator) -> Vec<MirValue> {
 
 #[test]
 fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
-    use kagari_abi::representation::ValueType;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::{representation::ValueType, types::PublicAbiItem};
     use kagari_common::cancellation::CancellationToken;
-    use kagari_mir::MirVerificationErrorKind;
-    use kagari_mir::verify_mir;
+    use kagari_mir::{MirVerificationErrorKind, verify_mir};
 
     let checked = common::analyze_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
     let original = lower_to_mir(&checked, &Default::default()).unwrap();

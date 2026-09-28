@@ -1,17 +1,11 @@
 use kagari_bytecode as bytecode;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_bytecode::ArtifactValidationError;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::BytecodeVerificationError;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::PathDescriptorFingerprint;
-use kagari_bytecode::PublicAbiFingerprint;
-use kagari_bytecode::verify_program;
+use kagari_bytecode::{
+    ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError, BytecodeModule,
+    BytecodeProgram, BytecodeVerificationError, KbcArtifact, PathDescriptorFingerprint,
+    PublicAbiFingerprint, verify_program,
+};
 
 use crate::{
     error::RuntimeError,

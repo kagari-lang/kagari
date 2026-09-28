@@ -1,22 +1,20 @@
 //! Validate inheritance after every module's declaration contracts are available.
 
 use super::ConstraintTarget;
-use super::TypeTable;
-use super::applications;
-use super::ty;
-use super::ty::TypeContext;
-use crate::DiagnosticBuffer;
-use crate::hir::Module;
-use crate::hir::TraitDef;
-use crate::host::HostDeclarations;
+use super::{
+    TypeTable, applications,
+    ty::{self, TypeContext},
+};
 use crate::{
+    DiagnosticBuffer,
     aggregates::AggregateCatalog,
     declarations::Declarations,
+    hir::{Module, TraitDef},
+    host::HostDeclarations,
     lower::LoweredModule,
     types::{NominalType, TypeId},
 };
-use kagari_common::Span;
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
 
 pub(crate) fn trait_supertrait_surface(
     module: &Module,

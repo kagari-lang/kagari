@@ -3,11 +3,9 @@ use kagari_common::{
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::CompileOptions;
-use kagari_embed::EmbeddingError;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
+use kagari_embed::{
+    BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine,
+};
 use kagari_runtime::value::Value;
 
 fn compile(engine: &KagariEngine, root: FileId, options: CompileOptions) -> BytecodeArtifact {

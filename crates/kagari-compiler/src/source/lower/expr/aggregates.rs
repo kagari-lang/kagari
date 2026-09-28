@@ -1,13 +1,13 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_type;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::lower_type,
+};
 use kagari_abi::representation::ValueType;
-use kagari_hir::hir;
-use kagari_hir::typeck::ResolvedHostPath;
-use kagari_mir::PathRef;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::StructFieldInit;
+use kagari_hir::{hir, typeck::ResolvedHostPath};
+use kagari_mir::{
+    PathRef,
+    instruction::{Instruction, MirValue, StructFieldInit},
+};
 use smallvec::SmallVec;
 use std::ops::ControlFlow;
 

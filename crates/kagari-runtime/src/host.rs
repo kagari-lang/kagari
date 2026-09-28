@@ -1,27 +1,28 @@
 mod borrows;
 mod registry;
-use crate::ErrorTrace;
-use crate::HostResourceScope;
-use crate::ResourceState;
-use crate::Runtime;
-use crate::RuntimeErrorKind;
-use crate::numeric;
-use crate::value::EnumTag;
-use crate::value::EphemeralValue;
-use kagari_common::host_interface::HostIndexSegmentDeclaration;
-use kagari_common::host_interface::HostPathDeclaration;
-use kagari_common::host_interface::HostVirtualSegmentDeclaration;
-use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostPassingStyle, HostTypeDeclaration, HostValueType,
+use crate::{
+    ErrorTrace, HostResourceScope, ResourceState, Runtime, RuntimeErrorKind, numeric,
+    value::{EnumTag, EphemeralValue},
 };
-use std::rc::Weak;
-use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use kagari_common::{
+    host_interface::{
+        HostFunctionDeclaration, HostIndexSegmentDeclaration, HostPassingStyle,
+        HostPathDeclaration, HostTypeDeclaration, HostValueType, HostVirtualSegmentDeclaration,
+    },
+    identity::DefinitionId,
+};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt,
+    rc::{Rc, Weak},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use kagari_bytecode::BinaryOp;
-use kagari_common::identity::DefinitionId;
 
 mod path_fingerprint;
 

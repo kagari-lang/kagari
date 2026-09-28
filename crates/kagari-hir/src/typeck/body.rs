@@ -7,21 +7,18 @@ mod methods;
 mod patterns;
 mod places;
 mod statements;
-use super::ScalarValue;
-use super::applications;
-use super::completion;
-use super::solver::Solver;
-use crate::aggregates::AggregateCatalog;
-use crate::declarations::Declarations;
-use crate::hir::Condition;
-use crate::hir::ConstId;
-use crate::imports::ImportedFunctions;
-use crate::types;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::range::RangeKind;
+use super::{ScalarValue, applications, completion, solver::Solver};
+use crate::{
+    aggregates::AggregateCatalog,
+    declarations::Declarations,
+    hir::{Condition, ConstId},
+    imports::ImportedFunctions,
+    types,
+};
+use kagari_abi::standard::{surface::StandardEnum, traits::StandardTrait};
+use kagari_common::{
+    cancellation::CancellationToken, collection::CollectionAccess, range::RangeKind,
+};
 use std::mem;
 mod conversions;
 mod iteration;
@@ -35,25 +32,20 @@ use std::collections::{HashMap, HashSet};
 use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
 
-use crate::hir::BlockId;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::LiteralKind;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::resolver::ResolvedNames;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::FunctionTypeIndex;
-use crate::typeck::TopLevelTypeIndex;
-use crate::typeck::TypeIndexes;
-use crate::typeck::TypeTable;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::display_type_id;
-use crate::typeck::ty::resolve_type_in;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface::StandardMethodReceiver;
+use crate::{
+    hir::{BlockId, ExprId, ExprKind, LiteralKind},
+    lower::LoweredModule,
+    resolver::{ResolvedName, ResolvedNames},
+    typeck::{
+        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable,
+        ty::{TypeContext, display_type_id, resolve_type_in},
+    },
+    types::TypeId,
+};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{StandardIntrinsic, surface::StandardMethodReceiver},
+};
 
 #[derive(Clone)]
 enum HostPathNode<Id> {

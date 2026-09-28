@@ -420,8 +420,10 @@ fn fingerprint(domain: &[u8], value: &impl Serialize) -> Result<u64, HostInterfa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::host_interface::HostInterface;
-    use crate::identity::{ModuleIdentity, PackageId};
+    use crate::{
+        host_interface::HostInterface,
+        identity::{ModuleIdentity, PackageId},
+    };
 
     fn script_trait(name: &str) -> DefinitionId {
         DefinitionId {

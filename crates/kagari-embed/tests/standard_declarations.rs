@@ -1,10 +1,6 @@
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface;
+use kagari_abi::standard::{StandardIntrinsic, surface};
 use kagari_common::{SourceFile, host_interface::standard_log};
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::{host::HostFunction, value::Value};
 
 #[test]

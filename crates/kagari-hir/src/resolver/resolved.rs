@@ -1,28 +1,21 @@
-use crate::builtin::BuiltinFunction;
-use crate::hir::ExportItem;
-use crate::hir::Module;
-use crate::hir::PatternId;
-use crate::hir::PatternKind;
-use crate::host::HostDeclarations;
-use crate::host::HostFunctionId;
-use crate::host::HostModuleId;
-use crate::host::HostTypeId;
-use crate::imports::ModuleImports;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface::StandardModule;
-use kagari_abi::standard::surface::StandardVariant;
-use kagari_abi::standard::traits::StandardTrait;
-use std::cmp::Reverse;
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use crate::hir::{
-    ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, ParamId, PlaceId, StructId, TraitId,
+use crate::{
+    builtin::BuiltinFunction,
+    hir::{
+        BodyOwner, ConstId, EnumId, ExportItem, ExprId, FunctionId, LocalId, Module, ModuleId,
+        ParamId, PatternId, PatternKind, PlaceId, StructId, TraitId,
+    },
+    host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
+    imports::ModuleImports,
+    resolver::table::NameTable,
 };
-use crate::resolver::table::NameTable;
-use kagari_common::Span;
+use kagari_abi::standard::{
+    StandardIntrinsic,
+    surface::{StandardModule, StandardVariant},
+    traits::StandardTrait,
+};
+use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 
-use crate::hir::BodyOwner;
+use kagari_common::Span;
 
 #[derive(Debug, Clone)]
 pub struct ScopeBinding {

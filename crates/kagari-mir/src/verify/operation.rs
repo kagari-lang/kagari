@@ -1,23 +1,16 @@
-use crate::CallTarget;
-use crate::Constant;
-use crate::Instruction;
-use crate::MirFunction;
-use crate::MirModule;
-use crate::instruction::RuntimeHelper;
-use crate::verify::Context;
-use crate::verify::MirVerificationError;
-use crate::verify::MirVerificationErrorKind as Error;
+use crate::{
+    CallTarget, Constant, Instruction, MirFunction, MirModule,
+    instruction::RuntimeHelper,
+    verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
+};
 use contracts::RuntimeHelperKind;
-use kagari_abi::contracts;
-use kagari_abi::contracts::ContractError;
-use kagari_abi::operations;
-use kagari_abi::operations::range_operands_valid;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_common::host_interface::HostInterface;
-use kagari_common::host_interface::PathAccess;
+use kagari_abi::{
+    contracts::{self, ContractError},
+    operations::{self, range_operands_valid},
+    representation::ValueType,
+    types::{self as abi, AbiType, PublicAbiItem},
+};
+use kagari_common::host_interface::{HostInterface, PathAccess};
 use std::collections::HashSet;
 
 pub(super) fn verify(

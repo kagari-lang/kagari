@@ -1,22 +1,17 @@
-use kagari_abi::ids::DebugPointId;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::BackendId;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::InstructionSourceSpan;
-use kagari_bytecode::LineTableEntry;
-use kagari_bytecode::Register;
-use kagari_bytecode::SafeDebugPoint;
-use kagari_bytecode::SafeDebugPointKind;
+use kagari_abi::{
+    ids::{DebugPointId, FunctionRef},
+    native::BackendId,
+    representation::ValueType,
+};
+use kagari_bytecode::{
+    BytecodeInstruction, ConstantOperand, InstructionSourceSpan, LineTableEntry, Register,
+    SafeDebugPoint, SafeDebugPointKind,
+};
 use kagari_common::Span;
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::DebugVisibilityPolicy;
-use kagari_runtime::LanguageProfile;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::SecurityContext;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
+    value::Value,
+};
 
 use crate::{
     DebugSession, JitExecutionStatus, PreparedNativeEntry, Vm,
@@ -25,10 +20,7 @@ use crate::{
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
-    use kagari_bytecode::ArtifactBuildOptions;
-    use kagari_bytecode::ArtifactCompatibility;
-    use kagari_bytecode::HostImportId;
-    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::{ArtifactBuildOptions, ArtifactCompatibility, HostImportId, KbcArtifact};
     use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType, standard_log};
     use kagari_runtime::{HostExposurePolicy, host::HostFunction};
     use std::sync::{Arc, Mutex};

@@ -1,15 +1,9 @@
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::HostImportId;
-use kagari_bytecode::ModuleRef;
+use kagari_bytecode::{BytecodeProgram, HostImportId, ModuleRef};
 use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::HostExposurePolicy;
-use kagari_runtime::LanguageProfile;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::SecurityContext;
-use kagari_runtime::host::HostFunction;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
+    host::HostFunction, value::Value,
+};
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {

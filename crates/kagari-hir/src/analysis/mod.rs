@@ -1,47 +1,30 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 use crate::builtin::traits::StandardTraitSemantics;
 
-use crate::hir::ExportItem;
-
-use crate::AnalysisPolicy;
-use crate::builtin::declarations;
-use crate::declarations::Declaration;
-use crate::declarations::DeclarationId;
-use crate::declarations::Declarations;
-use crate::hir::PlaceKind;
-use crate::host::HostDeclarations;
-use crate::imports::ImportTarget;
-use crate::imports::ImportedFunction;
-use crate::imports::ModuleGraph;
-use crate::imports::SourceImport;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyReuse;
-use crate::typeck::CallTarget;
-use crate::typeck::ConstLimits;
-use crate::typeck::ModuleSignatures;
-use crate::typeck::TypeTable;
-use crate::typeck::TypeTarget;
-use kagari_common::host_interface::HostFieldDeclaration;
-use kagari_common::host_interface::HostFunctionDeclaration;
-use kagari_common::host_interface::HostTypeDeclaration;
-use kagari_common::identity::DefinitionId;
-use kagari_syntax::Parse;
-use kagari_syntax::ast::SourceFile as AstSourceFile;
-use kagari_syntax::parser::ParseLimits;
-use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::{collections::HashMap, sync::Arc};
+use crate::{
+    AnalysisPolicy, AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed,
+    builtin::declarations,
+    declarations::{Declaration, DeclarationId, Declarations},
+    hir::{ExportItem, ExprKind, PlaceKind},
+    host::HostDeclarations,
+    imports::{ImportTarget, ImportedFunction, ModuleGraph, SourceImport},
+    lower::LoweredModule,
+    resolver::ResolvedName,
+    typeck::{BodyReuse, CallTarget, ConstLimits, ModuleSignatures, TypeTable, TypeTarget},
+    types::TypeId,
+};
 
 use kagari_common::{
     SourceFile,
-    identity::{FileId, Revision},
+    host_interface::{HostFieldDeclaration, HostFunctionDeclaration, HostTypeDeclaration},
+    identity::{DefinitionId, FileId, Revision},
     source_database::SourceSnapshot,
 };
-
-use crate::{
-    AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed, hir::ExprKind,
-    types::TypeId,
+use kagari_syntax::{Parse, ast::SourceFile as AstSourceFile, parser::ParseLimits};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
 };
 
 mod standard_queries;

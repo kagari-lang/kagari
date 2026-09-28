@@ -5,10 +5,7 @@ use kagari_common::{
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
-use kagari_runtime::HostTypeRegistration;
-use kagari_runtime::Runtime;
-use kagari_runtime::host::HostFunction;
-use kagari_runtime::value::Value;
+use kagari_runtime::{HostTypeRegistration, Runtime, host::HostFunction, value::Value};
 
 fn main() {
     let mut counter = HostTypeDeclaration::new("demo.Counter");

@@ -1,22 +1,15 @@
-use crate::hir::BinaryOp;
-use crate::hir::Condition;
-use crate::hir::StmtId;
-use crate::hir::StmtKind;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::applications;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::body::LoopResult;
-use crate::typeck::check;
-use crate::typeck::completion;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::display_type;
-use crate::typeck::ty::display_type_id;
-use crate::typeck::ty::resolve_type_in;
-use crate::types::TypeId;
+use crate::{
+    hir::{BinaryOp, Condition, StmtId, StmtKind},
+    typeck::{
+        BodyTypeEnv, applications,
+        body::{BodyChecker, LoopResult},
+        check, completion,
+        ty::{TypeContext, display_type, display_type_id, resolve_type_in},
+    },
+    types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::Span;
+use kagari_common::{Diagnostic, DiagnosticKind, Span};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {

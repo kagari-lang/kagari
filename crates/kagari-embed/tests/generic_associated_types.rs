@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -248,12 +245,11 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::standard::surface::StandardTypeConstraint;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::ConstraintAbi;
-    use kagari_abi::types::GenericBoundAbi;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::{
+        scalar::BuiltinType,
+        standard::surface::StandardTypeConstraint,
+        types::{AbiType, ConstraintAbi, GenericBoundAbi, PublicAbiItem},
+    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..10 {
@@ -356,11 +352,9 @@ fn main()->i32 { make(Maker {}).read() }
 
 #[test]
 fn complete_family_metadata_cannot_make_a_dynamic_interface() {
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::AssociatedTypeAbi;
-    use kagari_abi::types::AssociatedTypeFamilyAbi;
-    use kagari_abi::types::GenericParameterAbi;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::types::{
+        AbiType, AssociatedTypeAbi, AssociatedTypeFamilyAbi, GenericParameterAbi, PublicAbiItem,
+    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"), Default::default(), Default::default()).unwrap();
     let mut program = artifact.program.clone();

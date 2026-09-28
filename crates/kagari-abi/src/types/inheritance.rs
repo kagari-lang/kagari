@@ -3,8 +3,7 @@ use crate::types::substitution::{
     TypeSubstitution, TypeTransformError, resolve_associated_outputs,
 };
 use crate::types::{AbiType, NominalAbiType, TraitAbi, standard_trait_contract};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionId;
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use std::collections::HashSet;
 
 const MAX_TRAITS: usize = 4_096;

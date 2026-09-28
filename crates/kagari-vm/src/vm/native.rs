@@ -2,9 +2,11 @@
 use kagari_abi::native::BackendId;
 use kagari_runtime::{BackendInvocationError, InstalledNativeFunction, LoadedModule, RuntimeError};
 
-use crate::VmError;
-use crate::executor::Executor;
-use crate::vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm, find_function_ref};
+use crate::{
+    VmError,
+    executor::Executor,
+    vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm, find_function_ref},
+};
 
 /// A preparation result, with no compiler or MIR types in the VM contract.
 /// Compilation failures other than unsupported input must be handled by the caller,

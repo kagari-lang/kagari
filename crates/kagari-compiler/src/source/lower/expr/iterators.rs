@@ -1,23 +1,21 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_type;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::collection::CollectionAccess::Mutable;
-use kagari_common::identity::associated_type_id;
-use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::types::TypeId;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::lower_type,
+};
+use kagari_abi::{
+    operations::{BinaryOp, IterOp, StandardEnumOp},
+    representation::ValueType,
+    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
+};
+use kagari_common::{
+    collection::CollectionAccess::{self, Mutable},
+    identity::associated_type_id,
+};
+use kagari_hir::{
+    builtin::traits::{self, StandardTraitSemantics},
+    types::TypeId,
+};
+use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_fallible_collect(

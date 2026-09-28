@@ -1,27 +1,22 @@
-use crate::source::types::lower_nominal_type;
-use hir::BinaryOp as HirBinaryOp;
-use hir::PlaceKind;
-use hir::PrefixOp;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::NominalAbiType;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::lower_nominal_type,
+};
+use hir::{BinaryOp as HirBinaryOp, PlaceKind, PrefixOp};
+use kagari_abi::{
+    operations::{BinaryOp, UnaryOp},
+    representation::ValueType,
+    scalar::BuiltinType,
+    types::NominalAbiType,
+};
 use kagari_common::identity::DefinitionId;
-use kagari_hir::types::TypeId;
-use kagari_hir::{hir, resolver::ResolvedName};
-use kagari_mir::ValueBuffer;
-use std::slice;
-
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::operations::UnaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_hir::typeck::ScalarValue;
-use kagari_mir::ids::LocalId;
-use kagari_mir::instruction::AggregateFieldRef;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use std::ops::ControlFlow;
+use kagari_hir::{hir, resolver::ResolvedName, typeck::ScalarValue, types::TypeId};
+use kagari_mir::{
+    ValueBuffer,
+    ids::LocalId,
+    instruction::{AggregateFieldRef, Constant, Instruction, MirValue},
+};
+use std::{ops::ControlFlow, slice};
 
 pub(crate) fn lower_scalar(value: ScalarValue) -> Constant {
     match value {

@@ -1,26 +1,24 @@
-use crate::builtin::surface;
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::builtin::traits::conversion_requirement;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::TypeKind;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::CallTarget;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::ty;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::resolve_type_in;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::STANDARD_ITEMS;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::identity;
+use crate::{
+    builtin::{
+        surface,
+        traits::{self, StandardTraitSemantics, conversion_requirement},
+    },
+    hir::{ExprId, ExprKind, TypeKind},
+    typeck::{
+        BodyTypeEnv, CallTarget,
+        body::BodyChecker,
+        ty::{self, TypeContext, resolve_type_in},
+    },
+    types::{NominalType, TypeId},
+};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{
+        surface::{self as standard_surface, STANDARD_ITEMS, StandardEnum},
+        traits::StandardTrait,
+    },
+};
+use kagari_common::{Diagnostic, DiagnosticKind, identity};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_conversion_call(

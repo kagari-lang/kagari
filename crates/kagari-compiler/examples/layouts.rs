@@ -1,14 +1,10 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
 use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
+use kagari_abi::types::{AbiType, PublicAbiItem};
 use kagari_bytecode::BytecodeInstruction;
-use kagari_common::SourceFile;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionKind;
-use kagari_compiler::bytecode::lower_to_bytecode;
-use kagari_compiler::lower_to_mir;
+use kagari_common::{SourceFile, cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_compiler::{bytecode::lower_to_bytecode, lower_to_mir};
 use kagari_hir::analyze_source;
 
 fn main() {

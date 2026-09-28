@@ -1,13 +1,7 @@
 use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::ModuleRef;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::collection::CollectionAccess;
-use kagari_runtime::DeterministicInputs;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::value::Value;
+use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+use kagari_runtime::{DeterministicInputs, Runtime, RuntimeErrorKind, value::Value};
 
 fn load(runtime: &mut Runtime, name: &str) -> kagari_runtime::LoadedModule {
     runtime
@@ -277,9 +271,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
     use kagari_common::host_interface::{
         HostFunctionDeclaration, HostFunctionEffects, HostValueType,
     };
-    use kagari_runtime::ExecutionPhase;
-    use kagari_runtime::HostExposurePolicy;
-    use kagari_runtime::host::HostFunction;
+    use kagari_runtime::{ExecutionPhase, HostExposurePolicy, host::HostFunction};
     use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
@@ -410,8 +402,7 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
 #[test]
 fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
     use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
-    use kagari_runtime::HostExposurePolicy;
-    use kagari_runtime::host::HostFunction;
+    use kagari_runtime::{HostExposurePolicy, host::HostFunction};
     let mut runtime = Runtime::default();
     let mut security = runtime.security();
     security.profile.allow_host_calls = true;

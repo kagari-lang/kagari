@@ -2,17 +2,12 @@ use aggregates::AggregateCatalog;
 use declarations::Declarations;
 use hir::BodySelection;
 use host::HostDeclarations;
-use imports::FunctionCatalog;
-use imports::ModuleGraph;
-use imports::TypeCatalog;
-use kagari_common::DiagnosticKind;
-use kagari_common::Severity;
-use kagari_common::SourceFile;
-use kagari_common::Span;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use kagari_syntax::Parse;
-use kagari_syntax::parse;
+use imports::{FunctionCatalog, ModuleGraph, TypeCatalog};
+use kagari_common::{
+    DiagnosticKind, Severity, SourceFile, Span,
+    cancellation::{CancellationToken, Cancelled},
+};
+use kagari_syntax::{Parse, parse};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use typeck::associated_consts;

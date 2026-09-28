@@ -1,6 +1,5 @@
 use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
+use kagari_common::cancellation::{CancellationToken, Cancelled};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 

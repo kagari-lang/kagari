@@ -1,6 +1,8 @@
 use super::*;
-use kagari_abi::native::{ExecutableEntryPoint, ExecutableSafepointKind};
-use kagari_abi::native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL;
+use kagari_abi::{
+    native::{ExecutableEntryPoint, ExecutableSafepointKind},
+    native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
+};
 use kagari_bytecode::{BytecodeProgram, ModuleRef};
 use kagari_common::SourceFile;
 use kagari_compiler::{

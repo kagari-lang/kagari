@@ -1,12 +1,14 @@
-use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType as Type,
+use kagari_common::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType as Type,
+    },
 };
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::host::HostFunction;
-use kagari_runtime::value::EnumTag;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    host::HostFunction,
+    value::{EnumTag, Value},
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -202,9 +204,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
 
 #[test]
 fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
-    use kagari_runtime::HostObjectId;
-    use kagari_runtime::RuntimeErrorKind;
-    use kagari_runtime::TypeId;
+    use kagari_runtime::{HostObjectId, RuntimeErrorKind, TypeId};
     let mut runtime = runtime();
     let id = runtime
         .register_host_function(HostFunction::new(

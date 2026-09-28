@@ -1,26 +1,19 @@
-use crate::BytecodeModule;
-use crate::BytecodeProgram;
-use crate::artifact::ArtifactSignatures;
-use crate::artifact::DebugMetadata;
-use crate::artifact::KbcArtifact;
-use crate::artifact::MAX_ARTIFACT_BYTES;
-use crate::artifact::MAX_ARTIFACT_FUNCTIONS;
-use crate::artifact::MAX_ARTIFACT_INSTRUCTIONS;
-use crate::artifact::MAX_ARTIFACT_MODULES;
-use crate::artifact::MAX_ARTIFACT_NESTED_RECORDS;
-use crate::artifact::MAX_ARTIFACT_TABLE_RECORDS;
-use crate::artifact::exceeds_encoded_size;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::AssociatedTypeAbi;
-use kagari_abi::types::ConstraintAbi;
-use kagari_abi::types::FunctionAbi;
-use kagari_abi::types::GenericBoundAbi;
-use kagari_abi::types::GenericParameterAbi;
-use kagari_abi::types::PublicAbiItem;
-use kagari_common::host_interface::HostInterface;
-use kagari_common::host_interface::HostPathSegmentDeclaration;
-use kagari_common::host_interface::HostValueType;
-use kagari_common::identity::DefinitionId;
+use crate::{
+    BytecodeModule, BytecodeProgram,
+    artifact::{
+        ArtifactSignatures, DebugMetadata, KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FUNCTIONS,
+        MAX_ARTIFACT_INSTRUCTIONS, MAX_ARTIFACT_MODULES, MAX_ARTIFACT_NESTED_RECORDS,
+        MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
+    },
+};
+use kagari_abi::types::{
+    AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
+    PublicAbiItem,
+};
+use kagari_common::{
+    host_interface::{HostInterface, HostPathSegmentDeclaration, HostValueType},
+    identity::DefinitionId,
+};
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
     lengths
         .into_iter()

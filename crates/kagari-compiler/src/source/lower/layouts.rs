@@ -1,20 +1,17 @@
 //! Reachable concrete aggregate layouts share the function instantiation budget.
 use crate::source::types::{lower_nominal_type, lower_type};
 
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::instances::InstancePlanner;
-use kagari_abi::layout::EnumLayout;
-use kagari_abi::layout::EnumVariantLayout;
-use kagari_abi::layout::StructFieldLayout;
-use kagari_abi::layout::StructLayout;
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
 use kagari_common::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     AnalyzedModule,
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use std::collections::{HashSet, VecDeque};
-use std::mem;
-use std::slice;
+use std::{
+    collections::{HashSet, VecDeque},
+    mem, slice,
+};
 
 pub(super) fn collect(
     module: &AnalyzedModule,

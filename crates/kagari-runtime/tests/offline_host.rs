@@ -1,16 +1,16 @@
-use kagari_common::collection::CollectionAccess;
+use kagari_common::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter,
+        HostPassingStyle, HostValueType,
+    },
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
-use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter, HostPassingStyle,
-    HostValueType,
-};
-use kagari_runtime::Runtime;
-use kagari_runtime::host::HostFunction;
-use kagari_runtime::value::Value;
+use kagari_runtime::{Runtime, host::HostFunction, value::Value};
 
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
@@ -26,10 +26,9 @@ fn declaration() -> HostFunctionDeclaration {
 
 #[test]
 fn module_load_and_reload_require_matching_bindings_before_publication() {
-    use kagari_bytecode::ArtifactBuildOptions;
-    use kagari_bytecode::ArtifactCompatibility;
-    use kagari_bytecode::BytecodeModule;
-    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, BytecodeModule, KbcArtifact,
+    };
     let mut runtime = Runtime::default();
     let required = declaration();
     let bytecode = BytecodeModule {

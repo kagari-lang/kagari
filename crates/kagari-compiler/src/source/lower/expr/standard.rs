@@ -1,16 +1,14 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_type;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_hir::hir;
-use kagari_hir::types::TypeId;
-use kagari_mir::instruction::CallTarget;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::lower_type,
+};
+use kagari_abi::{
+    operations::StandardEnumOp,
+    representation::ValueType,
+    standard::{StandardIntrinsic, surface::StandardEnum},
+};
+use kagari_hir::{hir, types::TypeId};
+use kagari_mir::instruction::{CallTarget, Instruction, MirValue, Terminator};
 use std::slice;
 
 impl FunctionLowerer<'_, '_> {

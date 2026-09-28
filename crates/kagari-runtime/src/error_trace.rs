@@ -2,22 +2,17 @@
 
 use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
 
-use crate::LoadedModule;
-use crate::ResourceState;
-use crate::RuntimeError;
-use crate::RuntimeErrorKind;
-use crate::session::SessionState;
-use crate::value::Value;
-use crate::value_semantics;
-use crate::{Runtime, frame::ExecutionFrame};
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::types::AbiType;
+use crate::{
+    LoadedModule, ResourceState, Runtime, RuntimeError, RuntimeErrorKind, frame::ExecutionFrame,
+    session::SessionState, value::Value, value_semantics,
+};
+use kagari_abi::{ids::FunctionRef, types::AbiType};
 use kagari_bytecode::ArtifactFingerprint;
 use kagari_common::Span;
-use std::fmt;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::sync::Arc;
+use std::{
+    fmt::{self, Display, Formatter},
+    sync::Arc,
+};
 
 pub const MAX_ERROR_FRAMES: usize = 128;
 const MAX_LABEL_BYTES: usize = 4096;

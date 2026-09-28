@@ -1,27 +1,20 @@
-use crate::aggregates::AggregateCatalog;
-use crate::aggregates::ImplementationSearchError;
-use crate::declarations::Declaration;
-use crate::declarations::DeclarationId;
-use crate::declarations::Declarations;
-use crate::hir::Writeability;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::typeck::GenericBounds;
-use crate::typeck::ModuleSignatures;
-use crate::types::AssociatedTypeParameters;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use crate::{typeck::ConstraintTarget, types::GenericParameterType};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::identity;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::FileSpan;
-use kagari_common::identity::ModuleIdentity;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::sync::Arc;
+use crate::{
+    aggregates::{AggregateCatalog, ImplementationSearchError},
+    declarations::{Declaration, DeclarationId, Declarations},
+    hir::Writeability,
+    lower::LoweredModule,
+    resolver::ResolvedName,
+    typeck::{ConstraintTarget, GenericBounds, ModuleSignatures},
+    types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
+};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{self, DefinitionId, FileSpan, ModuleIdentity},
+};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodParameter {

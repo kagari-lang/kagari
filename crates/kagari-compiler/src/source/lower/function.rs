@@ -1,27 +1,28 @@
-use crate::source::lower::instances::Instance;
-use crate::source::lower::instances::InstancePlanner;
+use crate::source::lower::{
+    MirLoweringError,
+    instances::{Instance, InstancePlanner},
+    state::FunctionLowerer,
+};
 use hir::ExprKind;
-use kagari_abi::representation::ValueType;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_hir::AnalyzedModule;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::builtin::traits::callable_signature;
-use kagari_hir::hir;
-use kagari_hir::typeck::TypedFunction;
-use kagari_hir::types::TypeId;
-use kagari_hir::types::TypeSubstitution;
-use kagari_mir::instruction::Instruction;
+use kagari_abi::{
+    representation::ValueType,
+    scalar::BuiltinType,
+    standard::{surface::StandardEnum, traits::StandardTrait},
+};
+use kagari_hir::{
+    AnalyzedModule,
+    builtin::traits::{StandardTraitSemantics, callable_signature},
+    hir,
+    resolver::ResolvedName,
+    typeck::TypedFunction,
+    types::{TypeId, TypeSubstitution},
+};
+use kagari_mir::{
+    debug::MirCapturedBindingDebugInfo,
+    function::{MirFunction, MirParameter},
+    instruction::{Instruction, Terminator},
+};
 use std::iter;
-
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use kagari_hir::resolver::ResolvedName;
-use kagari_mir::debug::MirCapturedBindingDebugInfo;
-use kagari_mir::function::MirFunction;
-use kagari_mir::function::MirParameter;
-use kagari_mir::instruction::Terminator;
 
 pub(crate) fn lower_callable<'a>(
     module: &'a AnalyzedModule,

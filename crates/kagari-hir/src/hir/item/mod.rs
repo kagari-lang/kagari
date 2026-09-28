@@ -1,5 +1,4 @@
-use crate::hir::FieldId;
-use crate::hir::VariantId;
+use crate::hir::{FieldId, VariantId};
 mod adt;
 mod behavior;
 mod function;

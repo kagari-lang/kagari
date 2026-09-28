@@ -1,31 +1,31 @@
-use std::ffi::c_void;
-use std::rc::Rc;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    ffi::c_void,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::{
-    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
-    ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, NativeCodeOwner,
-    NativeCompilationProduct,
+use kagari_abi::{
+    budget::LogicalBudgetCharge,
+    ids::FunctionRef,
+    native::{
+        BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
+        ExecutableSafepoint, ExecutableSafepointKind, ExecutableStackMap, NativeCodeOwner,
+        NativeCompilationProduct,
+    },
+    native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
+    representation::ValueType,
 };
-use kagari_abi::native_call::{
-    JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue,
-};
-use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
     FunctionRecord, KbcArtifact, ModuleRef,
 };
-use kagari_runtime::jit_abi::jit_consume_instruction_step;
-use kagari_runtime::value::Value;
 use kagari_runtime::{
     BackendInvocationError, CapabilitySet, InstalledNativeFunction, LanguageProfile,
     ReloadValidationError, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, VerifiedProgram,
+    SecurityContext, VerifiedProgram, jit_abi::jit_consume_instruction_step, value::Value,
 };
 
 #[derive(Debug)]

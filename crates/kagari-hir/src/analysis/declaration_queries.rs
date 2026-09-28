@@ -1,31 +1,29 @@
 //! Declaration queries stop before body name resolution, typing or const evaluation.
 use crate::declare_analysis;
 
-use crate::analysis::AnalysisDatabase;
-use crate::imports::ModuleGraph;
-use crate::lower;
-use crate::resolver::DeclarationNames;
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
+    analysis::AnalysisDatabase,
     declarations::{Declaration, DeclarationId, Declarations},
+    imports::ModuleGraph,
+    lower,
+    resolver::DeclarationNames,
 };
-use kagari_common::Diagnostic;
-use kagari_common::SourceFile;
-use kagari_common::Span;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::identity::FileId;
-use kagari_common::identity::Revision;
-use kagari_common::source_database::SourceSnapshot;
-use kagari_syntax::Parse;
-use kagari_syntax::ast::AstNode;
-use kagari_syntax::ast::Item;
-use kagari_syntax::ast::SourceFile as AstSourceFile;
-use kagari_syntax::parser;
-use std::collections::BTreeMap;
-use std::collections::HashSet;
-use std::collections::VecDeque;
-use std::sync::Arc;
+use kagari_common::{
+    Diagnostic, SourceFile, Span,
+    cancellation::{CancellationToken, Cancelled},
+    identity::{FileId, Revision},
+    source_database::SourceSnapshot,
+};
+use kagari_syntax::{
+    Parse,
+    ast::{AstNode, Item, SourceFile as AstSourceFile},
+    parser,
+};
+use std::{
+    collections::{BTreeMap, HashSet, VecDeque},
+    sync::Arc,
+};
 
 #[cfg(test)]
 mod tests;

@@ -5,21 +5,11 @@ use kagari_common::{
     },
     identity::DefinitionId,
 };
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::HostExposurePolicy;
-use kagari_runtime::HostObjectId;
-use kagari_runtime::HostSchemaEpoch;
-use kagari_runtime::HostTypeOwnership;
-use kagari_runtime::HostTypeRegistration;
-use kagari_runtime::LanguageProfile;
-use kagari_runtime::PathAccess;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::SecurityContext;
-use kagari_runtime::TypeId;
-use kagari_runtime::host::HostFunction;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    CapabilitySet, HostExposurePolicy, HostObjectId, HostSchemaEpoch, HostTypeOwnership,
+    HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind,
+    SecurityContext, TypeId, host::HostFunction, value::Value,
+};
 use std::{cell::Cell, rc::Rc};
 
 fn runtime() -> Runtime {
@@ -113,9 +103,7 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
 
 #[test]
 fn nested_signature_types_must_be_bound_before_program_publication() {
-    use kagari_bytecode::BytecodeModule;
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
     let mut runtime = runtime();
     let declaration = function(
         HostValueType::Tuple(vec![HostValueType::Option(Box::new(
@@ -290,9 +278,9 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
-    use kagari_runtime::DynamicPathArguments;
-    use kagari_runtime::HostPathDescriptorRegistration;
-    use kagari_runtime::HostPathSegmentRegistration;
+    use kagari_runtime::{
+        DynamicPathArguments, HostPathDescriptorRegistration, HostPathSegmentRegistration,
+    };
     let mut local = runtime();
     let mut foreign = runtime();
     let mut views = Vec::new();
@@ -347,10 +335,9 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
 #[test]
 fn path_fields_are_derived_from_nominal_declarations() {
     use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
-    use kagari_runtime::HostPathDescriptorRegistration;
-    use kagari_runtime::HostPathSegment;
-    use kagari_runtime::HostPathSegmentRegistration;
-    use kagari_runtime::Visibility;
+    use kagari_runtime::{
+        HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration, Visibility,
+    };
     let mut runtime = runtime();
     let mut owner = HostTypeDeclaration::new("game.Player");
     owner.ownership = HostTypeOwnership::HostRoot;
@@ -451,10 +438,9 @@ fn path_fields_are_derived_from_nominal_declarations() {
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
     use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
-    use kagari_runtime::HostPathDescriptorRegistration;
-    use kagari_runtime::HostPathSegmentRegistration;
-    use kagari_runtime::TypeKind;
-    use kagari_runtime::TypeRegistration;
+    use kagari_runtime::{
+        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
+    };
     let fingerprint = |padding: usize,
                        docs: &str,
                        writable: bool,
@@ -522,10 +508,9 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
 }
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
-    use kagari_runtime::HostPathDescriptorRegistration;
-    use kagari_runtime::HostPathSegmentRegistration;
-    use kagari_runtime::TypeKind;
-    use kagari_runtime::TypeRegistration;
+    use kagari_runtime::{
+        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
+    };
     let mut runtime = runtime();
     let mut owner = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
     owner.ownership = HostTypeOwnership::HostRoot;

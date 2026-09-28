@@ -1,74 +1,37 @@
 use crate::bytecode::debug::collect_debug_metadata;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::verify_program;
+use kagari_bytecode::{BytecodeProgram, verify_program};
 mod debug;
-use kagari_abi::layout::EnumLayout;
-use kagari_abi::layout::StructLayout;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_abi::types::NominalAbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_bytecode::BytecodeVerificationError;
-use kagari_bytecode::EnumId;
-use kagari_bytecode::ModuleRef;
-use kagari_common::host_interface::HostFunctionDeclaration;
-use kagari_common::host_interface::HostInterface;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::DefinitionPathSegment;
-use kagari_common::identity::ModuleIdentity;
-use kagari_mir::program::VerifiedMirProgram;
-use std::collections::HashMap;
-use std::slice;
-
-use kagari_common::Span;
-
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::operations::BinaryOp as MirBinaryOp;
-use kagari_abi::operations::UnaryOp as MirUnaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::BinaryOp;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeModuleSlot;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::FieldRef;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::FunctionRecord;
-use kagari_bytecode::HostImportId;
-use kagari_bytecode::InterfaceMethodSlot;
-use kagari_bytecode::InterfaceTableRecord;
-use kagari_bytecode::InterfaceTableRef;
-use kagari_bytecode::JumpTarget;
-use kagari_bytecode::LocalSlot;
-use kagari_bytecode::ModuleSlot;
-use kagari_bytecode::PathId;
-use kagari_bytecode::PathRecord;
-use kagari_bytecode::Register;
-use kagari_bytecode::RootSlotLayout;
-use kagari_bytecode::RuntimeHelper;
-use kagari_bytecode::StructId;
-use kagari_bytecode::UnaryOp;
-use kagari_bytecode::verify_module;
-use kagari_mir::VerifiedMirModule;
-use kagari_mir::analysis::FunctionAnalysis;
-use kagari_mir::function::BasicBlock;
-use kagari_mir::function::MirFunction;
-use kagari_mir::ids::BlockId;
-use kagari_mir::ids::LocalId;
-use kagari_mir::ids::ModuleSlotId;
-use kagari_mir::ids::TempId;
-use kagari_mir::instruction::AggregateFieldRef;
-use kagari_mir::instruction::CallTarget as MirCallTarget;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::PathRef;
-use kagari_mir::instruction::RuntimeHelper as MirRuntimeHelper;
-use kagari_mir::instruction::Terminator;
+use kagari_abi::{
+    ids::FunctionRef,
+    layout::{EnumLayout, StructLayout},
+    operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
+    representation::ValueType,
+    types::{self as abi, AbiType, ConcreteFunctionIdentity, NominalAbiType, PublicAbiItem},
+};
+use kagari_bytecode::{
+    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot,
+    BytecodeVerificationError, CallTarget, ConstantOperand, EnumId, FieldRef, FunctionMetadata,
+    FunctionRecord, HostImportId, InterfaceMethodSlot, InterfaceTableRecord, InterfaceTableRef,
+    JumpTarget, LocalSlot, ModuleRef, ModuleSlot, PathId, PathRecord, Register, RootSlotLayout,
+    RuntimeHelper, StructId, UnaryOp, verify_module,
+};
+use kagari_common::{
+    Span,
+    host_interface::{HostFunctionDeclaration, HostInterface},
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+};
+use kagari_mir::{
+    VerifiedMirModule,
+    analysis::FunctionAnalysis,
+    function::{BasicBlock, MirFunction},
+    ids::{BlockId, LocalId, ModuleSlotId, TempId},
+    instruction::{
+        AggregateFieldRef, CallTarget as MirCallTarget, Constant, Instruction, MirValue, PathRef,
+        RuntimeHelper as MirRuntimeHelper, Terminator,
+    },
+    program::VerifiedMirProgram,
+};
+use std::{collections::HashMap, slice};
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {

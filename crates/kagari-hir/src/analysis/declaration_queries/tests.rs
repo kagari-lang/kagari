@@ -1,6 +1,5 @@
 use super::*;
-use crate::analysis::AnalysisSnapshot;
-use crate::declarations::DeclarationId;
+use crate::{analysis::AnalysisSnapshot, declarations::DeclarationId};
 use kagari_common::{
     DiagnosticKind,
     identity::{ModuleIdentity, PackageId},

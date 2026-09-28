@@ -1,33 +1,27 @@
 //! Nominal host dependencies include signatures and layouts, even without a call.
 
 use crate::types::FunctionAbi;
-use crate::types::InterfaceTableAbi;
-use crate::types::TraitAbi;
-use crate::types::TraitContract;
+use crate::{
+    layout::{EnumLayout, LayoutValidationError, StructLayout},
+    standard::{surface::StandardTypeConstraint, traits::StandardTrait},
+    types::{
+        self as abi, AbiType, ConstraintAbi, InterfaceTableAbi, PublicAbiItem, TraitAbi,
+        TraitContract,
+        substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES},
+    },
+};
 
-use crate::layout::EnumLayout;
-use crate::layout::LayoutValidationError;
-use crate::layout::StructLayout;
-use crate::standard::surface::StandardTypeConstraint;
-use crate::standard::traits::StandardTrait;
-use crate::types as abi;
-use crate::types::AbiType;
-use crate::types::ConstraintAbi;
-use crate::types::PublicAbiItem;
-use crate::types::substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES};
-use kagari_common::host_interface::HostInterface;
-use kagari_common::host_interface::HostTraitImplementationDeclaration;
-use kagari_common::host_interface::HostTypeDeclaration;
-use kagari_common::host_interface::HostValueType;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::ModuleIdentity;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::DefinitionId,
+    host_interface::{
+        HostInterface, HostTraitImplementationDeclaration, HostTypeDeclaration, HostValueType,
+    },
+    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
 };
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-use std::slice;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    slice,
+};
 
 /// Check host method tables against the defining module's executable trait
 /// contracts, including declarations absent from its public ABI.

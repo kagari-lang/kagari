@@ -1,23 +1,23 @@
-use crate::source::lower::support::lower_scalar;
-use crate::source::types::raise_type;
-use crate::source::types::{lower_nominal_type, lower_type};
+use crate::source::{
+    lower::support::lower_scalar,
+    types::{lower_nominal_type, lower_type, raise_type},
+};
 mod aggregates;
 mod calls;
 mod patterns;
-use crate::source::lower::instances::CallableInstance;
-use crate::source::lower::state::LoopScope;
-use hir::BinaryOp as HirBinaryOp;
-use hir::Condition;
-use hir::ExprKind;
-use kagari_abi::numeric::NumericConversion;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::operations::UnaryOp;
-use kagari_abi::standard::traits::StandardTrait;
+use crate::source::lower::{instances::CallableInstance, state::LoopScope};
+use hir::{BinaryOp as HirBinaryOp, Condition, ExprKind};
+use kagari_abi::{
+    numeric::NumericConversion,
+    operations::{StandardEnumOp, UnaryOp},
+    standard::traits::StandardTrait,
+};
 use kagari_common::collection::CollectionAccess;
-use kagari_hir::resolver::ResolvedName;
-use kagari_hir::typeck::CallTarget as TypeckCallTarget;
-use kagari_hir::typeck::ResolvedInterfaceImplementation;
-use kagari_hir::types::TypeId;
+use kagari_hir::{
+    resolver::ResolvedName,
+    typeck::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
+    types::TypeId,
+};
 mod adapters;
 mod collections;
 mod enum_extensions;
@@ -33,19 +33,14 @@ mod set_queries;
 mod standard;
 mod terminals;
 
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::{representation::ValueType, standard::StandardIntrinsic};
 use kagari_hir::hir;
 use std::ops::ControlFlow;
 
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use kagari_abi::representation::ValueType;
-use kagari_mir::instruction::CallTarget;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
-use kagari_mir::instruction::ValueBuffer;
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use kagari_mir::instruction::{
+    CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
+};
 
 impl FunctionLowerer<'_, '_> {
     fn lower_closure(&mut self, expr_id: hir::ExprId) -> Result<MirValue, MirLoweringError> {

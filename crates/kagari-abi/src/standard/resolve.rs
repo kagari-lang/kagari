@@ -3,13 +3,15 @@
 //! This is descriptor expansion, not source inference. Its input tree is generated
 //! from bundled declarations; artifact-provided types are verified separately.
 use crate::scalar::BuiltinType;
-use crate::standard::declarations::{ApiBound, ApiType};
-use crate::standard::surface;
-use crate::standard::traits::{self, StandardTrait};
-use crate::types::{AbiType, NominalAbiType};
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::associated_type_id;
-use kagari_common::range::RangeKind;
+use crate::{
+    standard::{
+        declarations::{ApiBound, ApiType},
+        surface,
+        traits::{self, StandardTrait},
+    },
+    types::{AbiType, NominalAbiType},
+};
+use kagari_common::{collection::CollectionAccess, identity::associated_type_id, range::RangeKind};
 use std::collections::BTreeMap;
 
 pub(crate) type Arguments = BTreeMap<&'static str, AbiType>;

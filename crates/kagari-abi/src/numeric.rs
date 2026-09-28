@@ -1,8 +1,7 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
 
 use crate::scalar::BuiltinType;
-use crate::standard::surface::StandardEnum;
-use crate::types::AbiType;
+use crate::{standard::surface::StandardEnum, types::AbiType};
 use kagari_common::integer::IntegerOp;
 use serde::{Deserialize, Serialize};
 

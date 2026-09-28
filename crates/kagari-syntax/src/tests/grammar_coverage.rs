@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
 
 use crate::{lexer::lex, tests::common, token::TokenKind};
 

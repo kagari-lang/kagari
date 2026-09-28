@@ -1,6 +1,5 @@
 use super::*;
-use crate::declarations::DeclarationId;
-use crate::resolver::NameResolution;
+use crate::{declarations::DeclarationId, resolver::NameResolution};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 

@@ -448,8 +448,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
 
 #[test]
 fn private_interface_tables_must_match_their_trait_contract() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
 
     let original = common::bytecode_ok(
         "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",

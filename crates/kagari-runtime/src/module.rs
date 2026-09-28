@@ -1,32 +1,22 @@
-use crate::ExecutionPhase;
-use crate::ResourceState;
-use crate::RuntimeError;
-use crate::cache::ReloadDependencySnapshot;
-use crate::host::HostFunctionId;
-use crate::host::HostPathDescriptorId;
-use crate::host::HostRegistryId;
-use kagari_abi::layout::EnumLayout;
-use kagari_abi::layout::EnumVariantLayout;
-use kagari_abi::layout::StructLayout;
+use crate::{
+    ExecutionPhase, ResourceState, RuntimeError,
+    cache::ReloadDependencySnapshot,
+    host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
+};
+use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
 use kagari_bytecode as bytecode;
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_bytecode::EnumId;
-use kagari_bytecode::HostImportId;
-use kagari_bytecode::PathId;
-use kagari_bytecode::StructId;
+use kagari_bytecode::{
+    ArtifactFingerprint, BytecodeModule, BytecodeProgram, EnumId, HostImportId, ModuleRef, PathId,
+    StructId,
+};
 use kagari_common::identity::ModuleIdentity;
-use std::cell::BorrowError;
-use std::rc::Rc;
 use std::{
-    cell::{RefCell, RefMut},
+    cell::{BorrowError, RefCell, RefMut},
     collections::{HashMap, HashSet},
     ops::Deref,
+    rc::Rc,
     sync::Arc,
 };
-
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::ModuleRef;
 
 use crate::{reload::ModuleEpoch, value::Value};
 

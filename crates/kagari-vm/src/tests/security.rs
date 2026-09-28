@@ -1,10 +1,7 @@
 use kagari_abi::representation::ValueType;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::Register;
-use kagari_bytecode::RuntimeHelper;
-use kagari_bytecode::StructId;
+use kagari_bytecode::{
+    BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
+};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, ResourcePolicy,
     Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, host::HostFunction, value::Value,

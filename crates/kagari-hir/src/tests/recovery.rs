@@ -1,8 +1,6 @@
 use kagari_common::{DiagnosticKind, SourceFile};
 
-use crate::LanguageFeatureProfile;
-use crate::analyze_source;
-use crate::types::TypeId;
+use crate::{LanguageFeatureProfile, analyze_source, types::TypeId};
 use kagari_abi::scalar::BuiltinType;
 
 #[test]

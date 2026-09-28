@@ -1,33 +1,31 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::{lower_nominal_type, lower_type};
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StringIterKind;
-use kagari_abi::representation::ValueType;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::traits::StandardTrait;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::{lower_nominal_type, lower_type},
+};
+use kagari_abi::{
+    operations::{IterOp, StringIterKind},
+    representation::ValueType,
+    scalar::BuiltinType,
+    standard::{StandardIntrinsic, traits::StandardTrait},
+};
 use kagari_common::host_interface;
-use kagari_hir::builtin::BuiltinFunction;
-use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::declarations::DeclarationId;
-use kagari_hir::hir;
-use kagari_hir::resolver::ResolvedName;
-use kagari_hir::typeck::CallTarget as TypeckCallTarget;
-use kagari_hir::typeck::ScalarValue;
-use kagari_hir::types::NominalType;
-use kagari_hir::types::TypeId;
-use kagari_mir::instruction::CallTarget;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::InterfaceCallContract;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::RuntimeHelper;
-use kagari_mir::instruction::SourceFunctionContract;
-use kagari_mir::instruction::ValueBuffer;
+use kagari_hir::{
+    builtin::{
+        BuiltinFunction,
+        traits::{self, StandardTraitSemantics},
+    },
+    declarations::DeclarationId,
+    hir,
+    resolver::ResolvedName,
+    typeck::{CallTarget as TypeckCallTarget, ScalarValue},
+    types::{NominalType, TypeId},
+};
+use kagari_mir::instruction::{
+    CallTarget, Instruction, InterfaceCallContract, MirValue, RuntimeHelper,
+    SourceFunctionContract, ValueBuffer,
+};
 use smallvec::SmallVec;
-use std::ops::ControlFlow;
-use std::slice;
+use std::{ops::ControlFlow, slice};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_call(

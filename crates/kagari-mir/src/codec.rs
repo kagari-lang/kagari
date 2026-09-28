@@ -1,15 +1,18 @@
 //! Versioned portable native input. Analysis seals are never serialized.
 use bincode::{DefaultOptions, Options};
-use kagari_abi::decode_limits;
-use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::ModuleIdentity;
+use kagari_abi::{
+    decode_limits,
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+};
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use serde::{Deserialize, Deserializer, Serialize};
 use smallvec::{Array, SmallVec};
 use std::io::{self, Error as IoError, Read, Write};
 
-use crate::MirModule;
-use crate::program::{ProgramError, VerifiedMirProgram, verify_program};
+use crate::{
+    MirModule,
+    program::{ProgramError, VerifiedMirProgram, verify_program},
+};
 
 pub const MIR_MAGIC: [u8; 4] = *b"KMIR";
 pub const MIR_FORMAT_VERSION: u16 = 1;

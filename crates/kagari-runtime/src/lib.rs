@@ -2,10 +2,11 @@ mod authority;
 mod loading;
 mod objects;
 use host::HostCallContext;
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
+use kagari_abi::{
+    budget::LogicalBudgetCharge,
+    ids::FunctionRef,
+    types::{AbiType, NominalAbiType},
+};
 use kagari_bytecode::BinaryOp;
 use kagari_common::host_interface::HostPathDeclaration;
 pub use kagari_common::host_interface::{
@@ -13,9 +14,10 @@ pub use kagari_common::host_interface::{
 };
 use reflection::ReflectionError;
 use session::SessionState;
-use std::cell::RefCell;
-use std::cell::RefMut;
-use std::rc::Rc;
+use std::{
+    cell::{RefCell, RefMut},
+    rc::Rc,
+};
 use value::EphemeralValue;
 pub mod error_trace;
 pub use error_trace::{ErrorFrame, ErrorTrace, ResultFailure};

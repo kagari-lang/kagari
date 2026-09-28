@@ -1,7 +1,9 @@
 //! Source analysis and artifact emission are optional SDK capabilities.
 use crate::engine::KagariEngine;
-use crate::error::{CompilationPhase, EmbeddingDiagnostic, EmbeddingError};
-use crate::{BytecodeArtifact, CompileResult};
+use crate::{
+    BytecodeArtifact, CompileResult,
+    error::{CompilationPhase, EmbeddingDiagnostic, EmbeddingError},
+};
 use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
 use kagari_common::{
     SourceFile,

@@ -1,15 +1,11 @@
 //! Inspect a checked generic trait implementation without starting a runtime.
 use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_bytecode::ArtifactBuildOptions;
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::ModuleRef;
+use kagari_abi::types::{AbiType, PublicAbiItem};
+use kagari_bytecode::{
+    ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, KbcArtifact, ModuleRef,
+};
 use kagari_common::SourceFile;
-use kagari_compiler::bytecode::lower_to_bytecode;
-use kagari_compiler::lower_to_mir;
+use kagari_compiler::{bytecode::lower_to_bytecode, lower_to_mir};
 use kagari_hir::analyze_source;
 
 fn main() {

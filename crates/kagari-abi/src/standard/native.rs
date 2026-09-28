@@ -1,8 +1,9 @@
 //! Concrete capabilities implemented by the engine's native storage families.
 use crate::standard::surface::STANDARD_IMPLEMENTATIONS;
-use crate::standard::traits::StandardTrait;
-use crate::standard::{implementation, intrinsic};
-use crate::types::{AbiType, NominalAbiType};
+use crate::{
+    standard::{implementation, intrinsic, traits::StandardTrait},
+    types::{AbiType, NominalAbiType},
+};
 use kagari_common::cancellation::CancellationToken;
 
 /// Match native dispatch capability and associated outputs. The linked verifier
@@ -39,10 +40,8 @@ pub(crate) fn interface_applies(interface: &NominalAbiType, receiver: &AbiType) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scalar::BuiltinType;
-    use crate::standard::traits;
-    use kagari_common::collection::CollectionAccess;
-    use kagari_common::identity::associated_type_id;
+    use crate::{scalar::BuiltinType, standard::traits};
+    use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
     use std::collections::BTreeMap;
 
     fn applied(kind: StandardTrait, arguments: Vec<AbiType>) -> NominalAbiType {
@@ -111,8 +110,7 @@ mod tests {
 
     #[test]
     fn generated_dynamic_implementation_outputs_match_native_storage_contracts() {
-        use crate::standard::resolve::Arguments;
-        use crate::standard::surface::STANDARD_IMPLEMENTATIONS;
+        use crate::standard::{resolve::Arguments, surface::STANDARD_IMPLEMENTATIONS};
         for declaration in STANDARD_IMPLEMENTATIONS {
             let Some(kind) =
                 StandardTrait::from_name(declaration.interface).filter(|kind| kind.dynamic())

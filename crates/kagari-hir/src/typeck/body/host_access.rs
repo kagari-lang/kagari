@@ -1,30 +1,25 @@
-use crate::builtin::BuiltinFunction;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::PlaceId;
-use crate::hir::PlaceKind;
-use crate::host;
-use crate::host::HostSourcePathStep;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::CallTarget;
-use crate::typeck::ResolvedHostPath;
-use crate::typeck::ResolvedHostPlacePath;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::body::HostPathNode;
-use crate::typeck::completion;
-use crate::typeck::ty::display_type_id;
-use crate::types::TypeId;
+use crate::{
+    builtin::BuiltinFunction,
+    hir::{ExprId, ExprKind, PlaceId, PlaceKind},
+    host::{self, HostSourcePathStep},
+    resolver::ResolvedName,
+    typeck::{
+        BodyTypeEnv, CallTarget, ResolvedHostPath, ResolvedHostPlacePath,
+        body::{BodyChecker, HostPathNode},
+        completion,
+        ty::display_type_id,
+    },
+    types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface;
-use kagari_common::host_interface::HostFieldDeclaration;
-use kagari_common::host_interface::HostFunctionDeclaration;
-use kagari_common::host_interface::HostPathSegmentDeclaration;
-use kagari_common::host_interface::PathAccess;
+use kagari_common::{
+    Diagnostic, DiagnosticKind,
+    cancellation::Cancelled,
+    collection::CollectionAccess,
+    host_interface::{
+        self, HostFieldDeclaration, HostFunctionDeclaration, HostPathSegmentDeclaration, PathAccess,
+    },
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_host_call_type(

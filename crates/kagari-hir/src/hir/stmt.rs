@@ -1,8 +1,8 @@
-use crate::hir::BinaryOp;
-use crate::hir::Condition;
+use crate::hir::{
+    BinaryOp, BlockId, Condition, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId,
+    Writeability,
+};
 use smallvec::SmallVec;
-
-use crate::hir::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId, Writeability};
 
 #[derive(Debug, Clone)]
 pub struct BlockData {

@@ -1,9 +1,6 @@
 use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
@@ -188,9 +185,10 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::{
+        scalar::BuiltinType,
+        types::{AbiType, PublicAbiItem},
+    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default(),Default::default()).unwrap();
     for mutation in 0..5 {
@@ -678,9 +676,10 @@ pub fn make()->LinkedHashMap<Key,i32> {val m:LinkedHashMap<Key,i32> = LinkedHash
 
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
-    use kagari_abi::standard::traits::StandardTrait;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::{
+        standard::traits::StandardTrait,
+        types::{AbiType, PublicAbiItem},
+    };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -711,8 +710,7 @@ fn main()->i64 {Key{id:1}.hash()}
 #[test]
 fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
     use kagari_abi::standard::StandardIntrinsic;
-    use kagari_bytecode::BytecodeInstruction;
-    use kagari_bytecode::CallTarget;
+    use kagari_bytecode::{BytecodeInstruction, CallTarget};
     for custom in [false, true] {
         let implementation = if custom {
             "impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}} impl Eq for Key {} impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}"

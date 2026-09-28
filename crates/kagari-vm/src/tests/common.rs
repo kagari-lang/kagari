@@ -1,15 +1,10 @@
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::FunctionRecord;
+use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_bytecode::{
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, ConstantOperand, FunctionMetadata,
+    FunctionRecord,
+};
 use kagari_common::SourceFile;
-use kagari_compiler::bytecode::lower_to_bytecode;
-use kagari_compiler::lower_to_mir;
+use kagari_compiler::{bytecode::lower_to_bytecode, lower_to_mir};
 use kagari_hir::analyze_source;
 use kagari_runtime::{LoadedModule, Runtime};
 

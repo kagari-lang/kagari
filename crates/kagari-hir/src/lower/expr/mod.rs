@@ -1,21 +1,22 @@
-use crate::hir::Literal;
-use crate::hir::LiteralKind;
-use crate::hir::TypeData;
-use crate::hir::TypeKind;
-use ast::Expr;
-use ast::Interpolation;
+use crate::hir::{Literal, LiteralKind, TypeData, TypeKind};
+use ast::{Expr, Interpolation};
 use kagari_common::Span;
 mod literal;
 mod pattern;
 
-use kagari_syntax::ast::{self, AstNode};
-use kagari_syntax::kind::SyntaxKind;
+use kagari_syntax::{
+    ast::{self, AstNode},
+    kind::SyntaxKind,
+};
 use smallvec::{SmallVec, smallvec};
 
-use crate::hir::{
-    BlockData, ClosureParam, Condition, ExprData, ExprId, ExprKind, FieldInit, MatchArm, PrefixOp,
+use crate::{
+    hir::{
+        BlockData, ClosureParam, Condition, ExprData, ExprId, ExprKind, FieldInit, MatchArm,
+        PrefixOp,
+    },
+    lower::context::{Lowerer, lower_binary_op, syntax_span, token_span},
 };
-use crate::lower::context::{Lowerer, lower_binary_op, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_condition(

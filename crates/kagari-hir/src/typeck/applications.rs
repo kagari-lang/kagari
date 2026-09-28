@@ -2,21 +2,24 @@
 
 use crate::builtin::traits::intrinsic_holds;
 
-use super::check;
-use super::check::MethodComparison;
-use super::constraints;
-use super::families;
-use super::{ConstraintTarget, GenericBounds, ModuleSignatures, TypeTable};
-use crate::DiagnosticBuffer;
-use crate::declarations::Declarations;
-use crate::host::HostDeclarations;
-use crate::types::TypeSubstitution;
-use crate::{aggregates::AggregateCatalog, lower::LoweredModule, types::TypeId};
-use kagari_abi::standard::surface::StandardTypeConstraint;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::identity::ModuleIdentity;
-use kagari_common::range::RangeKind;
-use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
+use super::{
+    ConstraintTarget, GenericBounds, ModuleSignatures, TypeTable,
+    check::{self, MethodComparison},
+    constraints, families,
+};
+use crate::{
+    DiagnosticBuffer,
+    aggregates::AggregateCatalog,
+    declarations::Declarations,
+    host::HostDeclarations,
+    lower::LoweredModule,
+    types::{TypeId, TypeSubstitution},
+};
+use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
+use kagari_common::{
+    Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken, identity::ModuleIdentity,
+    range::RangeKind,
+};
 
 pub(super) fn validate(
     ty: &TypeId,

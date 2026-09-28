@@ -1,14 +1,11 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::traits::StandardTrait;
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use kagari_abi::{
+    operations::BinaryOp,
+    representation::ValueType,
+    standard::{StandardIntrinsic, traits::StandardTrait},
+};
 use kagari_hir::types::TypeId;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_key_operation(

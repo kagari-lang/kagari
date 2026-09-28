@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -290,9 +287,7 @@ fn map_snapshot_return_types_reject_writes_without_annotations() {
 #[test]
 fn map_snapshot_bindings_must_be_lowered_before_execution() {
     use kagari_abi::standard::StandardIntrinsic as S;
-    use kagari_bytecode::BytecodeInstruction;
-    use kagari_bytecode::CallTarget;
-    use kagari_bytecode::verify_program;
+    use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(
         SourceFile::new("snapshot-wire.kgr", "fn main() { val map = LinkedHashMap::from([(1,2)]); map.keys(); map.values(); map.entries(); }"),

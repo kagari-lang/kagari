@@ -1,42 +1,32 @@
 //! Declaration and binding identities owned by one semantic analysis.
 
 use crate::builtin::traits::StandardTraitSemantics;
-use kagari_common::identity;
-
-use crate::builtin::declarations;
-use crate::builtin::traits;
-use crate::hir::ConstOwner;
-use crate::hir::FieldId;
-use crate::hir::GenericParam;
-use crate::hir::GenericParamId;
-use crate::hir::ImplId;
-use crate::hir::Item;
-use crate::hir::VariantId;
-use crate::host::HostDeclarations;
-use crate::host::HostTypeId;
-use crate::imports::ImportedTypes;
-use crate::imports::ModuleImports;
-use crate::resolver::DeclarationNames;
-use crate::resolver::NameTable;
-use crate::source_map::SourceMap;
-use crate::types::GenericParameterType;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::cancellation::CancellationToken;
-use std::sync::Arc;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::atomic::{AtomicU64, Ordering},
-};
-
 use kagari_common::{
     SourceFile, Span,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
+    cancellation::CancellationToken,
+    identity::{self, DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
 };
 
 use crate::{
-    hir::{BodyOwner, FunctionKind},
+    builtin::{declarations, traits},
+    hir::{
+        BodyOwner, ConstOwner, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId, Item,
+        VariantId,
+    },
+    host::{HostDeclarations, HostTypeId},
+    imports::{ImportedTypes, ModuleImports},
     lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
+    resolver::{DeclarationNames, NameTable, ResolvedName, ResolvedNames},
+    source_map::SourceMap,
+    types::GenericParameterType,
+};
+use kagari_abi::standard::traits::StandardTrait;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 static NEXT_ANALYSIS: AtomicU64 = AtomicU64::new(1);

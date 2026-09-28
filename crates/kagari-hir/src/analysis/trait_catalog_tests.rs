@@ -1,6 +1,5 @@
 use super::*;
-use crate::declarations::DeclarationId;
-use crate::typeck::CallTarget;
+use crate::{declarations::DeclarationId, typeck::CallTarget};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},

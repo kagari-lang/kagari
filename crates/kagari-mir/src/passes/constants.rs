@@ -1,6 +1,7 @@
-use crate::passes::scalar::Scalar;
-use crate::passes::{PassStatistics, Work};
-use crate::{Instruction, MirModule, MirVerificationError, Terminator};
+use crate::{
+    Instruction, MirModule, MirVerificationError, Terminator,
+    passes::{PassStatistics, Work, scalar::Scalar},
+};
 
 pub(super) fn simplify(
     module: &mut MirModule,

@@ -1,18 +1,13 @@
 use crate::source::types::{lower_nominal_type, lower_type};
-use kagari_abi::types::AssociatedConstAbi;
-use kagari_abi::types::AssociatedTypeAbi;
-use kagari_abi::types::AssociatedTypeFamilyAbi;
+use kagari_abi::types::{AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi};
 use kagari_common::identity;
-use kagari_hir::declarations::DeclarationId;
-use kagari_hir::resolver::ResolvedName;
-use kagari_hir::typeck::ConstraintTarget;
-use kagari_hir::typeck::GenericBounds;
-use kagari_hir::typeck::ScalarValue;
-use kagari_hir::types::GenericParameterType;
-use kagari_hir::types::TypeId;
 use kagari_hir::{
     AnalyzedModule,
+    declarations::DeclarationId,
     hir::{self, FunctionKind, Item, Visibility},
+    resolver::ResolvedName,
+    typeck::{ConstraintTarget, GenericBounds, ScalarValue},
+    types::{GenericParameterType, TypeId},
 };
 
 // Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
@@ -31,22 +26,11 @@ fn const_abi_value(value: &ScalarValue) -> String {
     }
 }
 
-use kagari_abi::types::AbiType;
-use kagari_abi::types::ConstAbi;
-use kagari_abi::types::ConstraintAbi;
-use kagari_abi::types::FieldAbi;
-use kagari_abi::types::FunctionAbi;
-use kagari_abi::types::GenericBoundAbi;
-use kagari_abi::types::GenericParameterAbi;
-use kagari_abi::types::InterfaceTableAbi;
-use kagari_abi::types::ModuleAbi;
-use kagari_abi::types::ParameterAbi;
-use kagari_abi::types::PublicAbiItem;
-use kagari_abi::types::TraitAbi;
-use kagari_abi::types::TraitContract;
-use kagari_abi::types::TypeAbi;
-use kagari_abi::types::TypeAbiKind;
-use kagari_abi::types::VariantAbi;
+use kagari_abi::types::{
+    AbiType, ConstAbi, ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
+    InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem, TraitAbi, TraitContract, TypeAbi,
+    TypeAbiKind, VariantAbi,
+};
 
 pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     let hir_module = &module.lowered.module;

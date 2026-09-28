@@ -1,5 +1,4 @@
-use crate::function::MirFunction;
-use crate::ids::LocalId;
+use crate::{function::MirFunction, ids::LocalId};
 use kagari_abi::representation::ValueType;
 use kagari_common::{Span, identity::ModuleIdentity};
 use serde::{Deserialize, Serialize};

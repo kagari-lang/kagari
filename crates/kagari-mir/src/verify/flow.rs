@@ -1,13 +1,9 @@
-use std::collections::VecDeque;
-use std::mem;
+use std::{collections::VecDeque, mem};
 
-use crate::BlockId;
-use crate::Instruction;
-use crate::MirFunction;
-use crate::verify::Context;
-use crate::verify::MirVerificationError;
-use crate::verify::MirVerificationErrorKind as Error;
-use crate::verify::analysis::Budget;
+use crate::{
+    BlockId, Instruction, MirFunction,
+    verify::{Context, MirVerificationError, MirVerificationErrorKind as Error, analysis::Budget},
+};
 
 pub(super) struct Initialization {
     pub reachable: Vec<bool>,

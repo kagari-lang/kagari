@@ -1,9 +1,11 @@
 //! Compile once per immutable program/configuration; install separately per runtime.
 use std::rc::Rc;
 
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::{ExecutableEntryPoint, NativeCompilationProduct};
-use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use kagari_abi::{
+    ids::FunctionRef,
+    native::{ExecutableEntryPoint, NativeCompilationProduct},
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
+};
 use kagari_bytecode::ModuleRef;
 use kagari_codegen::{
     BackendCompileError, BackendConfiguration, BackendFunctionInput, CodegenBackend,
@@ -11,12 +13,12 @@ use kagari_codegen::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_compiler::native_links::{NativeLinkError, build_native_links};
 use kagari_mir::ids::InstanceId;
-use kagari_runtime::jit_abi::native_helper_symbols;
-use kagari_runtime::{BackendInvocationError, LoadedModule, RuntimeError};
+use kagari_runtime::{
+    BackendInvocationError, LoadedModule, RuntimeError, jit_abi::native_helper_symbols,
+};
 use kagari_vm::PreparedNativeEntry;
 
-use crate::program::PreparedProgram;
-use crate::runtime::KagariRuntime;
+use crate::{program::PreparedProgram, runtime::KagariRuntime};
 
 const MAX_CACHED_FUNCTIONS: usize = 4096;
 

@@ -1,33 +1,28 @@
-use kagari_abi::budget::LogicalBudgetCharge;
+use kagari_abi::{
+    budget::LogicalBudgetCharge,
+    ids::{DebugPointId, FunctionRef},
+    representation::ValueType,
+};
 use std::sync::{Arc, Mutex};
 
-use kagari_abi::ids::DebugPointId;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeModuleSlot;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::FunctionRecord;
-use kagari_bytecode::InstructionSourceSpan;
-use kagari_bytecode::ModuleSlot;
-use kagari_bytecode::Register;
-use kagari_bytecode::RuntimeHelper;
-use kagari_bytecode::SafeDebugPoint;
-use kagari_bytecode::SafeDebugPointKind;
-use kagari_common::Span;
-use kagari_runtime::value::{StructValueField, Value};
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention, ResourcePolicy,
-    Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext,
+use kagari_bytecode::{
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
+    ConstantOperand, FunctionMetadata, FunctionRecord, InstructionSourceSpan, ModuleSlot, Register,
+    RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
 };
-use {kagari_runtime::HostFunctionDeclaration, kagari_runtime::host::HostFunction};
+use kagari_common::Span;
+use kagari_runtime::{
+    CapabilitySet, DebugVisibilityPolicy, HostFunctionDeclaration, LanguageProfile,
+    ModuleEpochRetention, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
+    SecurityContext,
+    host::HostFunction,
+    value::{StructValueField, Value},
+};
 
-use crate::tests::common::{compile_test_bytecode, load_test_module};
-use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
+use crate::{
+    DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError,
+    tests::common::{compile_test_bytecode, load_test_module},
+};
 
 fn test_function(
     id: usize,
@@ -208,14 +203,11 @@ fn debug_capabilities() -> CapabilitySet {
 }
 
 fn interface_instruction_module() -> BytecodeModule {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::InterfaceTableAbi;
-    use kagari_abi::types::NominalAbiType;
-    use kagari_abi::types::PublicAbiItem;
-    use kagari_abi::types::TraitAbi;
-    use kagari_bytecode::InterfaceTableRecord;
-    use kagari_bytecode::InterfaceTableRef;
+    use kagari_abi::{
+        scalar::BuiltinType,
+        types::{AbiType, InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi},
+    };
+    use kagari_bytecode::{InterfaceTableRecord, InterfaceTableRef};
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };

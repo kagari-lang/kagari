@@ -1,29 +1,27 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::StandardVariant;
+use kagari_abi::standard::{
+    surface::{self as standard_surface, StandardModule, StandardVariant},
+    traits::StandardTrait,
+};
 
-use crate::builtin::traits;
-use crate::hir::FunctionKind;
-use crate::hir::ModuleId;
-use crate::resolver::ResolvedName;
 use crate::{
-    hir::{ExportItem, Visibility},
+    builtin::traits,
+    hir::{ExportItem, FunctionKind, ModuleId, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
+    resolver::ResolvedName,
 };
-use kagari_abi::standard::surface::StandardModule;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::SourceFile;
 use kagari_common::{
-    Diagnostic, DiagnosticKind, Span,
+    Diagnostic, DiagnosticKind, SourceFile, Span,
     cancellation::{CancellationToken, Cancelled},
     identity::{FileId, ModuleIdentity, Revision},
 };
-use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
+    sync::Arc,
+};
 
 mod bindings;
 mod functions;

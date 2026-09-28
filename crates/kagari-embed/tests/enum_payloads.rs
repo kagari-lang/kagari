@@ -1,10 +1,9 @@
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AbiType, PublicAbiItem},
+};
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, KagariEngine, program::PreparedProgram};
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {

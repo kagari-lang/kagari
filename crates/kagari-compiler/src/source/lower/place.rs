@@ -1,24 +1,18 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_nominal_type;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::lower_nominal_type,
+};
 use hir::PlaceKind;
-use kagari_abi::numeric::NumericOperation;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types::NominalAbiType;
+use kagari_abi::{
+    numeric::NumericOperation, operations::BinaryOp, representation::ValueType,
+    scalar::BuiltinType, standard::traits::StandardTrait, types::NominalAbiType,
+};
 use kagari_common::identity;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::{hir, types::TypeId};
-use kagari_mir::AggregateFieldRef;
-use kagari_mir::CallTarget;
-use kagari_mir::Instruction;
-use kagari_mir::LocalId;
-use kagari_mir::MirValue;
-use kagari_mir::PathRef;
-use kagari_mir::ValueBuffer;
-use kagari_mir::instruction::InterfaceCallContract;
+use kagari_hir::{builtin::traits::StandardTraitSemantics, hir, types::TypeId};
+use kagari_mir::{
+    AggregateFieldRef, CallTarget, Instruction, LocalId, MirValue, PathRef, ValueBuffer,
+    instruction::InterfaceCallContract,
+};
 use std::ops::ControlFlow;
 
 pub(super) struct PreparedPlace {

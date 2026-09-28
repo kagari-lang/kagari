@@ -1,12 +1,12 @@
-use crate::AnalysisResult;
-use crate::aggregates::AggregateCatalog;
-use crate::declarations::Declarations;
-use crate::hir::BodySelection;
-use crate::hir::GenericParam;
-use crate::imports::ImportedFunctions;
-use crate::types::GenericParameterType;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionId;
+use crate::{
+    AnalysisResult,
+    aggregates::AggregateCatalog,
+    declarations::Declarations,
+    hir::{BodySelection, GenericParam},
+    imports::ImportedFunctions,
+    types::GenericParameterType,
+};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use smallvec::SmallVec;
 mod applications;
 pub(crate) mod associated_consts;
@@ -34,10 +34,11 @@ mod table;
 mod ty;
 pub use reuse::BodyReuse;
 
-use crate::types::TypeId;
+use crate::{
+    hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability},
+    types::TypeId,
+};
 use std::collections::HashMap;
-
-use crate::hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability};
 
 pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;

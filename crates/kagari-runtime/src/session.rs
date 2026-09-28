@@ -1,29 +1,21 @@
-use crate::ErrorTrace;
-use crate::ExecutionFrame;
-use crate::HostFrameId;
-use crate::Runtime;
-use crate::StagedReload;
-use crate::gc::GcHeap;
-use crate::gc::HeapObjectId;
-use crate::host_scope::HostScopeState;
-use crate::value::Value;
-use kagari_common::identity::ModuleIdentity;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::fmt::Debug;
+use crate::{
+    ErrorTrace, ExecutionFrame, HostExposurePolicy, HostFrameId, LoadedModule,
+    ModuleEpochRetention, ModuleStore, ResourceCounters, ResourcePolicy, ResourceState, Runtime,
+    RuntimeError, RuntimeErrorKind, SecurityContext, StagedReload,
+    gc::{GcHeap, HeapObjectId},
+    host_scope::HostScopeState,
+    value::Value,
+};
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use std::{
     cell::{Cell, RefCell},
+    collections::{HashMap, HashSet},
+    fmt::Debug,
     rc::Rc,
     time::Instant,
 };
 
 use kagari_bytecode::ArtifactFingerprint;
-use kagari_common::cancellation::CancellationToken;
-
-use crate::{
-    HostExposurePolicy, LoadedModule, ModuleEpochRetention, ModuleStore, ResourceCounters,
-    ResourcePolicy, ResourceState, RuntimeError, RuntimeErrorKind, SecurityContext,
-};
 
 /// Restrictions attached to the root session and inherited by synchronous reentry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -391,9 +383,7 @@ impl Drop for CandidateSession<'_> {
 mod tests {
     use super::*;
     use crate::value::Value;
-    use kagari_bytecode::BytecodeModule;
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {

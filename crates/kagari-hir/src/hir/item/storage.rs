@@ -1,5 +1,6 @@
-use crate::hir::ImplId;
-use crate::hir::{ConstId, EnumId, ExprId, FunctionId, ModuleId, StructId, TraitId, TypeRefId};
+use crate::hir::{
+    ConstId, EnumId, ExprId, FunctionId, ImplId, ModuleId, StructId, TraitId, TypeRefId,
+};
 use kagari_common::identity::ModuleIdentity;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

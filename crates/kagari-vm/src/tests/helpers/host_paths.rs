@@ -1,6 +1,5 @@
 use super::*;
-use crate::PreparedNativeEntry;
-use crate::tests::native_fixtures;
+use crate::{PreparedNativeEntry, tests::native_fixtures};
 use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
 
 #[test]
@@ -89,9 +88,7 @@ fn executes_runtime_host_helper_call() {
 
 #[test]
 fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_execution() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
@@ -207,9 +204,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 
 #[test]
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
     use std::{cell::RefCell, rc::Rc};
     fn reenter(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
@@ -486,9 +481,7 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
 
 #[test]
 fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
@@ -599,8 +592,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, ModuleRef};
     use kagari_common::host_interface::{HostIndexSegmentDeclaration, HostValueType};
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let field = runtime

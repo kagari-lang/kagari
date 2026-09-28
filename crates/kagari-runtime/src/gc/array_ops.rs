@@ -1,9 +1,8 @@
-use crate::error::RuntimeError;
-use crate::error::RuntimeErrorKind;
-use crate::gc::GcHeap;
-use crate::gc::HeapObject;
-use crate::gc::HeapObjectId;
-use crate::value::Value;
+use crate::{
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::{GcHeap, HeapObject, HeapObjectId},
+    value::Value,
+};
 use std::ops::Bound;
 
 fn invalid() -> RuntimeError {

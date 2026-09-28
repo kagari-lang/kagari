@@ -1,6 +1,8 @@
 use super::*;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+};
 
 fn definition(module: &str, kind: DefinitionKind) -> DefinitionId {
     DefinitionId {

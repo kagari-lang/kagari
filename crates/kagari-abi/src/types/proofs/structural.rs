@@ -1,11 +1,16 @@
-use crate::scalar::BuiltinType;
-use crate::standard::intrinsic;
-use crate::standard::surface::{StandardEnum, StandardTypeConstraint};
-use crate::standard::traits::StandardTrait;
-use crate::types::proofs::search::Search;
-use crate::types::proofs::{Budget, ProofCatalog};
-use crate::types::substitution::TypeTransformError;
-use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi};
+use crate::{
+    scalar::BuiltinType,
+    standard::{
+        intrinsic,
+        surface::{StandardEnum, StandardTypeConstraint},
+        traits::StandardTrait,
+    },
+    types::{
+        AbiType, ConstraintAbi, GenericBoundAbi,
+        proofs::{Budget, ProofCatalog, search::Search},
+        substitution::TypeTransformError,
+    },
+};
 
 impl ProofCatalog<'_> {
     pub(super) fn structural(

@@ -2151,6 +2151,23 @@ A00-A05 acceptance is complete. All previously carried errors are resolved. The
 remaining limitations are the deliberately bounded native subset and independent
 future work described above, not unfinished steps of this architecture refactor.
 
+### Post-completion follow-up: grouped imports (2026-09-28)
+
+At the user's request, consolidated repeated imports from the same crate/module
+using nested braces across 362 handwritten Rust files. The syntax-aware edit groups
+only imports within the same scope and uninterrupted import block; visibility,
+conditional attributes, comments and wildcard boundaries remain separate. No glob
+imports, re-exports or visibility changes were introduced. AGENTS.md records this
+layout preference for subsequent work.
+
+Validation: a tree-sitter comparison of every affected file before/after formatting
+confirmed identical imported paths/aliases per scope and identical non-import syntax,
+including all embedded source fixtures. `cargo clippy --workspace --all-targets --
+-D warnings`, formatting and diff checks pass. The structure checker still reports
+514 Rust files, zero violations and zero exceptions. This mechanical layout follow-up
+does not change the completed phase scope or language/runtime behavior; behavior tests
+were not rerun for it. Temporary comparison inputs and check logs are under `target/`.
+
 Update this ledger at every checkpoint with reproducible commands and concise
 diagnostics. Keep build state separate from scope completion. Resume by inspecting
 the working tree, ledger and `Architecture-Step` commit trailers, then continue

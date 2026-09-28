@@ -1,38 +1,20 @@
-use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface::{
-    HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration,
+use kagari_common::{
+    collection::CollectionAccess,
+    host_interface::{HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration},
 };
-use kagari_runtime::host::PreparedHostPathWrite;
+use kagari_runtime::{
+    AbiFingerprint, CapabilitySet, DynamicPathArgument, DynamicPathArguments, HostBorrowTable,
+    HostExposurePolicy, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+    HostPathDescriptorRegistration, HostPathOperation, HostPathSegmentRegistration,
+    HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration,
+    LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
+    TypeKind, TypeRegistration,
+    host::{HostError, PreparedHostPathWrite},
+    value::Value,
+};
 use std::sync::{Arc, Mutex};
 
 use kagari_bytecode::BinaryOp;
-use kagari_runtime::AbiFingerprint;
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::DynamicPathArgument;
-use kagari_runtime::DynamicPathArguments;
-use kagari_runtime::HostBorrowTable;
-use kagari_runtime::HostExposurePolicy;
-use kagari_runtime::HostObjectId;
-use kagari_runtime::HostPathAdapter;
-use kagari_runtime::HostPathDescriptorId;
-use kagari_runtime::HostPathDescriptorRegistration;
-use kagari_runtime::HostPathOperation;
-use kagari_runtime::HostPathSegmentRegistration;
-use kagari_runtime::HostReflectionPolicy;
-use kagari_runtime::HostSchemaEpoch;
-use kagari_runtime::HostTypeOwnership;
-use kagari_runtime::HostTypeRegistration;
-use kagari_runtime::LanguageProfile;
-use kagari_runtime::PathAccess;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::SecurityContext;
-use kagari_runtime::TypeId;
-use kagari_runtime::TypeKind;
-use kagari_runtime::TypeRegistration;
-use kagari_runtime::host::HostError;
-use kagari_runtime::value::Value;
 
 fn path_mutation_runtime() -> Runtime {
     Runtime::new(path_mutation_config())

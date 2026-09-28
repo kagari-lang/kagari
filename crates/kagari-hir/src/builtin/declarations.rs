@@ -1,38 +1,31 @@
 //! Public signatures compiled from the bundled declaration sources.
 
 use crate::builtin::traits::StandardTraitSemantics;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::declarations::{ApiBound, ApiImplementation, ApiItem, ApiTrait, ApiType};
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::STANDARD_IMPLEMENTATIONS;
-use kagari_abi::standard::surface::STANDARD_ITEMS;
-use kagari_abi::standard::surface::STANDARD_SOURCES;
-use kagari_abi::standard::surface::StandardVariant;
-use kagari_abi::standard::traits as standard_traits;
-use kagari_common::identity;
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{
+        StandardIntrinsic,
+        declarations::{ApiBound, ApiImplementation, ApiItem, ApiTrait, ApiType},
+        surface::{
+            self as standard_surface, STANDARD_IMPLEMENTATIONS, STANDARD_ITEMS, STANDARD_SOURCES,
+            StandardEnum, StandardVariant,
+        },
+        traits::{self as standard_traits, StandardTrait},
+    },
+};
+use kagari_common::{SourceFile, Span, collection::CollectionAccess, identity};
 
-use crate::aggregates::MethodParameter;
-use crate::aggregates::MethodSignature;
-use crate::hir::Writeability;
-use crate::typeck::ConstraintTarget;
-use crate::types::GenericParameterType;
+use crate::{
+    aggregates::{MethodParameter, MethodSignature, TraitSignature},
+    declarations::{Declaration, DeclarationId},
+    hir::Writeability,
+    resolver::ResolvedName,
+    typeck::{ConstraintTarget, GenericBounds},
+    types::{GenericParameterType, NominalType, TypeId},
+};
 
 use super::surface;
-use crate::aggregates::TraitSignature;
-use crate::declarations::Declaration;
-use crate::declarations::DeclarationId;
-use crate::resolver::ResolvedName;
-use crate::typeck::GenericBounds;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::SourceFile;
-use kagari_common::Span;
-use kagari_common::collection::CollectionAccess;
-use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::{collections::BTreeMap, sync::OnceLock};
 
 pub fn sources() -> &'static [SourceFile] {
     static SOURCES: OnceLock<Vec<SourceFile>> = OnceLock::new();

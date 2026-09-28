@@ -1,10 +1,11 @@
 //! Engine-owned trait templates expanded directly from standard descriptors.
 use crate::standard::declarations::{ApiBound, ApiMethod};
-use crate::standard::resolve::Arguments;
-use crate::standard::traits::StandardTrait;
-use crate::types::{
-    AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-    NominalAbiType, ParameterAbi, TraitAbi,
+use crate::{
+    standard::{resolve::Arguments, traits::StandardTrait},
+    types::{
+        AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
+        GenericParameterAbi, NominalAbiType, ParameterAbi, TraitAbi,
+    },
 };
 use std::collections::BTreeMap;
 

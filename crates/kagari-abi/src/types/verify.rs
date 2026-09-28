@@ -1,38 +1,34 @@
 //! Validate serialized semantic types independently of display strings.
 use crate::types::matching;
-use crate::types::substitution::{TypeSubstitution, TypeTransformError, normalize_projections};
+use crate::{
+    layout::LayoutValidationError,
+    scalar::BuiltinType,
+    standard::{
+        declarations as standard_declarations, native, surface::StandardEnum as StandardEnumKind,
+        traits::StandardTrait,
+    },
+    types::{
+        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
+        InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi, TraitContract, TypeAbi,
+        TypeAbiKind,
+        substitution::{TypeSubstitution, TypeTransformError, normalize_projections},
+    },
+};
 
-use crate::standard::declarations as standard_declarations;
 use kagari_common::identity;
 
-use crate::layout::LayoutValidationError;
-use crate::scalar::BuiltinType;
-use crate::standard::native;
-use crate::standard::surface::StandardEnum as StandardEnumKind;
-use crate::standard::traits::StandardTrait;
-use crate::types::AbiType;
-use crate::types::ConstraintAbi;
-use crate::types::FunctionAbi;
-use crate::types::GenericBoundAbi;
-use crate::types::GenericParameterAbi;
-use crate::types::InterfaceTableAbi;
-use crate::types::NominalAbiType;
-use crate::types::PublicAbiItem;
-use crate::types::TraitAbi;
-use crate::types::TraitContract;
-use crate::types::TypeAbi;
-use crate::types::TypeAbiKind;
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface;
-use kagari_common::range::RangeKind;
 use kagari_common::{
     cancellation::CancellationToken,
+    host_interface,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    range::RangeKind,
 };
-use std::collections::BTreeMap;
-use std::collections::HashSet;
-use std::iter;
+use std::{
+    collections::{BTreeMap, HashSet},
+    iter,
+};
 
 type Parameters = HashSet<(DefinitionId, usize)>;
 

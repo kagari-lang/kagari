@@ -1,24 +1,22 @@
-use crate::source::types;
-use crate::source::types::lower_type;
-use hir::Condition;
-use hir::StmtKind;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::hir;
-use kagari_hir::typeck::ResolvedIteration;
-use kagari_hir::types::TypeId;
+use crate::source::{
+    lower::{
+        MirLoweringError,
+        state::{FunctionLowerer, LoopScope},
+    },
+    types::{self, lower_type},
+};
+use hir::{Condition, StmtKind};
+use kagari_abi::{
+    operations::{IterOp, StandardEnumOp},
+    representation::ValueType,
+    standard::{surface::StandardEnum, traits::StandardTrait},
+};
+use kagari_hir::{
+    builtin::traits::StandardTraitSemantics, hir, typeck::ResolvedIteration, types::TypeId,
+};
 use std::slice;
 
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::lower::state::LoopScope;
-use kagari_abi::representation::ValueType;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use kagari_mir::instruction::{Instruction, MirValue, Terminator};
 
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(

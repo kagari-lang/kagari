@@ -1,7 +1,8 @@
 use super::*;
-use crate::hir::ExprKind;
-use crate::resolver::NameResolution;
-use crate::resolver::ResolvedName;
+use crate::{
+    hir::ExprKind,
+    resolver::{NameResolution, ResolvedName},
+};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     host_interface::{HostFunctionDeclaration, HostInterface, HostValueType},

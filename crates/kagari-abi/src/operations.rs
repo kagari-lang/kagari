@@ -1,9 +1,10 @@
-use crate::numeric::NumericOperation;
-use crate::representation::ValueType;
-use crate::scalar::BuiltinType;
-use crate::standard::surface::StandardEnum as StandardEnumKind;
-use crate::types::AbiType;
-use crate::types::verify;
+use crate::{
+    numeric::NumericOperation,
+    representation::ValueType,
+    scalar::BuiltinType,
+    standard::surface::StandardEnum as StandardEnumKind,
+    types::{AbiType, verify},
+};
 use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

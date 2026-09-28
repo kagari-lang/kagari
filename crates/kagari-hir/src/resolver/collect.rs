@@ -1,18 +1,16 @@
-use crate::hir::BodySelection;
-use crate::host::HostDeclarations;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::{Diagnostic, DiagnosticKind};
+use crate::{
+    AnalysisResult,
+    hir::{BodySelection, FunctionKind},
+    host::HostDeclarations,
+    imports::{ModuleGraph, ModuleImports},
+    lower::LoweredModule,
+    resolver::{
+        DeclarationNames, ResolvedName, ResolvedNames, resolve::BodyResolver, table::NameTable,
+    },
+};
+use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
-use std::collections::HashSet;
-use std::sync::Arc;
-
-use crate::AnalysisResult;
-use crate::hir::FunctionKind;
-use crate::imports::{ModuleGraph, ModuleImports};
-use crate::lower::LoweredModule;
-use crate::resolver::resolve::BodyResolver;
-use crate::resolver::table::NameTable;
-use crate::resolver::{DeclarationNames, ResolvedName, ResolvedNames};
+use std::{collections::HashSet, sync::Arc};
 
 pub fn resolve_names(lowered: &LoweredModule) -> AnalysisResult<ResolvedNames> {
     let hosts = HostDeclarations::empty();

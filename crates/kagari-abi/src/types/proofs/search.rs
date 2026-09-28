@@ -1,9 +1,11 @@
-use crate::standard::intrinsic;
-use crate::standard::traits::StandardTrait;
-use crate::types::matching;
-use crate::types::proofs::{Budget, ProofCatalog, host_application, satisfies};
-use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError};
-use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType};
+use crate::{
+    standard::{intrinsic, traits::StandardTrait},
+    types::{
+        AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType, matching,
+        proofs::{Budget, ProofCatalog, host_application, satisfies},
+        substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
+    },
+};
 use kagari_common::cancellation::CancellationToken;
 use std::collections::HashSet;
 

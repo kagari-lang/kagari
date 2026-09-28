@@ -1,25 +1,15 @@
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::FieldInit;
-use crate::hir::TypeRefId;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::ResolvedEnumConstructor;
-use crate::typeck::ResolvedStructInit;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::check;
-use crate::typeck::completion;
-use crate::typeck::inference;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::display_type;
-use crate::typeck::ty::display_type_id;
-use crate::typeck::ty::resolve_type_in;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use crate::types::TypeSubstitution;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::identity::DefinitionId;
+use crate::{
+    hir::{ExprId, ExprKind, FieldInit, TypeRefId},
+    resolver::ResolvedName,
+    typeck::{
+        BodyTypeEnv, ResolvedEnumConstructor, ResolvedStructInit,
+        body::BodyChecker,
+        check, completion, inference,
+        ty::{TypeContext, display_type, display_type_id, resolve_type_in},
+    },
+    types::{NominalType, TypeId, TypeSubstitution},
+};
+use kagari_common::{Diagnostic, DiagnosticKind, identity::DefinitionId};
 use std::collections::HashSet;
 
 impl<'a> BodyChecker<'a> {

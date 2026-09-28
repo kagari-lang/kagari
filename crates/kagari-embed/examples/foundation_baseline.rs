@@ -3,9 +3,7 @@
 use std::{hint::black_box, sync::Arc, time::Instant};
 
 use kagari_common::{SourceFile, source_database::SourceLayer};
-use kagari_embed::ArtifactOptions;
-use kagari_embed::CompileOptions;
-use kagari_embed::KagariEngine;
+use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
 use kagari_runtime::{Runtime, VerifiedProgram, value::Value};
 use kagari_vm::Vm;
 

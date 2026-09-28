@@ -1,30 +1,21 @@
-use crate::aggregates::ImplementationSearchError;
-use crate::builtin::declarations;
-use crate::builtin::declarations::{ApiImplementationSemantics, ApiTypeSemantics};
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::TypeKind;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::CallTarget;
-use crate::typeck::ConstraintTarget;
-use crate::typeck::ResolvedAssociatedConst;
-use crate::typeck::ResolvedInterfaceCoercion;
-use crate::typeck::ResolvedInterfaceImplementation;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::completion;
-use crate::typeck::inference;
-use crate::typeck::ty;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::resolve_type_in;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use crate::types::TypeSubstitution;
+use crate::{
+    aggregates::ImplementationSearchError,
+    builtin::{
+        declarations::{self, ApiImplementationSemantics, ApiTypeSemantics},
+        traits::{self, StandardTraitSemantics},
+    },
+    hir::{ExprId, ExprKind, TypeKind},
+    typeck::{
+        BodyTypeEnv, CallTarget, ConstraintTarget, ResolvedAssociatedConst,
+        ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
+        body::BodyChecker,
+        completion, inference,
+        ty::{self, TypeContext, resolve_type_in},
+    },
+    types::{NominalType, TypeId, TypeSubstitution},
+};
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::identity;
+use kagari_common::{Diagnostic, DiagnosticKind, identity};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_expr_with_coercion(

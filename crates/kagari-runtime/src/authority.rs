@@ -1,13 +1,11 @@
-use crate::Runtime;
-use crate::error::RuntimeError;
-use crate::error::RuntimeErrorKind;
-use crate::host;
-use crate::host::HostFunction;
-use crate::session::ExecutionPhase;
-use crate::value;
-use crate::value_contains_host_owned_data;
-use kagari_common::capability::CapabilitySet;
-use kagari_common::host_interface::HostPassingStyle;
+use crate::{
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
+    host::{self, HostFunction},
+    session::ExecutionPhase,
+    value, value_contains_host_owned_data,
+};
+use kagari_common::{capability::CapabilitySet, host_interface::HostPassingStyle};
 
 impl Runtime {
     pub(super) fn validate_host_path_exposure(

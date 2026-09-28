@@ -1,7 +1,5 @@
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::{Diagnostic, DiagnosticKind};
-use rowan::Checkpoint as GreenCheckpoint;
-use rowan::{GreenNode, GreenNodeBuilder, Language};
+use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+use rowan::{Checkpoint as GreenCheckpoint, GreenNode, GreenNodeBuilder, Language};
 use smallvec::SmallVec;
 
 use crate::{

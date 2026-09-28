@@ -1,21 +1,22 @@
 //! Scalar const facts belong to semantic analysis, never to a backend.
 
 use super::const_budget::ConstBudget;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_common::integer;
-use kagari_common::integer::IntegerOp;
-use std::collections::HashMap;
-
-use kagari_common::arithmetic::{self, IntegerBinaryOp};
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
-use smallvec::SmallVec;
-
 use crate::{
     hir::{BinaryOp, ConstId, ExprId, ExprKind, PrefixOp},
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
+    types::TypeId,
 };
+use kagari_abi::scalar::BuiltinType;
+use kagari_common::{
+    Diagnostic, DiagnosticKind,
+    arithmetic::{self, IntegerBinaryOp},
+    cancellation::CancellationToken,
+    integer::{self, IntegerOp},
+};
+use std::collections::HashMap;
+
+use smallvec::SmallVec;
 
 use super::{ScalarValue, TypeTable};
 

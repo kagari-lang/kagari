@@ -1,13 +1,13 @@
-use crate::tests::native_fixtures;
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::ModuleRef;
+use crate::{
+    Vm, VmError,
+    tests::{common::compile_test_bytecode, native_fixtures},
+};
+use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
 use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, host::HostFunction, value::Value,
+    BackendInvocationError, CapabilitySet, HostExposurePolicy, LanguageProfile,
+    NativeInvocationFailure, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
+    SecurityContext, host::HostFunction, value::Value,
 };
 
 fn runtime(limit: Option<u64>) -> Runtime {

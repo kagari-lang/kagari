@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -187,11 +184,8 @@ fn explicit_iterator_default_override_uses_the_script_implementation() {
 
 #[test]
 fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
-    use kagari_abi::operations::IterOp;
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_bytecode::BytecodeInstruction as I;
-    use kagari_bytecode::ConstantOperand;
+    use kagari_abi::{operations::IterOp, scalar::BuiltinType, types::AbiType};
+    use kagari_bytecode::{BytecodeInstruction as I, ConstantOperand};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -455,9 +449,7 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
 
 #[test]
 fn native_iter_allocation_is_independent_of_source_length() {
-    use kagari_abi::operations::IterOp;
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{operations::IterOp, scalar::BuiltinType, types::AbiType};
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(

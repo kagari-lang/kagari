@@ -3,10 +3,7 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 
 fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
@@ -241,10 +238,10 @@ fn trait_inputs_and_associated_outputs_remain_distinct() {
 
 #[test]
 fn tampered_associated_schemas_and_bounds_are_rejected() {
-    use kagari_abi::standard::surface::StandardTypeConstraint;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::ConstraintAbi;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::{
+        standard::surface::StandardTypeConstraint,
+        types::{AbiType, ConstraintAbi, PublicAbiItem},
+    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..3 {
@@ -366,8 +363,7 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 
 #[test]
 fn interface_instance_bounds_are_checked_without_method_slots() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"), Default::default(), Default::default()).unwrap();
     let mut program = artifact.program.clone();
@@ -440,8 +436,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 
 #[test]
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"), Default::default(), Default::default()).unwrap();
     for mutation in 0..6 {

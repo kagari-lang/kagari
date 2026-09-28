@@ -206,9 +206,10 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
 
 #[test]
 fn executable_struct_fields_require_concrete_resolved_types() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::NominalAbiType;
+    use kagari_abi::{
+        scalar::BuiltinType,
+        types::{AbiType, NominalAbiType},
+    };
     let module = common::bytecode_ok(
         "struct Box<T> { val value: T } fn main() -> i32 { Box<i32> { value: 42 }.value }",
     );
@@ -233,11 +234,8 @@ fn executable_struct_fields_require_concrete_resolved_types() {
 
 #[test]
 fn struct_instances_must_match_public_templates_locally_and_across_modules() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::ModuleRef;
-    use kagari_bytecode::verify_program;
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
+    use kagari_bytecode::{BytecodeProgram, ModuleRef, verify_program};
     let owner = common::bytecode_ok(
         "pub struct Box<T> { var values: ArrayList<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );

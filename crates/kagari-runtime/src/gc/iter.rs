@@ -1,23 +1,22 @@
 use super::string_iter::StringTraversal;
-use crate::LoadedModule;
-use crate::error::RuntimeError;
-use crate::error::RuntimeErrorKind;
-use crate::gc::CollectionIteration;
-use crate::gc::GcHeap;
-use crate::gc::GcObjectKind;
-use crate::gc::HeapObject;
-use crate::module::RetainedRuntimeProgram;
-use crate::session::SessionState;
-use crate::value::EnumTag;
-use crate::value::Value;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StringIterKind;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use std::cell::Cell;
-use std::collections::HashSet;
-use std::rc::Rc;
-use std::rc::Weak;
+use crate::{
+    LoadedModule,
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject},
+    module::RetainedRuntimeProgram,
+    session::SessionState,
+    value::{EnumTag, Value},
+};
+use kagari_abi::{
+    operations::{IterOp, StringIterKind},
+    scalar::BuiltinType,
+    types::AbiType,
+};
+use std::{
+    cell::Cell,
+    collections::HashSet,
+    rc::{Rc, Weak},
+};
 
 #[derive(Debug)]
 pub(super) struct NativeIter {

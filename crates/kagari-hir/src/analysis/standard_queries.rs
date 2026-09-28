@@ -2,26 +2,28 @@
 
 #[cfg(test)]
 use crate::builtin::declarations::ApiItemSemantics;
-use crate::builtin::declarations::ApiTypeSemantics;
-use crate::builtin::declarations::{ApiBoundSemantics, ApiImplementationSemantics};
+use crate::builtin::declarations::{
+    ApiBoundSemantics, ApiImplementationSemantics, ApiTypeSemantics,
+};
 #[cfg(test)]
 use crate::builtin::traits::StandardTraitSemantics;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::STANDARD_TRAITS;
+use kagari_abi::standard::{
+    declarations::ApiItem,
+    surface::{self as standard_surface, STANDARD_TRAITS, StandardMethodReceiver},
+    traits::StandardTrait,
+};
 
-use kagari_abi::standard::surface::StandardMethodReceiver;
-use kagari_abi::standard::traits::StandardTrait;
-
-use crate::analysis::FileAnalysis;
-use crate::builtin::declarations;
-use crate::builtin::declarations::Arguments;
-use crate::builtin::traits;
-use crate::declarations::Declaration;
-use crate::declarations::DeclarationId;
-use crate::hir::ExprKind;
-use crate::typeck::CallTarget;
-use crate::types::TypeId;
-use kagari_abi::standard::declarations::ApiItem;
+use crate::{
+    analysis::FileAnalysis,
+    builtin::{
+        declarations::{self, Arguments},
+        traits,
+    },
+    declarations::{Declaration, DeclarationId},
+    hir::ExprKind,
+    typeck::CallTarget,
+    types::TypeId,
+};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 
@@ -454,8 +456,7 @@ mod tests {
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use kagari_abi::standard::surface::StandardEnum;
-        use kagari_abi::standard::traits::StandardTrait;
+        use kagari_abi::standard::{surface::StandardEnum, traits::StandardTrait};
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_abi::scalar::BuiltinType::String);
         let target = TypeId::Map {

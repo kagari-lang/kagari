@@ -1,14 +1,10 @@
-use crate::hir::ExprId;
-use crate::hir::Literal;
-use crate::hir::LiteralKind;
-use crate::typeck::ScalarValue;
-use crate::typeck::body::BodyChecker;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::literal;
+use crate::{
+    hir::{ExprId, Literal, LiteralKind},
+    typeck::{ScalarValue, body::BodyChecker},
+    types::TypeId,
+};
+use kagari_abi::{scalar::BuiltinType, standard::surface as standard_surface};
+use kagari_common::{Diagnostic, DiagnosticKind, literal};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_numeric_literal(

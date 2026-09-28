@@ -1,8 +1,10 @@
 //! Source/semantic identity is distinct from runtime slots and display spelling.
 use crate::{Span, decode_limits::bounded_vec};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::fmt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    fmt,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 pub const MAX_IDENTITY_PATH_SEGMENTS: usize = 64;

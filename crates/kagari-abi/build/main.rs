@@ -1,8 +1,6 @@
 use api::NativeFunction;
-use ast::Attribute;
-use ast::Item;
-use std::env;
-use std::fs;
+use ast::{Attribute, Item};
+use std::{env, fs};
 mod api;
 mod implementations;
 use kagari_common::{SourceFile, cancellation::CancellationToken};

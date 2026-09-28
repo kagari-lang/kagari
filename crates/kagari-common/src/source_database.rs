@@ -1,11 +1,8 @@
-use crate::identity::{FileSpan, ModuleIdentity};
-use std::{collections::BTreeMap, sync::Arc};
-use std::{env, fs};
-
 use crate::{
     SourceFile,
-    identity::{FileId, Revision},
+    identity::{FileId, FileSpan, ModuleIdentity, Revision},
 };
+use std::{collections::BTreeMap, env, fs, sync::Arc};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SourceLayer {

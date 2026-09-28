@@ -7,10 +7,10 @@ use crate::{
     value::Value,
 };
 use kagari_abi::types as abi;
-use std::cmp::Ordering;
-use std::fmt;
-use std::fmt::Error;
-use std::fmt::Write;
+use std::{
+    cmp::Ordering,
+    fmt::{self, Error, Write},
+};
 
 /// Collection interface boxes preserve the identity of their underlying object.
 pub(crate) fn collection_data(gc: &GcHeap, value: &Value) -> Option<Value> {
@@ -276,13 +276,12 @@ mod tests {
 
     #[test]
     fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
-        use kagari_abi::layout::EnumLayout;
-        use kagari_abi::layout::EnumVariantLayout;
-        use kagari_abi::scalar::BuiltinType;
-        use kagari_abi::types::AbiType;
-        use kagari_bytecode::BytecodeModule;
-        use kagari_bytecode::BytecodeProgram;
-        use kagari_bytecode::ModuleRef;
+        use kagari_abi::{
+            layout::{EnumLayout, EnumVariantLayout},
+            scalar::BuiltinType,
+            types::AbiType,
+        };
+        use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
         use kagari_common::identity::{
             DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
         };

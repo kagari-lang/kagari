@@ -1,23 +1,29 @@
-use std::ffi::c_void;
-use std::rc::Rc;
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    ffi::c_void,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::{
-    BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCodeOwner,
-    NativeCompilationProduct,
+use kagari_abi::{
+    ids::FunctionRef,
+    native::{
+        BackendId, BackendTarget, ExecutableEntryPoint, ExecutableFunctionArtifact,
+        NativeCodeOwner, NativeCompilationProduct,
+    },
+    native_call::{JIT_STATUS_OK, JitValue},
 };
-use kagari_abi::native_call::{JIT_STATUS_OK, JitValue};
 use kagari_codegen::{
     BackendCompileError, BackendConfiguration, BackendDiagnostic, BackendDiagnosticKind,
     BackendFunctionInput, CodegenBackend,
 };
 use kagari_common::{SourceFile, cancellation::CancellationToken};
-use kagari_embed::program::{NativePreparationError, PreparedProgram, ProgramPreparationError};
-use kagari_embed::{ArtifactOptions, ExecutionContext, KagariEngine, NativeInputExport};
+use kagari_embed::{
+    ArtifactOptions, ExecutionContext, KagariEngine, NativeInputExport,
+    program::{NativePreparationError, PreparedProgram, ProgramPreparationError},
+};
 use kagari_mir::{Constant, Instruction, Terminator};
 use kagari_runtime::{CapabilitySet, LanguageProfile, jit_abi::jit_consume_instruction_step};
 use kagari_vm::{JitExecutionStatus, PreparedNativeEntry};

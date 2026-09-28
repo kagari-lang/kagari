@@ -152,8 +152,7 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
 
 #[test]
 fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
 
     let module = host_trait_test_module("trait Readable<T> { fn get(self) -> T; } fn main() {}");
     assert!(

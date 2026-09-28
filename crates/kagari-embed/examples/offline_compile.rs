@@ -2,8 +2,8 @@
 
 use kagari_bytecode::ArtifactSectionId;
 use kagari_bytecode::KBC_ARTIFACT_FORMAT_VERSION;
-use kagari_common::collection::CollectionAccess;
 use kagari_common::{
+    collection::CollectionAccess,
     host_interface::{
         HostFieldDeclaration, HostFunctionDeclaration, HostIndexSegmentDeclaration, HostInterface,
         HostMethodDeclaration, HostParameter, HostPassingStyle, HostPathDeclaration,
@@ -13,10 +13,7 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::ArtifactOptions;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::CompileOptions;
-use kagari_embed::KagariEngine;
+use kagari_embed::{ArtifactOptions, BytecodeArtifact, CompileOptions, KagariEngine};
 use kagari_runtime::LanguageProfile;
 use std::error::Error;
 

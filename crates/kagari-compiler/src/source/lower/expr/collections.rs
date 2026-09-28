@@ -1,22 +1,22 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::lower_type;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::declarations::NativeDefaultMethod;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::lower_type,
+};
+use kagari_abi::{
+    operations::{BinaryOp, IterOp, StandardEnumOp},
+    representation::ValueType,
+    standard::{
+        StandardIntrinsic, declarations::NativeDefaultMethod, surface::StandardEnum,
+        traits::StandardTrait,
+    },
+};
 use kagari_common::collection::CollectionAccess;
-use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::hir;
-use kagari_hir::types::TypeId;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use kagari_hir::{
+    builtin::traits::{self, StandardTraitSemantics},
+    hir,
+    types::TypeId,
+};
+use kagari_mir::instruction::{Instruction, MirValue, Terminator};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn readonly_array(

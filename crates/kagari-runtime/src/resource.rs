@@ -1,11 +1,8 @@
-use crate::execution_state::ExecutionState;
-use crate::session::SessionState;
+use crate::{error::RuntimeError, execution_state::ExecutionState, session::SessionState};
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
 };
-
-use crate::error::RuntimeError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ResourcePolicy {

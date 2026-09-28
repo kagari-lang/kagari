@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use kagari_common::{SourceFile, source_database::SourceLayer};
-use kagari_embed::ArtifactOptions;
-use kagari_embed::CompileOptions;
-use kagari_embed::EmbeddingError;
-use kagari_embed::KagariEngine;
+use kagari_embed::{ArtifactOptions, CompileOptions, EmbeddingError, KagariEngine};
 use kagari_hir::analysis::CancellationToken;
 use kagari_runtime::LanguageProfile;
 

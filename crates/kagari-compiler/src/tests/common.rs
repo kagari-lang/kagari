@@ -1,5 +1,4 @@
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
+use crate::{bytecode::lower_to_bytecode, lower_to_mir};
 use kagari_bytecode::BytecodeModule;
 use kagari_common::SourceFile;
 use kagari_hir::{CheckedAnalysis, analyze_source};

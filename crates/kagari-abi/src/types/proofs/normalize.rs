@@ -1,12 +1,12 @@
-use crate::standard::intrinsic;
-use crate::standard::traits::StandardTrait;
-use crate::types::AbiType;
-use crate::types::matching;
-use crate::types::proofs::search::Search;
-use crate::types::proofs::{Budget, ProofCatalog, host_application, satisfies};
-use crate::types::substitution::{TypeTransformError, normalize_projections};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::associated_type_id;
+use crate::{
+    standard::{intrinsic, traits::StandardTrait},
+    types::{
+        AbiType, matching,
+        proofs::{Budget, ProofCatalog, host_application, satisfies, search::Search},
+        substitution::{TypeTransformError, normalize_projections},
+    },
+};
+use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
 
 impl ProofCatalog<'_> {
     pub fn normalize(

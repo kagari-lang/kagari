@@ -1,22 +1,15 @@
-use kagari_abi::contracts;
-use kagari_common::identity::DefinitionKind;
+use kagari_abi::{
+    contracts::{self, ContractError},
+    effects::EffectSet,
+    representation::ValueType,
+};
+use kagari_common::{Span, cancellation::CancellationToken, identity::DefinitionKind};
 use std::{collections::HashSet, ops::Deref};
 
-use kagari_common::{Span, cancellation::CancellationToken};
-
-use crate::BlockId;
-use crate::LocalId;
-use crate::MirFunction;
-use crate::MirModule;
-use crate::MirValue;
-use crate::TempId;
-use crate::Terminator;
-use crate::analysis::FunctionAnalysis;
-use crate::ids::InstanceId;
-use crate::verify::analysis::Budget;
-use kagari_abi::contracts::ContractError;
-use kagari_abi::effects::EffectSet;
-use kagari_abi::representation::ValueType;
+use crate::{
+    BlockId, LocalId, MirFunction, MirModule, MirValue, TempId, Terminator,
+    analysis::FunctionAnalysis, ids::InstanceId, verify::analysis::Budget,
+};
 
 mod analysis;
 mod debug;

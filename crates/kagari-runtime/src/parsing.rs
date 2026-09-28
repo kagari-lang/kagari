@@ -4,8 +4,7 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::scalar::BuiltinType;
-use std::num::IntErrorKind;
-use std::num::ParseIntError;
+use std::num::{IntErrorKind, ParseIntError};
 
 pub(crate) fn parse(
     gc: &GcHeap,

@@ -1,9 +1,9 @@
-use crate::parser::Checkpoint;
+use crate::{
+    kind::SyntaxKind,
+    parser::{Checkpoint, Parser},
+    token::TokenKind,
+};
 use kagari_common::{Diagnostic, DiagnosticKind};
-
-use crate::{kind::SyntaxKind, token::TokenKind};
-
-use crate::parser::Parser;
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_block(&mut self) {

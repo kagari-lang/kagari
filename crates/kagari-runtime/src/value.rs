@@ -1,16 +1,16 @@
-use crate::gc::GcHeap;
-use crate::gc::HeapObjectId;
-use crate::host::HostRegistryId;
-use crate::host::{FrameHostBorrowToken, HostPathViewHandle, HostRootHandle};
-use crate::module::EnumVariantRef;
-use crate::range::RangeValue;
-use crate::value_semantics;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types::AbiType;
+use crate::{
+    gc::{GcHeap, HeapObjectId},
+    host::{FrameHostBorrowToken, HostPathViewHandle, HostRegistryId, HostRootHandle},
+    module::EnumVariantRef,
+    range::RangeValue,
+    value_semantics,
+};
+use kagari_abi::{representation::ValueType, types::AbiType};
 use kagari_common::identity::DefinitionId;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::Hash;
-use std::hash::Hasher;
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructValueField {

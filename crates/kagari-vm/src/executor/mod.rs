@@ -1,18 +1,17 @@
 use kagari_bytecode::Register;
 use kagari_runtime::ExecutionEvent;
-use std::cell::Ref;
-use std::cell::RefMut;
+use std::cell::{Ref, RefMut};
 mod aggregate_ops;
 mod dispatch;
 mod value_ops;
 
 use kagari_abi::ids::FunctionRef;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::ModuleRef;
-use kagari_runtime::{LoadedModule, RootedInterfaceMethod, Runtime, value::Value};
+use kagari_bytecode::{BytecodeInstruction, ModuleRef};
+use kagari_runtime::{
+    ExecutionFrame, ExecutionStack, LoadedModule, RootedInterfaceMethod, Runtime, value::Value,
+};
 
 use crate::error::VmError;
-use kagari_runtime::{ExecutionFrame, ExecutionStack};
 
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,

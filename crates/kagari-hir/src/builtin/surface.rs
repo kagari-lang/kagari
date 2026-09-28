@@ -1,12 +1,16 @@
 //! Source type operations over the engine-owned standard declaration surface.
 use super::traits;
 use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::{
-    BuiltinTypeFamily, StandardTypeConstructor, builtin_type_spec, range_kind, standard_enum,
-    standard_type_constructor,
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{
+        surface::{
+            BuiltinTypeFamily, StandardTypeConstructor, builtin_type_spec, range_kind,
+            standard_enum, standard_type_constructor,
+        },
+        traits::StandardTrait,
+    },
 };
-use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::collection::CollectionAccess;
 
 pub fn standard_enum_type(name: &str, args: Vec<TypeId>) -> Option<TypeId> {

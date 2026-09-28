@@ -1,8 +1,9 @@
-use kagari_syntax::ast;
-use kagari_syntax::kind::SyntaxKind;
+use kagari_syntax::{ast, kind::SyntaxKind};
 
-use crate::hir::{Literal, LiteralKind};
-use crate::lower::context::Lowerer;
+use crate::{
+    hir::{Literal, LiteralKind},
+    lower::context::Lowerer,
+};
 
 impl Lowerer {
     pub(crate) fn lower_literal(&self, literal: &ast::Literal) -> Literal {

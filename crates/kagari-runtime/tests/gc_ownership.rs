@@ -1,7 +1,4 @@
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::value::Value;
-use kagari_runtime::value_semantics::script_equal;
+use kagari_runtime::{Runtime, RuntimeErrorKind, value::Value, value_semantics::script_equal};
 
 #[test]
 fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting() {
@@ -133,14 +130,10 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 
 #[test]
 fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
-    use kagari_runtime::CapabilitySet;
-    use kagari_runtime::HostExposurePolicy;
-    use kagari_runtime::HostFunctionDeclaration;
-    use kagari_runtime::HostValueType;
-    use kagari_runtime::LanguageProfile;
-    use kagari_runtime::RuntimeConfig;
-    use kagari_runtime::SecurityContext;
-    use kagari_runtime::host::HostFunction;
+    use kagari_runtime::{
+        CapabilitySet, HostExposurePolicy, HostFunctionDeclaration, HostValueType, LanguageProfile,
+        RuntimeConfig, SecurityContext, host::HostFunction,
+    };
     let mut runtime = Runtime::new(RuntimeConfig {
         security: SecurityContext {
             profile: LanguageProfile {
@@ -189,8 +182,7 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 
 #[test]
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
-    use kagari_runtime::value::EnumTag;
-    use kagari_runtime::value::MapKey;
+    use kagari_runtime::value::{EnumTag, MapKey};
     let runtime = Runtime::default();
     let object = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
     let value = runtime

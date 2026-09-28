@@ -1,8 +1,6 @@
-use crate::hir::HirArenaId;
-use crate::hir::HirOwner;
 use crate::hir::{
-    BlockData, BlockId, ExprData, ExprId, PatternData, PatternId, PlaceData, PlaceId, StmtData,
-    StmtId, TypeData, TypeRefId,
+    BlockData, BlockId, ExprData, ExprId, HirArenaId, HirOwner, PatternData, PatternId, PlaceData,
+    PlaceId, StmtData, StmtId, TypeData, TypeRefId,
 };
 
 #[derive(Debug, Clone, Default)]

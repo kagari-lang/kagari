@@ -1,10 +1,11 @@
-use crate::hir::TypeRefId;
+use crate::{
+    hir::{ExprId, TypeRefId},
+    types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
 use std::collections::HashMap;
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
-
-use crate::{hir::ExprId, types::TypeId};
 
 /// Constraint storage belongs to one function body, never to a cached signature.
 #[derive(Default)]

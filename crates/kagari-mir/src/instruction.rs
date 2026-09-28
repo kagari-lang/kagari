@@ -1,23 +1,20 @@
 use serde::{Deserialize, Serialize};
 mod operands;
-use kagari_abi::effects::{EffectSet, standard_intrinsic_effects};
-use kagari_abi::numeric::NumericConversion;
-use kagari_abi::numeric::NumericOperation;
-use kagari_abi::operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp};
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
-use kagari_common::host_interface::HostFunctionDeclaration;
-use kagari_common::host_interface::HostPathDeclaration;
-use kagari_common::identity::DefinitionId;
+use kagari_abi::{
+    effects::{EffectSet, standard_intrinsic_effects},
+    numeric::{NumericConversion, NumericOperation},
+    operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
+    representation::ValueType,
+    standard::StandardIntrinsic,
+    types::{AbiType, NominalAbiType},
+};
+use kagari_common::{
+    host_interface::{HostFunctionDeclaration, HostPathDeclaration},
+    identity::DefinitionId,
+};
 use smallvec::SmallVec;
 
-use crate::ids::BlockId;
-use crate::ids::InstanceId;
-use crate::ids::LocalId;
-use crate::ids::ModuleSlotId;
-use crate::ids::TempId;
-use kagari_abi::representation::ValueType;
+use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirValue {

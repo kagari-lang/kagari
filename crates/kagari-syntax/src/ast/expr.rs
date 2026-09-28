@@ -1,4 +1,3 @@
-use crate::ast::ty::TypeRef;
 use crate::{
     ast::{
         ast_node,
@@ -6,6 +5,7 @@ use crate::{
         stmt::Stmt,
         support,
         traits::AstNode,
+        ty::TypeRef,
     },
     kind::SyntaxKind,
     syntax_node::SyntaxNode,

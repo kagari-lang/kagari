@@ -1,6 +1,7 @@
-use crate::hir::ConstId;
-use crate::hir::GenericParamId;
-use crate::hir::{FunctionId, ImplId, MethodId, StructId, TraitId, TraitMethodId, TypeRefId};
+use crate::hir::{
+    ConstId, FunctionId, GenericParamId, ImplId, MethodId, StructId, TraitId, TraitMethodId,
+    TypeRefId,
+};
 
 use super::Visibility;
 

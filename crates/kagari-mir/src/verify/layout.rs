@@ -1,14 +1,12 @@
-use crate::CallTarget;
-use crate::Instruction;
-use crate::MirModule;
-use crate::verify::Context;
-use crate::verify::MirVerificationError;
-use crate::verify::MirVerificationErrorKind as Error;
-use kagari_abi::host;
-use kagari_abi::layout;
-use kagari_abi::layout::LayoutValidationError;
-use kagari_abi::layout::validate_layouts;
-use kagari_abi::types::verify as abi_verify;
+use crate::{
+    CallTarget, Instruction, MirModule,
+    verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
+};
+use kagari_abi::{
+    host,
+    layout::{self, LayoutValidationError, validate_layouts},
+    types::verify as abi_verify,
+};
 use kagari_common::host_interface::HostInterface;
 use std::collections::BTreeMap;
 

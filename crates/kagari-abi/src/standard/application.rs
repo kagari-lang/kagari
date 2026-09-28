@@ -1,11 +1,13 @@
 //! Bind generated standard declarations to known executable operand types.
 use crate::standard::declarations::{ApiBound, ApiType};
-use crate::standard::resolve::Arguments;
-use crate::standard::traits::StandardTrait;
-use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError};
-use crate::types::{AbiType, NominalAbiType};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::collection::CollectionAccess;
+use crate::{
+    standard::{resolve::Arguments, traits::StandardTrait},
+    types::{
+        AbiType, NominalAbiType,
+        substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
+    },
+};
+use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
 use std::collections::BTreeSet;
 
 pub struct StandardArguments {

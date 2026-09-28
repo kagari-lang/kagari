@@ -1,27 +1,22 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
 use kagari_abi::types::inheritance;
 
-use kagari_abi::contracts;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_common::identity::DefinitionKind;
-use std::collections::{HashMap, HashSet};
-
+use kagari_abi::{
+    contracts,
+    representation::ValueType,
+    types::{self as abi, AbiType, ConcreteFunctionIdentity, PublicAbiItem},
+};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, ModuleIdentity},
+    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
 };
+use std::collections::{HashMap, HashSet};
 
-use crate::CallTarget;
-use crate::Instruction;
-use crate::MirModule;
-use crate::MirVerificationError;
-use crate::VerifiedMirModule;
-use crate::ids::InstanceId;
-use crate::verify::{VerificationBudget, verify_with_budget};
-use kagari_abi::types::ConcreteFunctionIdentity;
+use crate::{
+    CallTarget, Instruction, MirModule, MirVerificationError, VerifiedMirModule,
+    ids::InstanceId,
+    verify::{VerificationBudget, verify_with_budget},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProgramFunctionRef {

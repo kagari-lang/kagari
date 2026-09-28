@@ -1,9 +1,9 @@
-use crate::numeric;
-use crate::operations::BinaryOp;
-use crate::operations::UnaryOp;
-use crate::representation::ValueType;
-use crate::standard::StandardIntrinsic;
-use crate::standard::surface;
+use crate::{
+    numeric,
+    operations::{BinaryOp, UnaryOp},
+    representation::ValueType,
+    standard::{StandardIntrinsic, surface},
+};
 use kagari_common::host_interface::HostFunctionDeclaration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,8 +1,8 @@
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
-use crate::tests::common;
-use kagari_mir::analysis::SafepointKind;
-use kagari_mir::{BlockId, Instruction, LocalId, MirModule, TempId, VerifiedMirModule, verify_mir};
+use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use kagari_mir::{
+    BlockId, Instruction, LocalId, MirModule, TempId, VerifiedMirModule, analysis::SafepointKind,
+    verify_mir,
+};
 
 fn checked(source: &str) -> VerifiedMirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default()).unwrap()

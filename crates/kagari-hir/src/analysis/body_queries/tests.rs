@@ -1,8 +1,10 @@
 use super::*;
 use crate::declarations::DeclarationId;
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::identity::FileId;
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_common::{
+    identity::FileId,
+    source_database::{SourceDatabase, SourceLayer},
+};
 
 fn owner(
     db: &mut AnalysisDatabase,

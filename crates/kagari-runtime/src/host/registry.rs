@@ -1,47 +1,27 @@
-use crate::Runtime;
-use crate::error::RuntimeError;
-use crate::gc::GcHeap;
-use crate::host::DynamicPathArgSlot;
-use crate::host::DynamicPathArguments;
-use crate::host::HostBorrowTable;
-use crate::host::HostCallContext;
-use crate::host::HostFunction;
-use crate::host::HostFunctionId;
-use crate::host::HostObjectId;
-use crate::host::HostPathAdapter;
-use crate::host::HostPathContext;
-use crate::host::HostPathDescriptor;
-use crate::host::HostPathDescriptorId;
-use crate::host::HostPathDescriptorRegistration;
-use crate::host::HostPathMutationRecord;
-use crate::host::HostPathOperation;
-use crate::host::HostPathSegment;
-use crate::host::HostPathSegmentRegistration;
-use crate::host::HostPathViewHandle;
-use crate::host::HostRegistry;
-use crate::host::HostRegistryId;
-use crate::host::HostRootHandle;
-use crate::host::HostSchemaEpoch;
-use crate::host::HostTypeInfo;
-use crate::host::apply_path_modify;
-use crate::host::dynamic_args_for_descriptor;
-use crate::host::path_access_allows;
-use crate::host::path_scope_error;
-use crate::host::validate_dynamic_arguments;
-use crate::host::validate_path_access;
-use crate::metadata::TypeId;
-use crate::metadata::TypeRegistry;
-use crate::value::Value;
+use crate::{
+    Runtime,
+    error::RuntimeError,
+    gc::GcHeap,
+    host::{
+        DynamicPathArgSlot, DynamicPathArguments, HostBorrowTable, HostCallContext, HostFunction,
+        HostFunctionId, HostObjectId, HostPathAdapter, HostPathContext, HostPathDescriptor,
+        HostPathDescriptorId, HostPathDescriptorRegistration, HostPathMutationRecord,
+        HostPathOperation, HostPathSegment, HostPathSegmentRegistration, HostPathViewHandle,
+        HostRegistry, HostRegistryId, HostRootHandle, HostSchemaEpoch, HostTypeInfo,
+        apply_path_modify, dynamic_args_for_descriptor, path_access_allows, path_scope_error,
+        validate_dynamic_arguments, validate_path_access,
+    },
+    metadata::{TypeId, TypeRegistry},
+    value::Value,
+};
 use kagari_bytecode::BinaryOp;
-use kagari_common::host_interface;
-use kagari_common::host_interface::HostInterface;
-use kagari_common::host_interface::HostPathDeclaration;
-use kagari_common::host_interface::HostPathSegmentDeclaration;
-use kagari_common::host_interface::HostTypeOwnership;
-use kagari_common::host_interface::HostValueType;
-use kagari_common::host_interface::PathAccess;
-use kagari_common::host_interface::Visibility;
-use kagari_common::identity::DefinitionId;
+use kagari_common::{
+    host_interface::{
+        self, HostInterface, HostPathDeclaration, HostPathSegmentDeclaration, HostTypeOwnership,
+        HostValueType, PathAccess, Visibility,
+    },
+    identity::DefinitionId,
+};
 use std::iter;
 
 impl HostRegistry {

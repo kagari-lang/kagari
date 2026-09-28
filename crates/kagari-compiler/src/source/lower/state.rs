@@ -1,37 +1,29 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::debug::capture_origin;
-use crate::source::lower::instances::Instance;
-use crate::source::lower::instances::InstancePlanner;
-use crate::source::types::lower_type;
-use hir::StmtKind;
-use hir::Writeability;
-use kagari_abi::types::AbiType;
-use kagari_hir::resolver::ResolvedName;
-use kagari_hir::types::TypeId;
-use std::collections::{HashMap, HashSet};
-use std::slice;
+use crate::source::{
+    lower::{
+        MirLoweringError,
+        debug::capture_origin,
+        instances::{Instance, InstancePlanner},
+    },
+    types::lower_type,
+};
+use hir::{StmtKind, Writeability};
+use kagari_abi::{effects::EffectSet, representation::ValueType, types::AbiType};
+use kagari_hir::{
+    AnalyzedModule, hir, resolver::ResolvedName, typeck::TypedFunction, types::TypeId,
+};
+use std::{
+    collections::{HashMap, HashSet},
+    slice,
+};
 
 use kagari_common::Span;
-use kagari_hir::typeck::TypedFunction;
-use kagari_hir::{AnalyzedModule, hir};
 
-use kagari_abi::effects::EffectSet;
-use kagari_abi::representation::ValueType;
-use kagari_mir::debug::MirFunctionDebugMetadata;
-use kagari_mir::debug::MirLexicalScope;
-use kagari_mir::debug::MirLocalDebugInfo;
-use kagari_mir::function::BasicBlock;
-use kagari_mir::function::MirFunction;
-use kagari_mir::function::MirLocal;
-use kagari_mir::function::MirParameter;
-use kagari_mir::function::MirTemp;
-use kagari_mir::function::ParameterBuffer;
-use kagari_mir::ids::BlockId;
-use kagari_mir::ids::LocalId;
-use kagari_mir::ids::TempId;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use kagari_mir::{
+    debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
+    function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp, ParameterBuffer},
+    ids::{BlockId, LocalId, TempId},
+    instruction::{Instruction, MirValue, Terminator},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LoopScope {

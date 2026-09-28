@@ -1,16 +1,13 @@
-use crate::hir::BinaryOp;
-use crate::hir::PatternData;
-use crate::hir::PatternKind;
-use ast::Expr;
-use ast::Stmt;
-use kagari_syntax::ast;
-use kagari_syntax::kind::SyntaxKind;
-use smallvec::{SmallVec, smallvec};
-
-use crate::hir::{
-    BlockData, BlockId, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, StmtKind, Writeability,
+use crate::{
+    hir::{
+        BinaryOp, BlockData, BlockId, PatternData, PatternKind, PlaceData, PlaceId, PlaceKind,
+        StmtData, StmtId, StmtKind, Writeability,
+    },
+    lower::context::{Lowerer, syntax_span, token_span},
 };
-use crate::lower::context::{Lowerer, syntax_span, token_span};
+use ast::{Expr, Stmt};
+use kagari_syntax::{ast, kind::SyntaxKind};
+use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
     pub(crate) fn lower_block(&mut self, block: &ast::BlockExpr) -> BlockId {

@@ -1,58 +1,40 @@
-use crate::typeck::check::constants::validate_const_initializers;
-use crate::typeck::check::trait_surface::validate_trait_surface;
+use crate::typeck::check::{
+    constants::validate_const_initializers, trait_surface::validate_trait_surface,
+};
 use kagari_abi::standard::surface as standard_surface;
 mod constants;
 mod trait_surface;
-use super::ConstraintTarget;
-use super::associated;
-use super::associated_consts;
-use super::completion;
-use super::const_budget::ConstBudget;
-use super::const_eval;
-use super::constraints;
-use crate::aggregates::AggregateCatalog;
-use crate::aggregates::MethodSignature;
-use crate::declarations::Declarations;
-use crate::hir::Function;
-use crate::hir::Module;
-use crate::hir::Visibility;
-use crate::hir::Writeability;
-use crate::types::GenericParameterType;
-use crate::types::NominalType;
-use crate::types::TypeSubstitution;
-use kagari_common::Span;
-use kagari_common::cancellation::CancellationToken;
+use super::{
+    ConstraintTarget, associated, associated_consts, completion, const_budget::ConstBudget,
+    const_eval, constraints,
+};
+use crate::{
+    aggregates::{AggregateCatalog, MethodSignature},
+    declarations::Declarations,
+    hir::{Function, Module, Visibility, Writeability},
+    types::{GenericParameterType, NominalType, TypeSubstitution},
+};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::DefinitionId;
-use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
+use kagari_common::{Diagnostic, DiagnosticKind, TypePosition, identity::DefinitionId};
+use kagari_common::{Span, cancellation::CancellationToken};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
-use crate::AnalysisResult;
-use crate::hir::FunctionKind;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::resolver::ResolvedNames;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::FunctionTypeIndex;
-use crate::typeck::TopLevelTypeIndex;
-use crate::typeck::TypeIndexes;
-use crate::typeck::TypeTable;
-use crate::typeck::TypedFunction;
-use crate::typeck::TypedFunctionBuffer;
-use crate::typeck::TypedModule;
-use crate::typeck::TypedParameter;
-use crate::typeck::TypedParameterBuffer;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::display_type;
-use crate::typeck::ty::display_type_id;
-use crate::typeck::ty::resolve_type;
-use crate::typeck::ty::resolve_type_in;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::StandardTypeConstraint;
+use crate::{
+    AnalysisResult,
+    hir::FunctionKind,
+    lower::LoweredModule,
+    resolver::{ResolvedName, ResolvedNames},
+    typeck::{
+        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable, TypedFunction,
+        TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
+        body::BodyChecker,
+        ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
+    },
+    types::TypeId,
+};
+use kagari_abi::{scalar::BuiltinType, standard::surface::StandardTypeConstraint};
 
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,

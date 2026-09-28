@@ -1,16 +1,13 @@
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
-use kagari_abi::types::AbiType;
-use kagari_bytecode::EnumId;
-use kagari_bytecode::FieldRef;
-use kagari_bytecode::Register;
-use kagari_bytecode::StructId;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::value::EnumTag;
-use kagari_runtime::value::Value;
+use kagari_abi::{
+    operations::StandardEnumOp, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+};
+use kagari_bytecode::{EnumId, FieldRef, Register, StructId};
+use kagari_runtime::{
+    RuntimeErrorKind,
+    value::{EnumTag, Value},
+};
 
-use crate::error::VmError;
-use crate::executor::Executor;
+use crate::{error::VmError, executor::Executor};
 
 impl Executor<'_> {
     pub(crate) fn test_enum_variant(

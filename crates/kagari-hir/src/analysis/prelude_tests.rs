@@ -1,9 +1,8 @@
 use super::*;
-use crate::builtin::BuiltinFunction;
-use crate::declarations::DeclarationId;
-use crate::hir::ExprKind;
-use crate::resolver::ResolvedName;
-use crate::typeck::CallTarget;
+use crate::{
+    builtin::BuiltinFunction, declarations::DeclarationId, hir::ExprKind, resolver::ResolvedName,
+    typeck::CallTarget,
+};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 

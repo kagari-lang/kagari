@@ -12,16 +12,19 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module, default_libcall_names};
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::native::{
-    ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint, ExecutableSafepointKind,
-    ExecutableStackMap, ExecutableTrap, NativeCodeOwner, NativeCompilationProduct, NativeType,
+use kagari_abi::{
+    ids::FunctionRef,
+    native::{
+        ExecutableEntryPoint, ExecutableFunctionArtifact, ExecutableSafepoint,
+        ExecutableSafepointKind, ExecutableStackMap, ExecutableTrap, NativeCodeOwner,
+        NativeCompilationProduct, NativeType,
+    },
+    native_call::{
+        JIT_CONSUME_INSTRUCTION_STEP_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK,
+    },
+    operations::{BinaryOp, UnaryOp},
+    representation::ValueType,
 };
-use kagari_abi::native_call::{
-    JIT_CONSUME_INSTRUCTION_STEP_SYMBOL, JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK,
-};
-use kagari_abi::operations::{BinaryOp, UnaryOp};
-use kagari_abi::representation::ValueType;
 use kagari_codegen::{BackendCompileError, BackendConfiguration, BackendFunctionInput};
 use kagari_mir::{Instruction, MirFunction, Terminator};
 use std::{fmt, rc::Rc, sync::Arc};

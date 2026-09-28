@@ -8,22 +8,16 @@ use crate::builtin::standard::strings::{
     string_transform,
 };
 mod strings;
-use crate::error::RuntimeError;
-use crate::gc::HeapObjectId;
-use crate::numeric;
-use crate::parsing;
-use crate::range;
-use crate::value::EnumTag;
-use crate::value::EnumValueSnapshot;
-use crate::value_semantics;
-use kagari_abi::standard::StandardIntrinsic;
-use std::cmp::Ordering;
-
 use crate::{
     builtin::BuiltinError,
-    gc::GcHeap,
-    value::{EphemeralValue, EphemeralValueId, MapKey, Value},
+    error::RuntimeError,
+    gc::{GcHeap, HeapObjectId},
+    numeric, parsing, range,
+    value::{EnumTag, EnumValueSnapshot, EphemeralValue, EphemeralValueId, MapKey, Value},
+    value_semantics,
 };
+use kagari_abi::standard::StandardIntrinsic;
+use std::cmp::Ordering;
 
 pub trait BuiltinCallbacks {
     fn call(&mut self, id: EphemeralValueId, args: &[Value]) -> Result<Value, BuiltinError>;

@@ -1,23 +1,16 @@
-use crate::ExecutionSession;
-use crate::RuntimeErrorKind;
-use crate::gc::ClosureValueSnapshot;
-use crate::gc::{CollectionIteration, GcHeap, RootSet};
-use crate::value::Value;
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::LocalSlot;
-use kagari_bytecode::ModuleRef;
-use kagari_bytecode::Register;
-use std::cell::Ref;
-use std::cell::RefMut;
-use std::fmt;
-use std::fmt::Debug;
-use std::fmt::Formatter;
-use std::rc::Rc;
-
-use crate::{LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, RuntimeError};
+use crate::{
+    ExecutionSession, LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, RuntimeError,
+    RuntimeErrorKind,
+    gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, RootSet},
+    value::Value,
+};
+use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
+use kagari_bytecode::{BytecodeFunction, BytecodeInstruction, LocalSlot, ModuleRef, Register};
+use std::{
+    cell::{Ref, RefMut},
+    fmt::{self, Debug, Formatter},
+    rc::Rc,
+};
 
 /// An execution scope over the root session's shared frame stack.
 /// Dropping it unwinds only the frames entered by this scope.

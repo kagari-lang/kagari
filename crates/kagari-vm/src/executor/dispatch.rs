@@ -1,17 +1,9 @@
-use kagari_abi::operations::IterOp;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::PathId;
-use kagari_bytecode::Register;
-use kagari_bytecode::RuntimeHelper;
-use kagari_runtime::numeric;
-use kagari_runtime::range::RangeValue;
-use kagari_runtime::{HostPathDescriptorId, value::Value};
+use kagari_abi::{operations::IterOp, standard::StandardIntrinsic};
+use kagari_bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
+use kagari_runtime::{HostPathDescriptorId, numeric, range::RangeValue, value::Value};
 use std::iter;
 
-use crate::error::VmError;
-use crate::executor::Executor;
+use crate::{error::VmError, executor::Executor};
 
 impl<'a> Executor<'a> {
     pub(crate) fn dispatch_instruction(

@@ -1,7 +1,6 @@
 //! Source-owned native collection implementations with sealed execution bindings.
 use crate::api;
-use crate::attribute;
-use crate::ty;
+use crate::{attribute, ty};
 use kagari_syntax::ast;
 use std::fmt::Write;
 

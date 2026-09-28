@@ -1,7 +1,8 @@
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::SourceFile;
-use kagari_embed::program::PreparedProgram;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, JitPolicy, KagariEngine};
+use kagari_embed::{
+    BytecodeArtifact, ExecutionContext, JitPolicy, KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 use kagari_vm::{JitExecutionStatus, PreparedNativeEntry};
 

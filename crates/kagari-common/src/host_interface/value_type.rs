@@ -1,13 +1,12 @@
 //! Composite declarations use bounded, flat preorder encoding on the wire.
 use super::HostInterfaceError;
-use crate::collection::CollectionAccess;
-use crate::identity::DefinitionId;
+use crate::{collection::CollectionAccess, identity::DefinitionId};
 use bincode::Options;
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
-    de::{self, SeqAccess, Visitor},
+    de::{self, Error as DecodeError, SeqAccess, Visitor},
+    ser::Error as EncodeError,
 };
-use serde::{de::Error as DecodeError, ser::Error as EncodeError};
 use std::{fmt, vec::IntoIter};
 
 const MAX_DEPTH: usize = 64;

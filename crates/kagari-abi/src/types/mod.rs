@@ -6,28 +6,27 @@ pub mod substitution;
 pub mod verify;
 mod wire;
 
-use crate::representation::ValueType;
-use crate::scalar::BuiltinType;
-use crate::standard::contracts;
-use crate::standard::surface::StandardEnum as StandardEnumKind;
-use crate::types::substitution::{TypeSubstitution, resolve_associated_outputs};
-use bincode::DefaultOptions;
-use bincode::Options;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface::HostValueType;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::ModuleIdentity;
-use kagari_common::range::RangeKind;
-
-use crate::standard::surface::StandardTypeConstraint;
-use crate::standard::traits::StandardTrait;
+use crate::{
+    representation::ValueType,
+    scalar::BuiltinType,
+    standard::{
+        contracts,
+        surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
+        traits::StandardTrait,
+    },
+    types::substitution::{TypeSubstitution, resolve_associated_outputs},
+};
+use bincode::{DefaultOptions, Options};
+use kagari_common::{
+    cancellation::CancellationToken,
+    collection::CollectionAccess,
+    host_interface::HostValueType,
+    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
+    range::RangeKind,
+};
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-use std::fmt::Write;
-use std::sync::OnceLock;
+use std::{collections::BTreeMap, fmt::Write, sync::OnceLock};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleAbi {

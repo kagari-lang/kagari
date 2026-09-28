@@ -11,13 +11,10 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::CompileOptions;
-use kagari_embed::ExecutionContext;
-use kagari_embed::HostExposurePolicy;
-use kagari_embed::JitPolicy;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{
+    BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, JitPolicy,
+    KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},

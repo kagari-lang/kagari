@@ -1,26 +1,23 @@
 use super::NameResolution;
-use crate::builtin::BuiltinFunction;
-use crate::builtin::traits;
-use crate::hir::Condition;
-use crate::hir::PatternId;
-use crate::hir::{
-    BlockId, ConstId, ExprId, ExprKind, FunctionId, Module, ParamId, PatternKind, PlaceId,
-    PlaceKind, StmtId, StmtKind,
+use crate::{
+    builtin::{BuiltinFunction, traits},
+    hir::{
+        BlockId, BodyOwner, Condition, ConstId, ExprId, ExprKind, FunctionId, HirOwner, Module,
+        ParamId, PatternId, PatternKind, PlaceId, PlaceKind, StmtId, StmtKind,
+    },
+    host::HostDeclarations,
+    imports::ModuleImports,
+    resolver::{
+        LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding, table::NameTable,
+    },
+    source_map::SourceMap,
 };
-use crate::hir::{BodyOwner, HirOwner};
-use crate::host::HostDeclarations;
-use crate::imports::ModuleImports;
-use crate::resolver::QualifiedMember;
-use crate::resolver::{LexicalScope, ScopeBinding};
-use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
-use crate::source_map::SourceMap;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Span;
-use kagari_common::cancellation::CancellationToken;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::sync::Arc;
+use kagari_abi::standard::{surface as standard_surface, traits::StandardTrait};
+use kagari_common::{Span, cancellation::CancellationToken};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 struct ActiveScope {
     id: usize,

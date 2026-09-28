@@ -1,13 +1,12 @@
 use crate::ModuleRef;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::numeric::NumericConversion;
-use kagari_abi::numeric::NumericOperation;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
+use kagari_abi::{
+    ids::FunctionRef,
+    numeric::{NumericConversion, NumericOperation},
+    operations::{IterOp, StandardEnumOp},
+    representation::ValueType,
+    standard::StandardIntrinsic,
+    types::{AbiType, NominalAbiType},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -1,16 +1,11 @@
-use crate::MirLoweringError;
-use crate::MirLoweringOptions;
-use crate::source::lower;
+use crate::{MirLoweringError, MirLoweringOptions, source::lower};
 use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_common::DiagnosticKind;
-use kagari_common::identity::ModuleIdentity;
+use kagari_common::{DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
-use kagari_mir::CallTarget;
-use kagari_mir::Instruction;
-use kagari_mir::program::ProgramError;
-use kagari_mir::program::ProgramErrorKind;
-use kagari_mir::program::VerifiedMirProgram;
-use kagari_mir::program::verify_program;
+use kagari_mir::{
+    CallTarget, Instruction,
+    program::{ProgramError, ProgramErrorKind, VerifiedMirProgram, verify_program},
+};
 use std::collections::{HashMap, HashSet};
 #[derive(Debug)]
 pub enum SourceProgramError {

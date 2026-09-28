@@ -1,31 +1,29 @@
-use super::constraints;
-use crate::builtin::traits;
-use crate::hir::EnumId;
-use crate::hir::GenericParamId;
-use crate::hir::StructId;
-use crate::hir::TraitId;
-use crate::hir::TypeRefId;
-use crate::host::HostFunctionId;
-use crate::host::HostTypeId;
-use crate::imports::SourceFunctionId;
-use crate::imports::SourceTypeId;
-use crate::source_map::SourceMap;
-use crate::types::AssociatedTypeFamily;
-use crate::types::AssociatedTypeParameters;
-use kagari_abi::standard::surface::StandardTypeConstraint;
-use kagari_abi::standard::surface::StandardVariant;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Span;
-use kagari_common::host_interface::HostPathContract;
-use kagari_common::host_interface::HostPathDeclaration;
+use super::{ScalarValue, constraints};
+use crate::{
+    builtin::{BuiltinFunction, traits},
+    hir::{
+        EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, PatternId, PlaceId, StructId,
+        TraitId, TypeRefId,
+    },
+    host::{HostFunctionId, HostTypeId},
+    imports::{SourceFunctionId, SourceTypeId},
+    source_map::SourceMap,
+    types::{
+        AssociatedTypeFamily, AssociatedTypeParameters, GenericParameterType, NominalType, TypeId,
+        TypeSubstitution,
+    },
+};
+use kagari_abi::standard::{
+    StandardIntrinsic,
+    surface::{StandardTypeConstraint, StandardVariant},
+    traits::StandardTrait,
+};
+use kagari_common::{
+    Span,
+    host_interface::{HostPathContract, HostPathDeclaration},
+    identity::DefinitionId,
+};
 use std::collections::{HashMap, HashSet};
-
-use super::ScalarValue;
-use crate::builtin::BuiltinFunction;
-use crate::hir::{ExprId, FieldId, FunctionId, LocalId, PatternId, PlaceId};
-use crate::types::{GenericParameterType, NominalType, TypeId, TypeSubstitution};
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_common::identity::DefinitionId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintTarget {

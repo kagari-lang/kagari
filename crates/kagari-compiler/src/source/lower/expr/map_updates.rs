@@ -1,9 +1,9 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use kagari_abi::operations::StandardEnumOp as Op;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface::StandardEnum;
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use kagari_abi::{
+    operations::StandardEnumOp as Op,
+    representation::ValueType,
+    standard::{StandardIntrinsic, surface::StandardEnum},
+};
 use kagari_hir::types::TypeId;
 use kagari_mir::instruction::MirValue;
 

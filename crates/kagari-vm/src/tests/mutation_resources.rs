@@ -1,8 +1,8 @@
-use crate::tests::native_fixtures;
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::ModuleRef;
+use crate::{
+    Vm, VmError,
+    tests::{common::compile_test_bytecode, native_fixtures},
+};
+use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
     SecurityContext,

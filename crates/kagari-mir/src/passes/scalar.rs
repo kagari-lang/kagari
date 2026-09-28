@@ -1,10 +1,14 @@
-use kagari_abi::numeric::NumericOperation;
-use kagari_abi::operations::{BinaryOp, UnaryOp};
-use kagari_abi::representation::ValueType;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use kagari_common::arithmetic::{self, IntegerBinaryOp};
-use kagari_common::integer::{self, IntegerOp};
+use kagari_abi::{
+    numeric::NumericOperation,
+    operations::{BinaryOp, UnaryOp},
+    representation::ValueType,
+    scalar::BuiltinType,
+    types::AbiType,
+};
+use kagari_common::{
+    arithmetic::{self, IntegerBinaryOp},
+    integer::{self, IntegerOp},
+};
 use std::cmp::Ordering;
 
 use crate::Constant;

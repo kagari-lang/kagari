@@ -1,39 +1,36 @@
-use crate::source::types::{lower_nominal_type, lower_type};
-use kagari_abi::standard::declarations as standard_declarations;
-use kagari_abi::standard::declarations::NativeDefaultMethod;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::FunctionAbi;
-use kagari_abi::types::InterfaceTableAbi;
-use kagari_abi::types::ParameterAbi;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::DefinitionPathSegment;
-use kagari_common::identity::ModuleIdentity;
-use kagari_hir::CheckedAnalysis;
-use kagari_hir::aggregates::AggregateCatalog;
-use kagari_hir::builtin::traits;
-use kagari_hir::typeck::ScalarValue;
-use kagari_hir::types::NominalType;
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::slice;
-
-use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
+use crate::source::{
+    lower::MirLoweringError,
+    types::{lower_nominal_type, lower_type},
+};
+use kagari_abi::{
+    representation::ValueType,
+    standard::{
+        declarations::{self as standard_declarations, NativeDefaultMethod},
+        traits::StandardTrait,
+    },
+    types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
+};
+use kagari_common::{
+    Diagnostic, DiagnosticKind, Span,
+    cancellation::CancellationToken,
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+};
 use kagari_hir::{
-    AnalyzedModule,
+    AnalyzedModule, CheckedAnalysis,
+    aggregates::AggregateCatalog,
+    builtin::traits,
     declarations::DeclarationId,
     hir,
     resolver::ResolvedName,
-    types::{TypeId, TypeSubstitution},
+    typeck::ScalarValue,
+    types::{NominalType, TypeId, TypeSubstitution},
+};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    slice,
 };
 
-use crate::source::lower::MirLoweringError;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_mir::ids::InstanceId;
-use kagari_mir::passes::PassOptions;
+use kagari_mir::{ids::InstanceId, passes::PassOptions};
 
 #[derive(Debug, Clone)]
 pub struct MirLoweringOptions {

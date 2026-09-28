@@ -2,8 +2,7 @@
 #[cfg(feature = "source")]
 pub(crate) mod source;
 
-use crate::context::ExecutionContext;
-use crate::runtime::KagariRuntime;
+use crate::{context::ExecutionContext, runtime::KagariRuntime};
 #[cfg(feature = "source")]
 use kagari_common::source_database::SourceDatabase;
 #[cfg(feature = "source")]

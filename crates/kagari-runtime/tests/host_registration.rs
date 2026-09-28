@@ -1,29 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use kagari_runtime::AbiFingerprint;
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::HostExposurePolicy;
-use kagari_runtime::HostFunctionDeclaration;
-use kagari_runtime::HostFunctionEffects;
-use kagari_runtime::HostParameter;
-use kagari_runtime::HostPassingStyle;
-use kagari_runtime::HostReflectionPolicy;
-use kagari_runtime::HostTypeOwnership;
-use kagari_runtime::HostTypeRegistration;
-use kagari_runtime::LanguageProfile;
-use kagari_runtime::PathAccess;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::SecurityContext;
-use kagari_runtime::TypeId;
-use kagari_runtime::TypeKind;
-use kagari_runtime::TypeRegistration;
-use kagari_runtime::host::HostError;
-use kagari_runtime::host::HostFunction;
-use kagari_runtime::host::HostObjectId;
-use kagari_runtime::host::HostSchemaEpoch;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostFunctionDeclaration,
+    HostFunctionEffects, HostParameter, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
+    HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind,
+    SecurityContext, TypeId, TypeKind, TypeRegistration,
+    host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch},
+    value::Value,
+};
 
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
     let mut registration = HostTypeRegistration::new(

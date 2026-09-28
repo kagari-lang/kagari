@@ -1,7 +1,5 @@
 use ast::Attribute;
-use kagari_common::SourceFile;
-use kagari_common::Span;
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
 use kagari_syntax::parse;
 use std::sync::Arc;
 mod context;
@@ -12,10 +10,7 @@ mod ty;
 
 use kagari_syntax::ast::{self, AstNode};
 
-use crate::hir::Module;
-use crate::source_map::SourceMap;
-
-use crate::lower::context::Lowerer;
+use crate::{hir::Module, lower::context::Lowerer, source_map::SourceMap};
 
 #[derive(Debug, Clone)]
 pub struct LoweredModule {

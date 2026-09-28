@@ -1,10 +1,6 @@
-use kagari_runtime::HostBorrowKind;
-use kagari_runtime::HostBorrowTable;
-use kagari_runtime::HostObjectId;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::TypeId;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    HostBorrowKind, HostBorrowTable, HostObjectId, Runtime, RuntimeErrorKind, TypeId, value::Value,
+};
 
 #[test]
 fn shared_borrows_coexist_and_unique_conflicts_until_frame_exits() {

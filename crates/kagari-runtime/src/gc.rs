@@ -1,28 +1,29 @@
 mod arrays;
 mod maps_sets;
-use crate::ErrorTrace;
-use crate::ExecutionPhase;
-use crate::ModuleKey;
-use crate::module::LoadedModule;
-use crate::module::RetainedRuntimeProgram;
-use crate::module::StructLayoutRef;
-use crate::resource::ResourceState;
-use crate::value::EnumTag;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
+use crate::{
+    ErrorTrace, ExecutionPhase, ModuleKey,
+    module::{LoadedModule, RetainedRuntimeProgram, StructLayoutRef},
+    resource::ResourceState,
+    value::EnumTag,
+};
+use kagari_abi::{
+    ids::FunctionRef,
+    representation::ValueType,
+    standard::surface::StandardEnum as StandardEnumKind,
+    types::{AbiType, NominalAbiType},
+};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::identity::DefinitionId;
-use std::slice;
-use std::sync::Arc;
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
     rc::{Rc, Weak},
-    sync::atomic::{AtomicU64, Ordering},
+    slice,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -34,8 +35,10 @@ mod iter;
 mod mutations;
 mod string_iter;
 
-use crate::error::{RuntimeError, RuntimeErrorKind};
-use crate::value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value};
+use crate::{
+    error::{RuntimeError, RuntimeErrorKind},
+    value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {

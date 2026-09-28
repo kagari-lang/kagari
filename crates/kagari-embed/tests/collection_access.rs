@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -280,11 +277,8 @@ fn make() -> Test {
 
 #[test]
 fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
-    use kagari_abi::standard::StandardIntrinsic;
-    use kagari_abi::types::AbiType;
-    use kagari_bytecode::BytecodeInstruction;
-    use kagari_bytecode::CallTarget;
-    use kagari_bytecode::verify_program;
+    use kagari_abi::{standard::StandardIntrinsic, types::AbiType};
+    use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(

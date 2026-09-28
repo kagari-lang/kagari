@@ -1,31 +1,15 @@
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::ArtifactBuildOptions;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::FunctionRecord;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::PathId;
-use kagari_bytecode::PathRecord;
-use kagari_bytecode::Register;
+use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_bytecode::{
+    ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
+    ConstantOperand, FunctionMetadata, FunctionRecord, KbcArtifact, PathId, PathRecord, Register,
+};
 use kagari_common::SourceFile;
-use kagari_embed::ArtifactOptions;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::CompileOptions;
-use kagari_embed::EmbeddingError;
-use kagari_embed::ExecutionContext;
-use kagari_embed::HostExposurePolicy;
-use kagari_embed::KagariEngine;
-use kagari_embed::KagariRuntime;
-use kagari_embed::LoadOptions;
-use kagari_embed::ReloadOptions;
-use kagari_embed::RuntimeFailureKind;
-use kagari_embed::program::{PreparedProgram, ProgramPreparationError};
+use kagari_embed::{
+    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext,
+    HostExposurePolicy, KagariEngine, KagariRuntime, LoadOptions, ReloadOptions,
+    RuntimeFailureKind,
+    program::{PreparedProgram, ProgramPreparationError},
+};
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, HostObjectId, HostPathAdapter, HostPathDescriptorId,
     HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,

@@ -2,18 +2,16 @@
 
 use crate::types::TypeAbi;
 
-use crate::standard::surface::StandardEnum as StandardEnumKind;
-use kagari_common::identity::DefinitionKind;
+use crate::{
+    standard::surface::StandardEnum as StandardEnumKind,
+    types::{AbiType, PublicAbiItem, TypeAbiKind},
+};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{DefinitionId, DefinitionKind, ModuleIdentity},
+};
 
-use crate::types::AbiType;
-use crate::types::PublicAbiItem;
-use crate::types::TypeAbiKind;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::ModuleIdentity;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EnumLayout {

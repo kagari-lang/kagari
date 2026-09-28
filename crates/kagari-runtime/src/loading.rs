@@ -1,21 +1,15 @@
-use crate::PreparedReload;
-use crate::Runtime;
-use crate::StagedReload;
-use crate::cache::InterpreterCacheId;
-use crate::cache::ReloadDependencySnapshot;
-use crate::cache::ReloadInvalidation;
-use crate::error::RuntimeError;
-use crate::module::LoadedModule;
-use crate::module::VerifiedProgram;
-use crate::reload::ReloadValidationError;
-use crate::reload::validate_reload_artifact_candidate;
-use crate::reload::validate_reload_candidate;
-use crate::reload::validate_verified_reload_candidate;
+use crate::{
+    PreparedReload, Runtime, StagedReload,
+    cache::{InterpreterCacheId, ReloadDependencySnapshot, ReloadInvalidation},
+    error::RuntimeError,
+    module::{LoadedModule, VerifiedProgram},
+    reload::{
+        ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
+        validate_verified_reload_candidate,
+    },
+};
 use kagari_bytecode as bytecode;
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::{ArtifactCompatibility, ArtifactFingerprint, BytecodeProgram, KbcArtifact};
 
 impl Runtime {
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {

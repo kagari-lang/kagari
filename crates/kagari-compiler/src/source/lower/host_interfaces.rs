@@ -1,36 +1,22 @@
 //! Compile checked host mappings into ordinary verified interface call bridges.
 use crate::source::types::{lower_nominal_type, lower_type};
 
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::debug::capture_origin;
-use crate::source::lower::instances::InstancePlanner;
-use kagari_abi::slots::SemanticSlots;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_abi::types::FunctionAbi;
-use kagari_abi::types::InterfaceTableAbi;
-use kagari_abi::types::ModuleAbi;
-use kagari_abi::types::ParameterAbi;
-use kagari_abi::types::PublicAbiItem;
+use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
+use kagari_abi::{
+    slots::SemanticSlots,
+    types::{
+        AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi,
+        PublicAbiItem,
+    },
+};
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
-use kagari_hir::AnalyzedModule;
-use kagari_hir::types::TypeId;
-use kagari_mir::debug::MirFunctionDebugMetadata;
-use kagari_mir::debug::MirLexicalScope;
-use kagari_mir::debug::MirLocalDebugInfo;
-use kagari_mir::function::BasicBlock;
-use kagari_mir::function::MirFunction;
-use kagari_mir::function::MirLocal;
-use kagari_mir::function::MirParameter;
-use kagari_mir::function::MirTemp;
-use kagari_mir::ids::BlockId;
-use kagari_mir::ids::InstanceId;
-use kagari_mir::ids::LocalId;
-use kagari_mir::ids::TempId;
-use kagari_mir::instruction::CallTarget;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use kagari_hir::{AnalyzedModule, types::TypeId};
+use kagari_mir::{
+    debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
+    function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp},
+    ids::{BlockId, InstanceId, LocalId, TempId},
+    instruction::{CallTarget, Instruction, MirValue, Terminator},
+};
 
 pub(super) fn collect(
     planner: &mut InstancePlanner<'_>,

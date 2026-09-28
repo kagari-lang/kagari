@@ -1,35 +1,25 @@
-use crate::RootSlotLayout;
-use crate::artifact::limits::artifact_count_limit;
-use crate::artifact::limits::metadata_count_limit;
-use crate::artifact::limits::program_count_limit;
-use crate::native_input::PortableMir;
+use crate::{
+    RootSlotLayout,
+    artifact::limits::{artifact_count_limit, metadata_count_limit, program_count_limit},
+    native_input::PortableMir,
+};
 mod limits;
-use crate::BytecodeVerificationError;
-use crate::JumpTarget;
-use bincode::DefaultOptions;
-use bincode::ErrorKind;
-use bincode::Options;
-use kagari_abi::decode_limits::MAX_FUNCTIONS;
-use kagari_abi::decode_limits::MAX_INSTRUCTIONS;
-use kagari_abi::decode_limits::MAX_MODULES;
-use kagari_abi::decode_limits::MAX_NESTED_RECORDS;
-use kagari_abi::decode_limits::MAX_TABLE_RECORDS;
-use kagari_abi::effects::EffectSet;
-use kagari_abi::slots::SemanticSlots;
+use crate::{BytecodeVerificationError, JumpTarget};
+use bincode::{DefaultOptions, ErrorKind, Options};
+use kagari_abi::{
+    decode_limits::{
+        MAX_FUNCTIONS, MAX_INSTRUCTIONS, MAX_MODULES, MAX_NESTED_RECORDS, MAX_TABLE_RECORDS,
+    },
+    effects::EffectSet,
+    slots::SemanticSlots,
+};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface::HostInterface;
-use kagari_common::identity::ModuleIdentity;
-use std::io;
-use std::io::Write;
+use kagari_common::{host_interface::HostInterface, identity::ModuleIdentity};
+use std::io::{self, Write};
 
-use crate::BytecodeDebugMetadata;
-use crate::BytecodeModule;
-use crate::BytecodeProgram;
-use crate::PathId;
-use crate::verify_program;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
+use crate::{BytecodeDebugMetadata, BytecodeModule, BytecodeProgram, PathId, verify_program};
+use kagari_abi::{ids::FunctionRef, representation::ValueType};
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";

@@ -38,8 +38,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
 
 #[test]
 fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::types::{AbiType, PublicAbiItem};
     let (runtime, loaded) = load_test_module(
         "trait Pair { fn first(self) -> i32; fn second(self) -> i32; } impl Pair for i32 { fn second(self) -> i32 { 2 } fn first(self) -> i32 { 1 } } fn main() -> i32 { 0 }",
     );
@@ -343,13 +342,10 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
 
 #[test]
 fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
-    use kagari_bytecode::ArtifactBuildOptions;
-    use kagari_bytecode::ArtifactCompatibility;
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::InterfaceTableRef;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
-    use kagari_bytecode::verify_module;
+    use kagari_bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
+        KbcArtifact, ModuleRef, verify_module,
+    };
     let module = interface_instruction_module();
     verify_module(&module).unwrap();
 
@@ -393,13 +389,10 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
 
 #[test]
 fn interface_instruction_uses_a_reachable_dependency_table() {
-    use kagari_bytecode::ArtifactBuildOptions;
-    use kagari_bytecode::ArtifactCompatibility;
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::InterfaceTableRef;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
-    use kagari_bytecode::verify_program;
+    use kagari_bytecode::{
+        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
+        KbcArtifact, ModuleRef, verify_program,
+    };
     use kagari_common::identity::ModuleIdentity;
 
     let dependency = interface_instruction_module();

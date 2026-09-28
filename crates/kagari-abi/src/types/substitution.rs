@@ -1,7 +1,6 @@
 //! Bounded binder substitution over executable types, without source inference.
 use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionId;
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use std::collections::BTreeMap;
 
 pub(crate) const MAX_TYPE_DEPTH: usize = 64;

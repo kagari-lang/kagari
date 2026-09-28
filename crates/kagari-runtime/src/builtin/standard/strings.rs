@@ -1,12 +1,12 @@
-use crate::builtin::BuiltinError;
-use crate::builtin::standard::index_value;
-use crate::builtin::standard::one_string;
-use crate::builtin::standard::option_none;
-use crate::builtin::standard::option_some;
-use crate::builtin::standard::usize_value;
-use crate::error::RuntimeError;
-use crate::gc::GcHeap;
-use crate::value::Value;
+use crate::{
+    builtin::{
+        BuiltinError,
+        standard::{index_value, one_string, option_none, option_some, usize_value},
+    },
+    error::RuntimeError,
+    gc::GcHeap,
+    value::Value,
+};
 use kagari_abi::standard::StandardIntrinsic;
 pub(super) fn string_transform(
     intrinsic: StandardIntrinsic,

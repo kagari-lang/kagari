@@ -1,26 +1,19 @@
 //! Build reflection metadata from portable declarations, then commit once.
 
 use crate::error::RuntimeError;
-use crate::host::{HostRegistry, HostTypeInfo, HostTypeRegistration};
-use crate::metadata::AbiFingerprint;
-use crate::metadata::FieldInfo;
-use crate::metadata::FieldMetadataId;
-use crate::metadata::MethodInfo;
-use crate::metadata::MethodMetadataId;
-use crate::metadata::MethodOrigin;
-use crate::metadata::ParameterInfo;
-use crate::metadata::TypeId;
-use crate::metadata::TypeInfo;
-use crate::metadata::TypeKind;
-use crate::metadata::TypeRegistry;
-use crate::metadata::TypeRegistryInner;
-use crate::metadata::VariantInfo;
-use crate::metadata::VariantMetadataId;
-use kagari_common::host_interface::PathAccess;
-use kagari_common::host_interface::Visibility;
-use kagari_common::{host_interface::HostValueType, identity::DefinitionId};
-use std::collections::HashMap;
-use std::fmt::Display;
+use crate::{
+    host::{HostRegistry, HostTypeInfo, HostTypeRegistration},
+    metadata::{
+        AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
+        ParameterInfo, TypeId, TypeInfo, TypeKind, TypeRegistry, TypeRegistryInner, VariantInfo,
+        VariantMetadataId,
+    },
+};
+use kagari_common::{
+    host_interface::{HostValueType, PathAccess, Visibility},
+    identity::DefinitionId,
+};
+use std::{collections::HashMap, fmt::Display};
 
 impl TypeRegistry {
     pub(crate) fn register_host_types(

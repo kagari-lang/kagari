@@ -1,9 +1,9 @@
-use crate::PreparedNativeEntry;
-use crate::tests::native_fixtures;
-use crate::{Vm, tests::common::compile_test_bytecode};
+use crate::{
+    PreparedNativeEntry, Vm,
+    tests::{common::compile_test_bytecode, native_fixtures},
+};
 use kagari_abi::ids::FunctionRef;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::ModuleRef;
+use kagari_bytecode::{BytecodeProgram, ModuleRef};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, SecurityContext,
     gc::GcHeapConfig, value::Value,

@@ -1,25 +1,17 @@
-use crate::hir::AssociatedConst;
-use crate::hir::AssociatedType;
-use crate::hir::ConstOwner;
-use crate::hir::FieldId;
-use crate::hir::ReceiverKind;
-use crate::hir::TypeData;
-use crate::hir::TypeKind;
-use crate::hir::VariantId;
-use crate::lower::context;
-use ast::Item as AstItem;
-use ast::Visibility as AstVisibility;
+use crate::{
+    hir::{
+        AssociatedConst, AssociatedType, BlockData, BodyOwner, ConstItem, ConstOwner, Enum, Export,
+        ExportItem, Field, FieldId, Function, FunctionKind, GenericParam, HirOwner, Impl,
+        ImplMethod, Import, Item, ModuleDecl, Param, ReceiverKind, Struct, TraitBound, TraitDef,
+        TraitMethod, TraitRef, TypeData, TypeKind, TypeRefId, Variant, VariantId, Visibility,
+        Writeability,
+    },
+    lower::context::{self, Lowerer, syntax_span, token_span},
+};
+use ast::{Item as AstItem, Visibility as AstVisibility};
 use kagari_common::Span;
 use kagari_syntax::ast;
 use smallvec::SmallVec;
-
-use crate::hir::{
-    BlockData, ConstItem, Enum, Export, ExportItem, Field, Function, FunctionKind, GenericParam,
-    Impl, ImplMethod, Import, Item, ModuleDecl, Param, Struct, TraitBound, TraitDef, TraitMethod,
-    TraitRef, TypeRefId, Variant, Visibility, Writeability,
-};
-use crate::hir::{BodyOwner, HirOwner};
-use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 fn lower_visibility(visibility: ast::Visibility) -> Visibility {
     match visibility {

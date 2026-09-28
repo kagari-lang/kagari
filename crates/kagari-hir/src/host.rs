@@ -2,38 +2,34 @@
 
 use kagari_common::host_interface::HostPathSegmentDeclaration;
 
-use crate::DiagnosticBuffer;
-use crate::aggregates::AggregateCatalog;
-use crate::resolver::ResolvedName;
-use crate::typeck;
-use crate::typeck::ConstraintTarget;
-use crate::types::TypeSubstitution;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::host_interface::HostFieldDeclaration;
-use kagari_common::host_interface::HostPathContract;
-use kagari_common::host_interface::HostPathDeclaration;
-use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostTraitImplementationDeclaration,
-    HostTypeDeclaration, HostValueType,
+use crate::{
+    DiagnosticBuffer,
+    aggregates::AggregateCatalog,
+    resolver::ResolvedName,
+    typeck::{self, ConstraintTarget},
+    types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity::DefinitionId;
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
-use std::collections::HashSet;
-use std::sync::OnceLock;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
-use std::{collections::HashMap, sync::Arc};
-
-use crate::types::NominalType;
-use crate::types::TypeId;
-use kagari_abi::host::satisfies_standard_constraint;
-use kagari_abi::scalar::BuiltinType;
+use kagari_abi::{
+    host::satisfies_standard_constraint,
+    scalar::BuiltinType,
+    standard::{surface::StandardEnum, traits::StandardTrait},
+};
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span,
     cancellation::{CancellationToken, Cancelled},
-    identity::ModuleIdentity,
+    host_interface::{
+        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostInterfaceError,
+        HostPathContract, HostPathDeclaration, HostTraitImplementationDeclaration,
+        HostTypeDeclaration, HostValueType,
+    },
+    identity::{DefinitionId, ModuleIdentity},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 #[cfg(test)]

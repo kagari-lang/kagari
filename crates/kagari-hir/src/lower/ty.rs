@@ -1,8 +1,10 @@
 use kagari_syntax::ast;
 use smallvec::SmallVec;
 
-use crate::hir::{TypeData, TypeKind, TypeRefId};
-use crate::lower::context::{Lowerer, syntax_span, token_span};
+use crate::{
+    hir::{TypeData, TypeKind, TypeRefId},
+    lower::context::{Lowerer, syntax_span, token_span},
+};
 
 impl Lowerer {
     pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> TypeRefId {

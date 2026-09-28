@@ -1,22 +1,24 @@
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::typeck::GenericBounds;
-use crate::typeck::associated;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::collection::CollectionAccess::Mutable;
-use kagari_common::collection::CollectionAccess::ReadOnly;
-use kagari_common::identity::DefinitionId;
-use kagari_common::range::RangeKind;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::hash::Hash;
-use std::hash::Hasher;
-use std::ops::Deref;
-use std::ops::DerefMut;
+use crate::{
+    builtin::traits::StandardTraitSemantics,
+    typeck::{GenericBounds, associated},
+};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{
+        surface::{self as standard_surface, StandardEnum},
+        traits::StandardTrait,
+    },
+};
+use kagari_common::{
+    collection::CollectionAccess::{self, Mutable, ReadOnly},
+    identity::DefinitionId,
+    range::RangeKind,
+};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
+};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TypeSubstitution {

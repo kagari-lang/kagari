@@ -1,32 +1,25 @@
 //! A function query resolves and checks just that body and its module constants.
 
 use super::signature_queries::BodyEnvironment;
-use crate::AnalysisResult;
-use crate::analysis::AnalysisDatabase;
-use crate::analysis::declaration_queries::DeclarationSnapshot;
-use crate::analysis::signature_queries::FileSignatures;
-use crate::analysis::signature_queries::SignatureSnapshot;
-use crate::declarations::DeclarationId;
-use crate::declarations::Declarations;
-use crate::hir::BodyOwner;
-use crate::lower::LoweredModule;
-use crate::resolver;
-use crate::resolver::ResolvedNames;
-use crate::typeck;
-use crate::typeck::BodyInputs;
-use crate::typeck::BodyReuse;
-use crate::typeck::TypeTable;
-use crate::typeck::TypedModule;
-use crate::types::TypeId;
 use crate::{
-    hir::{BodySelection, FunctionId, FunctionKind},
-    resolver::ResolvedName,
+    AnalysisResult,
+    analysis::{
+        AnalysisDatabase,
+        declaration_queries::DeclarationSnapshot,
+        signature_queries::{FileSignatures, SignatureSnapshot},
+    },
+    declarations::{DeclarationId, Declarations},
+    hir::{BodyOwner, BodySelection, FunctionId, FunctionKind},
+    lower::LoweredModule,
+    resolver::{self, ResolvedName, ResolvedNames},
+    typeck::{self, BodyInputs, BodyReuse, TypeTable, TypedModule},
+    types::TypeId,
 };
-use kagari_common::Diagnostic;
-use kagari_common::SourceFile;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::source_database::SourceSnapshot;
+use kagari_common::{
+    Diagnostic, SourceFile,
+    cancellation::{CancellationToken, Cancelled},
+    source_database::SourceSnapshot,
+};
 use std::sync::Arc;
 
 #[cfg(test)]

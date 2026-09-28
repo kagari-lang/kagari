@@ -2,14 +2,9 @@
 
 use crate::value::EnumTag;
 
-use crate::gc::GcHeap;
-use crate::numeric;
-use crate::{RuntimeError, RuntimeErrorKind, value::Value};
-use kagari_abi::operations;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use kagari_common::integer;
-use kagari_common::range::RangeKind;
+use crate::{RuntimeError, RuntimeErrorKind, gc::GcHeap, numeric, value::Value};
+use kagari_abi::{operations, scalar::BuiltinType, types::AbiType};
+use kagari_common::{integer, range::RangeKind};
 use std::ops::Bound;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

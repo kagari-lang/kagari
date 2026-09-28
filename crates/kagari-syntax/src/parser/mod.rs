@@ -1,8 +1,10 @@
 mod core;
 mod grammar;
 
-use kagari_common::SourceFile;
-use kagari_common::cancellation::{CancellationToken, Cancelled};
+use kagari_common::{
+    SourceFile,
+    cancellation::{CancellationToken, Cancelled},
+};
 use rowan::GreenNode;
 
 use crate::{

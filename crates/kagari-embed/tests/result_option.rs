@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 
 #[test]
@@ -388,10 +385,10 @@ fn main()->i32 {
 
 #[test]
 fn malformed_standard_enum_operations_are_rejected_before_execution() {
-    use kagari_abi::operations::StandardEnumOp;
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{
+        operations::StandardEnumOp, scalar::BuiltinType,
+        standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+    };
     use kagari_bytecode::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(

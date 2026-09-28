@@ -1,22 +1,24 @@
 //! Recheck associated outputs and host trait bounds against the dependency closure.
 mod associated;
 
-use crate::trait_bounds::associated::{
-    associated_bounds_match, host_bounds_match, projection_uses_valid,
+use crate::{
+    BytecodeInstruction, BytecodeModule, BytecodeProgram,
+    trait_bounds::associated::{associated_bounds_match, host_bounds_match, projection_uses_valid},
 };
-use crate::{BytecodeInstruction, BytecodeModule, BytecodeProgram};
-use kagari_abi::standard::intrinsic;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types as abi;
-use kagari_abi::types::inheritance as trait_inheritance;
-use kagari_abi::types::proofs::{ProofCatalog, host_application};
-use kagari_abi::types::substitution::TypeTransformError;
-use kagari_abi::types::verify;
-use kagari_abi::types::{
-    AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem, TraitAbi,
+use kagari_abi::{
+    standard::{intrinsic, traits::StandardTrait},
+    types::{
+        self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
+        TraitAbi, inheritance as trait_inheritance,
+        proofs::{ProofCatalog, host_application},
+        substitution::TypeTransformError,
+        verify,
+    },
 };
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+};
 
 fn contract<'a>(id: &DefinitionId, closure: &[&'a BytecodeModule]) -> Option<&'a TraitAbi> {
     if let Some(contract) = abi::standard_trait_contract(id) {

@@ -1,6 +1,5 @@
-use crate::ast::item::visibility_of;
 use crate::{
-    ast::{ast_node, support, traits::AstNode, ty::TypeRef},
+    ast::{ast_node, item::visibility_of, support, traits::AstNode, ty::TypeRef},
     kind::SyntaxKind,
 };
 use rowan::NodeOrToken;

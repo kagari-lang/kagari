@@ -2,8 +2,10 @@
 use bincode::{DefaultOptions, Options};
 use kagari_bytecode::{BytecodeProgram, validate_program_resource_limits, verify_program};
 use kagari_common::cancellation::CancellationToken;
-use kagari_mir::codec::{MirCodecError, decode_program};
-use kagari_mir::program::VerifiedMirProgram;
+use kagari_mir::{
+    codec::{MirCodecError, decode_program},
+    program::VerifiedMirProgram,
+};
 
 use crate::bytecode::{BytecodeLoweringError, lower_program_to_bytecode};
 

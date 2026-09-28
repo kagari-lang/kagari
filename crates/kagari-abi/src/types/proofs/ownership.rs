@@ -1,8 +1,11 @@
-use crate::standard::intrinsic;
-use crate::standard::traits::StandardTrait;
-use crate::types::proofs::{Budget, ProofCatalog};
-use crate::types::substitution::TypeTransformError;
-use crate::types::{AbiType, InterfaceTableAbi};
+use crate::{
+    standard::{intrinsic, traits::StandardTrait},
+    types::{
+        AbiType, InterfaceTableAbi,
+        proofs::{Budget, ProofCatalog},
+        substitution::TypeTransformError,
+    },
+};
 use kagari_common::cancellation::CancellationToken;
 use std::iter;
 

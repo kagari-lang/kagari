@@ -1,18 +1,9 @@
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::FunctionRecord;
-use kagari_bytecode::ModuleRef;
-use kagari_bytecode::Register;
-use kagari_runtime::LoadedModule;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::value::Value;
+use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use kagari_bytecode::{
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
+    FunctionRecord, ModuleRef, Register,
+};
+use kagari_runtime::{LoadedModule, Runtime, RuntimeErrorKind, value::Value};
 
 #[derive(Debug)]
 struct ReentrantObserver;

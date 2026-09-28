@@ -1,5 +1,4 @@
-use crate::builtin::BuiltinError;
-use crate::value::Value;
+use crate::{builtin::BuiltinError, value::Value};
 use kagari_common::arithmetic;
 use std::cmp::Ordering;
 pub(super) fn math_min(args: &[Value]) -> Result<Value, BuiltinError> {

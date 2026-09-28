@@ -1,26 +1,22 @@
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::declarations::Declarations;
-use crate::hir::FunctionId;
-use crate::hir::TypeKind;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::typeck::ConstraintTarget;
-use crate::typeck::FunctionTypeIndex;
-use crate::typeck::TypeTable;
-use crate::typeck::check::interface_method_compatible;
-use crate::typeck::check::possibly_overlapping_impls;
-use crate::typeck::check::validate_standard_constraint_type;
-use crate::typeck::constraints;
-use crate::typeck::ty::display_type;
-use crate::typeck::ty::display_type_id;
-use crate::types::NominalType;
-use crate::types::TypeId;
+use crate::{
+    builtin::traits::{self, StandardTraitSemantics},
+    declarations::Declarations,
+    hir::{FunctionId, TypeKind},
+    lower::LoweredModule,
+    resolver::ResolvedName,
+    typeck::{
+        ConstraintTarget, FunctionTypeIndex, TypeTable,
+        check::{
+            interface_method_compatible, possibly_overlapping_impls,
+            validate_standard_constraint_type,
+        },
+        constraints,
+        ty::{display_type, display_type_id},
+    },
+    types::{NominalType, TypeId},
+};
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::Span;
-use kagari_common::identity;
+use kagari_common::{Diagnostic, DiagnosticKind, Span, identity};
 use smallvec::SmallVec;
 use std::iter;
 pub(super) fn validate_trait_surface(

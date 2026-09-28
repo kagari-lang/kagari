@@ -1,5 +1,4 @@
-use crate::error::RuntimeError;
-use crate::value::Value;
+use crate::{error::RuntimeError, value::Value};
 use kagari_abi::operations::StringIterKind;
 
 #[derive(Debug, Clone, Copy, Default)]

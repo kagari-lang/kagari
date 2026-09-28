@@ -3,31 +3,16 @@ use kagari_common::collection::CollectionAccess;
 mod layouts;
 use kagari_abi::types::AbiType;
 use kagari_bytecode::BytecodeModule;
-use kagari_runtime::AbiFingerprint;
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::FieldInfo;
-use kagari_runtime::FieldMetadataId;
-use kagari_runtime::HostTypeOwnership;
-use kagari_runtime::MethodInfo;
-use kagari_runtime::MethodMetadataId;
-use kagari_runtime::MethodOrigin;
-use kagari_runtime::ParameterInfo;
-use kagari_runtime::PathAccess;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::TraitInfo;
-use kagari_runtime::TypeId;
-use kagari_runtime::TypeKind;
-use kagari_runtime::TypeRegistration;
-use kagari_runtime::Visibility;
-use kagari_runtime::host::DynamicPathArguments;
-use kagari_runtime::host::HostBorrowTable;
-use kagari_runtime::host::HostObjectId;
-use kagari_runtime::host::HostPathDescriptorRegistration;
-use kagari_runtime::host::HostPathSegmentRegistration;
-use kagari_runtime::host::HostSchemaEpoch;
-use kagari_runtime::value::Value;
-use kagari_runtime::value::ValueCategory;
+use kagari_runtime::{
+    AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, HostTypeOwnership, MethodInfo,
+    MethodMetadataId, MethodOrigin, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
+    TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
+    host::{
+        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+        HostPathSegmentRegistration, HostSchemaEpoch,
+    },
+    value::{Value, ValueCategory},
+};
 
 fn host_root_value(object_id: u64) -> Value {
     let Value::HostPathView(view) = path_view_value(object_id) else {

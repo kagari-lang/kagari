@@ -1,10 +1,14 @@
-use kagari_common::Span;
-use kagari_common::cancellation::{CancellationToken, Cancelled};
-use kagari_common::literal;
+use kagari_common::{
+    Span,
+    cancellation::{CancellationToken, Cancelled},
+    literal,
+};
 use smallvec::SmallVec;
 
-use crate::TokenBuffer;
-use crate::token::{Token, TokenKind};
+use crate::{
+    TokenBuffer,
+    token::{Token, TokenKind},
+};
 
 pub fn lex(input: &str) -> TokenBuffer {
     lex_with_cancellation(input, &CancellationToken::default()).expect("fresh cancellation token")

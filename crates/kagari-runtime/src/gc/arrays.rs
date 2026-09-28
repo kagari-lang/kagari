@@ -1,10 +1,9 @@
-use crate::error::RuntimeError;
-use crate::error::RuntimeErrorKind;
-use crate::gc::GcHeap;
-use crate::gc::HeapObject;
-use crate::gc::HeapObjectId;
-use crate::resource::TemporaryHeap;
-use crate::value::Value;
+use crate::{
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::{GcHeap, HeapObject, HeapObjectId},
+    resource::TemporaryHeap,
+    value::Value,
+};
 use std::ops::Bound;
 
 impl GcHeap {

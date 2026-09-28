@@ -1,13 +1,11 @@
 //! Guards prevent callbacks from modifying prepared mutation targets through aliases.
 
 use crate::error::RuntimeError;
-use crate::error::RuntimeErrorKind;
-use crate::gc::CollectionIteration;
-use crate::gc::GcHeap;
-use crate::gc::GcObjectKind;
-use crate::gc::HeapObject;
-use crate::gc::HeapObjectId;
-use crate::value::Value;
+use crate::{
+    error::RuntimeErrorKind,
+    gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, HeapObjectId},
+    value::Value,
+};
 use indexmap::IndexMap;
 use kagari_abi::standard::StandardIntrinsic;
 

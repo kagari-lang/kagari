@@ -1,15 +1,15 @@
 use crate::source::lower::MirLoweringError;
-use kagari_common::cancellation::CancellationToken;
 use kagari_common::{
+    cancellation::CancellationToken,
     host_interface::{HostPathSegmentDeclaration, HostTypeDeclaration},
     identity::DefinitionId,
 };
 use kagari_hir::host::HostDeclarations;
-use kagari_mir::CallTarget;
-use kagari_mir::Instruction;
-use kagari_mir::MirFunction;
-use std::collections::{BTreeMap, BTreeSet};
-use std::iter;
+use kagari_mir::{CallTarget, Instruction, MirFunction};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    iter,
+};
 
 pub(super) fn collect(
     hosts: &HostDeclarations,

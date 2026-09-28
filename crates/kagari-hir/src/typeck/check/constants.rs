@@ -1,21 +1,13 @@
-use crate::builtin::surface;
-use crate::hir::BinaryOp;
-use crate::hir::ConstId;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::PrefixOp;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::resolver::ResolvedNames;
-use crate::typeck::TopLevelTypeIndex;
-use crate::typeck::TypeTable;
-use crate::typeck::const_budget::ConstBudget;
-use crate::typeck::ty::display_type_id;
-use crate::types::TypeId;
+use crate::{
+    builtin::surface,
+    hir::{BinaryOp, ConstId, ExprId, ExprKind, PrefixOp},
+    lower::LoweredModule,
+    resolver::{ResolvedName, ResolvedNames},
+    typeck::{TopLevelTypeIndex, TypeTable, const_budget::ConstBudget, ty::display_type_id},
+    types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
 use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

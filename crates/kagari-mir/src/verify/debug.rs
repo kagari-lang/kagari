@@ -1,6 +1,8 @@
-use crate::MirFunction;
-use crate::debug::{SourceOrigin, SourcePosition};
-use crate::verify::{Context, MirVerificationError, MirVerificationErrorKind};
+use crate::{
+    MirFunction,
+    debug::{SourceOrigin, SourcePosition},
+    verify::{Context, MirVerificationError, MirVerificationErrorKind},
+};
 use std::mem;
 
 pub(super) fn verify(

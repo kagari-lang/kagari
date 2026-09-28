@@ -1,45 +1,25 @@
-use crate::BytecodeProgram;
-use crate::HostImportId;
-use crate::InterfaceMethodSlot;
-use crate::verifier::operation::verify_instruction;
+use crate::{
+    BytecodeProgram, HostImportId, InterfaceMethodSlot, verifier::operation::verify_instruction,
+};
 use kagari_abi::standard::declarations as standard_declarations;
 mod operation;
-use crate::PathRecord;
-use crate::RootSlotLayout;
-use crate::access;
-use crate::trait_bounds;
-use kagari_abi::contracts;
-use kagari_abi::contracts::ContractError;
-use kagari_abi::host;
-use kagari_abi::layout;
-use kagari_abi::layout::StructFieldLayout;
-use kagari_abi::operations::BinaryOp as MirBinaryOp;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::InterfaceTableAbi;
-use kagari_abi::types::NominalAbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_abi::types::verify;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use std::collections::HashSet;
-use std::iter;
-
-use crate::BinaryOp;
-use crate::BytecodeFunction;
-use crate::BytecodeInstruction;
-use crate::BytecodeModule;
-use crate::CallTarget;
-use crate::ConstantOperand;
-use crate::FieldRef;
-use crate::JumpTarget;
-use crate::LocalSlot;
-use crate::ModuleSlot;
-use crate::PathId;
-use crate::Register;
-use crate::StructId;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
+use crate::{
+    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
+    FieldRef, JumpTarget, LocalSlot, ModuleSlot, PathId, PathRecord, Register, RootSlotLayout,
+    StructId, access, trait_bounds,
+};
+use kagari_abi::{
+    contracts::{self, ContractError},
+    host,
+    ids::FunctionRef,
+    layout::{self, StructFieldLayout},
+    operations::BinaryOp as MirBinaryOp,
+    representation::ValueType,
+    standard::StandardIntrinsic,
+    types::{AbiType, InterfaceTableAbi, NominalAbiType, PublicAbiItem, verify},
+};
+use kagari_common::identity::{DefinitionId, DefinitionKind};
+use std::{collections::HashSet, iter};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {

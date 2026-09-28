@@ -1,8 +1,6 @@
 use kagari_common::DiagnosticKind;
 
-use crate::{kind::SyntaxKind, token::TokenKind};
-
-use crate::parser::Parser;
+use crate::{kind::SyntaxKind, parser::Parser, token::TokenKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_type_ref(&mut self) {

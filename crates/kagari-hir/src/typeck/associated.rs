@@ -1,31 +1,27 @@
 //! Associated types are declaration-owned projections, never diagnostic names.
 use crate::builtin::traits::StandardTraitSemantics;
 
-use kagari_common::DiagnosticKind;
-
-use super::constraints;
-use super::ty;
-use super::{
-    ConstraintTarget, TypeTable,
-    ty::{TypeContext, resolve_named_type, resolve_type_in},
+use kagari_common::{
+    Diagnostic, DiagnosticKind,
+    cancellation::CancellationToken,
+    identity::{DefinitionId, associated_type_id},
 };
-use crate::aggregates;
-use crate::declarations::Declarations;
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedName;
-use crate::types::AssociatedTypeFamily;
-use crate::types::AssociatedTypeParameters;
+
+use super::{
+    ConstraintTarget, TypeTable, constraints,
+    ty::{self, TypeContext, resolve_named_type, resolve_type_in},
+};
 use crate::{
+    aggregates,
+    declarations::Declarations,
     hir,
-    types::{NominalType, TypeId},
+    lower::LoweredModule,
+    resolver::ResolvedName,
+    types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
 };
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::identity::associated_type_id;
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use smallvec::SmallVec;
-use std::cell::RefCell;
-use std::collections::HashSet;
+use std::{cell::RefCell, collections::HashSet};
 
 pub(super) fn prepare(
     lowered: &LoweredModule,

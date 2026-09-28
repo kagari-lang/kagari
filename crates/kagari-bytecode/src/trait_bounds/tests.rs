@@ -1,7 +1,7 @@
 use super::*;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::{
-    AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstraintAbi, InterfaceTableAbi,
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstraintAbi, InterfaceTableAbi},
 };
 use kagari_common::identity::{ModuleIdentity, associated_type_id};
 

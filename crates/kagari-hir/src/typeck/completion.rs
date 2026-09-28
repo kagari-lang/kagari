@@ -2,14 +2,13 @@
 //! a returning block does not produce Unit at the function's fallthrough boundary.
 
 use crate::hir::MatchArm;
-use crate::hir::StmtId;
-use crate::resolver::ResolvedNames;
-use std::collections::HashMap;
-use std::iter;
+use crate::{
+    hir::{BinaryOp, BlockId, ExprId, ExprKind, Module, PlaceId, PlaceKind, StmtId, StmtKind},
+    resolver::ResolvedNames,
+};
+use std::{collections::HashMap, iter};
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
-
-use crate::hir::{BinaryOp, BlockId, ExprId, ExprKind, Module, PlaceId, PlaceKind, StmtKind};
 
 #[derive(Clone, Copy, Default)]
 struct Exits {

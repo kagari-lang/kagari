@@ -1,6 +1,5 @@
 use kagari_runtime::value::Value;
-use std::cell::Ref;
-use std::cell::RefMut;
+use std::cell::{Ref, RefMut};
 
 use crate::{
     BreakpointId, DebugFrameId, DebugPause, DebugSession, DebugWatch, ResolvedBreakpoint,

@@ -1,6 +1,4 @@
-use crate::hir::FieldId;
-use crate::hir::VariantId;
-use crate::hir::{EnumId, ImplId, MethodId, StructId, TypeRefId, Writeability};
+use crate::hir::{EnumId, FieldId, ImplId, MethodId, StructId, TypeRefId, VariantId, Writeability};
 
 use super::Visibility;
 

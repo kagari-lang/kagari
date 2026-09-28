@@ -1,6 +1,5 @@
 use super::*;
-use crate::declarations::DeclarationId;
-use crate::types::TypeId;
+use crate::{declarations::DeclarationId, types::TypeId};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     DiagnosticKind,

@@ -1,30 +1,16 @@
 use crate::source::types::lower_type;
 use kagari_bytecode as bytecode;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::collection::CollectionAccess;
+use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
 
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
-use crate::tests::common;
-use kagari_abi::contracts::ContractError;
-use kagari_abi::effects::EffectSet;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::ConstantOperand;
-use kagari_mir::BlockId;
-use kagari_mir::CallTarget;
-use kagari_mir::Constant;
-use kagari_mir::Instruction;
-use kagari_mir::LocalId;
-use kagari_mir::MirModule;
-use kagari_mir::MirTemp;
-use kagari_mir::MirValue;
-use kagari_mir::MirVerificationErrorKind as Error;
-use kagari_mir::TempId;
-use kagari_mir::Terminator;
-use kagari_mir::ids::InstanceId;
-use kagari_mir::verify_mir;
+use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use kagari_abi::{
+    contracts::ContractError, effects::EffectSet, operations::BinaryOp, representation::ValueType,
+};
+use kagari_bytecode::{BytecodeInstruction, ConstantOperand};
+use kagari_mir::{
+    BlockId, CallTarget, Constant, Instruction, LocalId, MirModule, MirTemp, MirValue,
+    MirVerificationErrorKind as Error, TempId, Terminator, ids::InstanceId, verify_mir,
+};
 
 fn raw(source: &str) -> MirModule {
     lower_to_mir(&common::analyze_ok(source), &Default::default())
@@ -105,11 +91,11 @@ fn template_parameters_cannot_enter_executable_layout_arguments() {
 
 #[test]
 fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::NominalAbiType;
-    use kagari_hir::types::NominalType;
-    use kagari_hir::types::TypeId;
+    use kagari_abi::{
+        scalar::BuiltinType,
+        types::{AbiType, NominalAbiType},
+    };
+    use kagari_hir::types::{NominalType, TypeId};
     let source =
         "struct Point {} enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
     let mut module = raw(source);
@@ -700,12 +686,10 @@ fn verification_observes_cancellation_even_for_empty_modules() {
 
 #[test]
 fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::FieldAbi;
-    use kagari_abi::types::PublicAbiItem;
-    use kagari_abi::types::TypeAbiKind;
-    use kagari_abi::types::VariantAbi;
+    use kagari_abi::{
+        scalar::BuiltinType,
+        types::{AbiType, FieldAbi, PublicAbiItem, TypeAbiKind, VariantAbi},
+    };
     for source in [
         "pub struct Box<T> { val value: T } fn main() {}",
         "pub enum Box<T> { Value(T) } fn main() {}",
@@ -756,8 +740,7 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
 
 #[test]
 fn public_layout_matching_observes_cancellation_including_empty_inputs() {
-    use kagari_abi::layout::enum_abi_matches;
-    use kagari_abi::layout::struct_abi_matches;
+    use kagari_abi::layout::{enum_abi_matches, struct_abi_matches};
     let mut source = String::new();
     for index in 0..128 {
         source.push_str(&format!(

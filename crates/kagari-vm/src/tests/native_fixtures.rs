@@ -1,14 +1,17 @@
 //! Compiler-independent fixtures for VM native-entry and fallback decisions.
 use std::{ffi::c_void, rc::Rc};
 
-use kagari_abi::native::{
-    BackendId, BackendTarget, ExecutableDebugInfo, ExecutableDebugPoint, ExecutableEntryPoint,
-    ExecutableFunctionArtifact, NativeCodeOwner, NativeCompilationProduct,
+use kagari_abi::{
+    native::{
+        BackendId, BackendTarget, ExecutableDebugInfo, ExecutableDebugPoint, ExecutableEntryPoint,
+        ExecutableFunctionArtifact, NativeCodeOwner, NativeCompilationProduct,
+    },
+    native_call::{JIT_STATUS_OK, JitValue},
 };
-use kagari_abi::native_call::{JIT_STATUS_OK, JitValue};
 use kagari_bytecode::{BytecodeInstruction, ConstantOperand, Register};
-use kagari_runtime::jit_abi::jit_consume_instruction_step;
-use kagari_runtime::{InstalledNativeFunction, LoadedModule, Runtime};
+use kagari_runtime::{
+    InstalledNativeFunction, LoadedModule, Runtime, jit_abi::jit_consume_instruction_step,
+};
 
 use crate::PreparedNativeEntry;
 

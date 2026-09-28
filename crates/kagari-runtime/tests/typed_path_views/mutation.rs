@@ -182,8 +182,7 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
 
 #[test]
 fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, ModuleRef};
     use kagari_common::cancellation::CancellationToken;
     use std::{cell::Cell, rc::Rc};
     let mut runtime = path_mutation_runtime();

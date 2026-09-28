@@ -1,28 +1,24 @@
-use crate::builtin::declarations::ApiBoundSemantics;
-use crate::builtin::declarations::ApiTypeSemantics;
-use crate::builtin::declarations::Arguments;
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::PatternId;
-use crate::hir::PatternKind;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::CallTarget;
-use crate::typeck::ConstraintTarget;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::body::standard_intrinsic_name;
-use crate::typeck::completion;
-use crate::types::TypeId;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::declarations::ApiType;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::surface::StandardFunctionSpec;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
+use crate::{
+    builtin::{
+        declarations::{ApiBoundSemantics, ApiTypeSemantics, Arguments},
+        traits::{self, StandardTraitSemantics},
+    },
+    hir::{ExprId, ExprKind, PatternId, PatternKind},
+    resolver::ResolvedName,
+    typeck::{
+        BodyTypeEnv, CallTarget, ConstraintTarget,
+        body::{BodyChecker, standard_intrinsic_name},
+        completion,
+    },
+    types::TypeId,
+};
+use kagari_abi::standard::{
+    StandardIntrinsic,
+    declarations::ApiType,
+    surface::{self as standard_surface, StandardEnum, StandardFunctionSpec},
+    traits::StandardTrait,
+};
+use kagari_common::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.

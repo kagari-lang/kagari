@@ -1,28 +1,24 @@
-use crate::aggregates::AggregateCatalog;
-use crate::builtin::numeric;
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::declarations::Declarations;
-use crate::resolver::ResolvedName;
-use crate::typeck;
-use crate::typeck::ConstraintTarget;
-use crate::typeck::GenericBounds;
-use crate::typeck::ModuleSignatures;
-use crate::typeck::associated;
-use crate::types::AssociatedTypeFamily;
-use crate::types::TypeId;
-use crate::types::TypeSubstitution;
-use crate::types::{GenericParameterType, NominalType};
-use kagari_abi::standard::declarations as standard_declarations;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::identity;
-use kagari_common::identity::DefinitionId;
-use std::collections::BTreeMap;
-use std::collections::HashSet;
-use std::iter;
-use std::sync::Arc;
+use crate::{
+    aggregates::AggregateCatalog,
+    builtin::{
+        numeric,
+        traits::{self, StandardTraitSemantics},
+    },
+    declarations::Declarations,
+    resolver::ResolvedName,
+    typeck::{self, ConstraintTarget, GenericBounds, ModuleSignatures, associated},
+    types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
+};
+use kagari_abi::standard::{declarations as standard_declarations, traits::StandardTrait};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{self, DefinitionId},
+};
+use std::{
+    collections::{BTreeMap, HashSet},
+    iter,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImplementationSearchError {
@@ -856,8 +852,7 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
 #[cfg(test)]
 mod search_tests {
     use super::*;
-    use crate::typeck::ConstraintTarget;
-    use crate::types::TypeId;
+    use crate::{typeck::ConstraintTarget, types::TypeId};
     use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,

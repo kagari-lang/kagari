@@ -1,14 +1,14 @@
-use kagari_common::Span;
-use kagari_common::cancellation::CancellationToken;
-use kagari_syntax::ast::AstNode;
-use kagari_syntax::kind::SyntaxKind;
+use kagari_common::{Span, cancellation::CancellationToken};
+use kagari_syntax::{ast::AstNode, kind::SyntaxKind};
 
-use crate::hir::{
-    BinaryOp, BlockData, BlockId, ExprData, ExprId, ExprKind, LocalId, Module, PatternData,
-    PatternId, PatternKind, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, TypeData, TypeKind,
-    TypeRefId,
+use crate::{
+    hir::{
+        BinaryOp, BlockData, BlockId, ExprData, ExprId, ExprKind, LocalId, Module, PatternData,
+        PatternId, PatternKind, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, TypeData,
+        TypeKind, TypeRefId,
+    },
+    source_map::SourceMap,
 };
-use crate::source_map::SourceMap;
 
 pub(crate) struct Lowerer {
     pub(crate) cancel: CancellationToken,

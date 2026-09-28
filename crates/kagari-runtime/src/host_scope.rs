@@ -1,8 +1,9 @@
-use crate::HostBorrowKind;
-use crate::value::EphemeralValue;
+use crate::{
+    ExecutionSession, HostBorrowKind, HostCallGuard, Runtime, RuntimeError,
+    gc::RootSet,
+    value::{EphemeralValue, Value},
+};
 use std::{cell::RefCell, rc::Rc};
-
-use crate::{ExecutionSession, HostCallGuard, Runtime, RuntimeError, gc::RootSet, value::Value};
 
 #[derive(Debug)]
 pub(crate) struct HostScopeState {

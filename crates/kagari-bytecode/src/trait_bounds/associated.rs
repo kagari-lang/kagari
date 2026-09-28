@@ -1,12 +1,9 @@
-use crate::BytecodeModule;
-use crate::trait_bounds::contract;
-use kagari_abi::types::proofs::{ProofCatalog, host_application};
-use kagari_abi::types::substitution::{
-    TypeSubstitution, TypeTransformError, resolve_associated_outputs,
-};
+use crate::{BytecodeModule, trait_bounds::contract};
 use kagari_abi::types::{
     AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
     NominalAbiType, TraitAbi,
+    proofs::{ProofCatalog, host_application},
+    substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
 };
 use kagari_common::cancellation::CancellationToken;
 

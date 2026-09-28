@@ -1,34 +1,18 @@
-use crate::BytecodeFunction;
-use crate::BytecodeInstruction;
-use crate::BytecodeModule;
-use crate::BytecodeProgram;
-use crate::CallTarget;
-use crate::Register;
-use crate::RuntimeHelper;
-use crate::UnaryOp;
-use crate::verifier::BytecodeVerificationError;
-use crate::verifier::constant_type;
-use crate::verifier::contract_error;
-use crate::verifier::expect_register_ty;
-use crate::verifier::field_layout;
-use crate::verifier::function_ref_exists;
-use crate::verifier::ir_binary_op;
-use crate::verifier::local_ty;
-use crate::verifier::module_slot_ty;
-use crate::verifier::path_record;
-use crate::verifier::register_ty;
-use crate::verifier::verify_call_dst;
-use crate::verifier::verify_dynamic_path_args;
-use crate::verifier::verify_jump;
-use crate::verifier::verify_standard_intrinsic_call;
-use kagari_abi::contracts;
-use kagari_abi::contracts::RuntimeHelperKind;
-use kagari_abi::operations;
-use kagari_abi::operations::UnaryOp as MirUnaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
+use crate::{
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, CallTarget, Register,
+    RuntimeHelper, UnaryOp,
+    verifier::{
+        BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
+        function_ref_exists, ir_binary_op, local_ty, module_slot_ty, path_record, register_ty,
+        verify_call_dst, verify_dynamic_path_args, verify_jump, verify_standard_intrinsic_call,
+    },
+};
+use kagari_abi::{
+    contracts::{self, RuntimeHelperKind},
+    operations::{self, UnaryOp as MirUnaryOp},
+    representation::ValueType,
+    types::{self as abi, AbiType, PublicAbiItem},
+};
 pub(super) fn verify_instruction(
     module: &BytecodeModule,
     function: &BytecodeFunction,

@@ -1,13 +1,15 @@
-use std::collections::VecDeque;
-use std::mem;
+use std::{collections::VecDeque, mem};
 
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::representation::ValueType;
+use kagari_abi::{budget::LogicalBudgetCharge, representation::ValueType};
 
-use crate::analysis::{BlockAnalysis, FunctionAnalysis, PointAnalysis, SafepointKind, SlotSet};
-use crate::verify::flow::{self, Initialization};
-use crate::verify::{Context, MirVerificationError};
-use crate::{Instruction, MirFunction};
+use crate::{
+    Instruction, MirFunction,
+    analysis::{BlockAnalysis, FunctionAnalysis, PointAnalysis, SafepointKind, SlotSet},
+    verify::{
+        Context, MirVerificationError,
+        flow::{self, Initialization},
+    },
+};
 
 const MAX_ANALYSIS_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ANALYSIS_WORK: usize = 100_000_000;

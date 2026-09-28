@@ -7,17 +7,23 @@ mod ownership;
 mod search;
 mod structural;
 
-use crate::layout::EnumLayout;
-use crate::types::inheritance;
-use crate::types::substitution::{TypeSubstitution, TypeTransformError};
-use crate::types::{
-    AbiType, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi, NominalAbiType, TraitAbi,
+use crate::{
+    layout::EnumLayout,
+    types::{
+        AbiType, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi, NominalAbiType, TraitAbi,
+        inheritance,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::host_interface::{HostTraitImplementationDeclaration, HostTypeDeclaration};
-use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
-use std::cell::Cell;
-use std::collections::{BTreeMap, HashSet};
+use kagari_common::{
+    cancellation::CancellationToken,
+    host_interface::{HostTraitImplementationDeclaration, HostTypeDeclaration},
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+};
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, HashSet},
+};
 
 const MAX_IMPLEMENTATIONS: usize = 4096;
 const MAX_CHECKS: usize = 100_000;

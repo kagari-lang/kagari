@@ -1,22 +1,15 @@
-use crate::aggregates::FieldSignature;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::PlaceId;
-use crate::hir::PlaceKind;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::ScalarValue;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::completion;
-use crate::typeck::ty::display_type_id;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::DefinitionId;
+use crate::{
+    aggregates::FieldSignature,
+    builtin::traits::StandardTraitSemantics,
+    hir::{ExprId, ExprKind, PlaceId, PlaceKind},
+    resolver::ResolvedName,
+    typeck::{BodyTypeEnv, ScalarValue, body::BodyChecker, completion, ty::display_type_id},
+    types::TypeId,
+};
+use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_common::{
+    Diagnostic, DiagnosticKind, collection::CollectionAccess, identity::DefinitionId,
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn resolve_assignment_target_type(

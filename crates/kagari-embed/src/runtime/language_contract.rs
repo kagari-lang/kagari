@@ -3,13 +3,11 @@
 use kagari_common::collection::CollectionAccess;
 use std::sync::{Arc, Mutex};
 
-use kagari_bytecode::ArtifactBuildOptions;
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::native_input::PortableMir;
+use kagari_bytecode::{
+    ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact, native_input::PortableMir,
+};
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_compiler::bytecode::lower_program_to_bytecode;
-use kagari_compiler::source::program::lower_program_to_mir;
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::LanguageFeatureProfile;
 use kagari_runtime::{
     CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,

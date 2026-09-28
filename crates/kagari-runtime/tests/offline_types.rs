@@ -1,22 +1,18 @@
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::ModuleRef;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::host_interface::{
-    HostFieldDeclaration, HostInterface, HostMethodDeclaration, HostParameter, HostPassingStyle,
-    HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
-    HostTypeOwnership, HostValueType, PathAccess,
+use kagari_bytecode::{
+    ArtifactFingerprint, BytecodeModule, BytecodeProgram, KbcArtifact, ModuleRef,
 };
-use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
+use kagari_common::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFieldDeclaration, HostInterface, HostMethodDeclaration, HostParameter,
+        HostPassingStyle, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+        HostTypeDeclaration, HostTypeOwnership, HostValueType, PathAccess,
+    },
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
-use kagari_runtime::HostTypeRegistration;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::TypeKind;
-use kagari_runtime::host::HostFunction;
+use kagari_runtime::{
+    HostTypeRegistration, Runtime, RuntimeErrorKind, TypeKind, host::HostFunction,
+};
 
 #[test]
 fn host_trait_table_requires_bound_method_callbacks_before_linking() {

@@ -70,6 +70,10 @@ build policy.
   For example, import `std::sync::Arc` and `crate::error::RuntimeError`, then write
   `Arc<RuntimeError>` rather than
   `std::sync::Arc<crate::error::RuntimeError>` throughout the implementation.
+- Group related imports from the same crate or module with nested braces, such as
+  `use kagari_common::{Span, host_interface::HostTypeDeclaration};`, instead of
+  repeating the same prefix in separate statements. Preserve distinct scopes,
+  conditional attributes and comments when grouping; keep every imported item explicit.
 - Root-qualified paths in imports are encouraged: `use crate::module::Type;` makes
   ownership clear. This rule limits verbose paths at use sites, not explicit paths
   in the import declarations themselves.

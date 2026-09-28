@@ -1,12 +1,8 @@
-use crate::tests::native_fixtures;
 use crate::{
-    DebugPauseReason, DebugSession, SourceBreakpoint, Vm, tests::common::compile_test_bytecode,
+    DebugPauseReason, DebugSession, SourceBreakpoint, Vm,
+    tests::{common::compile_test_bytecode, native_fixtures},
 };
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::ModuleRef;
+use kagari_bytecode::{BytecodeInstruction, BytecodeProgram, CallTarget, KbcArtifact, ModuleRef};
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, Runtime,

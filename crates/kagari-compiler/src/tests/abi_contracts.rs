@@ -1,14 +1,17 @@
-use crate::source::types::lower_type;
-use crate::source::types::raise_type;
-use crate::tests::common::bytecode_ok;
+use crate::{
+    source::types::{lower_type, raise_type},
+    tests::common::bytecode_ok,
+};
 use bincode::Options;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
-use kagari_abi::types::{AbiType, GenericParameterAbi, NominalAbiType, PublicAbiItem};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::surface::StandardEnum as StandardEnumKind,
+    types::{AbiType, GenericParameterAbi, NominalAbiType, PublicAbiItem},
+};
 use kagari_bytecode::{BytecodeVerificationError, verify_module};
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::{
-    DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
 
 fn codec() -> impl Options {

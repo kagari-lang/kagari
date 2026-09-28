@@ -1,6 +1,5 @@
 use super::tests::{analyze, insert};
-use crate::analysis::AnalysisDatabase;
-use crate::types::TypeId;
+use crate::{analysis::AnalysisDatabase, types::TypeId};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     DiagnosticKind,

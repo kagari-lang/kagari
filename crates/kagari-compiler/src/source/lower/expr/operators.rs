@@ -1,39 +1,32 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types;
-use crate::source::types::{lower_nominal_type, lower_type};
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::{self, lower_nominal_type, lower_type},
+};
 use hir::BinaryOp as HirBinaryOp;
-use kagari_abi::numeric::NumericConversion;
-use kagari_abi::numeric::NumericOperation;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::operations::IterOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::operations::UnaryOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::declarations as standard_declarations;
-use kagari_abi::standard::declarations::NativeDefaultMethod;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types::AbiType;
-use kagari_common::identity::DefinitionId;
-use kagari_common::integer::IntegerOp;
-use kagari_hir::builtin::traits;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::hir;
-use kagari_hir::typeck::CallTarget as HirCallTarget;
-use kagari_hir::types::NominalType;
-use kagari_hir::types::TypeId;
-use kagari_hir::types::TypeSubstitution;
-use kagari_mir::instruction::CallTarget;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::InterfaceCallContract;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::SourceFunctionContract;
-use kagari_mir::instruction::Terminator;
-use kagari_mir::instruction::ValueBuffer;
+use kagari_abi::{
+    numeric::{NumericConversion, NumericOperation},
+    operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
+    representation::ValueType,
+    scalar::BuiltinType,
+    standard::{
+        StandardIntrinsic,
+        declarations::{self as standard_declarations, NativeDefaultMethod},
+        surface::StandardEnum,
+        traits::StandardTrait,
+    },
+    types::AbiType,
+};
+use kagari_common::{identity::DefinitionId, integer::IntegerOp};
+use kagari_hir::{
+    builtin::traits::{self, StandardTraitSemantics},
+    hir,
+    typeck::CallTarget as HirCallTarget,
+    types::{NominalType, TypeId, TypeSubstitution},
+};
+use kagari_mir::instruction::{
+    CallTarget, Constant, Instruction, InterfaceCallContract, MirValue, SourceFunctionContract,
+    Terminator, ValueBuffer,
+};
 use std::slice;
 
 impl FunctionLowerer<'_, '_> {

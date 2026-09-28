@@ -1,38 +1,21 @@
 use crate::tests::common;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::types::PublicAbiItem;
-use kagari_abi::types::TypeAbiKind;
-use kagari_bytecode::ArtifactBuildOptions;
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_bytecode::ArtifactSectionId;
-use kagari_bytecode::ArtifactValidationError;
-use kagari_bytecode::BinaryOp;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeVerificationError;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::DebugMetadata;
-use kagari_bytecode::DependencyFingerprint;
-use kagari_bytecode::FieldRef;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::JumpTarget;
-use kagari_bytecode::KBC_MAGIC;
-use kagari_bytecode::KbcArtifact;
-use kagari_bytecode::LocalSlot;
-use kagari_bytecode::PathId;
-use kagari_bytecode::PathRecord;
-use kagari_bytecode::Register;
-use kagari_bytecode::RuntimeHelper;
-use kagari_bytecode::SafeDebugPointKind;
-use kagari_bytecode::StructId;
-use kagari_bytecode::UnaryOp;
-use kagari_bytecode::verify_module;
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_abi::{
+    ids::FunctionRef,
+    representation::ValueType,
+    standard::StandardIntrinsic,
+    types::{PublicAbiItem, TypeAbiKind},
+};
+use kagari_bytecode::{
+    ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
+    ArtifactValidationError, BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule,
+    BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldRef,
+    FunctionMetadata, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register,
+    RuntimeHelper, SafeDebugPointKind, StructId, UnaryOp, verify_module,
+};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{ModuleIdentity, PackageId},
+};
 
 fn host_trait_test_module(source: &str) -> BytecodeModule {
     let mut module = common::bytecode_ok(source);

@@ -1,28 +1,19 @@
-use crate::builtin::surface;
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::builtin::traits::callable_signature;
-use crate::hir::BinaryOp;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::LiteralKind;
-use crate::hir::PrefixOp;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::CallTarget;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::completion;
-use crate::typeck::constraints;
-use crate::typeck::ty::display_type_id;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use crate::types::TypeSubstitution;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::StandardTypeConstraint;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::cancellation::Cancelled;
-use kagari_common::identity;
+use crate::{
+    builtin::{
+        surface,
+        traits::{self, StandardTraitSemantics, callable_signature},
+    },
+    hir::{BinaryOp, ExprId, ExprKind, LiteralKind, PrefixOp},
+    typeck::{
+        BodyTypeEnv, CallTarget, body::BodyChecker, completion, constraints, ty::display_type_id,
+    },
+    types::{NominalType, TypeId, TypeSubstitution},
+};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{surface::StandardTypeConstraint, traits::StandardTrait},
+};
+use kagari_common::{Diagnostic, DiagnosticKind, cancellation::Cancelled, identity};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(

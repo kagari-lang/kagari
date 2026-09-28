@@ -3,11 +3,12 @@
 use crate::builtin::traits::StandardTraitSemantics;
 use kagari_common::identity;
 
-use crate::builtin::traits as builtin_traits;
-use crate::host::HostDeclarations;
-use crate::typeck::GenericBounds;
-use crate::types::GenericParameterType;
-use crate::types::NominalType;
+use crate::{
+    builtin::traits as builtin_traits,
+    host::HostDeclarations,
+    typeck::GenericBounds,
+    types::{GenericParameterType, NominalType},
+};
 use kagari_abi::standard::traits::StandardTrait;
 mod implementations;
 mod traits;

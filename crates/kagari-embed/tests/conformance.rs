@@ -1,17 +1,15 @@
-use kagari_bytecode::ArtifactBuildOptions;
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_bytecode::ArtifactValidationError;
-use kagari_bytecode::DependencyFingerprint;
-use kagari_common::SourceFile;
-use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_embed::ArtifactOptions;
-use kagari_embed::CompileOptions;
-use kagari_embed::EmbeddingError;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::LoadOptions;
-use kagari_embed::program::{PreparedProgram, ProgramPreparationError};
+use kagari_bytecode::{
+    ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError,
+    DependencyFingerprint,
+};
+use kagari_common::{
+    SourceFile,
+    identity::{ModuleIdentity, PackageId},
+};
+use kagari_embed::{
+    ArtifactOptions, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine, LoadOptions,
+    program::{PreparedProgram, ProgramPreparationError},
+};
 use kagari_runtime::{ResourcePolicy, value::Value};
 
 fn exact_compatibility(

@@ -2,16 +2,14 @@
 
 use kagari_abi::standard::surface as standard_surface;
 
-use crate::builtin::traits;
-use crate::host::HostDeclarations;
-use crate::imports::ImportTarget;
-use crate::imports::ModuleGraph;
-use crate::imports::ModuleImports;
-use crate::resolver::ResolvedName;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::cancellation::Cancelled;
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::{
+    builtin::traits,
+    host::HostDeclarations,
+    imports::{ImportTarget, ModuleGraph, ModuleImports},
+    resolver::ResolvedName,
+};
+use kagari_common::cancellation::{CancellationToken, Cancelled};
+use std::{collections::HashMap, sync::Arc};
 
 impl ModuleGraph {
     pub(super) fn bind_exports(&mut self, cancel: &CancellationToken) -> Result<(), Cancelled> {

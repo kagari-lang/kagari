@@ -1,12 +1,7 @@
-use kagari_bytecode::BinaryOp;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::UnaryOp;
-use kagari_runtime::numeric;
-use kagari_runtime::value::Value;
-use kagari_runtime::value_semantics;
+use kagari_bytecode::{BinaryOp, ConstantOperand, UnaryOp};
+use kagari_runtime::{numeric, value::Value, value_semantics};
 
-use crate::error::VmError;
-use crate::executor::Executor;
+use crate::{error::VmError, executor::Executor};
 
 impl Executor<'_> {
     pub(crate) fn constant_to_value(constant: ConstantOperand) -> Value {

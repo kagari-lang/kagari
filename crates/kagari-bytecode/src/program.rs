@@ -1,23 +1,18 @@
-use crate::ArtifactFingerprint;
-use crate::BytecodeInstruction;
-use crate::BytecodeModule;
-use crate::BytecodeVerificationError;
-use crate::CallTarget;
-use crate::DependencyFingerprint;
-use crate::trait_bounds;
-use crate::verifier;
-use kagari_abi::host;
-use kagari_abi::layout;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_abi::types::TypeAbiKind;
-use kagari_abi::types::verify;
+use crate::{
+    ArtifactFingerprint, BytecodeInstruction, BytecodeModule, BytecodeVerificationError,
+    CallTarget, DependencyFingerprint, trait_bounds, verifier,
+};
+use kagari_abi::{
+    host, layout,
+    standard::traits::StandardTrait,
+    types::{self as abi, AbiType, PublicAbiItem, TypeAbiKind, verify},
+};
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::slice;
+use std::{
+    collections::{HashMap, HashSet},
+    slice,
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModuleRef(u32);

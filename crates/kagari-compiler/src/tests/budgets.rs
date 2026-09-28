@@ -1,13 +1,10 @@
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
-use crate::tests::common;
+use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
 use kagari_abi::budget::LogicalBudgetCharge;
 use kagari_bytecode::{
     BytecodeInstruction, BytecodeProgram, BytecodeVerificationError, KbcArtifact, ModuleRef,
     verify_module,
 };
-use kagari_mir::analysis::SafepointKind;
-use kagari_mir::{Constant, Instruction, verify_mir};
+use kagari_mir::{Constant, Instruction, analysis::SafepointKind, verify_mir};
 
 #[test]
 fn removed_pure_operations_keep_charge_points_and_origins() {

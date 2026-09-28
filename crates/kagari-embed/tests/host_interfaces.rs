@@ -7,12 +7,10 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::CompileOptions;
-use kagari_embed::ExecutionContext;
-use kagari_embed::HostExposurePolicy;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{
+    BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
+    program::PreparedProgram,
+};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
@@ -287,11 +285,8 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
 
 #[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::PublicAbiItem;
-    use kagari_bytecode::BytecodeInstruction;
-    use kagari_bytecode::CallTarget;
-    use kagari_bytecode::HostImportId;
+    use kagari_abi::types::{AbiType, PublicAbiItem};
+    use kagari_bytecode::{BytecodeInstruction, CallTarget, HostImportId};
     let (_, artifact, _, _) = fixture();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();

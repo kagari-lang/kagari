@@ -1,12 +1,9 @@
-use crate::bytecode::lower_to_bytecode;
-use crate::tests::common;
-use crate::{MirLoweringOptions, lower_to_mir};
-use kagari_abi::effects::EffectSet;
-use kagari_abi::operations::BinaryOp;
+use crate::{MirLoweringOptions, bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use kagari_abi::{effects::EffectSet, operations::BinaryOp};
 use kagari_common::cancellation::CancellationToken;
-use kagari_mir::passes::{PassOptions, PassResult, optimize};
 use kagari_mir::{
     BlockId, Constant, Instruction, MirVerificationErrorKind, Terminator, VerifiedMirModule,
+    passes::{PassOptions, PassResult, optimize},
     verify_mir,
 };
 

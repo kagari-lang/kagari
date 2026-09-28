@@ -1,22 +1,16 @@
 use super::*;
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types::FunctionAbi;
-use kagari_abi::types::PublicAbiItem;
-use kagari_bytecode::ArtifactBuildOptions;
-use kagari_bytecode::ArtifactCompatibility;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::DependencyFingerprint;
-use kagari_bytecode::FunctionMetadata;
-use kagari_bytecode::KbcArtifact;
-
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
+use kagari_abi::{
+    budget::LogicalBudgetCharge,
+    ids::FunctionRef,
+    representation::ValueType,
+    scalar::BuiltinType,
+    types::{AbiType, FunctionAbi, PublicAbiItem},
+};
+use kagari_bytecode::{
+    ArtifactBuildOptions, ArtifactCompatibility, BytecodeFunction, BytecodeInstruction,
+    BytecodeModule, BytecodeProgram, ConstantOperand, DependencyFingerprint, FunctionMetadata,
+    KbcArtifact,
+};
 
 #[test]
 fn corrupted_collection_root_quarantines_the_runtime() {

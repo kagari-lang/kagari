@@ -2,8 +2,7 @@
 use super::declarations::{
     ApiAssociatedType, ApiBound, ApiFunction, ApiItem, ApiMethod, ApiParameter, ApiTrait, ApiType,
 };
-use crate::scalar::BuiltinType;
-use crate::standard::StandardIntrinsic;
+use crate::{scalar::BuiltinType, standard::StandardIntrinsic};
 use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

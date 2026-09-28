@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::ArtifactOptions;
-use kagari_embed::EmbeddingError;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine, program::PreparedProgram};
 
 #[test]
 fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {

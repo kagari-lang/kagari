@@ -1,13 +1,13 @@
 use super::*;
-use crate::layout::EnumVariantLayout;
-use crate::scalar::BuiltinType;
-use crate::standard::intrinsic;
-use crate::standard::surface::StandardEnum;
-use crate::standard::traits::StandardTrait;
-use crate::types::{AssociatedTypeFamilyAbi, GenericParameterAbi};
-use kagari_common::collection::CollectionAccess;
-use kagari_common::identity::{
-    DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+use crate::{
+    layout::EnumVariantLayout,
+    scalar::BuiltinType,
+    standard::{intrinsic, surface::StandardEnum, traits::StandardTrait},
+    types::{AssociatedTypeFamilyAbi, GenericParameterAbi},
+};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id},
 };
 
 fn id(kind: DefinitionKind, name: &str) -> DefinitionId {

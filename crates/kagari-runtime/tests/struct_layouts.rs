@@ -4,10 +4,7 @@ mod layouts;
 
 use kagari_abi::types::AbiType;
 use kagari_bytecode::StructId;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::reflection;
-use kagari_runtime::value::Value;
+use kagari_runtime::{Runtime, RuntimeErrorKind, reflection, value::Value};
 
 #[test]
 fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
@@ -215,10 +212,8 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
 
 #[test]
 fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::NominalAbiType;
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::ModuleRef;
+    use kagari_abi::{scalar::BuiltinType, types::NominalAbiType};
+    use kagari_bytecode::{BytecodeProgram, ModuleRef};
     let mut runtime = Runtime::default();
     let leaf = layouts::layout(
         &mut runtime,

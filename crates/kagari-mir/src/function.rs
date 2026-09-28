@@ -1,24 +1,18 @@
-use kagari_abi::layout::EnumLayout;
-use kagari_abi::layout::StructLayout;
-use kagari_abi::slots::SemanticSlots;
-use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_abi::types::NominalAbiType;
-use kagari_common::Span;
-use kagari_common::host_interface::HostTypeDeclaration;
-use kagari_common::identity::ModuleIdentity;
+use kagari_abi::{
+    effects::EffectSet,
+    layout::{EnumLayout, StructLayout},
+    representation::ValueType,
+    slots::SemanticSlots,
+    types::{ConcreteFunctionIdentity, ModuleAbi, NominalAbiType},
+};
+use kagari_common::{Span, host_interface::HostTypeDeclaration, identity::ModuleIdentity};
 use serde::{Deserialize, Serialize};
 
-use crate::debug::MirFunctionDebugMetadata;
-use crate::ids::BlockId;
-use crate::ids::InstanceId;
-use crate::ids::LocalId;
-use crate::ids::ModuleSlotId;
-use crate::ids::TempId;
-use crate::instruction::InstructionBuffer;
-use crate::instruction::Terminator;
-use kagari_abi::effects::EffectSet;
-use kagari_abi::representation::ValueType;
-use kagari_abi::types::ModuleAbi;
+use crate::{
+    debug::MirFunctionDebugMetadata,
+    ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
+    instruction::{InstructionBuffer, Terminator},
+};
 use std::iter;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

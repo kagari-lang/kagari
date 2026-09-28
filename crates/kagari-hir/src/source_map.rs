@@ -1,17 +1,10 @@
-use crate::hir::FieldId;
-use crate::hir::GenericParamId;
-use crate::hir::HirArenaId;
-use crate::hir::HirOwner;
-use crate::hir::Item;
-use crate::hir::VariantId;
-use kagari_common::Span;
-use std::collections::HashMap;
-use std::mem;
-
 use crate::hir::{
-    BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, ModuleId, ParamId, PatternId,
-    PlaceId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
+    BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId, HirOwner,
+    ImplId, Item, LocalId, ModuleId, ParamId, PatternId, PlaceId, StmtId, StructId, TraitId,
+    TraitMethodId, TypeRefId, VariantId,
 };
+use kagari_common::Span;
+use std::{collections::HashMap, mem};
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceMap {

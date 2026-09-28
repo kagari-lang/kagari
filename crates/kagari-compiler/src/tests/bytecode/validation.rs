@@ -1,6 +1,5 @@
 use crate::tests::bytecode::*;
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::effects::EffectSet;
+use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet};
 use kagari_bytecode as bytecode;
 
 #[test]
@@ -432,9 +431,9 @@ fn verifier_rejects_malformed_debug_metadata() {
 
 #[test]
 fn mapped_result_error_rejects_invalid_contracts_and_registers() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{
+        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+    };
     let module = common::bytecode_ok(
         "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");r.map_err(|e|e)}",
     );
@@ -473,9 +472,9 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
 
 #[test]
 fn ranges_reject_forged_shapes_endpoints_and_bounds() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{
+        scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+    };
     use kagari_common::range::RangeKind;
     let module = common::bytecode_ok("fn main() { val a = [1, 2, 3]; a.copy_within(0..2, 1); }");
     verify_module(&module).unwrap();
@@ -611,10 +610,11 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
 
 #[test]
 fn string_iterator_rejects_forged_constructor_contracts() {
-    use kagari_abi::operations::IterOp;
-    use kagari_abi::operations::StringIterKind;
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{
+        operations::{IterOp, StringIterKind},
+        scalar::BuiltinType,
+        types::AbiType,
+    };
     let module =
         common::bytecode_ok("fn main() { val parts = \"a,b\".split(\",\"); parts.next(); }");
     verify_module(&module).unwrap();

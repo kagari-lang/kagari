@@ -6,8 +6,7 @@ use crate::{
     lower::LoweredModule,
 };
 use kagari_common::Diagnostic;
-use kagari_syntax::lexer;
-use kagari_syntax::token::Token;
+use kagari_syntax::{lexer, token::Token};
 
 pub struct BodyReuse<'a> {
     pub previous_diagnostics: &'a [Diagnostic],

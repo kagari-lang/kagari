@@ -1,8 +1,5 @@
 use kagari_common::SourceFile;
-use kagari_embed::BytecodeArtifact;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
@@ -332,9 +329,10 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
-    use kagari_abi::standard::traits::StandardTrait;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::PublicAbiItem;
+    use kagari_abi::{
+        standard::traits::StandardTrait,
+        types::{AbiType, PublicAbiItem},
+    };
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(

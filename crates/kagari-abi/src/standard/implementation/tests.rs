@@ -1,7 +1,8 @@
 use super::*;
-use crate::scalar::BuiltinType;
-use crate::standard::intrinsic;
-use crate::standard::surface::STANDARD_IMPLEMENTATIONS;
+use crate::{
+    scalar::BuiltinType,
+    standard::{intrinsic, surface::STANDARD_IMPLEMENTATIONS},
+};
 use kagari_common::collection::CollectionAccess;
 
 #[test]

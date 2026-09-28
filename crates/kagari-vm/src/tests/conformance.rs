@@ -1,11 +1,14 @@
-use crate::tests::native_fixtures;
+use crate::{
+    DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError,
+    tests::{
+        common::{compile_test_bytecode, load_test_module},
+        native_fixtures,
+    },
+};
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
     RuntimeErrorKind, SecurityContext, value::StructValueField, value::Value,
 };
-
-use crate::tests::common::{compile_test_bytecode, load_test_module};
-use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
 
 fn debug_runtime(module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -60,9 +63,7 @@ fn main() -> i32 {
 
 #[test]
 fn missing_entry_is_rejected_before_execution() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
     let bytecode = compile_test_bytecode("fn main() -> i32 { 42 }");
     for encoded in [false, true] {
         let program = BytecodeProgram {
@@ -100,9 +101,7 @@ fn missing_entry_is_rejected_before_execution() {
 
 #[test]
 fn ambiguous_entry_is_rejected_on_all_load_routes() {
-    use kagari_bytecode::BytecodeProgram;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_bytecode::ModuleRef;
+    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
     let mut bytecode = compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }");
     let second = bytecode
         .functions

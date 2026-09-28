@@ -1,21 +1,18 @@
 //! Versioned fixed-width encoding of resolved path contracts, independent of slots.
 
 use kagari_bytecode::BytecodeInstruction;
-use kagari_common::host_interface::HostPathContract;
-use kagari_common::host_interface::HostPathInput;
-use kagari_common::host_interface::HostPathSegmentContract;
+use kagari_common::host_interface::{
+    HostPathContract, HostPathInput, HostPathSegmentContract, HostValueType, PathAccess,
+};
 
-use crate::error::RuntimeError;
-use crate::host::HostPathDescriptorRegistration;
-use crate::host::HostPathSegment;
-use crate::host::HostRegistry;
-use crate::metadata::AbiFingerprint;
-use crate::metadata::TypeRegistry;
-use crate::module::LinkedHostBindings;
+use crate::{
+    error::RuntimeError,
+    host::{HostPathDescriptorRegistration, HostPathSegment, HostRegistry},
+    metadata::{AbiFingerprint, TypeRegistry},
+    module::LinkedHostBindings,
+};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::BytecodeModule;
-use kagari_common::host_interface::HostValueType;
-use kagari_common::host_interface::PathAccess;
 
 impl HostRegistry {
     pub(crate) fn link_module(

@@ -1,26 +1,19 @@
-use crate::RootedInterfaceMethod;
-use crate::Runtime;
-use crate::error::RuntimeError;
-use crate::error::RuntimeErrorKind;
-use crate::gc;
-use crate::gc::HeapObjectId;
-use crate::module;
-use crate::module::LoadedModule;
-use crate::value;
-use crate::value::EnumTag;
-use crate::value::Value;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::operations::IterOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::declarations::native_trait_default;
-use kagari_abi::types as abi;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::NominalAbiType;
-use kagari_abi::types::PublicAbiItem;
+use crate::{
+    RootedInterfaceMethod, Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::{self, HeapObjectId},
+    module::{self, LoadedModule},
+    value::{self, EnumTag, Value},
+};
+use kagari_abi::{
+    ids::FunctionRef,
+    operations::IterOp,
+    representation::ValueType,
+    standard::declarations::native_trait_default,
+    types::{self as abi, AbiType, NominalAbiType, PublicAbiItem},
+};
 use kagari_bytecode as bytecode;
-use kagari_common::identity::DefinitionId;
-use kagari_common::identity::DefinitionKind;
-use kagari_common::identity::DefinitionPathSegment;
+use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
 use std::slice;
 
 impl Runtime {

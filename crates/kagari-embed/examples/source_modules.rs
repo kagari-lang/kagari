@@ -8,11 +8,8 @@ use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_compiler::bytecode;
-use kagari_compiler::source::program;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_compiler::{bytecode, source::program};
+use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
 
 fn main() {
     let engine = KagariEngine::default();

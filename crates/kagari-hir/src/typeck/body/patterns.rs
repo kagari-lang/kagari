@@ -1,21 +1,12 @@
-use crate::hir::LocalId;
-use crate::hir::MatchArm;
-use crate::hir::PatternId;
-use crate::hir::PatternKind;
-use crate::hir::pattern::PatternBound;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::ScalarValue;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::ty::display_type_id;
-use crate::types::TypeId;
+use crate::{
+    hir::{LocalId, MatchArm, PatternId, PatternKind, pattern::PatternBound},
+    resolver::ResolvedName,
+    typeck::{BodyTypeEnv, ScalarValue, body::BodyChecker, ty::display_type_id},
+    types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
-use kagari_common::Span;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use kagari_common::{Diagnostic, DiagnosticKind, Span};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_match_arm_type(

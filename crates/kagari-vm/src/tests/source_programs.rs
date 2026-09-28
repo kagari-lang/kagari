@@ -1,7 +1,5 @@
-use crate::tests::native_fixtures;
-use crate::{DebugSession, JitExecutionStatus, SourceBreakpoint, Vm};
-use kagari_bytecode::BytecodeProgram;
-use kagari_bytecode::KbcArtifact;
+use crate::{DebugSession, JitExecutionStatus, SourceBreakpoint, Vm, tests::native_fixtures};
+use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},

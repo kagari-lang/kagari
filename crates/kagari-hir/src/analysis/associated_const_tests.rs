@@ -1,6 +1,5 @@
 use super::*;
-use crate::declarations::DeclarationId;
-use crate::typeck::ScalarValue;
+use crate::{declarations::DeclarationId, typeck::ScalarValue};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 

@@ -1,10 +1,12 @@
-use crate::ast::{
-    ast_node,
-    misc::{GenericArgList, Name, Path},
-    support,
-    traits::AstNode,
+use crate::{
+    ast::{
+        ast_node,
+        misc::{GenericArgList, Name, Path, TraitRef},
+        support,
+        traits::AstNode,
+    },
+    kind::SyntaxKind,
 };
-use crate::{ast::misc::TraitRef, kind::SyntaxKind};
 
 ast_node!(TypeRef, TypeRef);
 ast_node!(TupleType, TupleType);

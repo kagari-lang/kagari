@@ -1,8 +1,10 @@
 //! Host-facing runtime linking and execution orchestration.
 use crate::context::ExecutionContext;
-use crate::error::{EmbeddingError, RuntimeFailureKind};
-use crate::program::PreparedProgram;
-use crate::{LoadResult, ReloadResult, RunResult};
+use crate::{
+    LoadResult, ReloadResult, RunResult,
+    error::{EmbeddingError, RuntimeFailureKind},
+    program::PreparedProgram,
+};
 use kagari_runtime::{
     HostFunctionId, HostTypeRegistration, LoadedModule, Runtime, RuntimeError, TypeId,
     host::HostFunction, value::Value,

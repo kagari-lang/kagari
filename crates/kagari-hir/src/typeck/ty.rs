@@ -1,22 +1,23 @@
-use super::associated;
-use super::{ResolvedTypeRef, TypeTable, TypeTarget};
-use crate::builtin::traits;
-use crate::builtin::traits::StandardTraitSemantics;
-use crate::declarations::Declarations;
-use crate::resolver::ResolvedName;
-use crate::types::NominalType;
-use crate::{builtin::surface, hir, types::TypeId};
-use hir::BodyOwner;
-use hir::HirOwner;
-use hir::TypeKind;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::surface::StandardModule;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity;
-use kagari_common::range::RangeKind;
+use super::{ResolvedTypeRef, TypeTable, TypeTarget, associated};
+use crate::{
+    builtin::{
+        surface,
+        traits::{self, StandardTraitSemantics},
+    },
+    declarations::Declarations,
+    hir,
+    resolver::ResolvedName,
+    types::{NominalType, TypeId},
+};
+use hir::{BodyOwner, HirOwner, TypeKind};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::{
+        surface::{self as standard_surface, StandardEnum, StandardModule},
+        traits::StandardTrait,
+    },
+};
+use kagari_common::{cancellation::CancellationToken, identity, range::RangeKind};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {

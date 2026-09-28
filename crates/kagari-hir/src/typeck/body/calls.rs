@@ -1,30 +1,21 @@
-use crate::builtin::traits;
-use crate::builtin::traits::intrinsic_holds;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::resolver::ResolvedName;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::CallTarget;
-use crate::typeck::ConstraintTarget;
-use crate::typeck::GenericBounds;
-use crate::typeck::ScalarValue;
-use crate::typeck::TypedFunction;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::body::standard_method_receiver;
-use crate::typeck::check;
-use crate::typeck::completion;
-use crate::typeck::constraints;
-use crate::typeck::inference;
-use crate::typeck::ty::display_type_id;
-use crate::types::GenericParameterType;
-use crate::types::TypeId;
-use crate::types::TypeSubstitution;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::surface::StandardTypeConstraint;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
+use crate::{
+    builtin::traits::{self, intrinsic_holds},
+    hir::{ExprId, ExprKind},
+    resolver::ResolvedName,
+    typeck::{
+        BodyTypeEnv, CallTarget, ConstraintTarget, GenericBounds, ScalarValue, TypedFunction,
+        body::{BodyChecker, standard_method_receiver},
+        check, completion, constraints, inference,
+        ty::display_type_id,
+    },
+    types::{GenericParameterType, TypeId, TypeSubstitution},
+};
+use kagari_abi::standard::{
+    StandardIntrinsic,
+    surface::{self as standard_surface, StandardTypeConstraint},
+    traits::StandardTrait,
+};
+use kagari_common::{Diagnostic, DiagnosticKind};
 use std::iter;
 
 impl<'a> BodyChecker<'a> {

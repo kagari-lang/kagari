@@ -1,11 +1,17 @@
 use kagari_bytecode::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::host_interface;
-use kagari_embed::KagariRuntime;
-use kagari_embed::program::{PreparedProgram, ProgramPreparationError};
-use kagari_runtime::LoadedModule;
-use kagari_runtime::RuntimeError;
+use kagari_common::{Diagnostic, SourceFile, host_interface};
+use kagari_embed::{
+    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingDiagnostic, EmbeddingError,
+    ExecutionContext, JitPolicy, KagariEngine, KagariRuntime, LoadOptions,
+    program::{PreparedProgram, ProgramPreparationError},
+};
+use kagari_runtime::{
+    CapabilitySet, HostExposurePolicy, LanguageProfile, LoadedModule, RuntimeError,
+    host::{HostError, HostFunction},
+    value::Value,
+};
 use kagari_vm::ExecutionReport;
 use std::{
     env, fs,
@@ -13,16 +19,6 @@ use std::{
     process::ExitCode,
 };
 
-use kagari_common::{Diagnostic, SourceFile};
-use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingDiagnostic, EmbeddingError,
-    ExecutionContext, JitPolicy, KagariEngine, LoadOptions,
-};
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile,
-    host::{HostError, HostFunction},
-    value::Value,
-};
 use kagari_syntax::parse_module;
 
 fn main() -> ExitCode {

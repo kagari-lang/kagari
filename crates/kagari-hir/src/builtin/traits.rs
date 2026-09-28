@@ -3,31 +3,29 @@
 use crate::builtin::declarations::{
     ApiBoundSemantics, ApiImplementationSemantics, ApiTraitSemantics, ApiTypeSemantics,
 };
-use kagari_abi::numeric as scalar_numeric;
-use kagari_abi::standard::surface as standard_surface;
-use kagari_abi::standard::traits::{StandardTrait, identity};
-use kagari_common::identity::associated_type_id;
+use kagari_abi::{
+    numeric as scalar_numeric,
+    scalar::BuiltinType,
+    standard::{
+        surface::{self as standard_surface, STANDARD_TRAITS, StandardEnum, StandardModule},
+        traits::{StandardTrait, identity},
+    },
+};
+use kagari_common::{
+    collection::CollectionAccess::Mutable,
+    identity::{DefinitionId, associated_type_id},
+};
 
-use kagari_common::collection::CollectionAccess::Mutable;
-
-use super::declarations;
-use super::numeric;
-use super::surface;
-use crate::aggregates;
-use crate::aggregates::AggregateCatalog;
-use crate::aggregates::TraitSignature;
-use crate::typeck::ConstraintTarget;
-use crate::typeck::GenericBounds;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::standard::surface::STANDARD_TRAITS;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::surface::StandardModule;
-use kagari_common::identity::DefinitionId;
-use std::collections::BTreeMap;
-use std::collections::HashSet;
-use std::sync::OnceLock;
+use super::{declarations, numeric, surface};
+use crate::{
+    aggregates::{self, AggregateCatalog, TraitSignature},
+    typeck::{ConstraintTarget, GenericBounds},
+    types::{NominalType, TypeId},
+};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::OnceLock,
+};
 
 pub trait StandardTraitSemantics {
     fn nominal(self) -> NominalType;

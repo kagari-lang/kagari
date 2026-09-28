@@ -1,25 +1,18 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::types::{lower_nominal_type, lower_type};
-use bincode::DefaultOptions;
-use bincode::Options;
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::surface::StandardEnum;
-use kagari_abi::standard::traits::StandardTrait;
-use kagari_hir::builtin::traits::StandardTraitSemantics;
-use kagari_hir::types::TypeId;
-use kagari_mir::instruction::CallTarget;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::SourceFunctionContract;
-use kagari_mir::instruction::Terminator;
-use kagari_mir::instruction::ValueBuffer;
-use std::collections::HashSet;
-use std::fmt::Write;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer},
+    types::{lower_nominal_type, lower_type},
+};
+use bincode::{DefaultOptions, Options};
+use kagari_abi::{
+    operations::{BinaryOp, StandardEnumOp},
+    representation::ValueType,
+    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
+};
+use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
+use kagari_mir::instruction::{
+    CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
+};
+use std::{collections::HashSet, fmt::Write};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> bool {

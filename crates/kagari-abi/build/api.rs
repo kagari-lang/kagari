@@ -1,21 +1,15 @@
 use super::implementations;
-use crate::attribute;
-use crate::ty;
-use ast::AssociatedType;
-use ast::BlockExpr;
-use ast::EnumDef;
-use ast::FnDef;
-use ast::GenericParamList;
-use ast::MethodDef;
-use ast::Name;
-use ast::ParamList;
-use ast::TraitDef;
-use ast::TypeRef;
-use kagari_syntax::Parse;
-use kagari_syntax::ast;
-use kagari_syntax::ast::AstNode;
-use kagari_syntax::kind::SyntaxKind;
-use kagari_syntax::syntax_node::SyntaxNode;
+use crate::{attribute, ty};
+use ast::{
+    AssociatedType, BlockExpr, EnumDef, FnDef, GenericParamList, MethodDef, Name, ParamList,
+    TraitDef, TypeRef,
+};
+use kagari_syntax::{
+    Parse,
+    ast::{self, AstNode},
+    kind::SyntaxKind,
+    syntax_node::SyntaxNode,
+};
 use std::fmt::Write;
 
 /// Bind native trait declarations to the engine's sealed implementation contracts.

@@ -1,29 +1,27 @@
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::AbiType;
-use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_abi::types::ConstraintAbi;
-use kagari_abi::types::PublicAbiItem;
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AbiType, ConcreteFunctionIdentity, ConstraintAbi, PublicAbiItem},
+};
 use kagari_common::{
     DiagnosticKind,
     cancellation::CancellationToken,
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_compiler::bytecode::BytecodeLoweringError;
-use kagari_compiler::bytecode::lower_program_to_bytecode;
-use kagari_compiler::bytecode::lower_to_bytecode;
-use kagari_compiler::source::program::SourceProgramError;
-use kagari_compiler::source::program::lower_program_to_mir;
-use kagari_compiler::{MirLoweringError, MirLoweringOptions};
+use kagari_compiler::{
+    MirLoweringError, MirLoweringOptions,
+    bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
+    source::program::{SourceProgramError, lower_program_to_mir},
+};
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
 };
-use kagari_mir::CallTarget;
-use kagari_mir::Instruction;
-use kagari_mir::codec::{decode_program, encode_program};
-use kagari_mir::program::ProgramErrorKind;
-use kagari_mir::program::verify_program;
+use kagari_mir::{
+    CallTarget, Instruction,
+    codec::{decode_program, encode_program},
+    program::{ProgramErrorKind, verify_program},
+};
 
 fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     let path = format!("mem://{name}");
@@ -161,8 +159,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
 
 #[test]
 fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
-    use kagari_bytecode::ArtifactFingerprint;
-    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::{ArtifactFingerprint, KbcArtifact};
     let mut db = SourceDatabase::default();
     for name in ["left", "right"] {
         insert(&mut db, name, "pub struct Item { val value: i32 }");

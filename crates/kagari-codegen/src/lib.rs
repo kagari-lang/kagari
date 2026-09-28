@@ -4,9 +4,7 @@ pub use diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKi
 use kagari_abi::native::{
     BackendId, BackendTarget, NativeCompilationProduct, NativeLinkDescription,
 };
-use kagari_mir::analysis::FunctionAnalysis;
-use kagari_mir::ids::InstanceId;
-use kagari_mir::{MirFunction, VerifiedMirModule};
+use kagari_mir::{MirFunction, VerifiedMirModule, analysis::FunctionAnalysis, ids::InstanceId};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackendFunctionInput<'a> {

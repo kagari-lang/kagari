@@ -1,20 +1,19 @@
-use crate::source::lower::MirLoweringError;
-use crate::source::lower::state::FunctionLowerer;
-use crate::source::lower::support::lower_scalar;
-use crate::source::types::{lower_nominal_type, lower_type};
-use kagari_abi::operations::BinaryOp;
-use kagari_abi::operations::StandardEnumOp;
-use kagari_abi::representation::ValueType;
-use kagari_hir::hir;
-use kagari_hir::hir::PatternKind;
-use kagari_hir::types::NominalType;
-use kagari_hir::types::TypeId;
-use kagari_mir::ids::BlockId;
-use kagari_mir::ids::LocalId;
-use kagari_mir::instruction::Constant;
-use kagari_mir::instruction::Instruction;
-use kagari_mir::instruction::MirValue;
-use kagari_mir::instruction::Terminator;
+use crate::source::{
+    lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar},
+    types::{lower_nominal_type, lower_type},
+};
+use kagari_abi::{
+    operations::{BinaryOp, StandardEnumOp},
+    representation::ValueType,
+};
+use kagari_hir::{
+    hir::{self, PatternKind},
+    types::{NominalType, TypeId},
+};
+use kagari_mir::{
+    ids::{BlockId, LocalId},
+    instruction::{Constant, Instruction, MirValue, Terminator},
+};
 use std::collections::HashMap;
 
 impl FunctionLowerer<'_, '_> {

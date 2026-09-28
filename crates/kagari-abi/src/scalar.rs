@@ -1,5 +1,4 @@
-use kagari_common::integer;
-use kagari_common::numeric::NumberType;
+use kagari_common::{integer, numeric::NumberType};
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]

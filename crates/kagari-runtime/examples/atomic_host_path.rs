@@ -1,29 +1,18 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 
 use kagari_common::host_interface;
-use kagari_common::host_interface::HostFieldDeclaration;
-use kagari_common::host_interface::HostPathDeclaration;
-use kagari_common::host_interface::HostTypeDeclaration;
-use kagari_common::host_interface::{HostValueType, HostVirtualSegmentDeclaration};
-use kagari_runtime::CapabilitySet;
-use kagari_runtime::HostExposurePolicy;
-use kagari_runtime::HostObjectId;
-use kagari_runtime::HostPathAdapter;
-use kagari_runtime::HostPathDescriptorRegistration;
-use kagari_runtime::HostPathSegmentRegistration;
-use kagari_runtime::HostSchemaEpoch;
-use kagari_runtime::HostTypeOwnership;
-use kagari_runtime::HostTypeRegistration;
-use kagari_runtime::LanguageProfile;
-use kagari_runtime::PathAccess;
-use kagari_runtime::ResourcePolicy;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::SecurityContext;
-use kagari_runtime::host::HostError;
-use kagari_runtime::host::PreparedHostPathWrite;
-use kagari_runtime::value::Value;
+use kagari_common::host_interface::{
+    HostFieldDeclaration, HostPathDeclaration, HostTypeDeclaration, HostValueType,
+    HostVirtualSegmentDeclaration,
+};
+use kagari_runtime::{
+    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
+    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
+    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, ResourcePolicy, Runtime,
+    RuntimeConfig, RuntimeErrorKind, SecurityContext,
+    host::{HostError, PreparedHostPathWrite},
+    value::Value,
+};
 use std::{cell::Cell, rc::Rc};
 
 fn main() {

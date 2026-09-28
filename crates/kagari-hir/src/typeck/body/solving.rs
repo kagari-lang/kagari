@@ -1,24 +1,19 @@
-use crate::builtin::declarations;
-use crate::builtin::declarations::{ApiImplementationSemantics, ApiTypeSemantics};
-use crate::builtin::traits;
-use crate::hir::BlockId;
-use crate::hir::ExprId;
-use crate::hir::ExprKind;
-use crate::hir::TypeKind;
-use crate::hir::TypeRefId;
-use crate::typeck::BodyTypeEnv;
-use crate::typeck::body::BodyChecker;
-use crate::typeck::ty::TypeContext;
-use crate::typeck::ty::display_type;
-use crate::typeck::ty::resolve_type_in;
-use crate::typeck::{completion, inference};
-use crate::types::GenericParameterType;
-use crate::types::NominalType;
-use crate::types::TypeId;
-use crate::types::TypeSubstitution;
+use crate::{
+    builtin::{
+        declarations::{self, ApiImplementationSemantics, ApiTypeSemantics},
+        traits,
+    },
+    hir::{BlockId, ExprId, ExprKind, TypeKind, TypeRefId},
+    typeck::{
+        BodyTypeEnv,
+        body::BodyChecker,
+        completion, inference,
+        ty::{TypeContext, display_type, resolve_type_in},
+    },
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
+};
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::Diagnostic;
-use kagari_common::DiagnosticKind;
+use kagari_common::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
     pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {

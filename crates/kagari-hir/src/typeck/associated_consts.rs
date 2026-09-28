@@ -4,14 +4,15 @@ use super::{
     TypeTable,
     ty::{TypeContext, resolve_type_in},
 };
-use crate::DiagnosticBuffer;
-use crate::aggregates::AggregateCatalog;
-use crate::declarations::Declarations;
-use crate::lower::LoweredModule;
-use crate::types::TypeId;
+use crate::{
+    DiagnosticBuffer, aggregates::AggregateCatalog, declarations::Declarations,
+    lower::LoweredModule, types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::identity::associated_const_id;
-use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
+use kagari_common::{
+    Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken,
+    identity::associated_const_id,
+};
 use std::collections::HashSet;
 
 fn error(name: &str, reason: &str, span: Span) -> Diagnostic {

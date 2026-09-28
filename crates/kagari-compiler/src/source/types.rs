@@ -1,10 +1,14 @@
 //! Encode checked source types at the compiler boundary.
 use kagari_abi::numeric::NumericOperation;
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::{AbiType, NominalAbiType};
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AbiType, NominalAbiType},
+};
 use kagari_common::integer::IntegerOp;
-use kagari_hir::hir::BinaryOp;
-use kagari_hir::types::{GenericParameterType, NominalType, TypeId};
+use kagari_hir::{
+    hir::BinaryOp,
+    types::{GenericParameterType, NominalType, TypeId},
+};
 pub(crate) fn lower_nominal_type(ty: &NominalType) -> NominalAbiType {
     NominalAbiType {
         associated_types: ty

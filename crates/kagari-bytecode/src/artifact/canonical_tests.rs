@@ -55,9 +55,7 @@ fn typed_path_operands_preflight_before_decoding_registers() {
 
 #[test]
 fn instruction_operand_vectors_are_bounded_before_verification() {
-    use crate::BytecodeFunction;
-    use crate::BytecodeInstruction;
-    use crate::Register;
+    use crate::{BytecodeFunction, BytecodeInstruction, Register};
 
     let valid = BytecodeProgram {
         root: crate::ModuleRef::new(0),
@@ -116,8 +114,10 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
 #[test]
 fn oversized_memory_identity_paths_reject_before_fingerprinting() {
     use kagari_abi::types::AbiType;
-    use kagari_common::host_interface::{HostInterface, HostTypeDeclaration, host_type_identity};
-    use kagari_common::identity::MAX_IDENTITY_PATH_SEGMENTS;
+    use kagari_common::{
+        host_interface::{HostInterface, HostTypeDeclaration, host_type_identity},
+        identity::MAX_IDENTITY_PATH_SEGMENTS,
+    };
 
     let valid = BytecodeProgram {
         root: crate::ModuleRef::new(0),
@@ -345,8 +345,7 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
 
 #[test]
 fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
+    use kagari_abi::{scalar::BuiltinType, types::AbiType};
     let valid = BytecodeProgram {
         root: crate::ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
@@ -384,15 +383,15 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
 
 #[test]
 fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
-    use kagari_abi::layout::EnumLayout;
-    use kagari_abi::layout::EnumVariantLayout;
-    use kagari_abi::layout::StructFieldLayout;
-    use kagari_abi::layout::StructLayout;
-    use kagari_abi::scalar::BuiltinType;
-    use kagari_abi::types::AbiType;
-    use kagari_abi::types::FieldAbi;
-    use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
-    use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+    use kagari_abi::{
+        layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+        scalar::BuiltinType,
+        types::{AbiType, FieldAbi},
+    };
+    use kagari_common::{
+        host_interface::{HostPathDeclaration, PathAccess},
+        identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+    };
 
     let valid = BytecodeProgram {
         root: crate::ModuleRef::new(0),

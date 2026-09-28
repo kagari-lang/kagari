@@ -1,9 +1,5 @@
 use kagari_abi::standard::StandardIntrinsic;
-use kagari_runtime::ResourcePolicy;
-use kagari_runtime::Runtime;
-use kagari_runtime::RuntimeConfig;
-use kagari_runtime::RuntimeErrorKind;
-use kagari_runtime::value::Value;
+use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, value::Value};
 
 fn limited(heap: Option<usize>, allocation: Option<usize>) -> Runtime {
     Runtime::new(RuntimeConfig {

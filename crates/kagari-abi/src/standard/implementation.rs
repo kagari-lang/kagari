@@ -1,11 +1,16 @@
 //! Match engine-owned implementation descriptors to portable type applications.
 use crate::standard::application::StandardArguments;
-use crate::standard::declarations::ApiImplementation;
-use crate::standard::traits::{self, StandardTrait};
-use crate::types::substitution::{TypeSubstitution, TypeTransformError};
-use crate::types::{AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::associated_type_id;
+use crate::{
+    standard::{
+        declarations::ApiImplementation,
+        traits::{self, StandardTrait},
+    },
+    types::{
+        AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
+};
+use kagari_common::{cancellation::CancellationToken, identity::associated_type_id};
 
 /// Bind the receiver without requiring parameters that occur only in trait inputs.
 /// Readonly storage is admitted only by the declared readonly capabilities.

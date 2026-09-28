@@ -1,35 +1,28 @@
-use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_abi::ids::FunctionRef;
-use kagari_abi::representation::ValueType;
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_bytecode::BinaryOp;
-use kagari_bytecode::BytecodeFunction;
-use kagari_bytecode::BytecodeInstruction;
-use kagari_bytecode::BytecodeModule;
-use kagari_bytecode::CallTarget;
-use kagari_bytecode::ConstantOperand;
-use kagari_bytecode::PathId;
-use kagari_bytecode::PathRecord;
-use kagari_bytecode::Register;
-use kagari_bytecode::RuntimeHelper;
-use kagari_bytecode::StructId;
-use kagari_runtime::host::PreparedHostPathWrite;
-use std::sync::{Arc, Mutex};
-
+use kagari_abi::{
+    budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType,
+    standard::StandardIntrinsic,
+};
+use kagari_bytecode::{
+    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
+    PathId, PathRecord, Register, RuntimeHelper, StructId,
+};
 use kagari_runtime::{
     AbiFingerprint, CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
     HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,
     HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess,
     ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind,
     TypeRegistration,
-    host::{HostError, HostFunction},
+    host::{HostError, HostFunction, PreparedHostPathWrite},
     value::Value,
 };
+use std::sync::{Arc, Mutex};
 
-use crate::Vm;
-use crate::tests::common::{
-    compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
-    load_test_module, test_function_module,
+use crate::{
+    Vm,
+    tests::common::{
+        compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
+        load_test_module, test_function_module,
+    },
 };
 
 fn host_runtime() -> Runtime {

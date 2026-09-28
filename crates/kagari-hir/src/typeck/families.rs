@@ -2,8 +2,8 @@
 
 use super::applications;
 use super::{ConstraintTarget, ModuleSignatures};
-use crate::DiagnosticBuffer;
 use crate::{
+    DiagnosticBuffer,
     aggregates::AggregateCatalog,
     declarations::Declarations,
     lower::LoweredModule,

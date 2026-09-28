@@ -2,16 +2,14 @@
 use kagari_embed::program::PreparedProgram;
 use kagari_vm::reenter;
 
-use std::slice;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    slice,
 };
 
 use kagari_common::{SourceFile, host_interface::standard_log};
-use kagari_embed::CompileOptions;
-use kagari_embed::ExecutionContext;
-use kagari_embed::KagariEngine;
+use kagari_embed::{CompileOptions, ExecutionContext, KagariEngine};
 use kagari_runtime::{
     ExecutionEvent, ExecutionFrame, ExecutionObserver, Runtime, RuntimeError,
     host::{HostError, HostFunction},

@@ -1,6 +1,6 @@
-use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
+    collection::CollectionAccess,
     host_interface::{
         HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
         HostParameter, HostPassingStyle, HostTraitImplementationDeclaration,
@@ -9,12 +9,10 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::ArtifactOptions;
-use kagari_embed::CompileOptions;
-use kagari_embed::ExecutionContext;
-use kagari_embed::HostExposurePolicy;
-use kagari_embed::KagariEngine;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{
+    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
+    program::PreparedProgram,
+};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},

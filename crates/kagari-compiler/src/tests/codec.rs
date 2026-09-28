@@ -1,22 +1,23 @@
 use bincode::{DefaultOptions, Options};
-use kagari_abi::representation::ValueType;
-use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::ModuleIdentity;
-use kagari_mir::codec::{
-    MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program,
+use kagari_abi::{
+    representation::ValueType,
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
 };
-use kagari_mir::program::{ProgramErrorKind, VerifiedMirProgram, verify_program};
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_mir::{
     BlockId, Constant, Instruction, MirModule, MirTemp, MirVerificationErrorKind, Terminator,
+    codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
+    program::{ProgramErrorKind, VerifiedMirProgram, verify_program},
     verify_mir,
 };
 use std::sync::Arc;
 
-use crate::bytecode::lower_program_to_bytecode;
-use crate::lower_to_mir;
-use crate::native_input::{NativeInputError, verify_native_input};
-use crate::tests::common;
+use crate::{
+    bytecode::lower_program_to_bytecode,
+    lower_to_mir,
+    native_input::{NativeInputError, verify_native_input},
+    tests::common,
+};
 
 fn program(source: &str) -> VerifiedMirProgram {
     let checked = common::analyze_ok(source);
@@ -303,8 +304,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
 
 #[test]
 fn artifact_integrity_does_not_substitute_for_native_correspondence() {
-    use kagari_bytecode::native_input::PortableMir;
-    use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact};
+    use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
 
     let first = program("fn main() -> i32 { 42 }");
     let second = program("fn main() -> i32 { 43 }");

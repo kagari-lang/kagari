@@ -1,18 +1,15 @@
-use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     SourceFile,
+    collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
         HostValueType as Type,
     },
 };
-use kagari_embed::ArtifactOptions;
-use kagari_embed::CompileOptions;
-use kagari_embed::ExecutionContext;
-use kagari_embed::HostExposurePolicy;
-use kagari_embed::KagariEngine;
-use kagari_embed::LoadOptions;
-use kagari_embed::program::PreparedProgram;
+use kagari_embed::{
+    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
+    LoadOptions, program::PreparedProgram,
+};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile,
     host::HostFunction,

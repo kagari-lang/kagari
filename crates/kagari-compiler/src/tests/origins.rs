@@ -1,10 +1,6 @@
-use crate::bytecode::lower_to_bytecode;
-use crate::lower_to_mir;
-use crate::tests::common;
-use kagari_common::Span;
-use kagari_common::line_index::PositionEncoding;
-use kagari_mir::debug::SourcePosition;
-use kagari_mir::{MirVerificationErrorKind, verify_mir};
+use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use kagari_common::{Span, line_index::PositionEncoding};
+use kagari_mir::{MirVerificationErrorKind, debug::SourcePosition, verify_mir};
 use std::sync::Arc;
 
 #[test]

@@ -1,8 +1,7 @@
 //! Match checked implementation templates against a requested executable contract.
 use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError};
 use crate::types::{AbiType, InterfaceTableAbi, NominalAbiType};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::identity::DefinitionId;
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 
 pub fn match_implementation<'a>(
     table: &'a InterfaceTableAbi,
@@ -171,8 +170,10 @@ pub(crate) fn projection_output(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scalar::BuiltinType;
-    use crate::types::{AssociatedTypeFamilyAbi, GenericParameterAbi};
+    use crate::{
+        scalar::BuiltinType,
+        types::{AssociatedTypeFamilyAbi, GenericParameterAbi},
+    };
     use kagari_common::identity::{
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
     };

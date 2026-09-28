@@ -1,7 +1,9 @@
 use super::*;
-use crate::scalar::BuiltinType;
-use crate::standard::traits::{self, StandardTrait};
-use crate::types::GenericParameterAbi;
+use crate::{
+    scalar::BuiltinType,
+    standard::traits::{self, StandardTrait},
+    types::GenericParameterAbi,
+};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
 };

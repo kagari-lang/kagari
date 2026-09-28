@@ -1,10 +1,9 @@
-use crate::hir::PatternField;
+use crate::{
+    hir::{PatternData, PatternField, PatternId, PatternKind, pattern::PatternBound},
+    lower::context::{Lowerer, syntax_span, token_span},
+};
 use ast::PatternBound as AstPatternBound;
 use kagari_syntax::ast;
-
-use crate::hir::pattern::PatternBound;
-use crate::hir::{PatternData, PatternId, PatternKind};
-use crate::lower::context::{Lowerer, syntax_span, token_span};
 
 impl Lowerer {
     pub(crate) fn lower_pattern(&mut self, pattern: &ast::Pattern) -> PatternId {
