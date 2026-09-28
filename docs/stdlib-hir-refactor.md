@@ -1,6 +1,6 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00 complete, ST01 package ownership and HIR import next.
+Status: active; ST00 complete, ST01 package ownership and HIR import in progress.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -362,7 +362,7 @@ must be resolved before migration; historical test counts are not a fresh baseli
 
 ### ST01 — Package ownership and HIR import
 
-- [ ] Add the functional `kagari-stdlib` crate and package preparation API.
+- [x] Add the functional `kagari-stdlib` crate and package preparation API.
 - [ ] Move source/package ownership from ABI, preserving paths, source text,
   declaration locations and deterministic identities.
 - [ ] Import standard declarations and bodies into HIR; map native markers only
@@ -707,6 +707,19 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST01 package checkpoint: added the functional `kagari-stdlib` crate with an
+  explicit 15-file manifest, exact bundled text, stable package/module identities,
+  content fingerprint, immutable parse trees and structural declaration/body/
+  annotation coordinates. Preparation accepts only the installed manifest through
+  its public API, rejects malformed/duplicate/conflicting native annotations, and
+  returns no package on cancellation or syntax failure. It deliberately retains
+  unresolved types and binding names for HIR. Sources remain at `stdlib/*.kgr`.
+- ST01 package validation: five focused tests and crate/all-target Clippy with
+  warnings denied pass; format, structure and diff checks pass. HIR import,
+  analysis-owner caching, tool migration and deletion of the ABI generator are
+  still pending in ST01; the old ABI catalog remains the active semantic path
+  until that replacement. This checkpoint does not claim the phase exit gate.
 
 - ST00: completed the fresh baseline and inventory above. Initial workspace tests
   failed in `portable_fixture_matches_source_emission`: the checked-in artifact

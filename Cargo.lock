@@ -436,6 +436,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari-stdlib"
+version = "0.1.0"
+dependencies = [
+ "kagari-common",
+ "kagari-syntax",
+ "thiserror",
+]
+
+[[package]]
 name = "kagari-syntax"
 version = "0.1.0"
 dependencies = [

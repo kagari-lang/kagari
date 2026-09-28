@@ -12,6 +12,7 @@ members = [
     "crates/kagari-codegen-cranelift",
     "crates/kagari-runtime",
     "crates/kagari-syntax",
+    "crates/kagari-stdlib",
     "crates/kagari-vm",
 ]
 resolver = "3"
@@ -33,6 +34,7 @@ kagari-compiler = { path = "crates/kagari-compiler", default-features = false }
 kagari-codegen-cranelift = { path = "crates/kagari-codegen-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-syntax = { path = "crates/kagari-syntax" }
+kagari-stdlib = { path = "crates/kagari-stdlib" }
 kagari-vm = { path = "crates/kagari-vm" }
 cranelift-codegen = "0.132.0"
 cranelift-frontend = "0.132.0"

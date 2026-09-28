@@ -10,8 +10,10 @@ Existing Rust implementations remain Rust. ST00–ST06 own sequencing, acceptanc
 and the progress ledger. The shared Native callable model distinguishes Engine
 and Host providers while retaining host authority and borrow checks. Generated
 host declaration documents and LSP transport remain later integrations.
-ST00 baseline and inventory are complete; ST01 is next. The current workspace
-still has the thirteen-crate architecture described below. This migration precedes
+ST00 baseline and inventory are complete; ST01 is in progress. The new
+`kagari-stdlib` source-package API is implemented; HIR import and removal of the
+ABI generator are pending. The thirteen-crate description below is the pre-migration
+architecture. This migration precedes
 further native backend expansion and does not reopen completed phase ledgers.
 
 ## Never type (complete)
