@@ -405,6 +405,7 @@ version = "0.1.0"
 dependencies = [
  "kagari-abi",
  "kagari-common",
+ "kagari-stdlib",
  "kagari-syntax",
  "serde",
  "smallvec",

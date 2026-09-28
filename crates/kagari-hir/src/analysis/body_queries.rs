@@ -109,6 +109,7 @@ impl AnalysisDatabase {
             };
             file.prepared.lowered.module.functions.iter().find(|f| {
                 f.id == function
+                    && f.body.is_some()
                     && (f.kind != FunctionKind::TraitMethod
                         || file
                             .prepared

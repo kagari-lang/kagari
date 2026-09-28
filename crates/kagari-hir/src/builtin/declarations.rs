@@ -7,13 +7,14 @@ use kagari_abi::{
         StandardIntrinsic,
         declarations::{ApiBound, ApiImplementation, ApiItem, ApiTrait, ApiType},
         surface::{
-            self as standard_surface, STANDARD_IMPLEMENTATIONS, STANDARD_ITEMS, STANDARD_SOURCES,
-            StandardEnum, StandardVariant,
+            self as standard_surface, STANDARD_IMPLEMENTATIONS, STANDARD_ITEMS, StandardEnum,
+            StandardVariant,
         },
         traits::{self as standard_traits, StandardTrait},
     },
 };
 use kagari_common::{SourceFile, Span, collection::CollectionAccess, identity};
+use kagari_stdlib::bundled_sources;
 
 use crate::{
     aggregates::{MethodParameter, MethodSignature, TraitSignature},
@@ -30,9 +31,9 @@ use std::{collections::BTreeMap, sync::OnceLock};
 pub fn sources() -> &'static [SourceFile] {
     static SOURCES: OnceLock<Vec<SourceFile>> = OnceLock::new();
     SOURCES.get_or_init(|| {
-        STANDARD_SOURCES
+        bundled_sources()
             .iter()
-            .map(|(uri, text)| SourceFile::new(*uri, *text))
+            .map(|source| SourceFile::new(source.uri(), source.text()))
             .collect()
     })
 }

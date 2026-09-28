@@ -32,7 +32,12 @@ fn same_named_user_functions_are_not_reflection_helpers() {
         .into_codegen()
         .expect("resolved user function does not need reflection permission");
     let main = &checked.lowered.module.functions[1];
-    let call = checked.lowered.module.block(main.body).tail_expr.unwrap();
+    let call = checked
+        .lowered
+        .module
+        .block(main.body.unwrap())
+        .tail_expr
+        .unwrap();
     assert_eq!(
         checked
             .typed

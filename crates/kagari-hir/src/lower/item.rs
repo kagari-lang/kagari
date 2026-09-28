@@ -1,6 +1,6 @@
 use crate::{
     hir::{
-        AssociatedConst, AssociatedType, BlockData, BodyOwner, ConstItem, ConstOwner, Enum, Export,
+        AssociatedConst, AssociatedType, BodyOwner, ConstItem, ConstOwner, Enum, Export,
         ExportItem, Field, FieldId, Function, FunctionKind, GenericParam, HirOwner, Impl,
         ImplMethod, Import, Item, ModuleDecl, Param, ReceiverKind, Struct, TraitBound, TraitDef,
         TraitMethod, TraitRef, TypeData, TypeKind, TypeRefId, Variant, VariantId, Visibility,
@@ -358,18 +358,7 @@ impl Lowerer {
                 .unwrap_or_default(),
             params,
             return_type: method.return_type().map(|ty| self.lower_type(&ty)),
-            body: method
-                .body()
-                .map(|body| self.lower_block(&body))
-                .unwrap_or_else(|| {
-                    self.alloc_block(
-                        syntax_span(method),
-                        BlockData {
-                            statements: Default::default(),
-                            tail_expr: None,
-                        },
-                    )
-                }),
+            body: method.body().map(|body| self.lower_block(&body)),
         };
         self.source_map.set_owner(previous_owner);
         result
@@ -454,18 +443,7 @@ impl Lowerer {
                 .unwrap_or_default(),
             params,
             return_type: function.return_type().map(|ty| self.lower_type(&ty)),
-            body: function
-                .body()
-                .map(|body| self.lower_block(&body))
-                .unwrap_or_else(|| {
-                    self.alloc_block(
-                        syntax_span(function),
-                        BlockData {
-                            statements: Default::default(),
-                            tail_expr: None,
-                        },
-                    )
-                }),
+            body: function.body().map(|body| self.lower_block(&body)),
         };
         self.source_map.set_owner(previous_owner);
         result

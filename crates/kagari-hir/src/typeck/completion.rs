@@ -455,7 +455,10 @@ mod tests {
             ));
             let names = crate::resolver::resolve_names(&lowered).facts;
             let module = &mut lowered.module;
-            let mut expr = module.block(module.functions[0].body).tail_expr.unwrap();
+            let mut expr = module
+                .block(module.functions[0].body.unwrap())
+                .tail_expr
+                .unwrap();
             let arena = expr.arena();
             let owner = expr.owner();
             for depth in 0..20_000 {
@@ -530,7 +533,7 @@ mod tests {
         let names = crate::resolver::resolve_names(&lowered).facts;
         let expr = lowered
             .module
-            .block(lowered.module.functions[0].body)
+            .block(lowered.module.functions[0].body.unwrap())
             .tail_expr
             .unwrap();
         let mut visits = 0;
@@ -561,7 +564,10 @@ mod tests {
         ));
         let names = crate::resolver::resolve_names(&lowered).facts;
         let module = &mut lowered.module;
-        let mut expr = module.block(module.functions[0].body).tail_expr.unwrap();
+        let mut expr = module
+            .block(module.functions[0].body.unwrap())
+            .tail_expr
+            .unwrap();
         let arena = expr.arena();
         let owner = expr.owner();
         // Expanding these shared edges instead of caching node facts would
@@ -638,7 +644,7 @@ mod tests {
                     &lowered.module,
                     &names,
                     &TypeTable::default(),
-                    function.body,
+                    function.body.unwrap(),
                     &token
                 ),
                 Err(Cancelled)
@@ -646,7 +652,7 @@ mod tests {
         }
         let expr = lowered
             .module
-            .block(lowered.module.functions[1].body)
+            .block(lowered.module.functions[1].body.unwrap())
             .tail_expr
             .unwrap();
         assert_eq!(
@@ -664,7 +670,7 @@ mod tests {
         let names = crate::resolver::resolve_names(&lowered).facts;
         let expr = lowered
             .module
-            .block(lowered.module.functions[0].body)
+            .block(lowered.module.functions[0].body.unwrap())
             .tail_expr
             .unwrap();
         let token = CancellationToken::default();

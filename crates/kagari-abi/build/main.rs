@@ -80,7 +80,6 @@ fn main() {
     let mut implementations = String::new();
     let mut functions = String::new();
     let mut methods = String::new();
-    let mut sources = String::new();
     let mut bindings = BTreeSet::new();
     let mut method_bindings = BTreeSet::new();
     let mut implementation_bindings = BTreeSet::new();
@@ -93,7 +92,6 @@ fn main() {
         println!("cargo:rerun-if-changed={}", path.display());
         let text = fs::read_to_string(&path).expect("standard declaration source");
         let uri = format!("kagari://std/{file}");
-        writeln!(sources, "({uri:?}, {text:?}),").unwrap();
         let source = SourceFile::new(&uri, &text);
         let parsed = parse_declarations(
             &source,
@@ -341,7 +339,7 @@ fn main() {
         }
     }
     let out = format!(
-        "pub const STANDARD_ITEMS:&[ApiItem]=&[{items}];\npub const STANDARD_TRAITS:&[ApiTrait]=&[{traits}];\nconst STANDARD_ENUMS:&[StandardEnumSpec]=&[{enums}];\nconst STANDARD_TYPE_CONSTRUCTORS:&[StandardTypeConstructorSpec]=&[{constructors}];\nconst STANDARD_FUNCTIONS:&[StandardFunctionSpec]=&[{functions}];\nconst STANDARD_METHODS:&[StandardMethodSpec]=&[{methods}];\npub const STANDARD_SOURCES:&[(&str,&str)]=&[{sources}];"
+        "pub const STANDARD_ITEMS:&[ApiItem]=&[{items}];\npub const STANDARD_TRAITS:&[ApiTrait]=&[{traits}];\nconst STANDARD_ENUMS:&[StandardEnumSpec]=&[{enums}];\nconst STANDARD_TYPE_CONSTRUCTORS:&[StandardTypeConstructorSpec]=&[{constructors}];\nconst STANDARD_FUNCTIONS:&[StandardFunctionSpec]=&[{functions}];\nconst STANDARD_METHODS:&[StandardMethodSpec]=&[{methods}];"
     );
     let out = format!(
         "{out}\npub const STANDARD_IMPLEMENTATIONS:&[super::declarations::ApiImplementation]=&[{implementations}];"

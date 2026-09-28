@@ -40,7 +40,7 @@ fn resolves_params_and_locals_in_function_body() {
         .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
 
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let let_stmt = lowered.module.stmt(block.statements[0]);
     let (let_local, init_expr) = match &let_stmt.kind {
         StmtKind::Binding {
@@ -68,7 +68,7 @@ fn resolves_named_match_pattern_bindings_inside_arm() {
         .into_checked()
         .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     let (pattern_local, arm_expr) = match &lowered.module.expr(tail_expr).kind {
@@ -107,7 +107,7 @@ fn main() -> i32 { VERSION }
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(

@@ -29,8 +29,8 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     );
     let a = &left.lowered.module.functions[0];
     let b = &right.lowered.module.functions[0];
-    assert_eq!(a.body.index(), b.body.index());
-    assert_ne!(a.body, b.body);
+    assert_eq!(a.body.unwrap().index(), b.body.unwrap().index());
+    assert_ne!(a.body.unwrap(), b.body.unwrap());
     assert_eq!(a.params[0].id.index(), b.params[0].id.index());
     assert_ne!(a.params[0].id, b.params[0].id);
     assert_ne!(a.params[0].ty, b.params[0].ty);
@@ -45,8 +45,8 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
         assert!(right.typed.type_table.expr_type(expr).is_none());
         assert!(right.names.expr_resolution(expr).is_none());
     }
-    let left_stmt = left.lowered.module.block(a.body).statements[0];
-    let right_stmt = right.lowered.module.block(b.body).statements[0];
+    let left_stmt = left.lowered.module.block(a.body.unwrap()).statements[0];
+    let right_stmt = right.lowered.module.block(b.body.unwrap()).statements[0];
     assert_eq!(left_stmt.index(), right_stmt.index());
     assert_ne!(left_stmt, right_stmt);
     let crate::hir::StmtKind::Binding {
@@ -65,7 +65,7 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     assert_ne!(left_local, right_local);
     assert!(right.typed.type_table.local_type(left_local).is_none());
     // Internal node/span access rejects foreign IDs before indexing by the slot.
-    assert!(std::panic::catch_unwind(|| right.lowered.module.block(a.body)).is_err());
+    assert!(std::panic::catch_unwind(|| right.lowered.module.block(a.body.unwrap())).is_err());
     assert!(
         std::panic::catch_unwind(|| right.lowered.source_map.param_span(a.params[0].id)).is_err()
     );

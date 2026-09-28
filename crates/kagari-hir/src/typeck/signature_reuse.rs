@@ -26,7 +26,7 @@ impl Surface {
             .functions
             .iter()
             .filter(|f| matches!(f.kind, FunctionKind::User | FunctionKind::ImplMethod))
-            .map(|f| module.source_map.block_span(f.body))
+            .filter_map(|f| f.body.map(|body| module.source_map.block_span(body)))
             .collect::<Vec<_>>();
         bodies.sort_by_key(|span| span.start);
         let mut text = String::new();

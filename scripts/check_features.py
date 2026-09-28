@@ -15,7 +15,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 
 
 def check_crate_boundaries() -> None:
-    source = {"kagari-hir", "kagari-syntax"}
+    source = {"kagari-hir", "kagari-syntax", "kagari-stdlib"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     execution = {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-bytecode"}
     constraints = {
@@ -81,12 +81,14 @@ def run() -> None:
         packages = {line.split()[0] for line in graph.splitlines() if line}
         forbidden = set()
         if "source" not in features:
-            forbidden |= {"kagari-hir", "kagari-syntax"}
+            forbidden |= {"kagari-hir", "kagari-syntax", "kagari-stdlib"}
         if not features:
             forbidden |= {"kagari-compiler", "kagari-mir", "kagari-codegen", "kagari-codegen-cranelift"}
         if features == "source":
             forbidden |= {"kagari-codegen", "kagari-codegen-cranelift"}
         assert not packages & forbidden, (label, packages & forbidden)
+        if "source" in features:
+            assert {"kagari-hir", "kagari-syntax", "kagari-stdlib"} <= packages, label
         with (OUTPUT / f"{label}-tests.log").open("w") as log:
             subprocess.run(
                 ["cargo", "test", "--locked", "--offline", *args, "--target-dir", str(ROOT / "target")],

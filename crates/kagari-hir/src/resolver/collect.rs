@@ -237,13 +237,16 @@ pub(crate) fn resolve_bodies(
         if !selection.includes(function.id) {
             continue;
         }
+        let Some(body) = function.body else {
+            continue;
+        };
         resolver.resolve_function(
             function.id,
             function
                 .params
                 .iter()
                 .map(|param| (param.name.as_str(), param.id)),
-            function.body,
+            body,
         );
     }
 

@@ -107,7 +107,7 @@ fn environment(module: &LoweredModule, text: &str) -> String {
         .functions
         .iter()
         .filter(|f| matches!(f.kind, FunctionKind::User | FunctionKind::ImplMethod))
-        .map(|f| module.source_map.block_span(f.body))
+        .filter_map(|f| f.body.map(|body| module.source_map.block_span(body)))
         .collect::<Vec<_>>();
     bodies.sort_by_key(|span| span.start);
     let mut result = String::new();
@@ -170,7 +170,7 @@ mod tests {
             .find(|f| f.name == "two")
             .unwrap();
         let point = |function: &Function| {
-            let span = facts.lowered.source_map.block_span(function.body);
+            let span = facts.lowered.source_map.block_span(function.body.unwrap());
             Span {
                 start: span.start + 1,
                 end: span.start + 1,

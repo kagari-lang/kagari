@@ -5,14 +5,15 @@ It describes the intended system shape that implementation work must converge on
 When existing code conflicts with the specifications, the specifications are authoritative.
 
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
-implementation checkpoints and final acceptance. This document describes the current
-thirteen-crate boundaries. Language/runtime behavior follows the semantic specifications.
+implementation checkpoints and final acceptance. Language/runtime behavior follows
+the semantic specifications.
 
-The proposed [standard-library and HIR migration](stdlib-hir-refactor.md) separates
+The active [standard-library and HIR migration](stdlib-hir-refactor.md) separates
 the standard source package from ABI and establishes a checked HIR handoff for
-native and script implementations. It is not yet implemented; the current
-boundaries below remain the implementation description until migration checkpoints
-update them.
+native and script implementations. ST00 is complete and ST01 is in progress:
+`kagari-stdlib` owns bundled source text and structural preparation, and HIR source
+queries read its manifest. Semantic import and removal of ABI's generated
+declaration catalogs remain pending; the complete target handoff is not yet active.
 
 ## Foundation Contracts
 
@@ -53,6 +54,7 @@ The repository is a Rust workspace with structural separation between language p
 crates/
   kagari-common             source identities, diagnostics, limits and shared primitives
   kagari-syntax             lexer, parser, concrete syntax tree and AST views
+  kagari-stdlib             installed source manifest, parsing and structural declaration index
   kagari-hir                recoverable analysis, resolution, typing and tool queries
   kagari-abi                executable types/layouts, helper ABI and native contracts
   kagari-mir                concrete CFGs, verification, analyses, passes and portable codec
@@ -72,7 +74,10 @@ codegen. MIR depends on ABI/common rather than HIR. Compiler core works without 
 not on runtime, bytecode, compiler or SDK. Source-based tests may use dev-dependencies;
 they do not define the production graph. ABI build tooling parses `stdlib/*.kgr`
 with syntax to generate declaration descriptors; that build-only dependency is not
-a runtime/source-analysis service. LLVM is deferred; no placeholder crate exists.
+a runtime/source-analysis service and is being removed by ST01. HIR now depends on
+stdlib for source ownership; stdlib depends only on syntax/common and error support.
+ABI no longer emits the full source-text table. LLVM is deferred; no placeholder
+crate exists.
 
 ## Compilation Pipeline
 

@@ -507,6 +507,9 @@ pub(crate) fn check_bodies_controlled(
             if cancel.check().is_err() {
                 break;
             }
+            let Some(body) = function.body else {
+                continue;
+            };
             if matches!(function.kind, FunctionKind::TraitMethod)
                 && !lowered
                     .module
@@ -595,13 +598,12 @@ pub(crate) fn check_bodies_controlled(
                     &typed_function.name,
                     typed_function.return_type.clone(),
                 );
-                let body_ty =
-                    checker.solve_body(function.body, &mut env, Some(&typed_function.return_type));
+                let body_ty = checker.solve_body(body, &mut env, Some(&typed_function.return_type));
                 let Ok(completes) = completion::block_can_complete(
                     &lowered.module,
                     names,
                     &type_table,
-                    function.body,
+                    body,
                     cancel,
                 ) else {
                     break;

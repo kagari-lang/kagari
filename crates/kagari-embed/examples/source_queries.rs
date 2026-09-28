@@ -107,7 +107,10 @@ fn main() -> kagari_embed::CompileResult<()> {
         .find(|function| function.id == body.function())
         .expect("selected function");
     assert_eq!(
-        selected.body.owner(),
+        selected
+            .body
+            .expect("selected script function body")
+            .owner(),
         kagari_hir::hir::HirOwner::Body(kagari_hir::hir::BodyOwner::Function(body.function()))
     );
     assert!(body.diagnostics().is_empty());

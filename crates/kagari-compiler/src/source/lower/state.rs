@@ -6,7 +6,7 @@ use crate::source::{
     },
     types::lower_type,
 };
-use hir::{StmtKind, Writeability};
+use hir::{BodyOwner, HirOwner, StmtKind, Writeability};
 use kagari_abi::{effects::EffectSet, representation::ValueType, types::AbiType};
 use kagari_hir::{
     AnalyzedModule, hir, resolver::ResolvedName, typeck::TypedFunction, types::TypeId,
@@ -102,7 +102,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .body
             .statements()
             .filter_map(|(id, stmt)| {
-                if id.owner() != hir_function.body.owner() {
+                if id.owner() != HirOwner::Body(BodyOwner::Function(hir_function.id)) {
                     return None;
                 }
                 match &stmt.kind {
@@ -121,7 +121,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .body
             .expressions()
             .filter(|(id, expr)| {
-                id.owner() == hir_function.body.owner()
+                id.owner() == HirOwner::Body(BodyOwner::Function(hir_function.id))
                     && matches!(expr.kind, hir::ExprKind::Closure { .. })
             })
             .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())

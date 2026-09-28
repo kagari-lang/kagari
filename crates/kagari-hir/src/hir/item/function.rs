@@ -14,7 +14,8 @@ pub struct Function {
     pub bounds: TraitBoundBuffer,
     pub params: ParamBuffer,
     pub return_type: Option<TypeRefId>,
-    pub body: BlockId,
+    /// Absent for interface requirements and installed native declarations.
+    pub body: Option<BlockId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

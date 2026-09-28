@@ -5,6 +5,32 @@ use crate::{
     },
     tests::common,
 };
+use kagari_common::SourceFile;
+use kagari_syntax::parser;
+use std::sync::Arc;
+
+#[test]
+fn declaration_only_functions_do_not_acquire_script_bodies() {
+    let source = Arc::new(SourceFile::new(
+        "declarations.kgr",
+        "pub fn native() -> i32; trait Example { fn required(self) -> i32; fn script(self) {} }",
+    ));
+    let cancel = Default::default();
+    let parsed = parser::parse_declarations(&source, Default::default(), &cancel).unwrap();
+    assert!(parsed.diagnostics().is_empty());
+    let lowered = crate::lower::lower_module_controlled(source, &parsed.syntax(), &cancel);
+    let [native, required, script] = lowered.module.functions.as_slice() else {
+        panic!("three declarations expected");
+    };
+    assert_eq!(native.body, None);
+    assert_eq!(required.body, None);
+    let script_body = lowered.module.block(script.body.unwrap());
+    assert!(script_body.statements.is_empty());
+    assert_eq!(script_body.tail_expr, None);
+    let methods = &lowered.module.traits[0].methods;
+    assert!(!methods[0].has_default);
+    assert!(methods[1].has_default);
+}
 
 #[test]
 fn attributes_preserve_structured_metadata_and_target_ranges() {
@@ -154,7 +180,7 @@ fn lowers_function_body_expressions_and_statements() {
         TypeKind::Named(name) if name == "i32"
     ));
 
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let stmt = lowered.module.stmt(block.statements[0]);
     match &stmt.kind {
         StmtKind::Binding {
@@ -191,7 +217,9 @@ fn lowers_function_body_expressions_and_statements() {
     }
 
     let assign = common::lower_ok("fn main(value: i32) -> i32 { value = 1; value }");
-    let assign_block = assign.module.block(assign.module.functions[0].body);
+    let assign_block = assign
+        .module
+        .block(assign.module.functions[0].body.unwrap());
     match &assign.module.stmt(assign_block.statements[0]).kind {
         StmtKind::Assign { target, .. } => {
             assert!(matches!(
@@ -213,7 +241,9 @@ fn main() {
 }
 "#,
     );
-    let block = nested.module.block(nested.module.functions[0].body);
+    let block = nested
+        .module
+        .block(nested.module.functions[0].body.unwrap());
     match &nested.module.stmt(block.statements[1]).kind {
         StmtKind::Assign { target, .. } => {
             assert!(matches!(
@@ -229,7 +259,7 @@ fn main() {
 fn lowers_var_binding() {
     let lowered = common::lower_ok("fn main() { var value = 1; value = 2; }");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let stmt = lowered.module.stmt(block.statements[0]);
 
     match &stmt.kind {

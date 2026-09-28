@@ -20,7 +20,7 @@ fn main() -> usize {
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
 
     let push_expr = match &lowered.module.stmt(block.statements[1]).kind {
         StmtKind::Binding { initializer, .. } => *initializer,
@@ -57,7 +57,7 @@ fn main(value: String) -> usize {
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(
@@ -301,7 +301,7 @@ fn clamp(value: i32) -> i32 {
     let size = &lowered.module.functions[0];
     let size_tail = lowered
         .module
-        .block(size.body)
+        .block(size.body.unwrap())
         .tail_expr
         .expect("size tail expr");
     assert_eq!(
@@ -321,7 +321,7 @@ fn clamp(value: i32) -> i32 {
     let clamp = &lowered.module.functions[1];
     let clamp_tail = lowered
         .module
-        .block(clamp.body)
+        .block(clamp.body.unwrap())
         .tail_expr
         .expect("clamp tail expr");
     assert_eq!(
@@ -365,7 +365,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 
     let keys_tail = lowered
         .module
-        .block(lowered.module.functions[0].body)
+        .block(lowered.module.functions[0].body.unwrap())
         .tail_expr
         .expect("keys tail expr");
     assert_eq!(
@@ -386,7 +386,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 
     let chars_tail = lowered
         .module
-        .block(lowered.module.functions[1].body)
+        .block(lowered.module.functions[1].body.unwrap())
         .tail_expr
         .expect("chars tail expr");
     assert_eq!(
@@ -401,7 +401,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 
     let popped_tail = lowered
         .module
-        .block(lowered.module.functions[2].body)
+        .block(lowered.module.functions[2].body.unwrap())
         .tail_expr
         .expect("popped tail expr");
     assert_eq!(

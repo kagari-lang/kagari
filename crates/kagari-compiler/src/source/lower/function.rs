@@ -248,7 +248,10 @@ pub(crate) fn lower_function<'a>(
         .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;
 
     let mut lowerer = FunctionLowerer::new(module, function, typed, instance, planner)?;
-    let tail = lowerer.lower_block(function.body)?;
+    let body = function
+        .body
+        .ok_or(MirLoweringError::MissingBinding("script function body"))?;
+    let tail = lowerer.lower_block(body)?;
     if !lowerer.current_block_terminated() {
         let value = match tail {
             Some(temp) => Some(temp),

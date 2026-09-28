@@ -708,6 +708,34 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 HIR groundwork validation: workspace Clippy/all-targets with warnings
+  denied, all 1,448 workspace tests, format and structure checks pass (522 Rust
+  files, zero violations/exceptions). The optional-body API intentionally changes
+  source-analysis consumers; examples/tests were migrated rather than keeping an
+  empty-body compatibility path. No executable format version changes are needed
+  for this checkpoint, and canonical artifact fixture tests still pass. All four
+  standalone SDK feature combinations pass with the new stdlib dependency
+  assertions. No carried build/test failures; ST01 semantic import is still open.
+
+- ST01 HIR groundwork: `Function.body` now records absence explicitly instead of
+  allocating an empty script block for a declaration. Body resolution, checking,
+  body queries and signature/body cache projection skip declarations without a
+  body; compiler script lowering rejects such a target. Updated SDK and HIR
+  consumers preserve their existing assertions; a focused test distinguishes
+  required/native declarations from an explicitly empty script implementation.
+- ST01 source ownership: HIR source queries now read the stdlib manifest; removed
+  `STANDARD_SOURCES` emission from ABI. The SDK feature audit excludes stdlib on
+  artifact-only/native-only production paths and requires it on source paths.
+  The remaining generated `Api*` catalogs and process-global semantic/source
+  caches have not yet been replaced; installed-package import, analysis-owned
+  caching and the ordinary declaration/signature integration remain ST01 work.
+
+- Next ST01 integration boundary: declaration mode represents top-level opaque
+  `type` nodes as syntax `AssociatedType`, but `ast::Item` and the ordinary HIR
+  item collector currently omit them. Preserve these declarations explicitly
+  before routing the package through normal scopes/imports; do not reconstruct
+  their generic syntax in an `ApiType` replacement. Native authority must follow
+  the installed package object, not a source URI or a `kagari-std` spelling.
 - ST01 package checkpoint: added the functional `kagari-stdlib` crate with an
   explicit 15-file manifest, exact bundled text, stable package/module identities,
   content fingerprint, immutable parse trees and structural declaration/body/
