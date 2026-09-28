@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValueType {
+    /// No runtime value can inhabit this representation.
+    Never,
     #[default]
     Unit,
     Bool,
@@ -42,6 +44,7 @@ impl ValueType {
     /// Physical slots preserve the existing numeric representation policy.
     pub fn from_builtin_type(ty: BuiltinType) -> Self {
         match ty {
+            BuiltinType::Never => Self::Never,
             BuiltinType::Unit => Self::Unit,
             BuiltinType::Bool => Self::Bool,
             BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Self::I32,

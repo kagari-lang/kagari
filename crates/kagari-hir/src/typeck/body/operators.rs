@@ -33,9 +33,13 @@ impl BodyChecker<'_> {
             return ty;
         }
         let inner = self.infer_expr_type_expected(*expr, env, expected);
-        let Ok(completes) =
-            completion::expr_can_complete(&self.lowered.module, self.names, *expr, self.cancel)
-        else {
+        let Ok(completes) = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            *expr,
+            self.cancel,
+        ) else {
             return TypeId::Unknown;
         };
         if completes {
@@ -110,9 +114,13 @@ impl BodyChecker<'_> {
         let numeric_context =
             expected.filter(|ty| arithmetic.is_some() && matches!(ty, TypeId::Builtin(_)));
         let lhs_ty = self.infer_expr_type_expected(*lhs, env, numeric_context);
-        let Ok(lhs_completes) =
-            completion::expr_can_complete(&self.lowered.module, self.names, *lhs, self.cancel)
-        else {
+        let Ok(lhs_completes) = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            *lhs,
+            self.cancel,
+        ) else {
             return TypeId::Unknown;
         };
         let lhs_ty = lhs_completes.then_some(lhs_ty);
@@ -145,9 +153,13 @@ impl BodyChecker<'_> {
             }
         };
         let rhs_ty = self.infer_expr_type_expected(*rhs, env, rhs_context.as_ref());
-        let Ok(rhs_completes) =
-            completion::expr_can_complete(&self.lowered.module, self.names, *rhs, self.cancel)
-        else {
+        let Ok(rhs_completes) = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            *rhs,
+            self.cancel,
+        ) else {
             return TypeId::Unknown;
         };
         if let (Some(protocol), Some(left)) = (arithmetic, lhs_ty.as_ref())
@@ -195,9 +207,13 @@ impl BodyChecker<'_> {
             .find(|t| t.declaration == StandardTrait::Index.contract().id)
             .and_then(|t| t.arguments.into_iter().next());
         let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
-        let Ok(completes) =
-            completion::expr_can_complete(&self.lowered.module, self.names, *receiver, self.cancel)
-        else {
+        let Ok(completes) = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            *receiver,
+            self.cancel,
+        ) else {
             return TypeId::Unknown;
         };
         if completes {
@@ -548,8 +564,13 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> Result<bool, Cancelled> {
         let ty = self.infer_expr_type(expr_id, env);
-        let completes =
-            completion::expr_can_complete(&self.lowered.module, self.names, expr_id, self.cancel)?;
+        let completes = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            expr_id,
+            self.cancel,
+        )?;
         if completes && ty.conflicts_with(&TypeId::Builtin(BuiltinType::Bool)) {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {

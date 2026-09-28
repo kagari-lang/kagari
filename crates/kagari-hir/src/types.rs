@@ -192,6 +192,9 @@ pub enum TypeId {
 }
 
 impl TypeId {
+    pub fn is_never(&self) -> bool {
+        matches!(self, Self::Builtin(BuiltinType::Never))
+    }
     /// Canonical read-only interface for a native collection or collection view.
     pub fn collection_view(&self) -> Option<Self> {
         let (kind, arguments) = match self {

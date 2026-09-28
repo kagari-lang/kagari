@@ -154,11 +154,24 @@ impl<'a> BodyChecker<'a> {
             self.check_stmt(*stmt, env);
         }
 
-        block
+        let result = block
             .tail_expr
             .map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
                 self.infer_expr_with_coercion(expr, env, expected)
-            })
+            });
+        if completion::block_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            block_id,
+            self.cancel,
+        )
+        .unwrap_or(true)
+        {
+            result
+        } else {
+            TypeId::Builtin(BuiltinType::Never)
+        }
     }
 
     pub(crate) fn infer_expr_type(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> TypeId {
@@ -186,6 +199,20 @@ impl<'a> BodyChecker<'a> {
         let expected = self.expression_context(expr_id, expected);
         self.prepare_call_type_arguments(expr_id, env);
         let result = self.infer_expr_type_expected_inner(expr_id, env, expected.as_ref());
+        self.type_table.insert_expr(expr_id, result.clone());
+        let result = if completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            expr_id,
+            self.cancel,
+        )
+        .unwrap_or(true)
+        {
+            result
+        } else {
+            TypeId::Builtin(BuiltinType::Never)
+        };
         let result = self.constrain_expression(expr_id, result, expected.as_ref());
         self.check_call_type_arguments_used(expr_id);
         env.exprs.insert(expr_id, result.clone());
@@ -308,6 +335,7 @@ impl<'a> BodyChecker<'a> {
                 let completes = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *expr,
                     self.cancel,
                 )
@@ -350,6 +378,7 @@ impl<'a> BodyChecker<'a> {
                 let completes = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *expr,
                     self.cancel,
                 )
@@ -514,6 +543,7 @@ impl<'a> BodyChecker<'a> {
                 let completes = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *body,
                     self.cancel,
                 )
@@ -522,10 +552,17 @@ impl<'a> BodyChecker<'a> {
                     body_result
                 } else {
                     expected_result
+                        .filter(|ty| !matches!(ty, TypeId::Unknown))
                         .cloned()
                         .or_else(|| returns.first().cloned())
-                        .unwrap_or(TypeId::Unknown)
+                        .unwrap_or_else(|| self.inference_variable(expr_id, 2))
                 };
+                if !completes && returns.is_empty() {
+                    self.solver.defer_never(&result);
+                    if matches!(result, TypeId::Unknown) {
+                        result = TypeId::Builtin(BuiltinType::Never);
+                    }
+                }
                 for returned in returns {
                     if result.conflicts_with(&returned) {
                         self.diagnostics.push(
@@ -554,6 +591,7 @@ impl<'a> BodyChecker<'a> {
                 let Ok(completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *receiver,
                     self.cancel,
                 ) else {
@@ -596,6 +634,7 @@ impl<'a> BodyChecker<'a> {
                         let Ok(completes) = completion::expr_can_complete(
                             &self.lowered.module,
                             self.names,
+                            self.type_table,
                             *initializer,
                             self.cancel,
                         ) else {
@@ -611,6 +650,7 @@ impl<'a> BodyChecker<'a> {
                         let Ok(then_completes) = completion::block_can_complete(
                             &self.lowered.module,
                             self.names,
+                            self.type_table,
                             *then_branch,
                             self.cancel,
                         ) else {
@@ -629,6 +669,7 @@ impl<'a> BodyChecker<'a> {
                         let Ok(else_completes) = completion::expr_can_complete(
                             &self.lowered.module,
                             self.names,
+                            self.type_table,
                             *else_expr,
                             self.cancel,
                         ) else {
@@ -695,6 +736,7 @@ impl<'a> BodyChecker<'a> {
                 let Ok(scrutinee_completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *scrutinee,
                     self.cancel,
                 ) else {
@@ -723,6 +765,7 @@ impl<'a> BodyChecker<'a> {
                     let Ok(completes) = completion::expr_can_complete(
                         &self.lowered.module,
                         self.names,
+                        self.type_table,
                         arm.expr,
                         self.cancel,
                     ) else {
@@ -883,6 +926,7 @@ impl<'a> BodyChecker<'a> {
                     let Ok(completes) = completion::expr_can_complete(
                         &self.lowered.module,
                         self.names,
+                        self.type_table,
                         *expr,
                         self.cancel,
                     ) else {
@@ -926,7 +970,9 @@ impl<'a> BodyChecker<'a> {
                 let _ = self.infer_block_types(*body, env);
                 self.loop_depth -= 1;
                 match self.loop_results.pop() {
-                    Some(LoopResult::Expression(value)) => value.found.unwrap_or(TypeId::Unknown),
+                    Some(LoopResult::Expression(value)) => {
+                        value.found.unwrap_or(TypeId::Builtin(BuiltinType::Never))
+                    }
                     _ => TypeId::Unknown,
                 }
             }

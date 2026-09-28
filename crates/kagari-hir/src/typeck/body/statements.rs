@@ -91,6 +91,7 @@ impl<'a> BodyChecker<'a> {
                 let Ok(completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *initializer,
                     self.cancel,
                 ) else {
@@ -111,21 +112,32 @@ impl<'a> BodyChecker<'a> {
             }
             StmtKind::Assign { target, value, op } => {
                 let target_ty = self.resolve_assignment_target_type(*target, env);
+                let target_completes = completion::place_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    self.type_table,
+                    *target,
+                    self.cancel,
+                )
+                .unwrap_or(false);
                 // Write permission does not erase the known target type needed by
                 // contextual inference and tooling after an invalid assignment.
                 let shifting = matches!(op, Some(BinaryOp::Shl | BinaryOp::Shr));
                 let expected_ty = (!shifting)
                     .then(|| self.type_table.place_type(*target))
-                    .flatten();
+                    .flatten()
+                    .filter(|_| target_completes);
                 let value_ty = self.infer_expr_with_coercion(*value, env, expected_ty.as_ref());
                 let Ok(completes) = completion::expr_can_complete(
                     &self.lowered.module,
                     self.names,
+                    self.type_table,
                     *value,
                     self.cancel,
                 ) else {
                     return;
                 };
+                let completes = completes && target_completes;
                 if completes && let (Some(op), Some(expected)) = (op, &target_ty) {
                     self.infer_binary_type(
                         *op,
@@ -162,13 +174,11 @@ impl<'a> BodyChecker<'a> {
                 let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
                     self.infer_expr_with_coercion(expr, env, Some(&expected))
                 });
-                if let Some(returns) = self.closure_returns.last_mut() {
-                    returns.push(found.clone());
-                }
                 if let Some(expr) = expr {
                     let Ok(completes) = completion::expr_can_complete(
                         &self.lowered.module,
                         self.names,
+                        self.type_table,
                         *expr,
                         self.cancel,
                     ) else {
@@ -177,6 +187,9 @@ impl<'a> BodyChecker<'a> {
                     if !completes {
                         return;
                     }
+                }
+                if let Some(returns) = self.closure_returns.last_mut() {
+                    returns.push(found.clone());
                 }
                 if found.conflicts_with(&self.expected_return) {
                     self.diagnostics.push(

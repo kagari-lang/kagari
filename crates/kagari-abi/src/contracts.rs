@@ -746,9 +746,13 @@ pub fn verify_intrinsic(
             expect_arg_ty(args, 0, ValueType::F64, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::F64)?;
         }
-        StandardIntrinsic::DebugPrint | StandardIntrinsic::DebugPanic => {
+        StandardIntrinsic::DebugPrint => {
             expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
             verify_call_dst(dst, ValueType::Unit)?;
+        }
+        StandardIntrinsic::DebugPanic => {
+            expect_arg_ty(args, 0, ValueType::Str, "standard intrinsic argument")?;
+            verify_call_dst(dst, ValueType::Never)?;
         }
         StandardIntrinsic::DebugAssert => {
             expect_arg_ty(args, 0, ValueType::Bool, "standard intrinsic argument")?;
@@ -777,7 +781,7 @@ pub fn verify_call_dst(
     return_type: ValueType,
 ) -> Result<(), ContractError> {
     match (dst, return_type) {
-        (None, ValueType::Unit) => Ok(()),
+        (None, ValueType::Unit | ValueType::Never) => Ok(()),
         (Some(dst), ty) => expect_type(dst, ty, "call dst"),
         (None, ty) => Err(ContractError::TypeMismatch {
             context: "call dst",

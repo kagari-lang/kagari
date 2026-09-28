@@ -124,6 +124,9 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<MirValue, MirLoweringError> {
         self.planner.check()?;
         let mut value = self.lower_expr_value(expr_id)?;
+        if !self.current_block_terminated() && self.expr_type(expr_id)? == ValueType::Never {
+            self.set_terminator(Terminator::Unreachable);
+        }
         if !self.current_block_terminated() {
             self.record_expr_layout(expr_id)?;
             if let Some((receiver, interface)) = self

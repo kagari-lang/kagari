@@ -144,8 +144,14 @@ impl BodyChecker<'_> {
             let index = variant.payload().filter(|_| i == 0);
             let expected = index.map(|index| types[index].clone());
             let actual = self.infer_expr_with_coercion(*arg, env, expected.as_ref());
-            if !completion::expr_can_complete(&self.lowered.module, self.names, *arg, self.cancel)
-                .unwrap_or(false)
+            if !completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                self.type_table,
+                *arg,
+                self.cancel,
+            )
+            .unwrap_or(false)
             {
                 continue;
             }
@@ -167,8 +173,14 @@ impl BodyChecker<'_> {
         }
         self.type_table.insert_standard_constructor(site, variant);
         if args.iter().any(|arg| {
-            !completion::expr_can_complete(&self.lowered.module, self.names, *arg, self.cancel)
-                .unwrap_or(false)
+            !completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                self.type_table,
+                *arg,
+                self.cancel,
+            )
+            .unwrap_or(false)
         }) {
             return Some(TypeId::Unknown);
         }
@@ -261,8 +273,14 @@ impl BodyChecker<'_> {
             _ => None,
         };
         let ty = self.infer_expr_type_expected(operand, env, context.as_ref());
-        if !completion::expr_can_complete(&self.lowered.module, self.names, operand, self.cancel)
-            .unwrap_or(false)
+        if !completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            operand,
+            self.cancel,
+        )
+        .unwrap_or(false)
         {
             return TypeId::Unknown;
         }
@@ -524,6 +542,7 @@ impl<'a> BodyChecker<'a> {
             if !completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
+                self.type_table,
                 *argument,
                 self.cancel,
             )

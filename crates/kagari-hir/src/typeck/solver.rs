@@ -3,7 +3,7 @@ use crate::{
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 
@@ -14,10 +14,31 @@ pub(super) struct Solver {
     holes: HashMap<TypeRefId, u32>,
     bindings: Vec<Option<TypeId>>,
     numeric: HashMap<u32, BuiltinType>,
+    diverging: HashSet<u32>,
     pub revision: usize,
 }
 
 impl Solver {
+    /// A divergent expression supplies a fallback, not an equality constraint.
+    pub fn defer_never(&mut self, ty: &TypeId) {
+        if let TypeId::Inference(id) = self.resolve(ty) {
+            self.diverging.insert(id);
+        }
+    }
+
+    pub fn apply_never_defaults(&mut self) -> bool {
+        let mut defaults = self.diverging.iter().copied().collect::<Vec<_>>();
+        defaults.sort_unstable();
+        let before = self.revision;
+        for id in defaults {
+            if let TypeId::Inference(root) = self.resolve(&TypeId::Inference(id)) {
+                self.bindings[root as usize] = Some(TypeId::Builtin(BuiltinType::Never));
+                self.revision += 1;
+            }
+        }
+        self.revision != before
+    }
+
     pub fn annotation_hole(&mut self, site: TypeRefId) -> TypeId {
         let next = self.bindings.len() as u32;
         let id = *self.holes.entry(site).or_insert_with(|| {

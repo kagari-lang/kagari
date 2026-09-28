@@ -5,6 +5,7 @@ mod bytecode;
 mod codec;
 pub(crate) mod common;
 mod lower;
+mod never;
 mod origins;
 mod passes;
 mod verify;

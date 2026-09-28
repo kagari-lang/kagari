@@ -1,10 +1,12 @@
 //! Normal completion is separate from the type of a produced value. In particular,
 //! a returning block does not produce Unit at the function's fallthrough boundary.
 
-use crate::hir::MatchArm;
 use crate::{
-    hir::{BinaryOp, BlockId, ExprId, ExprKind, Module, PlaceId, PlaceKind, StmtId, StmtKind},
+    hir::{
+        BinaryOp, BlockId, ExprId, ExprKind, MatchArm, Module, PlaceId, PlaceKind, StmtId, StmtKind,
+    },
     resolver::ResolvedNames,
+    typeck::TypeTable,
 };
 use std::{collections::HashMap, iter};
 
@@ -40,12 +42,14 @@ impl Exits {
 pub(super) fn block_can_complete(
     module: &Module,
     names: &ResolvedNames,
+    types: &TypeTable,
     block: BlockId,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
         module,
         names,
+        types,
         cancel,
     }
     .block(block)?
@@ -55,18 +59,39 @@ pub(super) fn block_can_complete(
 struct Completion<'a> {
     module: &'a Module,
     names: &'a ResolvedNames,
+    types: &'a TypeTable,
     cancel: &'a CancellationToken,
+}
+
+/// Computing an address can complete even when its stored type is uninhabited.
+pub(super) fn place_can_complete(
+    module: &Module,
+    names: &ResolvedNames,
+    types: &TypeTable,
+    place: PlaceId,
+    cancel: &CancellationToken,
+) -> Result<bool, Cancelled> {
+    Ok(Completion {
+        module,
+        names,
+        types,
+        cancel,
+    }
+    .run(Task::Visit(Node::Place(place)))?
+    .normal)
 }
 
 pub(super) fn expr_can_complete(
     module: &Module,
     names: &ResolvedNames,
+    types: &TypeTable,
     expr: ExprId,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
     Ok(Completion {
         module,
         names,
+        types,
         cancel,
     }
     .expr(expr)?
@@ -140,6 +165,11 @@ impl<'a> Completion<'a> {
             self.cancel.check()?;
             match task {
                 Task::Record(node) => {
+                    if let Node::Expr(id) = node
+                        && self.types.expr_type(id).is_some_and(|ty| ty.is_never())
+                    {
+                        value.normal = false;
+                    }
                     facts.insert(node, value);
                 }
                 Task::Walk {
@@ -452,7 +482,7 @@ mod tests {
             }
             let token = CancellationToken::default();
             assert_eq!(
-                expr_can_complete(module, &names, expr, &token),
+                expr_can_complete(module, &names, &TypeTable::default(), expr, &token),
                 Ok(expected)
             );
 
@@ -479,6 +509,7 @@ mod tests {
             assert_eq!(
                 Completion {
                     names: &names,
+                    types: &TypeTable::default(),
                     module,
                     cancel: &token
                 }
@@ -511,6 +542,7 @@ mod tests {
         let token = CancellationToken::default();
         let result = Completion {
             names: &names,
+            types: &TypeTable::default(),
             module: &lowered.module,
             cancel: &token,
         }
@@ -545,7 +577,10 @@ mod tests {
             ));
         }
         let token = CancellationToken::default();
-        assert_eq!(expr_can_complete(module, &names, expr, &token), Ok(true));
+        assert_eq!(
+            expr_can_complete(module, &names, &TypeTable::default(), expr, &token),
+            Ok(true)
+        );
 
         let breaking = crate::hir::StmtId::new(arena, owner, module.body.stmts.len());
         module.body.stmts.push((
@@ -574,6 +609,7 @@ mod tests {
         let nodes = [Node::Stmt(looping), Node::Block(body)].into_iter();
         let exits = Completion {
             names: &names,
+            types: &TypeTable::default(),
             module,
             cancel: &token,
         }
@@ -598,7 +634,13 @@ mod tests {
         token.cancel();
         for function in &lowered.module.functions {
             assert_eq!(
-                block_can_complete(&lowered.module, &names, function.body, &token),
+                block_can_complete(
+                    &lowered.module,
+                    &names,
+                    &TypeTable::default(),
+                    function.body,
+                    &token
+                ),
                 Err(Cancelled)
             );
         }
@@ -608,7 +650,7 @@ mod tests {
             .tail_expr
             .unwrap();
         assert_eq!(
-            expr_can_complete(&lowered.module, &names, expr, &token),
+            expr_can_complete(&lowered.module, &names, &TypeTable::default(), expr, &token),
             Err(Cancelled)
         );
     }
@@ -635,6 +677,7 @@ mod tests {
         });
         let result = Completion {
             names: &names,
+            types: &TypeTable::default(),
             module: &lowered.module,
             cancel: &token,
         }

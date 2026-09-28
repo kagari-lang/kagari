@@ -210,8 +210,13 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) -> Result<Option<TypeId>, Cancelled> {
         let ty = self.infer_expr_type(receiver, env);
-        let completes =
-            completion::expr_can_complete(&self.lowered.module, self.names, receiver, self.cancel)?;
+        let completes = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            receiver,
+            self.cancel,
+        )?;
         Ok(completes.then_some(ty))
     }
 
@@ -222,9 +227,13 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let found = self.infer_expr_with_coercion(value, env, expected);
-        let Ok(completes) =
-            completion::expr_can_complete(&self.lowered.module, self.names, value, self.cancel)
-        else {
+        let Ok(completes) = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            value,
+            self.cancel,
+        ) else {
             return;
         };
         if completes

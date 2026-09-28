@@ -38,6 +38,9 @@ impl TypeRef {
     }
 
     pub fn name_text(&self) -> Option<String> {
+        if support::token(self.syntax(), SyntaxKind::Bang).is_some() {
+            return Some("!".into());
+        }
         self.path()
             .and_then(|path| path.text())
             .or_else(|| self.name().and_then(|name| name.text()))

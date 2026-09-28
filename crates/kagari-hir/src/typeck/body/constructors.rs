@@ -145,6 +145,7 @@ impl<'a> BodyChecker<'a> {
         let Ok(completes) = completion::expr_can_complete(
             &self.lowered.module,
             self.names,
+            self.type_table,
             expression,
             self.cancel,
         ) else {
@@ -256,6 +257,7 @@ impl<'a> BodyChecker<'a> {
             let Ok(field_completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
+                self.type_table,
                 field.value,
                 self.cancel,
             ) else {

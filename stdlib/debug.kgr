@@ -75,4 +75,4 @@ pub fn assert_eq<T: PartialEq>(lhs: T, rhs: T, message: String);
 /// std::debug::panic("configuration cannot be loaded");
 /// ```
 #[intrinsic(DebugPanic)]
-pub fn panic(message: String);
+pub fn panic(message: String) -> !;

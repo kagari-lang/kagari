@@ -16,6 +16,8 @@ imports or recognized by a user-controlled file extension.
 Functions and methods returning unit omit the return annotation, for example
 `fn clear(self);`. Callback function types still spell out `-> ()`, as in
 `fn for_each(self, callback: fn(Self::Item) -> ());`.
+Non-returning operations use `-> !`, including `std::debug::panic`. Generated
+signatures and native execution contracts retain Never rather than Unit.
 
 Outer `///` comments belong to the immediately following declaration. They retain
 Markdown including fenced Kagari examples. The CST remains lossless. Existing

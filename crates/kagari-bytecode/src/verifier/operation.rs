@@ -551,6 +551,12 @@ pub(super) fn verify_instruction(
             verify_jump(function, *else_target)?;
         }
         BytecodeInstruction::Return(value) => {
+            if function.metadata.return_type == ValueType::Never {
+                return Err(BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "Never function cannot return",
+                });
+            }
             let found = value
                 .map(|value| register_ty(function, value))
                 .transpose()?;

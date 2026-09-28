@@ -250,6 +250,9 @@ impl BodyChecker<'_> {
                 if self.solver.revision != revision {
                     continue;
                 }
+                if self.solver.apply_never_defaults() {
+                    continue;
+                }
                 converged = true;
                 break;
             }
@@ -304,9 +307,19 @@ impl BodyChecker<'_> {
         if !self.body_inference {
             return ty;
         }
-        let completes =
-            completion::expr_can_complete(&self.lowered.module, self.names, site, self.cancel)
-                .unwrap_or(false);
+        if ty.is_never()
+            && let Some(expected) = expected
+        {
+            self.solver.defer_never(expected);
+        }
+        let completes = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            site,
+            self.cancel,
+        )
+        .unwrap_or(false);
         if completes {
             let variable = self.solver.variable(site, 0);
             let _ = self.solver.constrain(&variable, &ty, self.cancel);

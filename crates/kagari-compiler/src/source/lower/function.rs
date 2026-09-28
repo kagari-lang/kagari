@@ -101,7 +101,11 @@ pub(crate) fn lower_callable<'a>(
             &[values[0], packed],
         )
     })?;
-    lowerer.set_terminator(Terminator::Return(Some(result)));
+    lowerer.set_terminator(if result.ty == ValueType::Never {
+        Terminator::Unreachable
+    } else {
+        Terminator::Return(Some(result))
+    });
     lowerer.planner.check()?;
     lowerer.finish()
 }
@@ -487,7 +491,11 @@ pub(crate) fn lower_native_method<'a>(
         args.push(value);
     }
     let value = lowerer.lower_applied_operator(interface, receiver, &method, &args)?;
-    lowerer.set_terminator(Terminator::Return(Some(value)));
+    lowerer.set_terminator(if value.ty == ValueType::Never {
+        Terminator::Unreachable
+    } else {
+        Terminator::Return(Some(value))
+    });
     lowerer.planner.check()?;
     lowerer.finish()
 }

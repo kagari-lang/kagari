@@ -597,9 +597,13 @@ pub(crate) fn check_bodies_controlled(
                 );
                 let body_ty =
                     checker.solve_body(function.body, &mut env, Some(&typed_function.return_type));
-                let Ok(completes) =
-                    completion::block_can_complete(&lowered.module, names, function.body, cancel)
-                else {
+                let Ok(completes) = completion::block_can_complete(
+                    &lowered.module,
+                    names,
+                    &type_table,
+                    function.body,
+                    cancel,
+                ) else {
                     break;
                 };
                 if completes && body_ty.conflicts_with(&typed_function.return_type) {

@@ -11,6 +11,7 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::TypeRef);
         self.bump_trivia();
         match self.current_kind() {
+            Some(TokenKind::Bang) => self.bump(),
             Some(
                 TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
             ) => {

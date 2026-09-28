@@ -3,6 +3,8 @@ use kagari_common::{integer, numeric::NumberType};
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 pub enum BuiltinType {
+    /// Uninhabited type: evaluating an expression of this type cannot return a value.
+    Never,
     Unit,
     Bool,
     I8,

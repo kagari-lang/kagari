@@ -103,6 +103,7 @@ impl<'a> BodyChecker<'a> {
             let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
+                self.type_table,
                 callee,
                 self.cancel,
             ) else {
@@ -165,6 +166,7 @@ impl<'a> BodyChecker<'a> {
             let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
+                self.type_table,
                 *argument,
                 self.cancel,
             ) else {
@@ -336,9 +338,13 @@ impl<'a> BodyChecker<'a> {
         let Some((arg_expr, found)) = args.get(index) else {
             return;
         };
-        let Ok(completes) =
-            completion::expr_can_complete(&self.lowered.module, self.names, *arg_expr, self.cancel)
-        else {
+        let Ok(completes) = completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            *arg_expr,
+            self.cancel,
+        ) else {
             return;
         };
         if !completes {
@@ -543,6 +549,7 @@ impl<'a> BodyChecker<'a> {
             let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
+                self.type_table,
                 *argument,
                 self.cancel,
             ) else {

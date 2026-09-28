@@ -7,6 +7,7 @@ use kagari_common::range::RangeKind;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinTypeFamily {
+    Never,
     Unit,
     Boolean,
     SignedInteger,
@@ -270,6 +271,13 @@ pub struct StandardMethodSpec {
 }
 
 const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
+    BuiltinTypeSpec {
+        ty: BuiltinType::Never,
+        name: "!",
+        family: BuiltinTypeFamily::Never,
+        const_safe: false,
+        heap_backed: false,
+    },
     BuiltinTypeSpec {
         ty: BuiltinType::Unit,
         name: "()",

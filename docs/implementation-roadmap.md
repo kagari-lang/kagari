@@ -1,5 +1,59 @@
 # Kagari Implementation Roadmap
 
+## Never type (complete)
+
+Scope: introduce the uninhabited type `!` in source, checked types, executable
+contracts and artifacts. A diverging expression coerces at an expression boundary
+to any expected type; this does not make generic containers covariant. Calls whose
+declared result is `!` have no normal continuation. Return/break/continue remain
+statements. Loops retain ordinary execution budgets. `Infallible` remains a distinct
+empty enum; no compatibility alias or runtime Never value is introduced.
+
+- [x] N01: syntax, canonical types, declaration metadata and type inference.
+- [x] N02: lowering, executable validation, runtime boundaries and artifact versions.
+- [x] N03: source/artifact/native-fallback tests, negative contracts and final checks.
+
+Acceptance: `panic -> !`, user and generic diverging calls, divergent branches and
+loops, closures, `Result<T, !>`, empty matches, invariant generic arguments,
+rejected normal returns, preserved effects/traps/budgets and rejected invalid
+executable values. Run structure, format, workspace Clippy/tests and diff checks.
+Checkpoint trailers: `Roadmap-Step: N01`, `N02`, `N03` as applicable.
+
+Ledger: started from clean commit 71fdea8e. Existing control-flow completion is
+syntax-based and has no call result facts; Never must extend that analysis rather
+than authorize code generation through Unknown recovery types. No existing debt
+or carried build errors at entry.
+
+N01/N02: added Never as an explicit semantic/physical type and declaration result;
+completion consumes checked type facts and keeps address evaluation separate from
+the stored type. Coercion stays at expression boundaries. Diverging closure results
+use a deferred Never fallback after other constraints; non-completing return
+operands contribute no returning value. Lowering terminates Never evaluations and
+callable and native collection interface adapters; both executable verifiers
+reject normal Never returns.
+KBC v104, runtime ABI v103 and KMIR v2 reject old products. Regenerated the existing
+SDK feature fixture using its documented source/SDK recipe.
+
+N03: six SDK integration tests cover source/artifact/JIT-fallback execution,
+generic and closure inference, trait/callable/native collection interfaces,
+uninhabited containers, short-circuiting, normal-return and invariant-container
+rejections, effect order, trap cleanup and loop budgets. Two compiler tests cover
+Never termination and forged Never-typed returns in MIR and bytecode. The existing
+terminating-assignment regression and regenerated feature fixture tests pass.
+
+Final acceptance: `cargo test --workspace` passes 1,442 tests, including standard
+API documentation examples and doctests; `cargo clippy --workspace --all-targets
+-- -D warnings`, `cargo fmt --all -- --check`, `uv run --locked
+scripts/check_structure.py` and `git diff --check` pass. Structure review covers
+516 Rust files with no violations or exceptions. Cargo checks ran serially after
+an earlier overlapping rebuild caused a transient SDK doctest rlib lookup error;
+the final complete run resolves it. No carried build or test errors remain.
+Logs are under ignored `target/never-workspace-final.log`, `target/never-clippy.log`
+and `target/never-structure-final.log`. Native backend coverage remains unchanged;
+unsupported operations use the existing verified fallback.
+
+## Completed architecture track
+
 The [MIR and crate architecture refactor](mir-architecture-refactor.md) is complete
 through A00–A05. It records the mandatory clean A00 baseline, the thirteen-crate
 migration and final acceptance. The [architecture](architecture.md) and current

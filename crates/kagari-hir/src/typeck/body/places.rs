@@ -35,6 +35,10 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
+                if base_ty.is_never() {
+                    self.type_table.insert_place(place_id, base_ty.clone());
+                    return Some(base_ty);
+                }
                 let field = self.resolve_field(&base_ty, name)?;
                 let id = field.id.clone();
                 let ty = field.ty.clone();
@@ -121,6 +125,10 @@ impl<'a> BodyChecker<'a> {
             }
             PlaceKind::Field { base, name } => {
                 let base_ty = self.resolve_readable_place_type(*base, env)?;
+                if base_ty.is_never() {
+                    self.type_table.insert_place(place_id, base_ty.clone());
+                    return Some(base_ty);
+                }
                 let field = self.resolve_field(&base_ty, name)?;
                 let (id, ty) = (field.id.clone(), field.ty.clone());
                 self.type_table.insert_place_field(place_id, id);
@@ -388,8 +396,17 @@ impl<'a> BodyChecker<'a> {
         index_expr: ExprId,
         receiver: &TypeId,
     ) -> Option<TypeId> {
-        if !completion::expr_can_complete(&self.lowered.module, self.names, index_expr, self.cancel)
-            .ok()?
+        if receiver.is_never() {
+            return Some(receiver.clone());
+        }
+        if !completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            index_expr,
+            self.cancel,
+        )
+        .ok()?
         {
             return match receiver {
                 TypeId::Array(element, _) => Some((**element).clone()),

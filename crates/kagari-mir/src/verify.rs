@@ -438,6 +438,13 @@ fn verify_function(
         }
         match terminator {
             Terminator::Return(value) => {
+                if function.return_type == ValueType::Never {
+                    return Err(context.error(MirVerificationErrorKind::Contract(
+                        ContractError::InvalidOperation {
+                            reason: "Never function cannot return",
+                        },
+                    )));
+                }
                 if let Some(value) = value {
                     context.value(function, *value)?;
                 }

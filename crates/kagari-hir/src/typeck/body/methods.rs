@@ -25,6 +25,11 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let source = self.infer_expr_type_expected(expr_id, env, expected);
+        // Coercion belongs to this expression boundary, never to nested type arguments.
+        // Keep the actual Never fact in the table for control-flow lowering.
+        if source.is_never() {
+            return expected.cloned().unwrap_or(source);
+        }
         if expected.is_some_and(|target| source.can_weaken_to(target)) {
             let view = source.read_only_view().expect("checked collection view");
             self.type_table.insert_expr(expr_id, view.clone());
@@ -41,6 +46,9 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
         env: &BodyTypeEnv,
     ) -> TypeId {
+        if source.is_never() {
+            return expected.cloned().unwrap_or(source);
+        }
         if let Some(target @ TypeId::Function { .. }) = expected
             && !matches!(source, TypeId::Function { .. })
             && let Some((interface, signature)) = self.callable_contract(&source, env)
@@ -733,6 +741,7 @@ impl<'a> BodyChecker<'a> {
             let Ok(completes) = completion::expr_can_complete(
                 &self.lowered.module,
                 self.names,
+                self.type_table,
                 *argument,
                 self.cancel,
             ) else {

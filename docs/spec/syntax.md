@@ -517,6 +517,7 @@ This also applies within composite members: a field or enum payload declared
 
 ```ebnf
 type            ::= path generic_args?
+                  | "!"
                   | array_type
                   | tuple_type
                   | function_type
@@ -739,6 +740,38 @@ to an if/match join. Unreachable source still receives semantic diagnostics.
 An unconditional loop completes only through a reachable break in that loop;
 breaks in nested loops do not exit it. While-loop completion conservatively
 includes the zero-iteration path, without constant-condition evaluation.
+
+### Never type
+
+The type `!` has no values. It is permitted in every type position, including
+function results, parameters, generic arguments and associated types. It differs
+from `()`, which has one value and indicates normal completion without a payload.
+`std::debug::panic` returns `!`; a user function declared `-> !` must have no normal
+return or fallthrough path. Calls use their checked result contracts, including
+generic substitution and callable/trait dispatch, to determine normal completion.
+
+An expression that cannot complete normally has type `!`. This includes blocks
+that return/break/continue, unconditional loops without a reachable break, and
+expressions whose required operands cannot complete. Short-circuit operands keep
+their conditional evaluation. A divergent expression can be used at any expected
+expression type, without producing or converting a runtime value. Divergent arms
+do not constrain the result of a branch join. An inferred closure with neither a
+normal body result nor an explicit returning value has result `!`.
+An otherwise unconstrained inference variable supplied only by divergence falls
+back to `!` after ordinary constraints and numeric defaults. This fallback cannot
+override a type learned from another argument or an expected callable result.
+
+This expression coercion does not recurse into type arguments: `ArrayList<!>` and
+`ArrayList<i32>` remain distinct, as do `fn() -> !` and `fn() -> i32`. A closure
+literal can still receive its result type from its expected callable signature.
+`Result<T, !>` can contain `Ok(T)` but cannot contain an `Err` value. Empty matches
+can eliminate a value of an uninhabited type. `std::convert::Infallible` remains a
+distinct zero-variant enum, not a type alias for `!`. No arbitrary trait obligations
+are waived because a value or expression is uninhabited.
+
+Never does not mean unbudgeted execution: loops and recursive calls retain their
+logical budgets, cancellation points, roots and cleanup. It does not change trap
+categories or roll back side effects completed before a trap.
 
 ### Expressions
 
