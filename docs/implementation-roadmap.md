@@ -7,7 +7,10 @@ scoped migration: introduce `kagari-stdlib`, import its parsed declarations into
 HIR, carry checked callable metadata into executable contracts, and dispatch
 native/script implementations without downstream source-catalog interpretation.
 Existing Rust implementations remain Rust. ST00–ST06 own sequencing, acceptance
-and the progress ledger. Implementation has not started; the current workspace
+and the progress ledger. The shared Native callable model distinguishes Engine
+and Host providers while retaining host authority and borrow checks. Generated
+host declaration documents and LSP transport remain later integrations.
+Implementation has not started; the current workspace
 still has the thirteen-crate architecture described below. This proposal precedes
 further native backend expansion and does not reopen completed phase ledgers.
 

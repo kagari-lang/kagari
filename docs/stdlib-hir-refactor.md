@@ -19,7 +19,9 @@ the portable contracts derived from those facts.
 Keep standard-library implementations in Rust where they are already native.
 This migration does not rewrite Rust algorithms in Kagari. Script implementations
 use the ordinary script compilation path; native implementations use a checked
-native binding and the runtime's Rust implementation.
+native binding and its provider's Rust implementation. Engine standard functions
+and user-registered host functions share this semantic model while retaining
+distinct authority, representation and resource contracts.
 
 "Information comes from HIR" describes its semantic origin. It does not authorize
 runtime, bytecode, MIR or native backends to depend on HIR or query it at execution
@@ -64,7 +66,10 @@ catalog dependencies. It preserves all existing standard-library capabilities.
 It does not redesign every ABI module, split `kagari-common`, replace GC, eliminate
 all `Rc`/`RefCell`, expand Cranelift coverage or change the public language to expose
 arbitrary native binding attributes. Existing host registration and typed-path
-authority remain intact. No extra placeholder crates are introduced.
+authority remain intact. HIR/native-call metadata must accommodate both engine
+and host providers; a new Rust registration macro, generated host declaration
+documents and LSP transport are later integrations. No extra placeholder crates
+are introduced.
 
 ## Target ownership and dependencies
 
@@ -75,7 +80,7 @@ authority remain intact. No extra placeholder crates are introduced.
 | Compiler source frontend | Consume checked HIR, instantiate generics, materialize witnesses and lower resolved calls/types | Reopen SDK declarations or implement public standard methods by name |
 | ABI | Portable native binding IDs, physical call contracts, execution type/layout contracts and version rules | SDK source text, docs, `ApiType` trees or public standard API catalogs |
 | MIR and bytecode | Carry and verify lowered call targets, signatures, witnesses, effects and logical charges | Resolve source spellings or reinterpret standard declarations |
-| Runtime | Native binding registry, existing Rust implementations, callback continuations, GC/root/budget integration | Parse SDK sources, query HIR or solve source types |
+| Runtime | Engine/host binding resolution, existing Rust implementations, callback continuations, provider-specific authority and GC/root/budget integration | Parse SDK sources, query HIR or solve source types |
 | VM and native backends | Drive verified calls using the shared execution contracts | Select behavior by standard method names |
 
 ```mermaid
@@ -83,6 +88,7 @@ flowchart LR
     Sources["Bundled stdlib sources"] --> Std["kagari-stdlib: parsed package"]
     Std --> HIR["HIR: resolved and checked facts"]
     User["User source via syntax"] --> HIR
+    Host["Offline host declarations"] --> HIR
     HIR --> Compiler["Compiler: instantiate and lower"]
     Compiler --> MIR["Verified MIR"]
     MIR --> BC["Verified bytecode"]
@@ -90,7 +96,7 @@ flowchart LR
     BC --> Exec["Execution driver"]
     JIT --> Exec
     Exec --> Script["Script function body"]
-    Exec --> Native["Runtime Rust native implementation"]
+    Exec --> Native["Rust native implementation: engine or host provider"]
 ```
 
 Arrows above are processing handoffs. The important Cargo constraints are:
@@ -141,6 +147,66 @@ Trust comes from the installed package path selected by the engine, not its URI,
 extension, module spelling or an attribute supplied by user code. Parsing a
 native marker alone grants no permission to bind an engine operation.
 
+## Shared native model for standard and host functions
+
+The [existing host API](../crates/kagari-runtime/src/host.rs) already separates
+declaration from implementation: `HostFunction::new(declaration, callback)` binds
+a `HostFunctionDeclaration` to Rust code. The same declaration can enter an offline
+`HostInterface` and [HIR host input](../crates/kagari-hir/src/host.rs)
+without constructing a runtime or invoking the callback. Reuse this separation;
+do not make user registration depend on the bundled standard source package.
+
+Standard and host inputs have different origins but converge on the same HIR
+callable model:
+
+```text
+stdlib .kgr declarations -> syntax/package importer --+
+                                                     +-> HIR callable facts
+host registration metadata -> offline interface -----+
+```
+
+A Native implementation records provider kind (Engine or Host), declaration and
+binding identity, signature, effects and applicable resource/authority contracts.
+Provider is explicit metadata, never inferred from a `std` prefix or a generated
+document URI. HIR checking and subsequent lowering share the callable machinery;
+provider-specific linking and invocation adapters preserve the actual guarantees.
+
+| Shared contract | Provider-specific requirement |
+| --- | --- |
+| Declaration identity, parameter/result types and callable selection | Engine bindings use a closed operation registry; host bindings resolve within the installed host registry |
+| Effects, resource obligations and failure propagation | Host capability requirements, call accounting and candidate-initialization restrictions remain enforced |
+| Argument/result validation and retained values | Host passing styles, opaque nominal handles, scoped leases and no-escape rules remain enforced |
+| Callback/reentry integration with the execution session | Existing synchronous host callbacks retain their call scope; engine resumable methods may use runtime-owned continuation state |
+
+Sharing this model does not require identical Rust callback signatures or grant
+host code access to engine internals. It does not make arbitrary Rust types,
+lifetimes, generics or async functions automatically script-callable. Registration
+adapters must express supported representations explicitly and validate them.
+
+### Later declaration documents and LSP integration
+
+One registration description should supply runtime binding, offline checking and
+tooling metadata. A later export/macro facility can produce a readonly Kagari
+declaration document from that description, including names, signatures, docs and
+stable declaration IDs. The document is a view of the same contract, not another
+handwritten source of signatures. Generated text alone cannot grant binding
+authority or encode away passing styles, capabilities and other non-syntax facts.
+
+HIR should accept optional declaration origin metadata now: a virtual document
+URI/range, and an optional Rust source origin supplied by registration tooling.
+LSP navigation can target the generated declaration by default and the Rust origin
+when it is available and valid. Rust source locations cannot be recovered from an
+arbitrary function pointer; signature introspection is not provided by ordinary
+runtime registration either.
+
+Offline tooling reads exported interface data without invoking application
+callbacks or starting host services. If generated text is parsed for presentation,
+associate it with the same declaration IDs rather than importing duplicate
+definitions. Cache invalidation follows declaration revisions; documentation and
+navigation changes remain separate from executable contract compatibility.
+Missing or incompatible runtime bindings still fail at link time even when the
+editor has a valid offline declaration.
+
 ## HIR as the semantic boundary
 
 The standard importer produces ordinary HIR declarations before resolution and
@@ -154,26 +220,27 @@ not mandatory new Rust type names:
 
 | HIR fact | Required information |
 | --- | --- |
-| Declaration identity and provenance | Package/module/member identity, source file/revision/span, docs and installed origin |
+| Declaration identity and provenance | Package/module/member identity, source file/revision/span, docs, installed origin and optional host declaration/Rust origins |
 | Resolved signature | Receiver, ordered parameters, result, method/owner binders, visibility and access constraints |
 | Type and protocol facts | Nominal identity, representation category where engine-defined, enum variants, parents, associated types/constants, resolved bounds and equalities |
-| Implementation selection | Script body identity or checked engine-native binding; abstract trait requirements are declarations awaiting implementation |
+| Implementation selection | Script body identity or checked native binding with Engine/Host provider; abstract trait requirements are declarations awaiting implementation |
 | Trait implementation | Impl identity, applied arguments, associated outputs, selected/default method targets and override policy |
 | Resolved call | Selected callable, receiver evaluation order, substitutions, result type, required implementation witnesses and callback signatures |
-| Execution obligations | Engine contract reference, conservative effects, native callback capability, required roots/permissions and logical charging policy |
+| Execution obligations | Provider contract reference, conservative effects, native callback capability, required roots/permissions, host passing styles and logical charging policy |
 
 Every executable method ultimately selects one of two implementation kinds:
 
 ```text
 Script { body identity }
-EngineNative { binding identity, checked contract application }
+Native { provider: Engine | Host, binding identity, checked contract application }
 ```
 
 Trait declarations may have no implementation; calls to them select an impl
 statically or use a checked interface slot dynamically. They are not a third
-executable implementation kind. Host functions continue to use their existing
-checked host-import boundary. "EngineNative" means a Rust implementation, not
-JIT-compiled script code; a script method remains Script even if JIT executes it.
+executable implementation kind. Host providers continue to enforce the existing
+checked host-import boundary within the shared native-call model. "Native" means
+a Rust implementation, not JIT-compiled script code; a script method remains
+Script even if JIT executes it.
 
 HIR retains generic facts until compiler instantiation makes them concrete.
 Existing implicit behavior such as associated-output selection, collection
@@ -188,14 +255,14 @@ metadata is not a mandatory runtime source catalog.
 ## Portable handoff and native binding safety
 
 The compiler lowers each checked callable application into an ordinary script
-target or an engine-native target with a concrete executable signature. Generic
-native operations receive the required concrete type/layout references and
+target or a provider-qualified native target with a concrete executable signature.
+Generic native operations receive the required concrete type/layout references and
 resolved callable witnesses. For example, a generic collection operation must
 receive its selected hash/equality or iterator method targets; runtime must not
 resolve those protocols from standard source descriptions.
 
-The portable native import record must carry binding identity/version, concrete
-parameter/result contracts, witness requirements and necessary type references.
+The portable native import record must carry provider and binding identity/version,
+concrete parameter/result contracts, witness requirements and necessary type references.
 Effects, root behavior and logical charges are constrained by the trusted engine
 contract, not freely asserted by the artifact. Bindings are resolved to process
 functions during runtime linking; raw Rust addresses are never serialized.
@@ -207,6 +274,12 @@ Two different contracts remain necessary:
   representations, required witnesses, effects, permissions and result behavior.
   It lives with the narrow ABI/native boundary and runtime implementation, without
   documentation, source-name resolution or another copy of the public API catalog.
+
+For host providers, the public declaration and binding contract originate in the
+offline host interface/registration pair. Reuse its full contract comparison,
+including passing styles, effects, capabilities and costs. A shared native target
+must not let an artifact substitute an Engine provider for a Host provider or
+resolve a same-named function from a different registry.
 
 HIR checks that an installed declaration can bind to that native contract.
 MIR/bytecode verification checks the lowered application and portable type facts.
@@ -305,8 +378,10 @@ import path. Downstream users of removed catalogs may remain broken until ST02/S
 
 - [ ] Unify standard function/method/trait/impl participation with ordinary HIR
   declarations; preserve builtin representation hooks as explicit semantic facts.
-- [ ] Record Script/EngineNative implementation, generic applications, witnesses,
-  defaults/overrides and all call metadata required by compilation.
+- [ ] Record Script/Native implementation, explicit Engine/Host provider, generic
+  applications, witnesses, defaults/overrides and all required call metadata.
+- [ ] Import existing offline host declarations into this shared callable model,
+  retaining provider contracts and optional declaration origin metadata.
 - [ ] Migrate name resolution, inference, completion, definition navigation and
   documentation queries from generated-table lookups to semantic identities.
 - [ ] Test mixed native and script methods, associated outputs, native defaults,
@@ -317,11 +392,12 @@ checked HIR. There is no fallback standard signature or trait solver.
 
 ### ST03 — Portable call contracts and validation
 
-- [ ] Introduce the checked engine-native call/import representation in ABI, MIR
-  and bytecode; lower it from HIR and link it against runtime-owned bindings.
+- [ ] Introduce the checked provider-qualified native call/import representation
+  in ABI, MIR and bytecode; lower it from HIR and link it against runtime bindings.
 - [ ] Replace source-catalog queries in executable validators with carried type,
   layout and witness facts plus trusted native contract validation.
-- [ ] Preserve ordinary script, closure, interface and host-call integration.
+- [ ] Preserve ordinary script, closure, interface and host-call integration;
+  reject provider substitution and missing/mismatched host contracts.
 - [ ] Version affected bytecode/artifact, portable MIR, runtime and helper contracts
   as required; reject superseded products without compatibility readers.
 - [ ] Pass forged-artifact rejection tests and a vertical direct-native-call test.
@@ -337,7 +413,7 @@ requires no source catalog. Callback-heavy families remain owned by ST04/ST05.
 - [ ] Migrate a representative callback method through success, nested calls,
   ordinary trap, cancellation and budget failure before expanding coverage.
 
-Exit: a native method can call Script or EngineNative targets and resume without
+Exit: a native method can call Script or Native targets and resume without
 holding dynamic borrows across the call or growing an unbounded Rust call chain.
 
 ### ST05 — Migrate all standard execution families
@@ -353,7 +429,7 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   Rust native implementations without adding Kagari copies of those algorithms.
 
 Exit: every ST00 entry has its final implementation owner. There is no residual
-"requires static lowering" route for a public method classified EngineNative.
+"requires static lowering" route for a public engine-native method.
 Core language primitives are documented separately from public library behavior.
 
 ### ST06 — Integration, documentation and final acceptance
@@ -392,6 +468,7 @@ queues. This proposal does not amend or reopen completed historical phase ledger
 | Boundary | Required behavioral evidence |
 | --- | --- |
 | Package → HIR | Exact sources/spans/docs; cancellation; invalid declarations; deterministic identity; normal shadowing and visibility |
+| Host declaration → HIR/linker | Offline checks without callbacks; shared callable facts; missing bindings and provider substitution rejected; passing styles, capabilities and costs preserved |
 | HIR → compiler | Generic methods, associated outputs, trait inheritance/defaults/overrides, native/script implementations and cross-module calls use checked facts |
 | Compiler → executable contracts | No SDK `ApiType`/surface access; complete signature/layout/witness metadata; no public-method algorithm expansion |
 | Artifact → runtime | Source-free load/execute; reject forged native IDs, signatures, representations, authority, witnesses and versions |
@@ -434,5 +511,10 @@ directory; store temporary logs and measurement output under ignored `target/`.
   both compiler and runtime; ST04/ST05 are required work, not optional cleanup.
 - Selected a parsed source-package boundary instead of relocating the generated
   `ApiType` semantic model unchanged. Existing Rust implementations remain Rust.
+- Refined the proposal after host-integration review: Script/Native is the common
+  implementation model, with Engine/Host provider contracts retained explicitly.
+  Existing `HostFunctionDeclaration`/`HostInterface` supplies offline host input;
+  declaration-document export, Rust registration macros and LSP transport remain
+  later work. ST02/ST03 cover shared facts and binding validation now.
 - Proposal validation: local documentation links, content review and diff checks.
   No new workspace test or performance baseline is claimed; ST00 owns those runs.
