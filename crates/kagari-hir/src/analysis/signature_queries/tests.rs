@@ -1,5 +1,10 @@
 use super::*;
-use crate::{declarations::DeclarationId, types::TypeId};
+use crate::{
+    declarations::DeclarationId,
+    native::EngineNativeBinding,
+    typeck::{FunctionImplementation, reuse_signatures},
+    types::TypeId,
+};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     DiagnosticKind,
@@ -9,6 +14,41 @@ use kagari_common::{
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
     db.signatures(sources.snapshot(), &Default::default())
         .unwrap()
+}
+
+#[test]
+fn reused_signatures_cannot_transfer_installed_native_implementation_authority() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .set("root.kgr", "fn main() {}".into(), SourceLayer::Base)
+        .unwrap();
+    let signatures = query(&mut AnalysisDatabase::default(), &sources);
+    let file = signatures
+        .files
+        .values()
+        .find(|file| file.source().name() == "kagari://std/math.kgr")
+        .unwrap();
+    assert!(
+        file.signatures()
+            .facts()
+            .functions()
+            .iter()
+            .any(|function| {
+                matches!(
+                    function.implementation,
+                    FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(_))
+                )
+            })
+    );
+    let original = &file.prepared.lowered;
+    assert!(reuse_signatures(original, file.signatures(), original, &Default::default()).is_some());
+    let mut changed = original.as_ref().clone();
+    changed.native_functions.clear();
+    assert_eq!(changed.source.text(), original.source.text());
+    assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
+    let mut changed = original.as_ref().clone();
+    changed.installed_stdlib = None;
+    assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
 }
 
 #[test]

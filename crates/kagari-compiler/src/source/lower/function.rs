@@ -14,7 +14,7 @@ use kagari_hir::{
     builtin::traits::callable_signature,
     hir,
     resolver::ResolvedName,
-    typeck::TypedFunction,
+    typeck::{FunctionImplementation, TypedFunction},
     types::{TypeId, TypeSubstitution},
 };
 use kagari_mir::{
@@ -37,6 +37,7 @@ pub(crate) fn lower_callable<'a>(
         ));
     };
     let typed = TypedFunction {
+        implementation: FunctionImplementation::Script,
         generic_params: vec![],
         bounds: Default::default(),
         id: parent.id,
@@ -118,6 +119,7 @@ pub(crate) fn lower_iterator<'a>(
 ) -> Result<MirFunction, MirLoweringError> {
     let body = instance.iterator.clone().expect("iterator step");
     let typed = TypedFunction {
+        implementation: FunctionImplementation::Script,
         generic_params: vec![],
         bounds: Default::default(),
         id: parent.id,
@@ -179,6 +181,7 @@ pub(crate) fn lower_protocol<'a>(
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
     let equality = protocol == StandardTrait::PartialEq;
     let typed = TypedFunction {
+        implementation: FunctionImplementation::Script,
         generic_params: Vec::new(),
         bounds: Default::default(),
         id: parent.id,
@@ -283,6 +286,7 @@ pub(crate) fn lower_closure<'a>(
         return Err(MirLoweringError::MissingBinding("closure type"));
     };
     let typed = TypedFunction {
+        implementation: FunctionImplementation::Script,
         generic_params: Vec::new(),
         bounds: Default::default(),
         id: parent.id,
@@ -453,6 +457,7 @@ pub(crate) fn lower_native_method<'a>(
         .map(|p| (p.name.clone(), instantiate(&p.ty)))
         .collect();
     let typed = TypedFunction {
+        implementation: FunctionImplementation::Script,
         generic_params: vec![],
         bounds: Default::default(),
         id: parent.id,

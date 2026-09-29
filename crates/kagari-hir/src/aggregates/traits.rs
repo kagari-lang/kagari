@@ -3,9 +3,9 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::Writeability,
     lower::LoweredModule,
-    native::NativeFunctionKind,
+    native::EngineNativeBinding,
     resolver::ResolvedName,
-    typeck::{ConstraintTarget, GenericBounds, ModuleSignatures},
+    typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
 use kagari_abi::standard::bindings::NativeDefaultMethod;
@@ -243,11 +243,13 @@ impl AggregateCatalog {
                 self.methods
                     .insert(method_id.clone(), (id.clone(), methods.len()));
                 methods.push(MethodSignature {
-                    default: match lowered.native_functions.get(&method.function) {
-                        Some(NativeFunctionKind::TraitDefault(binding)) => {
-                            Some(MethodDefault::native(*binding))
-                        }
-                        _ => method.has_default.then_some(MethodDefault::Script),
+                    default: match function.implementation {
+                        FunctionImplementation::EngineNative(
+                            EngineNativeBinding::TraitDefault(binding),
+                        ) => Some(MethodDefault::native(binding)),
+                        FunctionImplementation::Script => Some(MethodDefault::Script),
+                        FunctionImplementation::Required
+                        | FunctionImplementation::EngineNative(_) => None,
                     },
                     id: method_id.clone(),
                     owner: id.clone(),

@@ -3,7 +3,8 @@ use crate::{
     hir::{ExprId, ExprKind},
     resolver::ResolvedName,
     typeck::{
-        BodyTypeEnv, CallTarget, ConstraintTarget, GenericBounds, ScalarValue, TypedFunction,
+        BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, GenericBounds,
+        ScalarValue, TypedFunction,
         body::{BodyChecker, standard_method_receiver},
         check, completion, constraints, inference,
         ty::display_type_id,
@@ -32,20 +33,25 @@ impl<'a> BodyChecker<'a> {
             .expr_resolution(callee)
             .and_then(|name| self.imported_functions.get(name))
         {
-            let arg_tys = self.infer_typed_args(
-                args,
-                imported
-                    .signature
-                    .params
-                    .iter()
-                    .map(|p| self.aggregates.normalize_type(&p.ty))
-                    .collect::<Vec<_>>()
-                    .into_iter(),
-                env,
-            );
             self.type_table
                 .insert_call(call_expr, CallTarget::SourceFunction(imported.id), None);
-            if !imported.signature.generic_params.is_empty() {
+            if !imported.signature.generic_params.is_empty()
+                && !matches!(
+                    imported.signature.implementation,
+                    FunctionImplementation::EngineNative(_)
+                )
+            {
+                self.infer_typed_args(
+                    args,
+                    imported
+                        .signature
+                        .params
+                        .iter()
+                        .map(|parameter| self.aggregates.normalize_type(&parameter.ty))
+                        .collect::<Vec<_>>()
+                        .into_iter(),
+                    env,
+                );
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::PublicGenericFunction {
                         name: imported.signature.name.clone(),
@@ -54,15 +60,14 @@ impl<'a> BodyChecker<'a> {
                 );
                 return TypeId::Error;
             }
-            self.check_function_arguments(
+            return self.infer_checked_function_call(
                 &imported.signature,
-                &Default::default(),
+                call_expr,
                 callee,
-                &arg_tys,
+                args,
+                env,
+                expected,
             );
-            return self
-                .aggregates
-                .normalize_type(&imported.signature.return_type);
         }
         let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
             let callee_ty = self.infer_expr_type(callee, env);
@@ -130,6 +135,18 @@ impl<'a> BodyChecker<'a> {
         };
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
+        self.infer_checked_function_call(function, call_expr, callee, args, env, expected)
+    }
+
+    fn infer_checked_function_call(
+        &mut self,
+        function: &TypedFunction,
+        call_expr: ExprId,
+        callee: ExprId,
+        args: &[ExprId],
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
         let mut substitution = TypeSubstitution::default();
         self.seed_callable_context(
             callee,

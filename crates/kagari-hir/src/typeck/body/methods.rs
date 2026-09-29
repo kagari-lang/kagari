@@ -6,7 +6,7 @@ use crate::{
     },
     hir::{ExprId, ExprKind, TypeKind},
     typeck::{
-        BodyTypeEnv, CallTarget, ConstraintTarget, ResolvedAssociatedConst,
+        BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, ResolvedAssociatedConst,
         ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
         body::BodyChecker,
         completion, inference,
@@ -187,6 +187,11 @@ impl<'a> BodyChecker<'a> {
             .inherent_methods()
             .filter(|method| {
                 method.function.name == name
+                    && method
+                        .function
+                        .params
+                        .first()
+                        .is_some_and(|parameter| parameter.name == "self")
                     && method.visibility.allows(
                         &method.declaration.module,
                         self.lowered.source.module_identity(),
@@ -204,6 +209,18 @@ impl<'a> BodyChecker<'a> {
                     self.cancel,
                 )
                 .is_err()
+                {
+                    return None;
+                }
+                // Inference collects arguments; it does not establish that this
+                // impl owns the receiver. Mutability is checked against the
+                // method parameter after selecting the nominal/storage family.
+                let owner = self
+                    .aggregates
+                    .normalize_type(&method.owner.instantiate(&substitution));
+                if owner.conflicts_with(&receiver_ty)
+                    && !owner.can_weaken_to(&receiver_ty)
+                    && !receiver_ty.can_weaken_to(&owner)
                 {
                     return None;
                 }
@@ -230,7 +247,13 @@ impl<'a> BodyChecker<'a> {
         }
         let (function, mut substitution, target) =
             candidates.into_iter().next().expect("one method");
-        if matches!(target, CallTarget::SourceFunction(_)) && !function.generic_params.is_empty() {
+        if matches!(target, CallTarget::SourceFunction(_))
+            && !function.generic_params.is_empty()
+            && !matches!(
+                function.implementation,
+                FunctionImplementation::EngineNative(_)
+            )
+        {
             self.infer_call_args(args, env);
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PublicGenericFunction {

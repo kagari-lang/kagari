@@ -27,8 +27,9 @@ use crate::{
     lower::LoweredModule,
     resolver::{ResolvedName, ResolvedNames},
     typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable, TypedFunction,
-        TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
+        BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes,
+        TypeTable, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
+        TypedParameterBuffer,
         body::BodyChecker,
         ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     },
@@ -234,9 +235,14 @@ pub(crate) fn check_signatures(
         if cancel.check().is_err() {
             break;
         }
+        let implementation = match lowered.native_functions.get(&function.id) {
+            Some(binding) => FunctionImplementation::EngineNative(*binding),
+            None if function.body.is_some() => FunctionImplementation::Script,
+            None => FunctionImplementation::Required,
+        };
         if function.visibility != Visibility::Private
             && !function.generic_params.is_empty()
-            && !lowered.native_functions.contains_key(&function.id)
+            && !matches!(implementation, FunctionImplementation::EngineNative(_))
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PublicGenericFunction {
@@ -325,6 +331,7 @@ pub(crate) fn check_signatures(
         };
 
         let typed_function = TypedFunction {
+            implementation,
             bounds,
             generic_params: function
                 .generic_params

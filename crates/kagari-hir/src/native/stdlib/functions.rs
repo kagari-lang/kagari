@@ -1,7 +1,7 @@
 use crate::{
     hir::FunctionKind,
     lower::LoweredModule,
-    native::{NativeFunctionKind, stdlib::invalid},
+    native::{EngineNativeBinding, stdlib::invalid},
 };
 use kagari_abi::standard::{
     StandardIntrinsic,
@@ -76,26 +76,26 @@ pub(super) fn install(
             let kind = match marker.kind {
                 NativeMarkerKind::Intrinsic if function.kind == FunctionKind::TraitMethod => {
                     binding::<NativeDefaultMethod>(&marker.binding)
-                        .map(NativeFunctionKind::TraitDefault)
+                        .map(EngineNativeBinding::TraitDefault)
                 }
                 NativeMarkerKind::Intrinsic => binding::<StandardIntrinsic>(&marker.binding)
-                    .map(NativeFunctionKind::Intrinsic)
+                    .map(EngineNativeBinding::Intrinsic)
                     .or_else(|| {
                         (function.kind == FunctionKind::ImplMethod)
                             .then(|| {
                                 binding::<NativeProtocolMethod>(&marker.binding)
-                                    .map(NativeFunctionKind::Protocol)
+                                    .map(EngineNativeBinding::Protocol)
                             })
                             .flatten()
                     }),
                 NativeMarkerKind::Numeric if function.kind == FunctionKind::ImplMethod => {
-                    binding::<IntegerMethod>(&marker.binding).map(NativeFunctionKind::Integer)
+                    binding::<IntegerMethod>(&marker.binding).map(EngineNativeBinding::Integer)
                 }
                 NativeMarkerKind::ParseRadix
                     if function.kind == FunctionKind::ImplMethod
                         && marker.binding == "ParseRadix" =>
                 {
-                    Some(NativeFunctionKind::ParseRadix)
+                    Some(EngineNativeBinding::ParseRadix)
                 }
                 _ => None,
             }

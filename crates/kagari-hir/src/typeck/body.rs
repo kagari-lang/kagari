@@ -444,6 +444,10 @@ impl<'a> BodyChecker<'a> {
                     ty
                 } else if let Some(ty) = self.infer_host_method_call(expr_id, *callee, args, env) {
                     ty
+                } else if let Some(method_ty) =
+                    self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)
+                {
+                    method_ty
                 } else if let Some(standard_ty) =
                     self.infer_standard_call_type(expr_id, *callee, args, env, expected)
                 {
@@ -452,10 +456,6 @@ impl<'a> BodyChecker<'a> {
                     self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
                 {
                     helper_ty
-                } else if let Some(method_ty) =
-                    self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)
-                {
-                    method_ty
                 } else if let Some(method_ty) =
                     self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
                 {

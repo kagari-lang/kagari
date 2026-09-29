@@ -12,10 +12,11 @@ use kagari_common::{collection::CollectionAccess, integer::IntegerMethod, range:
 
 pub(crate) mod stdlib;
 
-/// Installed declaration input, not an executable binding. Numeric owners and
-/// generic arguments still require checked signature application.
+/// Closed engine binding attached only through installed declaration provenance.
+/// Numeric owners and generic arguments come from the checked source signature;
+/// executable linking must still validate its instantiated physical contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NativeFunctionKind {
+pub enum EngineNativeBinding {
     Intrinsic(StandardIntrinsic),
     Integer(IntegerMethod),
     ParseRadix,

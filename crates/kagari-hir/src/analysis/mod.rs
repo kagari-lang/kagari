@@ -27,12 +27,13 @@ use std::{
     sync::Arc,
 };
 
+mod call_queries;
+pub use call_queries::CallSignature;
 mod documentation_queries;
 mod error;
 mod standard_queries;
 pub use documentation_queries::DeclarationDocumentation;
 pub use error::AnalysisError;
-pub use standard_queries::StandardSignature;
 mod body_queries;
 pub use body_queries::FunctionAnalysis;
 mod declaration_queries;
@@ -957,6 +958,8 @@ impl AnalysisSnapshot {
 mod arena_tests;
 #[cfg(test)]
 mod associated_const_tests;
+#[cfg(test)]
+mod callable_tests;
 #[cfg(test)]
 mod completion_tests;
 #[cfg(test)]

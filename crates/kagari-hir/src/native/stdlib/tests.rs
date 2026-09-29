@@ -6,7 +6,7 @@ use crate::{
     hir::{ExportItem, Item, Visibility},
     host::HostDeclarations,
     imports::ModuleGraph,
-    native::NativeFunctionKind,
+    native::EngineNativeBinding,
     resolver::ResolvedName,
     types::TypeId,
 };
@@ -167,7 +167,7 @@ fn native_defaults_and_required_methods_remain_distinct_without_script_bodies() 
     assert!(default.has_default);
     assert_eq!(
         module.native_functions.get(&default.function),
-        Some(&NativeFunctionKind::TraitDefault(NativeDefaultMethod::Map))
+        Some(&EngineNativeBinding::TraitDefault(NativeDefaultMethod::Map))
     );
     for method in [required, default] {
         assert!(

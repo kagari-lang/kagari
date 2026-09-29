@@ -120,10 +120,15 @@ standard source. `DeclarationSnapshot::documentation` accepts a declaration iden
 without checking bodies. Neither query falls back to a process-global source catalog;
 old snapshots retain their original source revision and documentation.
 
-Checked signature and completion queries consume semantic call and receiver facts,
-including incomplete code. Method signatures omit the receiver parameter. These
-queries do not register or execute host functions. Legacy `standard_signature_at`
-and `standard_method_completions` consumers still require migration in ST02; the
+`FileAnalysis::call_signature_at` projects the selected local/imported function,
+trait method or offline host declaration into a declaration ID, named parameter
+types and result type. It applies checked call substitutions; it does not read a
+standard signature catalog or replace declared types with the types of erroneous
+arguments. Method syntax omits the receiver parameter, and missing arguments do
+not remove declared parameters. The query does not register or execute callbacks.
+
+Completion queries also consume semantic receiver facts, including incomplete
+code. Legacy `standard_method_completions` consumers still require migration in ST02; the
 [active ledger](../stdlib-hir-refactor.md#progress-ledger) records the intermediate
 build state rather than claiming this tool integration is complete.
 

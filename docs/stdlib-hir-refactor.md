@@ -710,6 +710,37 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 callable signature checkpoint: `TypedFunction` now carries explicit
+  Script/EngineNative/Required implementation facts. Installed binding identities
+  are exposed as `EngineNativeBinding`; imported and inherent signatures retain
+  them with their ordinary declaration IDs. Trait default classification now
+  reads these checked signature facts instead of reopening lowering annotations.
+  Signature reuse compares native binding/provenance inputs, preventing identical
+  text from transferring installed implementation authority.
+- Imported native generics reuse the ordinary function inference/bound machinery;
+  the existing public script generic restriction remains. Inherent native calls
+  use the checked member path before the residual catalog fallback. Candidate
+  selection now requires a receiver parameter and verifies the applied impl owner;
+  inference alone does not prove that a same-named method owns the receiver.
+- Replaced `StandardSignature`/`standard_signature_at` with `CallSignature`/
+  `call_signature_at`. The query reads local/imported signatures, HIR trait
+  contracts or offline host declarations, applies recorded substitutions and
+  preserves declared parameters for erroneous or incomplete calls. It no longer
+  reads the global standard signature table or manufactures parameters from actual
+  argument types. Updated the declaration specification and existing query users.
+- Added regressions for script/native/required signatures, generic native calls
+  and constraints, same-named method ownership, forged native annotations, cache
+  authority changes and source/trait/host signature help after argument errors.
+  Structure review checks 533 Rust files with zero violations/exceptions; format
+  and diff checks pass. HIR/compiler tests remain unexecuted behind the unchanged
+  ABI catalog-removal build failure (`cargo check -p kagari-abi`, owner ST03).
+  Resume `cargo test -p kagari-hir` and compiler `--lib` after consumer migration.
+- Remaining callable work includes removal of the legacy function resolver and
+  method/type inference fallback, completion catalogs, shared host implementation
+  metadata and executable native call lowering. Source targets now carry engine
+  bindings, but compiler source-call consumers still need the ST03 native handoff;
+  neither native execution nor ST01/ST02 acceptance is claimed by this checkpoint.
+
 - ST01 enum handoff checkpoint: removed `ResolvedName::StandardModule`,
   `StandardTrait` and `StandardVariant`, including spelling-based module/trait/
   variant resolution and the duplicate native constructor/pattern checker.

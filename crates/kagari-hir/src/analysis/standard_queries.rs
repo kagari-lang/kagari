@@ -21,100 +21,12 @@ use crate::{
         declarations::{self, Arguments},
         traits,
     },
-    hir::ExprKind,
-    typeck::CallTarget,
     types::TypeId,
 };
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StandardSignature {
-    pub declaration: &'static ApiItem,
-    /// Receiver parameters are omitted for method syntax.
-    pub parameters: Vec<(&'static str, TypeId)>,
-    pub result: TypeId,
-}
-
 impl FileAnalysis {
-    /// Instantiate a native call signature using its already checked type arguments.
-    /// The smallest enclosing call wins, including positions within its arguments.
-    pub fn standard_signature_at(&self, offset: usize) -> Option<StandardSignature> {
-        let facts = self.result.facts();
-        let (_, id) = facts
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter_map(|(id, expr)| {
-                if !matches!(expr.kind, ExprKind::Call { .. }) {
-                    return None;
-                }
-                let span = facts.lowered.source_map.expr_span(id);
-                (span.start <= offset && offset < span.end).then_some((span.end - span.start, id))
-            })
-            .min_by_key(|(len, _)| *len)?;
-        let call = facts.typed.type_table.call_resolution(id)?;
-        if let CallTarget::TraitMethod { method, .. } = &call.target {
-            let api = STANDARD_TRAITS
-                .iter()
-                .flat_map(|t| t.methods)
-                .find(|m| m.item.identity() == *method)?;
-            let ExprKind::Call { args, .. } = &facts.lowered.module.expr(id).kind else {
-                return None;
-            };
-            return Some(StandardSignature {
-                declaration: &api.item,
-                parameters: api
-                    .params
-                    .iter()
-                    .skip(usize::from(call.receiver.is_some()))
-                    .zip(args)
-                    .map(|(p, expr)| {
-                        (
-                            p.name,
-                            facts
-                                .typed
-                                .type_table
-                                .expr_type(*expr)
-                                .unwrap_or(TypeId::Unknown),
-                        )
-                    })
-                    .collect(),
-                result: facts
-                    .typed
-                    .type_table
-                    .expr_type(id)
-                    .unwrap_or(TypeId::Unknown),
-            });
-        }
-        let CallTarget::StandardIntrinsic(intrinsic) = call.target else {
-            return None;
-        };
-        let spec = standard_surface::standard_function_by_intrinsic(intrinsic)?;
-        let mut arguments: Arguments = spec
-            .type_params
-            .iter()
-            .copied()
-            .zip(call.type_arguments.iter().cloned())
-            .collect();
-        // Tolerant calls may not have complete inferred type arguments yet.
-        for param in spec.type_params {
-            arguments.entry(param).or_insert(TypeId::Unknown);
-        }
-        Some(StandardSignature {
-            declaration: declarations::function(intrinsic)?,
-            parameters: spec
-                .api
-                .params
-                .iter()
-                .skip(usize::from(call.receiver.is_some()))
-                .map(|p| (p.name, p.ty.instantiate(&arguments)))
-                .collect(),
-            result: spec.api.result.instantiate(&arguments),
-        })
-    }
-
     /// Native method candidates for a complete or incomplete member expression.
     /// Trait-method completion can compose these with the lexical trait scope.
     pub fn standard_method_completions(&self, offset: usize) -> Vec<&'static ApiItem> {
@@ -527,7 +439,7 @@ mod tests {
             assert_eq!(snapshot.declaration(&definition.id), Some(definition));
         }
         let signature = analysis
-            .standard_signature_at(text.find("lookup(values").unwrap())
+            .call_signature_at(text.find("lookup(values").unwrap())
             .unwrap();
         assert_eq!(
             signature.parameters[0].1,
@@ -537,7 +449,7 @@ mod tests {
             )
         );
         let signature = analysis
-            .standard_signature_at(text.find("is_ok()").unwrap())
+            .call_signature_at(text.find("is_ok()").unwrap())
             .unwrap();
         assert!(signature.parameters.is_empty());
         assert_eq!(
@@ -613,11 +525,8 @@ mod trait_tests {
                     .name()
                     .ends_with("iter.kgr")
             );
-            let signature = analysis.standard_signature_at(offset).unwrap();
-            assert_eq!(
-                DeclarationId::Definition(signature.declaration.identity()),
-                api.declaration.id
-            );
+            let signature = analysis.call_signature_at(offset).unwrap();
+            assert_eq!(signature.declaration, api.declaration.id);
             assert_eq!(signature.parameters.len(), usize::from(name == "map"));
             assert!(signature.result.is_concrete());
             if name != "collect" {

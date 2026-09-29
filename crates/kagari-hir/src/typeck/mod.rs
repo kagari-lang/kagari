@@ -4,6 +4,7 @@ use crate::{
     declarations::Declarations,
     hir::{BodySelection, GenericParam},
     imports::ImportedFunctions,
+    native::EngineNativeBinding,
     types::GenericParameterType,
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
@@ -110,6 +111,8 @@ pub struct TypedModule {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedFunction {
+    /// The implementation belongs to the declaration, independently of call syntax.
+    pub implementation: FunctionImplementation,
     pub generic_params: Vec<GenericParameterType>,
     /// Checked constraints keyed by the declaring parameter, including inherited
     /// impl parameters shadowed by a method parameter with the same name.
@@ -118,6 +121,17 @@ pub struct TypedFunction {
     pub name: String,
     pub params: TypedParameterBuffer,
     pub return_type: TypeId,
+}
+
+/// Implementation provenance carried with checked source function signatures.
+/// The enclosing module/function identity selects a script body; required trait
+/// methods await an implementation. Engine bindings are installed input and do
+/// not acquire authority from the declaration's name or source URI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionImplementation {
+    Script,
+    EngineNative(EngineNativeBinding),
+    Required,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

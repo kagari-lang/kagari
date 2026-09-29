@@ -100,6 +100,13 @@ pub(crate) fn reuse_signatures(
     current: &LoweredModule,
     cancel: &CancellationToken,
 ) -> Option<AnalysisResult<ModuleSignatures>> {
+    // Equal text cannot transfer native authority between installed and source
+    // inputs. The implementation facts are retained by a reused signature.
+    if previous.native_functions != current.native_functions
+        || previous.installed_stdlib.is_some() != current.installed_stdlib.is_some()
+    {
+        return None;
+    }
     let old = Surface::new(previous, cancel)?;
     let new = Surface::new(current, cancel)?;
     if old.text != new.text || previous.source.module_identity() != current.source.module_identity()

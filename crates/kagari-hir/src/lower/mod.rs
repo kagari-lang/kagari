@@ -17,7 +17,7 @@ use kagari_syntax::ast::{self, AstNode};
 use crate::{
     hir::{EnumId, FunctionId, Module, OpaqueTypeId},
     lower::context::Lowerer,
-    native::{NativeFunctionKind, NativeTypeKind},
+    native::{EngineNativeBinding, NativeTypeKind},
     source_map::SourceMap,
 };
 
@@ -29,7 +29,7 @@ pub struct LoweredModule {
     pub attributes: Vec<AttributeFact>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
-    pub(crate) native_functions: HashMap<FunctionId, NativeFunctionKind>,
+    pub(crate) native_functions: HashMap<FunctionId, EngineNativeBinding>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
     pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,
 }
