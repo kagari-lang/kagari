@@ -2,7 +2,7 @@ use crate::package::PackageError;
 use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
 use kagari_syntax::{
     Parse,
-    ast::{AstNode, Attribute, Name},
+    ast::{AstNode, Attribute, Field, Item, MethodDef, Name, Variant},
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
@@ -32,12 +32,28 @@ pub struct DeclarationSite {
     pub span: Span,
     pub name_span: Option<Span>,
     pub body_span: Option<Span>,
+    pub documentation: String,
+    pub written_signature: String,
     pub markers: Vec<NativeMarker>,
 }
 
 fn span(node: &SyntaxNode) -> Span {
     let range = node.text_range();
     Span::new(usize::from(range.start()), usize::from(range.end()))
+}
+
+fn documentation(node: &SyntaxNode, source: &str) -> String {
+    if let Some(item) = Item::cast(node.clone()) {
+        item.documentation(source)
+    } else if let Some(method) = MethodDef::cast(node.clone()) {
+        method.documentation(source)
+    } else if let Some(variant) = Variant::cast(node.clone()) {
+        variant.documentation(source)
+    } else if let Some(field) = Field::cast(node.clone()) {
+        field.documentation(source)
+    } else {
+        String::new()
+    }
 }
 
 pub(crate) fn declarations(
@@ -121,6 +137,8 @@ pub(crate) fn declarations(
             });
         }
         sites.push(DeclarationSite {
+            documentation: documentation(&node, source.text()),
+            written_signature: node.text().to_string(),
             kind: node.kind(),
             span: span(&node),
             name_span: node

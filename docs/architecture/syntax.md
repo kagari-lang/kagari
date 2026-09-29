@@ -24,13 +24,13 @@ compiled. A diagnostic-free syntax tree is not permission to execute code.
 flowchart LR
     Source["Caller-owned source file"] -->|"text, mode, limits, cancellation"| Syntax
     Syntax["kagari-syntax"] -->|"tree and diagnostics"| HIR["kagari-hir: analysis and tooling"]
-    Syntax -->|"declaration tree and diagnostics"| Build["kagari-abi build tooling"]
+    Syntax -->|"declaration tree and diagnostics"| Stdlib["kagari-stdlib: installed package"]
     HIR -->|"checked source meaning"| Compiler["kagari-compiler"]
-    Build -->|"generated standard declaration metadata"| ABI["kagari-abi"]
+    Stdlib -->|"parsed files, annotations and source metadata"| HIR
 ```
 
-Arrows show data flow, not Cargo dependencies. The ABI consumer runs at build
-time; executable runtime contracts do not invoke the parser.
+Arrows show data flow, not Cargo dependencies. The analysis owner prepares and
+caches the installed package; executable runtime contracts do not invoke the parser.
 
 | Owned here | Owned elsewhere |
 | --- | --- |
@@ -274,7 +274,7 @@ The following locations own the contracts described above.
 | Syntax views and Rowan bridge | [AST views](../../crates/kagari-syntax/src/ast/mod.rs), [node adapter](../../crates/kagari-syntax/src/syntax_node.rs) |
 | Partial trees and syntax diagnostics | [Error tests](../../crates/kagari-syntax/src/tests/parser/errors.rs) |
 | Lossless limits and cancellation | [Limit tests](../../crates/kagari-syntax/src/tests/limits.rs), [cancellation tests](../../crates/kagari-syntax/src/tests/cancellation.rs) |
-| Offline declarations | [Declaration tests](../../crates/kagari-syntax/src/tests/declarations.rs), [ABI build consumer](../../crates/kagari-abi/build/main.rs) |
+| Offline declarations | [Declaration tests](../../crates/kagari-syntax/src/tests/declarations.rs), [Installed package preparation](../../crates/kagari-stdlib/src/package.rs) |
 | Caller-owned parse reuse and HIR lowering | [Analysis queries](../../crates/kagari-hir/src/analysis/declaration_queries.rs) |
 | Grammar coverage and its limits | [Coverage audit](../syntax-coverage.md) |
 
@@ -292,5 +292,5 @@ Changes to this crate must preserve:
 Run `cargo test -p kagari-syntax` for syntax behavior changes. Grammar changes
 also require the [coverage workflow](../syntax-coverage.md), including updates
 to the specification and affected inventories. Changes to syntax contracts used
-by HIR or ABI build tooling require the corresponding consumer checks.
+by HIR or installed package preparation require the corresponding consumer checks.
 Documentation-only updates require link, content and diff checks.

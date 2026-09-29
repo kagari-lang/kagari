@@ -41,6 +41,46 @@ fn bundled_sources_preserve_exact_text_spans_and_module_identity() {
 }
 
 #[test]
+fn bundled_public_declarations_keep_their_documentation() {
+    let package = ParsedStdlibPackage::prepare(Default::default(), &Default::default()).unwrap();
+    for file in package.files() {
+        for node in file.parsed().syntax().syntax().descendants() {
+            let kind = node.kind();
+            if !matches!(
+                kind,
+                SyntaxKind::FnDef
+                    | SyntaxKind::MethodDef
+                    | SyntaxKind::TraitDef
+                    | SyntaxKind::EnumDef
+                    | SyntaxKind::Variant
+                    | SyntaxKind::AssociatedType
+            ) || (kind == SyntaxKind::AssociatedType
+                && node
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == SyntaxKind::ImplBlock))
+            {
+                continue;
+            }
+            let range = node.text_range();
+            let site = file
+                .declarations()
+                .iter()
+                .find(|site| {
+                    site.span.start == usize::from(range.start())
+                        && site.span.end == usize::from(range.end())
+                })
+                .unwrap();
+            assert!(
+                !site.documentation.is_empty(),
+                "undocumented {}: {:?}",
+                file.source().name(),
+                site.span
+            );
+        }
+    }
+}
+
+#[test]
 fn preparation_retains_script_bodies_and_unresolved_types() {
     let text = "/// docs\n#[intrinsic(Example)] pub fn native<T>(x: T) -> Unknown<T>;\npub fn script() -> i32 { 42 }\npub type Opaque<T>;";
     let package = prepare(text).unwrap();
@@ -48,12 +88,47 @@ fn preparation_retains_script_bodies_and_unresolved_types() {
     let sites = file.declarations();
     assert_eq!(sites.len(), 3);
     assert_eq!(sites[0].markers[0].binding, "Example");
+    assert_eq!(sites[0].documentation, "docs");
+    assert_eq!(
+        sites[0].written_signature,
+        "#[intrinsic(Example)] pub fn native<T>(x: T) -> Unknown<T>;"
+    );
     assert_eq!(sites[0].body_span, None);
     let body = sites[1].body_span.unwrap();
     assert_eq!(&text[body.start..body.end], "{ 42 }");
     assert_eq!(sites[2].kind, SyntaxKind::AssociatedType);
     // Unknown type/binding names are semantic input for HIR, not package errors.
     assert_eq!(file.source().text(), text);
+}
+
+#[test]
+fn declaration_documentation_retains_markdown_unicode_and_source_spelling() {
+    let text = "/// Optional 文本.\r\n///\r\n/// ```kgr\r\n/// Some(1)\r\n/// ```\r\npub enum Maybe<T> {\r\n    /// Present value.\r\n    Some(T),\r\n}\r\ntrait View {\r\n    /// Read the value.\r\n    fn read(self) -> i32;\r\n}\r\n";
+    let package = prepare(text).unwrap();
+    let sites = package.files()[0].declarations();
+    let enumeration = sites
+        .iter()
+        .find(|site| site.kind == SyntaxKind::EnumDef)
+        .unwrap();
+    assert_eq!(
+        enumeration.documentation,
+        "Optional 文本.\n\n```kgr\nSome(1)\n```"
+    );
+    assert_eq!(
+        enumeration.written_signature,
+        text[enumeration.span.start..enumeration.span.end]
+    );
+    let variant = sites
+        .iter()
+        .find(|site| site.kind == SyntaxKind::Variant)
+        .unwrap();
+    assert_eq!(variant.documentation, "Present value.");
+    let method = sites
+        .iter()
+        .find(|site| site.kind == SyntaxKind::MethodDef)
+        .unwrap();
+    assert_eq!(method.documentation, "Read the value.");
+    assert_eq!(method.written_signature, "fn read(self) -> i32;");
 }
 
 #[test]

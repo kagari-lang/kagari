@@ -36,7 +36,15 @@ def check_crate_boundaries() -> None:
         (OUTPUT / f"{crate}-production-graph.log").write_text(graph)
         packages = {line.split()[0] for line in graph.splitlines() if line}
         assert not packages & forbidden, (crate, packages & forbidden)
+    abi_build_graph = subprocess.check_output([
+        "cargo", "tree", "--locked", "--offline", "-p", "kagari-abi",
+        "--no-default-features", "--edges", "normal,build", "--prefix", "none",
+    ], cwd=ROOT, text=True)
+    (OUTPUT / "abi-build-graph.log").write_text(abi_build_graph)
+    abi_build_packages = {line.split()[0] for line in abi_build_graph.splitlines() if line}
+    assert not abi_build_packages & constraints["abi"], ("abi build", abi_build_packages & constraints["abi"])
     print("eight production crate boundaries pass", flush=True)
+    print("ABI build graph is independent of source analysis and execution", flush=True)
 
 
 def run() -> None:

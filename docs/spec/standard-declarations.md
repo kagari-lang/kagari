@@ -16,7 +16,7 @@ imports or recognized by a user-controlled file extension.
 Functions and methods returning unit omit the return annotation, for example
 `fn clear(self);`. Callback function types still spell out `-> ()`, as in
 `fn for_each(self, callback: fn(Self::Item) -> ());`.
-Non-returning operations use `-> !`, including `std::debug::panic`. Generated
+Non-returning operations use `-> !`, including `std::debug::panic`. Checked
 signatures and native execution contracts retain Never rather than Unit.
 
 Outer `///` comments belong to the immediately following declaration. They retain
@@ -27,23 +27,27 @@ it does not grant user declarations intrinsic behavior. Instance methods are dec
 `self` inside an inherent or native trait `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in
-[the implementation roadmap](../implementation-roadmap.md#standard-library-declaration-sources).
+[the implementation roadmap](../implementation-roadmap.md#standard-library-and-hir-integration-active).
 
 
 ## Public functions and method views
 
-The ABI build reads the bundled `.kgr` files with the declaration parser and
-compiles their AST signatures into immutable metadata. Generated output is a
-build artifact, not a second handwritten API definition. Unknown intrinsic IDs,
-duplicate bindings/exports/method views, missing documentation and function bodies
-fail the standard-library build. The engine bundles the exact parsed source text.
+`kagari-stdlib` reads the installed `.kgr` manifest with the declaration parser
+and retains the exact text, syntax trees, annotations, documentation and declaration
+coordinates. HIR imports that package through ordinary declaration collection and
+checks signatures, bounds and installed native bindings. Unknown binding IDs or a
+native declaration with a script body are errors. Ordinary script bodies are
+retained for checking and execution. Public declarations must be documented;
+documentation examples remain part of acceptance. The ABI does not parse sources
+or generate source descriptors. Consumer migration and validation status are
+tracked in the [active plan](../stdlib-hir-refactor.md#progress-ledger).
 
 Generic inherent blocks own their receiver parameters, for example
 `impl<T> ArrayList<T> { pub fn get(self, index: usize) -> Option<T>; }`.
 Associated constructors omit `self`. Method-specific generic parameters extend
 the impl parameters; `Self` resolves to the impl target. Concrete targets such as
 `impl ArrayList<String>` restrict methods to that receiver shape. Metadata and source
-identities are generated from these declarations, including read-only versus
+identities are derived by HIR from these declarations, including read-only versus
 mutable receiver access. Method syntax and qualified calls such as
 `ArrayList::get(values, index)` share the same checked signature. Old module-level
 method functions are removed. Genuine free functions remain at module scope.
@@ -82,7 +86,7 @@ method ordinals remain stable.
 
 `iter.kgr` explicitly declares `impl<T> Iterator for Iter<T>`, including
 `type Item = T` and `#[intrinsic(IterNext)] fn next(self) -> Option<T>;`.
-The build validates this implementation against the sealed native stepping ABI.
+HIR validates this implementation against the sealed native stepping ABI.
 Its receiver, generic parameter, associated type and method metadata come from
 the declaration. Native iterator trait resolution reads that associated type
 mapping. `map`, `filter`, `collect` and other defaults remain on `Iterator`.

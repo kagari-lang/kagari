@@ -53,9 +53,11 @@ Reproduce feature isolation with `uv run python scripts/check_features.py`.
 The script checks eight production crate graphs and builds standalone consumers
 with no features, `source`, `native` and `source,native`, using the repository's
 locked dependency versions and normal target directory. The native-only consumer
-runs real Cranelift code from the tracked portable artifact, without script source text or production HIR/syntax dependencies. ABI build
-tooling still parses the standard declarations through syntax; this is a build-only
-edge, not a linked frontend service. Workspace dev-feature unification is not used as proof of isolation.
+runs real Cranelift code from the tracked portable artifact, without script source
+text or production HIR/syntax dependencies. The audit also checks that ABI has no
+source-analysis dependencies through build edges. Workspace dev-feature unification
+is not used as proof of isolation. Current migration acceptance and carried build
+failures are recorded in the [active plan](../stdlib-hir-refactor.md#progress-ledger).
 
 ## Logical Layout
 

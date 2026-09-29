@@ -17,8 +17,9 @@ declaration collection, including opaque types, native enum representation hooks
 engine function bindings and native trait defaults. Installed declarations use
 ordinary signature and bound checking; source code cannot acquire these bindings
 by copying a native attribute or standard URI. Unified checked Engine/Host call
-contracts, ordinary standard namespace resolution and removal of ABI's generated
-declaration catalogs remain pending. The complete target handoff is not yet
+contracts and ordinary standard namespace resolution remain pending. ABI's source
+generator and declaration catalogs have been removed; their consumers still need
+migration. The complete target handoff is not yet
 active; intermediate failures are recorded in the migration plan.
 
 ## Foundation Contracts
@@ -78,11 +79,10 @@ Runtime, bytecode and VM have no production dependency on MIR, source analysis o
 codegen. MIR depends on ABI/common rather than HIR. Compiler core works without its
 `source` feature. Native backends depend on codegen/MIR/ABI and their backend libraries,
 not on runtime, bytecode, compiler or SDK. Source-based tests may use dev-dependencies;
-they do not define the production graph. ABI build tooling parses `stdlib/*.kgr`
-with syntax to generate declaration descriptors; that build-only dependency is not
-a runtime/source-analysis service and is being removed by ST01. HIR now depends on
-stdlib for source ownership; stdlib depends only on syntax/common and error support.
-ABI no longer emits the full source-text table. LLVM is deferred; no placeholder
+they do not define the production graph. ABI has no source generator or syntax
+build dependency. HIR depends on stdlib for source ownership; stdlib depends only
+on syntax/common and error support. The feature audit checks ABI's build graph as
+well as its production dependencies. LLVM is deferred; no placeholder
 crate exists.
 
 ## Compilation Pipeline

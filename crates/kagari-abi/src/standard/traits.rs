@@ -1,6 +1,4 @@
 //! Stable identities and capabilities of standard trait contracts.
-use crate::standard::declarations::ApiTrait;
-use crate::standard::surface::STANDARD_TRAITS;
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
 };
@@ -252,14 +250,5 @@ impl StandardTrait {
 
     pub fn equality_protocol(self) -> bool {
         matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
-    }
-}
-
-impl StandardTrait {
-    pub fn declaration(self) -> &'static ApiTrait {
-        STANDARD_TRAITS
-            .iter()
-            .find(|spec| spec.item.identity() == identity(self))
-            .expect("standard trait declaration")
     }
 }

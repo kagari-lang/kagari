@@ -3,14 +3,9 @@ name = "kagari-abi"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-build = "build/main.rs"
 
 [dependencies]
 bincode.workspace = true
 smallvec.workspace = true
 kagari-common.workspace = true
 serde.workspace = true
-
-[build-dependencies]
-kagari-common.workspace = true
-kagari-syntax.workspace = true

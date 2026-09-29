@@ -29,8 +29,8 @@ time. Artifact-only execution must remain independent of source processing.
 
 ## Current problem and migration inputs
 
-The current implementation shares a syntax parser but has a separate standard
-declaration interpretation path:
+At the ST00 baseline, the implementation shared a syntax parser but had a separate
+standard declaration interpretation path. The ledger records migration away from it:
 
 ```text
 stdlib/*.kgr
@@ -44,8 +44,8 @@ The following are concrete migration inputs, not target boundaries:
 
 | Current owner | Current behavior | Required change |
 | --- | --- | --- |
-| [ABI build generator](../crates/kagari-abi/build/main.rs) and its helpers | Parse SDK files; interpret selected generic bounds, receiver shapes and implementations; emit source/API tables | Move package ownership out of ABI; move semantic interpretation into HIR |
-| [ABI declaration descriptors](../crates/kagari-abi/src/standard/declarations.rs) and surface tables | Mix docs, source locations, type expressions, default-method classification and execution identities | Separate source input from checked semantic facts and native execution contracts |
+| Former ABI `build/{main,api,implementations}.rs` (removed in ST01) | Parsed SDK files; interpreted selected generic bounds, receiver shapes and implementations; emitted source/API tables | [Installed package preparation](../crates/kagari-stdlib/src/package.rs) owns sources; ordinary HIR owns semantics |
+| Former ABI `standard/declarations.rs` and generated surface tables (removed in ST01) | Mixed docs, source locations, type expressions, default-method classification and execution identities | Separate source input from checked semantic facts and native execution contracts |
 | [HIR standard integration](../crates/kagari-hir/src/builtin/declarations.rs) | Convert generated standard descriptors into types, declarations and candidates | Import into the regular HIR declaration and checking model |
 | [HIR call facts](../crates/kagari-hir/src/typeck/table.rs) | Distinguish `StandardIntrinsic` from ordinary function targets | Record resolved callable identity, implementation and checked application facts |
 | [Compiler standard lowering](../crates/kagari-compiler/src/source/lower/expr/standard.rs) and neighboring collection/iterator modules | Implement some library algorithms by expanding calls into MIR control flow | Replace library-specific expansions with native calls and explicit callback contracts |
@@ -369,8 +369,8 @@ must be resolved before migration; historical test counts are not a fresh baseli
   declaration locations and deterministic identities.
 - [ ] Import standard declarations and bodies into HIR; map native markers only
   for engine-installed provenance. Reuse ordinary resolution and signature checks.
-- [ ] Delete ABI source generation and its syntax build dependency. Migrate tool
-  source/docs access to the HIR-owned standard package.
+- [x] Delete ABI source generation and its syntax build dependency.
+- [ ] Migrate tool source/docs access to the HIR-owned standard package.
 
 Exit: ABI no longer owns or builds source descriptors; standard input has one
 import path. Downstream users of removed catalogs may remain broken until ST02/ST03.
@@ -709,6 +709,38 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST01 source-catalog removal checkpoint: deleted ABI's three-file build generator,
+  `Api*` declaration descriptors and generated source/signature/module/implementation
+  tables. Removed the syntax build dependency and lockfile edge. Closed engine
+  operation tags, scalar representation facts and native enum discriminants remain
+  in ABI; no replacement source descriptor model or compatibility facade was added.
+- Standard package preparation now retains declaration Markdown and exact written
+  syntax alongside source/name/body spans. Tests cover Unicode, CRLF, fenced
+  examples, variant and method documentation, and unresolved native signatures.
+  The bundled documentation check replaces the deleted generator's documentation
+  assertions. Semantic tool queries still require migration to analysis-owned
+  declarations; these source records do not resolve or instantiate types.
+- Carried build failure: `cargo check -p kagari-abi` reports 19 errors after catalog
+  removal. Representative diagnostics are E0432 for removed `standard::declarations`
+  and `STANDARD_IMPLEMENTATIONS`, E0425 for removed signature/enum/range lookups,
+  and E0599 for `StandardEnum::spec` and `StandardTrait::declaration`. ABI application,
+  implementation, native contract and type verification consumers must use checked
+  executable facts and closed representation contracts (ST03). Their HIR source
+  consumers migrate under ST01/ST02. Validation code and behavioral tests have not
+  been disabled or replaced with permissive fallbacks. The earlier HIR navigation
+  failure and compiler opaque-item export failure remain unresolved and are now
+  masked by the ABI compilation failure.
+- Validation for this checkpoint: all seven stdlib and 80 syntax tests pass;
+  `cargo clippy -p kagari-stdlib -p kagari-syntax --all-targets -- -D warnings`
+  passes. Structure review passes for 525 Rust files with zero violations or
+  exceptions; format, local documentation link targets and diff checks pass.
+  Eight production dependency graphs and the new ABI normal-plus-build graph check
+  pass (run `check_crate_boundaries()` from `scripts.check_features` independently
+  of its execution tests). Full feature execution and workspace acceptance
+  remain unavailable until the carried ABI errors are resolved; historical green
+  results below are not current acceptance. ST01 remains open for namespace and
+  tool source ownership integration; ST02–ST06 remain required.
 
 - ST01 native installation checkpoint: HIR maps installed function annotations
   to closed intrinsic, integer, radix-parser, protocol-implementation and
