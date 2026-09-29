@@ -8,6 +8,7 @@ use kagari_abi::{
 };
 use kagari_hir::{
     hir::{self, PatternKind},
+    native::NativeTypeKind,
     types::{NominalType, TypeId},
 };
 use kagari_mir::{
@@ -114,37 +115,14 @@ impl FunctionLowerer<'_, '_> {
         fail: BlockId,
         bindings: &mut Vec<(LocalId, MirValue)>,
     ) -> Result<(), MirLoweringError> {
-        if let Some(variant) = self.analyzed.typed.type_table.standard_pattern(pattern) {
-            let cond = self.standard_enum_op(
-                expected,
-                StandardEnumOp::Test(variant.index() as u32),
-                Some(value),
-            )?;
-            let next = self.new_block();
-            self.set_terminator(Terminator::Branch {
-                cond,
-                then_block: next,
-                else_block: fail,
-            });
-            self.switch_to_block(next);
-            if let Some(index) = variant.payload() {
-                let TypeId::StandardEnum { args, .. } = expected else {
-                    return Err(MirLoweringError::MissingBinding("standard pattern type"));
-                };
-                let PatternKind::EnumVariant { fields, .. } =
-                    &self.analyzed.lowered.module.pattern(pattern).kind
-                else {
-                    return Err(MirLoweringError::MissingBinding("standard payload pattern"));
-                };
-                let field = fields[0];
-                let payload = self.standard_enum_op(
-                    expected,
-                    StandardEnumOp::Read(variant.index() as u32),
-                    Some(value),
-                )?;
-                self.lower_pattern_decision(field, payload, &args[index], fail, bindings)?;
-            }
-            return Ok(());
+        if self
+            .analyzed
+            .typed
+            .type_table
+            .pattern_variant(pattern)
+            .is_some()
+        {
+            return self.lower_enum_pattern(pattern, value, expected, fail, bindings);
         }
         match &self.analyzed.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
@@ -357,82 +335,146 @@ impl FunctionLowerer<'_, '_> {
                     self.lower_pattern_decision(field.pattern, member, &ty, fail, bindings)?;
                 }
             }
-            PatternKind::EnumVariant { fields, .. } => {
-                let fields = fields.clone();
-                let TypeId::Enum(owner) = expected else {
-                    return Err(MirLoweringError::MissingBinding(
-                        "checked enum pattern type",
-                    ));
-                };
-                let variant = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .pattern_variant(pattern)
-                    .ok_or(MirLoweringError::MissingBinding("checked enum variant"))?;
-                let signature = self
-                    .planner
-                    .catalog
-                    .variant(variant)
-                    .ok_or(MirLoweringError::MissingBinding("enum variant signature"))?;
-                let enumeration = self
-                    .planner
-                    .catalog
-                    .enumeration(&owner.declaration)
-                    .ok_or(MirLoweringError::MissingBinding("enum pattern layout"))?;
-                let substitution = enumeration
-                    .generic_params
-                    .iter()
-                    .cloned()
-                    .zip(owner.arguments.iter().cloned())
-                    .collect();
-                let payload = signature
-                    .payload
-                    .iter()
-                    .map(|ty| ty.instantiate(&substitution))
-                    .collect::<Vec<_>>();
-                let slot = signature.slot;
-                if fields.len() != payload.len() {
-                    return Err(MirLoweringError::MissingBinding(
-                        "checked enum pattern arity",
-                    ));
-                }
-                let concrete = NominalType {
-                    associated_types: Default::default(),
-                    declaration: owner.declaration.clone(),
-                    arguments: self.planner.arguments(
-                        &owner.arguments,
-                        &self.instance.substitution,
-                        self.analyzed.lowered.source_map.pattern_span(pattern),
-                    )?,
-                };
-                let enumeration = lower_nominal_type(&concrete);
-                let cond = self.alloc_temp(ValueType::Bool);
-                self.emit(Instruction::TestEnumVariant {
-                    dst: cond,
-                    value,
-                    enumeration: enumeration.clone(),
-                    variant: slot,
-                });
-                let next = self.new_block();
-                self.set_terminator(Terminator::Branch {
-                    cond,
-                    then_block: next,
-                    else_block: fail,
-                });
-                self.switch_to_block(next);
-                for (index, (field, ty)) in fields.into_iter().zip(payload.iter()).enumerate() {
-                    let member = self.alloc_temp(self.value_type(ty)?);
-                    self.emit(Instruction::ReadEnumPayload {
-                        dst: member,
-                        value,
-                        enumeration: enumeration.clone(),
-                        variant: slot,
-                        index,
-                    });
-                    self.lower_pattern_decision(field, member, ty, fail, bindings)?;
-                }
+            PatternKind::EnumVariant { .. } => {
+                return Err(MirLoweringError::MissingBinding("checked enum variant"));
             }
+        }
+        Ok(())
+    }
+
+    fn lower_enum_pattern(
+        &mut self,
+        pattern: hir::PatternId,
+        value: MirValue,
+        expected: &TypeId,
+        fail: BlockId,
+        bindings: &mut Vec<(LocalId, MirValue)>,
+    ) -> Result<(), MirLoweringError> {
+        let fields = match &self.analyzed.lowered.module.pattern(pattern).kind {
+            PatternKind::EnumVariant { fields, .. } => fields.clone(),
+            PatternKind::Name { .. } => Vec::new(),
+            _ => return Err(MirLoweringError::MissingBinding("checked enum pattern")),
+        };
+        let variant = self
+            .analyzed
+            .typed
+            .type_table
+            .pattern_variant(pattern)
+            .ok_or(MirLoweringError::MissingBinding("checked enum variant"))?;
+        let signature = self
+            .planner
+            .catalog
+            .variant(variant)
+            .ok_or(MirLoweringError::MissingBinding("enum variant signature"))?;
+        let enumeration = self
+            .planner
+            .catalog
+            .enumeration(&signature.owner)
+            .ok_or(MirLoweringError::MissingBinding("enum pattern layout"))?;
+        let arguments = match expected {
+            TypeId::Enum(owner)
+                if owner.declaration == enumeration.id && enumeration.native_type.is_none() =>
+            {
+                &owner.arguments
+            }
+            TypeId::StandardEnum { kind, args }
+                if enumeration.native_type == Some(NativeTypeKind::Enum(*kind)) =>
+            {
+                args
+            }
+            _ => {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked enum pattern type",
+                ));
+            }
+        };
+        if arguments.len() != enumeration.generic_params.len() {
+            return Err(MirLoweringError::MissingBinding(
+                "checked enum type arguments",
+            ));
+        }
+        let substitution = enumeration
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(arguments.iter().cloned())
+            .collect();
+        let payload = signature
+            .payload
+            .iter()
+            .map(|ty| ty.instantiate(&substitution))
+            .collect::<Vec<_>>();
+        let slot = signature.slot;
+        if fields.len() != payload.len() {
+            return Err(MirLoweringError::MissingBinding(
+                "checked enum pattern arity",
+            ));
+        }
+        let native_slot = if enumeration.native_type.is_some() {
+            if payload.len() > 1 {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked native enum payload",
+                ));
+            }
+            Some(
+                u32::try_from(slot)
+                    .map_err(|_| MirLoweringError::MissingBinding("native enum slot"))?,
+            )
+        } else {
+            None
+        };
+        let nominal = if native_slot.is_none() {
+            let concrete = NominalType {
+                associated_types: Default::default(),
+                declaration: enumeration.id.clone(),
+                arguments: self.planner.arguments(
+                    arguments,
+                    &self.instance.substitution,
+                    self.analyzed.lowered.source_map.pattern_span(pattern),
+                )?,
+            };
+            Some(lower_nominal_type(&concrete))
+        } else {
+            None
+        };
+        let cond = if let Some(slot) = native_slot {
+            self.standard_enum_op(expected, StandardEnumOp::Test(slot), Some(value))?
+        } else {
+            let cond = self.alloc_temp(ValueType::Bool);
+            self.emit(Instruction::TestEnumVariant {
+                dst: cond,
+                value,
+                enumeration: nominal.clone().ok_or(MirLoweringError::MissingBinding(
+                    "checked script enum representation",
+                ))?,
+                variant: slot,
+            });
+            cond
+        };
+        let next = self.new_block();
+        self.set_terminator(Terminator::Branch {
+            cond,
+            then_block: next,
+            else_block: fail,
+        });
+        self.switch_to_block(next);
+        for (index, (field, ty)) in fields.into_iter().zip(payload.iter()).enumerate() {
+            let member = if let Some(slot) = native_slot {
+                self.standard_enum_op(expected, StandardEnumOp::Read(slot), Some(value))?
+            } else {
+                let member = self.alloc_temp(self.value_type(ty)?);
+                self.emit(Instruction::ReadEnumPayload {
+                    dst: member,
+                    value,
+                    enumeration: nominal.clone().ok_or(MirLoweringError::MissingBinding(
+                        "checked script enum representation",
+                    ))?,
+                    variant: slot,
+                    index,
+                });
+                member
+            };
+            self.lower_pattern_decision(field, member, ty, fail, bindings)?;
         }
         Ok(())
     }

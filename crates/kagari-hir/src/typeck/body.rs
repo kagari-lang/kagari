@@ -239,11 +239,6 @@ impl<'a> BodyChecker<'a> {
             self.type_table.insert_expr(expr_id, ty.clone());
             return ty;
         }
-        if let Some(ty) = self.infer_standard_constructor(expr_id, env, expected) {
-            self.type_table.insert_expr(expr_id, ty.clone());
-            env.exprs.insert(expr_id, ty.clone());
-            return ty;
-        }
         let expr = self.lowered.module.expr(expr_id);
         if let Some(ty) = self.infer_associated_const(expr_id, env) {
             env.exprs.insert(expr_id, ty.clone());
@@ -278,9 +273,6 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
-                    | ResolvedName::StandardTrait(_)
-                    | ResolvedName::StandardVariant(_)
-                    | ResolvedName::StandardModule(_)
                     | ResolvedName::HostFunction(_)
                     | ResolvedName::StandardFunction(_)
                     | ResolvedName::OpaqueType(_)

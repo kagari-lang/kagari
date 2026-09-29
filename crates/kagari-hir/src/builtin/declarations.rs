@@ -8,7 +8,6 @@ use kagari_abi::{
         declarations::{ApiBound, ApiImplementation, ApiItem, ApiType},
         surface::{
             self as standard_surface, STANDARD_IMPLEMENTATIONS, STANDARD_ITEMS, StandardEnum,
-            StandardVariant,
         },
         traits::{self as standard_traits, StandardTrait},
     },
@@ -120,19 +119,9 @@ pub fn function(intrinsic: StandardIntrinsic) -> Option<&'static ApiItem> {
         .find(|item| item.uri == api.uri && item.start == api.start)
 }
 
-pub fn variant(variant: StandardVariant) -> Option<&'static ApiItem> {
-    let spec = variant.kind().spec();
-    STANDARD_ITEMS.iter().find(|item| {
-        item.path.len() == 2
-            && item.path[0].1 == spec.name
-            && item.path[1].1 == spec.variants[variant.index()].name
-    })
-}
-
 pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
     let item = match name {
         ResolvedName::StandardFunction(intrinsic) => function(intrinsic)?,
-        ResolvedName::StandardVariant(kind) => variant(kind)?,
         _ => return None,
     };
     declaration(&DeclarationId::Definition(item.identity()))

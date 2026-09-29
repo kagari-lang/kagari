@@ -89,6 +89,64 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
 }
 
 #[test]
+fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
+    let text = "enum Local<T> { Some(T), None } use self::Local::{Some, None}; use std::option::Option::{Some as Present, None as Absent}; fn native(value:i32)->Option<i32> { Present(value) } fn local(value:i32)->Local<i32> { Some(value) } fn read(value:Local<i32>)->i32 { match value { None=>0, Some(payload)=>payload } } fn read_native(value:Option<i32>)->i32 { match value { Absent=>0, Present(payload)=>payload } }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("shadowed-variants.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let facts = analysis.result().facts();
+    for (needle, native) in [
+        ("Some(value)", false),
+        ("None=>", false),
+        ("Some(payload)", false),
+        ("Present(value)", true),
+        ("Absent=>", true),
+        ("Present(payload)", true),
+    ] {
+        let declaration = snapshot
+            .definition_at(file, text.find(needle).unwrap())
+            .unwrap();
+        assert_eq!(declaration.location.file == file, !native, "{needle}");
+        let DeclarationId::Definition(id) = &declaration.id else {
+            panic!("variant declaration")
+        };
+        let variant = facts.aggregates.variant(id).unwrap();
+        let enumeration = facts.aggregates.enumeration(&variant.owner).unwrap();
+        assert_eq!(enumeration.native_type.is_some(), native, "{needle}");
+    }
+    let mut matches = 0;
+    for (_, expression) in facts.lowered.module.body.expressions() {
+        let ExprKind::Match { arms, .. } = &expression.kind else {
+            continue;
+        };
+        for arm in arms {
+            assert!(
+                facts
+                    .typed
+                    .type_table
+                    .pattern_variant(arm.pattern)
+                    .is_some()
+            );
+            assert!(
+                !facts
+                    .names
+                    .pattern_is_irrefutable(&facts.lowered.module, arm.pattern)
+            );
+            matches += 1;
+        }
+    }
+    assert_eq!(matches, 4);
+}
+
+#[test]
 fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors() {
     let text = "enum Event<T> { Empty, Data(T) } fn good() { Event<bool>::Data(true); } fn wrong() { Event<i32>::Data(false); } fn unknown() { Event<Missing>::Data(missing); }";
     let mut sources = SourceDatabase::default();
@@ -115,7 +173,7 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
             .facts()
             .aggregates
             .enumerations()
-            .next()
+            .find(|enumeration| enumeration.declaration.location.file == file)
             .unwrap();
         for argument in ["bool", "i32", "Missing"] {
             let start = text.find(&format!("Event<{argument}>")).unwrap();
@@ -180,7 +238,11 @@ fn constructors_retain_nominal_targets_through_argument_errors() {
     let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
     let analysis = snapshot.file(file).unwrap();
     let facts = analysis.result().facts();
-    let enumeration = facts.aggregates.enumerations().next().unwrap();
+    let enumeration = facts
+        .aggregates
+        .enumerations()
+        .find(|enumeration| enumeration.declaration.location.file == file)
+        .unwrap();
     let good = text.find("Event::Data").unwrap();
     let wrong = text.rfind("Event::Data").unwrap();
     assert_eq!(

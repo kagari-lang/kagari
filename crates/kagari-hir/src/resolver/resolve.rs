@@ -1,6 +1,6 @@
 use super::NameResolution;
 use crate::{
-    builtin::{BuiltinFunction, traits},
+    builtin::BuiltinFunction,
     hir::{
         BlockId, BodyOwner, Condition, ConstId, ExportItem, ExprId, ExprKind, FunctionId, HirOwner,
         Module, ParamId, PatternId, PatternKind, PlaceId, PlaceKind, StmtId, StmtKind,
@@ -12,7 +12,7 @@ use crate::{
     },
     source_map::SourceMap,
 };
-use kagari_abi::standard::{surface as standard_surface, traits::StandardTrait};
+use kagari_abi::standard::surface as standard_surface;
 use kagari_common::{Span, cancellation::CancellationToken};
 use std::{
     collections::{HashMap, HashSet},
@@ -332,8 +332,7 @@ impl<'a> BodyResolver<'a> {
         let Some(resolved) = self.resolve_name(path) else {
             return;
         };
-        if matches!(resolved, ResolvedName::StandardVariant(_))
-            || matches!(self.resolved.imports.binding(resolved), Some(ImportTarget::Source(source)) if matches!(source.item, Some(ExportItem::Variant(_))))
+        if matches!(self.resolved.imports.binding(resolved), Some(ImportTarget::Source(source)) if matches!(source.item, Some(ExportItem::Variant(_))))
         {
             self.resolved.pattern_variants.insert(pattern, resolved);
         }
@@ -439,34 +438,14 @@ impl<'a> BodyResolver<'a> {
                 ResolvedName::HostModule(module) => {
                     self.resolved.hosts.resolve_name_in(module, member)
                 }
-                ResolvedName::StandardModule(module) => {
-                    standard_surface::standard_function(module, member)
-                        .map(|f| ResolvedName::StandardFunction(f.intrinsic))
-                        .or_else(|| {
-                            standard_surface::standard_variant_in_module(module, member)
-                                .map(ResolvedName::StandardVariant)
-                        })
-                        .or_else(|| {
-                            traits::in_module(module, member).map(ResolvedName::StandardTrait)
-                        })
-                }
                 _ => None,
             };
         }
         if let Some(resolved) = self.resolved.hosts.resolve_name(name) {
             return Some(resolved);
         }
-        if let Some(module) = standard_surface::standard_module(name) {
-            return Some(ResolvedName::StandardModule(module.kind));
-        }
         if let Some(helper) = BuiltinFunction::from_name(name) {
             return Some(ResolvedName::RuntimeHelper(helper));
-        }
-        if let Some(kind) = StandardTrait::from_name(name) {
-            return Some(ResolvedName::StandardTrait(kind));
-        }
-        if let Some(variant) = standard_surface::standard_variant(name) {
-            return Some(ResolvedName::StandardVariant(variant));
         }
         if let Some(function) = standard_surface::standard_associated_function(name) {
             return Some(ResolvedName::StandardFunction(function.intrinsic));

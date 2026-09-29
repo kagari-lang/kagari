@@ -8,11 +8,7 @@ use crate::{
     imports::ModuleImports,
     resolver::table::NameTable,
 };
-use kagari_abi::standard::{
-    StandardIntrinsic,
-    surface::{StandardModule, StandardVariant},
-    traits::StandardTrait,
-};
+use kagari_abi::standard::StandardIntrinsic;
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 
 use kagari_common::Span;
@@ -35,7 +31,6 @@ pub struct LexicalScope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedName {
     OpaqueType(OpaqueTypeId),
-    StandardTrait(StandardTrait),
     SourceImport(usize),
     SourceItem { import: usize, item: ExportItem },
     HostModule(HostModuleId),
@@ -46,8 +41,6 @@ pub enum ResolvedName {
     Param(ParamId),
     Local(LocalId),
     Module(ModuleId),
-    StandardModule(StandardModule),
-    StandardVariant(StandardVariant),
     StandardFunction(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
     Struct(StructId),

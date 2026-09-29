@@ -7,6 +7,24 @@ use crate::{
 };
 
 #[test]
+fn standard_item_spellings_require_installed_declarations() {
+    for name in ["std", "std::option", "Eq", "Some", "None", "Option::Some"] {
+        let lowered = common::lower_ok(&format!("fn main() {{ {name}; }}"));
+        let resolved = resolve_names(&lowered);
+        let function = &lowered.module.functions[0];
+        let statement = lowered.module.block(function.body.unwrap()).statements[0];
+        let StmtKind::Expr(expression) = lowered.module.stmt(statement).kind else {
+            panic!("name expression statement");
+        };
+        assert_eq!(resolved.facts().expr_resolution(expression), None, "{name}");
+        let checked = common::check_module(&lowered, resolved.facts(), None);
+        assert!(checked.diagnostics().iter().any(|diagnostic| {
+            matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name: missing } if missing == name)
+        }), "{name}: {:?}", checked.diagnostics());
+    }
+}
+
+#[test]
 fn reports_duplicate_function_names() {
     let lowered = common::lower_ok(
         r#"

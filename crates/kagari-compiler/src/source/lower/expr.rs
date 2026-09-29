@@ -14,6 +14,7 @@ use kagari_abi::{
 };
 use kagari_common::collection::CollectionAccess;
 use kagari_hir::{
+    native::NativeTypeKind,
     resolver::ResolvedName,
     typeck::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
     types::TypeId,
@@ -341,27 +342,6 @@ impl FunctionLowerer<'_, '_> {
                     ))?;
             return Ok(self.lower_constant(lower_scalar(value), self.expr_type(expr_id)?));
         }
-        if let Some(variant) = self.analyzed.typed.type_table.standard_constructor(expr_id) {
-            let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
-                ExprKind::Call { args, .. } => args.to_vec(),
-                _ => Vec::new(),
-            };
-            let fields = match self.lower_values(&args)? {
-                ControlFlow::Continue(values) => values,
-                ControlFlow::Break(value) => return Ok(value),
-            };
-            let ty = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(expr_id)
-                .ok_or(MirLoweringError::MissingExprType(expr_id))?;
-            return self.standard_enum_op(
-                &ty,
-                StandardEnumOp::Make(variant.index() as u32),
-                fields.first().copied(),
-            );
-        }
         if let Some(target) = self
             .analyzed
             .typed
@@ -373,8 +353,18 @@ impl FunctionLowerer<'_, '_> {
                 .variant
                 .as_ref()
                 .and_then(|id| self.analyzed.aggregates.variant(id))
-                .ok_or(MirLoweringError::MissingBinding("checked enum variant"))?
-                .slot;
+                .ok_or(MirLoweringError::MissingBinding("checked enum variant"))?;
+            let enumeration = self
+                .analyzed
+                .aggregates
+                .enumeration(&target.enumeration)
+                .ok_or(MirLoweringError::MissingBinding("checked enum owner"))?;
+            if variant.owner != enumeration.id {
+                return Err(MirLoweringError::MissingBinding("checked variant owner"));
+            }
+            let native = enumeration.native_type;
+            let arity = variant.payload.len();
+            let variant = variant.slot;
             let args = match &self.analyzed.lowered.module.expr(expr_id).kind {
                 ExprKind::Call { args, .. } => args.to_vec(),
                 ExprKind::Name { .. } => Vec::new(),
@@ -388,6 +378,33 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(fields) => fields,
                 ControlFlow::Break(value) => return Ok(value),
             };
+            if fields.len() != arity {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked enum constructor arity",
+                ));
+            }
+            if let Some(native) = native {
+                let ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .expr_type(expr_id)
+                    .ok_or(MirLoweringError::MissingExprType(expr_id))?;
+                if !matches!(&ty, TypeId::StandardEnum { kind, .. } if native == NativeTypeKind::Enum(*kind))
+                    || arity > 1
+                {
+                    return Err(MirLoweringError::MissingBinding(
+                        "checked native enum representation",
+                    ));
+                }
+                let slot = u32::try_from(variant)
+                    .map_err(|_| MirLoweringError::MissingBinding("native enum slot"))?;
+                return self.standard_enum_op(
+                    &ty,
+                    StandardEnumOp::Make(slot),
+                    fields.first().copied(),
+                );
+            }
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::MakeEnum {
                 dst,

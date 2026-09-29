@@ -7,7 +7,7 @@ use kagari_abi::{
     numeric as scalar_numeric,
     scalar::BuiltinType,
     standard::{
-        surface::{self as standard_surface, StandardEnum, StandardModule},
+        surface::StandardEnum,
         traits::{StandardTrait, identity},
     },
 };
@@ -491,15 +491,6 @@ pub fn intrinsic_holds(
         }
     }
     true
-}
-
-pub fn in_module(module: StandardModule, name: &str) -> Option<StandardTrait> {
-    StandardTrait::ALL.into_iter().find(|kind| {
-        kind.name() == name
-            && standard_surface::standard_modules().iter().any(|spec| {
-                spec.kind == module && spec.path == format!("std::{}", kind.namespace())
-            })
-    })
 }
 
 /// The reverse protocol is a proof of the corresponding destination conversion.

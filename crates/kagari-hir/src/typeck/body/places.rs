@@ -112,9 +112,6 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::HostType(_)
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
-                        | ResolvedName::StandardTrait(_)
-                        | ResolvedName::StandardVariant(_)
-                        | ResolvedName::StandardModule(_)
                         | ResolvedName::HostFunction(_)
                         | ResolvedName::StandardFunction(_)
                         | ResolvedName::RuntimeHelper(_)
@@ -194,18 +191,13 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
-                    ResolvedName::StandardVariant(_) | ResolvedName::StandardModule(_) => {
-                        "standard module item is not assignable".to_string()
-                    }
                     ResolvedName::StandardFunction(_) | ResolvedName::RuntimeHelper(_) => {
                         "standard function item is not assignable".to_string()
                     }
                     ResolvedName::OpaqueType(_) => "opaque type is not assignable".to_string(),
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
                     ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
-                    ResolvedName::Trait(_) | ResolvedName::StandardTrait(_) => {
-                        "trait type is not assignable".to_string()
-                    }
+                    ResolvedName::Trait(_) => "trait type is not assignable".to_string(),
                 })
                 .unwrap_or_else(|| "unresolved assignment target".to_string()),
             PlaceKind::Field { base, name } => {

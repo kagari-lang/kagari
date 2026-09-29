@@ -270,7 +270,8 @@ fn sized(value: usize) -> usize { value }
 
 #[test]
 fn resolves_standard_module_imports_facade_exports_and_function_calls() {
-    let lowered = common::lower_ok(
+    let source = kagari_common::SourceFile::new(
+        "standard-imports.kgr",
         r#"
 pub use std::math;
 use std::map::LinkedHashMap::len as map_len;
@@ -284,6 +285,10 @@ fn clamp(value: i32) -> i32 {
 }
 "#,
     );
+    let analyzed = crate::analyze_source(&source, Default::default())
+        .into_checked()
+        .expect("installed declarations should resolve and type check");
+    let lowered = &analyzed.lowered;
     assert!(
         lowered
             .module
@@ -296,61 +301,54 @@ fn clamp(value: i32) -> i32 {
             export.name == "math" && matches!(export.item, ExportItem::Import(_))
         })
     );
-
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    assert!(names.items.lookup("math").is_some_and(|r| matches!(
-        r.target(),
-        Some(crate::resolver::ResolvedName::StandardModule(_))
-    )));
-    assert!(names.items.lookup("map_len").is_some_and(|r| matches!(
-        r.target(),
-        Some(crate::resolver::ResolvedName::StandardFunction(_))
-    )));
-    let typed = check_module(&lowered, &names, None)
-        .into_checked()
-        .expect("type checker should succeed");
-
-    let size = &lowered.module.functions[0];
-    let size_tail = lowered
-        .module
-        .block(size.body.unwrap())
-        .tail_expr
-        .expect("size tail expr");
-    assert_eq!(
-        typed
-            .type_table
-            .call_resolution(size_tail)
-            .map(|call| call.target),
-        Some(crate::typeck::CallTarget::StandardIntrinsic(
-            StandardIntrinsic::MapLen
-        ))
-    );
-    assert_eq!(
-        typed.type_table.expr_type(size_tail),
-        Some(TypeId::Builtin(BuiltinType::USize))
-    );
-
-    let clamp = &lowered.module.functions[1];
-    let clamp_tail = lowered
-        .module
-        .block(clamp.body.unwrap())
-        .tail_expr
-        .expect("clamp tail expr");
-    assert_eq!(
-        typed
-            .type_table
-            .call_resolution(clamp_tail)
-            .map(|call| call.target),
-        Some(crate::typeck::CallTarget::StandardIntrinsic(
-            StandardIntrinsic::MathClamp
-        ))
-    );
-    assert_eq!(
-        typed.type_table.expr_type(clamp_tail),
-        Some(TypeId::Builtin(BuiltinType::I32))
-    );
+    for (name, function) in [("math", false), ("map_len", true)] {
+        let binding = analyzed.names.items.lookup(name).unwrap().target().unwrap();
+        let crate::imports::ImportTarget::Source(target) =
+            analyzed.names.imports.binding(binding).unwrap()
+        else {
+            panic!("standard imports must retain their source declaration");
+        };
+        assert_eq!(target.module.package.0, "kagari-std");
+        assert_eq!(
+            matches!(target.item, Some(ExportItem::Function(_))),
+            function
+        );
+        if !function {
+            assert!(target.item.is_none());
+        }
+    }
+    for (function, namespace, name, expected) in [
+        (
+            &lowered.module.functions[0],
+            "map",
+            "len",
+            BuiltinType::USize,
+        ),
+        (
+            &lowered.module.functions[1],
+            "math",
+            "clamp",
+            BuiltinType::I32,
+        ),
+    ] {
+        let tail = lowered
+            .module
+            .block(function.body.unwrap())
+            .tail_expr
+            .unwrap();
+        let call = analyzed.typed.type_table.call_resolution(tail).unwrap();
+        let crate::typeck::CallTarget::SourceFunction(target) = call.target else {
+            panic!("call must use the imported checked function");
+        };
+        let imported = analyzed.imported_functions.target(target).unwrap();
+        assert_eq!(imported.declaration.module.package.0, "kagari-std");
+        assert_eq!(imported.declaration.module.path, [namespace]);
+        assert_eq!(imported.signature.name, name);
+        assert_eq!(
+            analyzed.typed.type_table.expr_type(tail),
+            Some(TypeId::Builtin(expected))
+        );
+    }
 }
 
 #[test]

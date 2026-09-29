@@ -710,6 +710,31 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 enum handoff checkpoint: removed `ResolvedName::StandardModule`,
+  `StandardTrait` and `StandardVariant`, including spelling-based module/trait/
+  variant resolution and the duplicate native constructor/pattern checker.
+  Installed modules, traits and variants now require ordinary declaration/import
+  facts. Function/inherent-method catalog fallbacks remain pending ST02.
+- Removed the standard constructor/pattern maps and their cache-rebase APIs from
+  `TypeTable`. Compiler constructor and pattern lowering now consume ordinary HIR
+  enum/variant identities, generic parameters and payload signatures; the installed
+  native representation hook selects the existing physical enum instructions.
+  Bare imported unit variants follow the same refutable pattern path, and variant
+  ownership, argument/payload arity and native representation mismatches fail
+  lowering. This completes the enum consumer handoff carried by the earlier source
+  variant checkpoint, not ST03 executable contract validation.
+- Added resolver coverage for absent installations and HIR/compiler regressions
+  combining native aliases, user `Some`/`None` shadowing, generic payloads, unit
+  patterns and navigation. Migrated the standard import/call test to an installed
+  analysis snapshot and made affected constructor navigation tests select their
+  source enum explicitly. These tests remain unexecuted behind the unchanged ABI
+  source-catalog removal errors (`cargo check -p kagari-abi`, owner ST03); no green
+  HIR/compiler result is claimed. Resume the HIR suite and compiler `--lib` suite
+  after that consumer migration.
+- Enum handoff structural review: no added production glob imports, deep parent
+  paths, re-exports or compatibility APIs; structure checker, formatting and diff
+  checks pass. ST01 and the overall migration remain open.
+
 - ST01 compiler trait-handoff checkpoint: compiler protocol method selection now
   reads the supplied HIR aggregate catalog for callable adapters, iteration,
   conversions, range bounds, indexing, collection queries and structural value

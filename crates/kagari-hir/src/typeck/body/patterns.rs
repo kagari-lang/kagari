@@ -37,9 +37,6 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
     ) {
         let span = self.lowered.source_map.pattern_span(pattern);
-        if self.check_standard_pattern(pattern, expected, env) {
-            return;
-        }
         match &self.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
             PatternKind::Or(alternatives) => {

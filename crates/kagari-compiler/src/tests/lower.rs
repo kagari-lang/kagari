@@ -1,5 +1,9 @@
 use crate::{lower_to_mir, tests::common};
-use kagari_abi::{operations::BinaryOp, representation::ValueType, standard::StandardIntrinsic};
+use kagari_abi::{
+    operations::{BinaryOp, StandardEnumOp},
+    representation::ValueType,
+    standard::StandardIntrinsic,
+};
 use kagari_bytecode as bytecode;
 use kagari_mir::{
     CallTarget, Instruction, MirFunction, MirValue, Terminator, instruction::RuntimeHelper,
@@ -149,6 +153,68 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
             ir.enumerations[0].variants[*variant].payload.len()
         );
     }
+}
+
+#[test]
+fn native_and_script_enum_aliases_keep_distinct_layouts_and_refutable_unit_patterns() {
+    let checked = common::analyze_ok(
+        r#"
+use std::option::Option::{Some as Present, None as Absent};
+enum Local<T> { Some(T), None }
+use self::Local::{Some, None};
+fn make<T>(value: T) -> Option<T> { Present(value) }
+fn main() -> i32 {
+    val native = make(41);
+    val local = Some(1);
+    val base = match native { Absent => 0, Present(value) => value };
+    match local { None => 0, Some(value) => base + value }
+}
+"#,
+    );
+    let ir = lower_to_mir(&checked, &Default::default()).unwrap();
+    let instructions = ir
+        .functions
+        .iter()
+        .flat_map(|function| function.blocks.iter().flat_map(|block| &block.instructions))
+        .collect::<Vec<_>>();
+    for expected in [
+        StandardEnumOp::Make(0),
+        StandardEnumOp::Test(0),
+        StandardEnumOp::Test(1),
+        StandardEnumOp::Read(0),
+    ] {
+        assert!(
+            instructions.iter().any(|instruction| {
+                matches!(instruction, Instruction::StandardEnum { op, .. } if *op == expected)
+            }),
+            "missing native enum operation {expected:?}"
+        );
+    }
+    let local = ir
+        .enumerations
+        .iter()
+        .find(|enumeration| {
+            enumeration
+                .declaration
+                .path
+                .last()
+                .is_some_and(|segment| segment.name == "Local")
+        })
+        .unwrap();
+    for slot in [0, 1] {
+        assert!(instructions.iter().any(|instruction| {
+            matches!(instruction, Instruction::TestEnumVariant { enumeration, variant, .. }
+                if enumeration.declaration == local.declaration && *variant == slot)
+        }));
+    }
+    assert!(instructions.iter().any(|instruction| {
+        matches!(instruction, Instruction::MakeEnum { enumeration, variant: 0, fields, .. }
+            if enumeration.declaration == local.declaration && fields.len() == 1)
+    }));
+    assert!(instructions.iter().any(|instruction| {
+        matches!(instruction, Instruction::ReadEnumPayload { enumeration, variant: 0, index: 0, .. }
+            if enumeration.declaration == local.declaration)
+    }));
 }
 
 #[test]
