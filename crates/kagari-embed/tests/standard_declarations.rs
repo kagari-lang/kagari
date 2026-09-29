@@ -1,7 +1,15 @@
-use kagari_abi::standard::{StandardIntrinsic, surface};
-use kagari_common::{SourceFile, host_interface::standard_log};
+use kagari_abi::standard::StandardIntrinsic;
+use kagari_common::{
+    SourceFile, host_interface::standard_log, identity::DefinitionKind,
+    source_database::SourceDatabase,
+};
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_hir::{
+    analysis::AnalysisDatabase, declarations::DeclarationId, native::EngineNativeBinding,
+    resolver::ResolvedName, typeck::FunctionImplementation,
+};
 use kagari_runtime::{host::HostFunction, value::Value};
+use std::collections::HashSet;
 
 #[test]
 fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports() {
@@ -26,17 +34,46 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
             "{body}"
         );
     }
+    let signatures = AnalysisDatabase::default()
+        .signatures(SourceDatabase::default().snapshot(), &Default::default())
+        .unwrap();
+    let declarations = signatures.declaration_snapshot();
     for intrinsic in [
         StandardIntrinsic::ArrayGet,
         StandardIntrinsic::ArrayPush,
         StandardIntrinsic::ArrayJoin,
         StandardIntrinsic::ResultMap,
     ] {
-        let function = surface::standard_function_by_intrinsic(intrinsic).unwrap();
-        assert_eq!(function.api.params[0].name, "self");
-        let declaration = kagari_hir::builtin::declarations::function(intrinsic).unwrap();
-        assert_eq!(declaration.path.len(), 2);
-        assert!(declaration.signature.contains("(self"));
+        let mut found = 0;
+        for source in declarations.files() {
+            let file = signatures.file(source.source().id()).unwrap();
+            for function in file
+                .signatures()
+                .facts()
+                .functions()
+                .iter()
+                .filter(|function| {
+                    function.implementation
+                        == FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(
+                            intrinsic,
+                        ))
+                })
+            {
+                assert_eq!(function.params[0].name, "self");
+                let declaration = file
+                    .declarations()
+                    .target(ResolvedName::Function(function.id))
+                    .unwrap();
+                let DeclarationId::Definition(id) = &declaration.id else {
+                    panic!("source method identity")
+                };
+                assert_eq!(id.path.len(), 2);
+                let docs = declarations.documentation(&declaration.id).unwrap();
+                assert!(docs.written_signature.contains("(self"));
+                found += 1;
+            }
+        }
+        assert!(found > 0, "missing checked binding {intrinsic:?}");
     }
 }
 
@@ -96,12 +133,42 @@ fn standard_api_documentation_examples_compile_and_execute() {
         .unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
-    for item in surface::STANDARD_ITEMS {
-        let name = format!("{}::{:?}", item.module, item.path);
-        let doc = item.documentation;
-        if item.path.len() == 1 {
+    let signatures = AnalysisDatabase::default()
+        .signatures(SourceDatabase::default().snapshot(), &Default::default())
+        .unwrap();
+    let declarations = signatures.declaration_snapshot();
+    let mut intrinsic_bindings = HashSet::new();
+    for source in declarations.files() {
+        let file = signatures.file(source.source().id()).unwrap();
+        for function in file.signatures().facts().functions() {
+            if let FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(binding)) =
+                function.implementation
+            {
+                intrinsic_bindings.insert(binding);
+            }
+        }
+    }
+    let mut traits = 0;
+    let mut identities = HashSet::new();
+    for declaration in declarations
+        .files()
+        .flat_map(|file| file.declarations().iter())
+    {
+        let DeclarationId::Definition(id) = &declaration.id else {
+            continue;
+        };
+        if !identities.insert(id.clone()) {
+            continue;
+        }
+        let Some(item) = declarations.documentation(&declaration.id) else {
+            panic!("missing documentation query for {id:?}");
+        };
+        let name = format!("{}::{:?}", id.module, id.path);
+        let doc = &item.documentation;
+        if id.path.len() == 1 {
             assert!(doc.contains("# Examples"), "{name}");
         }
+        traits += usize::from(id.path.last().unwrap().kind == DefinitionKind::Trait);
         for block in doc.split("```kgr").skip(1) {
             let (flags, body) = block.split_once('\n').unwrap();
             let (body, _) = body.split_once("```").unwrap();
@@ -179,5 +246,7 @@ fn standard_api_documentation_examples_compile_and_execute() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert!(checked >= surface::standard_functions().len() + surface::STANDARD_TRAITS.len());
+    assert!(!intrinsic_bindings.is_empty());
+    assert!(traits > 0);
+    assert!(checked >= intrinsic_bindings.len() + traits);
 }

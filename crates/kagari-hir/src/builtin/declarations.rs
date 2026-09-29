@@ -405,22 +405,4 @@ mod tests {
             );
         }
     }
-    #[test]
-    fn standard_declaration_locations_and_identities_are_unique() {
-        let mut identities = std::collections::HashSet::new();
-        for item in kagari_abi::standard::surface::STANDARD_ITEMS {
-            assert!(identities.insert(item.identity()), "{:?}", item.path);
-            let declaration = item.declaration();
-            let source = sources()
-                .iter()
-                .find(|s| s.id() == declaration.location.file)
-                .unwrap();
-            assert_eq!(&source.text()[item.start..item.end], declaration.name);
-            assert!(!item.documentation.is_empty());
-        }
-        assert_eq!(
-            kagari_abi::standard::surface::STANDARD_TRAITS.len(),
-            StandardTrait::ALL.len()
-        );
-    }
 }

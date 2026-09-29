@@ -3,13 +3,13 @@
 use kagari_common::{
     SourceFile, Span,
     cancellation::CancellationToken,
-    identity::{self, DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
 };
 
 use crate::{
     hir::{
         BodyOwner, ConstOwner, EnumId, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId,
-        Item, OpaqueTypeId, VariantId,
+        Item, OpaqueTypeId, TypeRefId, VariantId,
     },
     host::{HostDeclarations, HostTypeId},
     imports::{ImportedTypes, ModuleImports},
@@ -78,6 +78,7 @@ enum DeclarationKey {
     Field(FieldId),
     Variant(VariantId),
     GenericParameter(GenericParamId),
+    AssociatedType(TypeRefId),
 }
 
 impl From<ResolvedName> for DeclarationKey {
@@ -132,7 +133,12 @@ impl Declarations {
             .iter()
             .filter(|(key, _)| {
                 self.sites.contains(key)
-                    && matches!(key, DeclarationKey::Field(_) | DeclarationKey::Variant(_))
+                    && matches!(
+                        key,
+                        DeclarationKey::Field(_)
+                            | DeclarationKey::Variant(_)
+                            | DeclarationKey::AssociatedType(_)
+                    )
             })
             .map(|(_, d)| d)
             .find(|d| d.location.range.start <= offset && offset < d.location.range.end)
@@ -485,11 +491,19 @@ impl Declarations {
             .collect::<Vec<_>>()
         {
             for member in members {
-                builder.generic_params(
-                    &identity::associated_type_id(&owner, &member.name),
-                    &member.generic_params,
-                    map,
+                if cancel.check().is_err() {
+                    return builder.result;
+                }
+                let id =
+                    builder.identity(&owner.path, DefinitionKind::AssociatedType, &member.name);
+                builder.insert(
+                    DeclarationKey::AssociatedType(member.name_ref),
+                    DeclarationId::Definition(id.clone()),
+                    &member.name,
+                    map.type_span(member.name_ref),
+                    !member.name.is_empty(),
                 );
+                builder.generic_params(&id, &member.generic_params, map);
             }
         }
         builder.result

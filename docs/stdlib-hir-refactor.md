@@ -710,6 +710,29 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 documentation inventory checkpoint: added snapshot-owned file enumeration
+  and migrated SDK standard declaration/example tests away from ABI source tables.
+  Receiver-shape metadata assertions inspect checked native function signatures;
+  Markdown examples come from HIR declaration documentation. Existing direct and
+  serialized execution, expected-trap, root-cleanup and example-coverage assertions
+  remain. The coverage floor uses checked intrinsic identities and trait declarations.
+- Inventory review found that trait/impl associated types retained semantic types
+  and generic parameters but lacked independent entries in the declaration index.
+  They now retain owner-specific declaration IDs and exact identifier ranges,
+  supporting declaration-site navigation and documentation without checking bodies.
+  Added tests for separate trait/impl documentation and complete installed named-site
+  coverage, unique/stable identities across analysis owners, exact metadata and
+  snapshot lifetime. This replaces the old generated-table location/identity test.
+- These HIR/SDK tests remain unexecuted behind the unchanged ABI catalog-removal
+  build failure, owned by ST03. Resume documentation query tests and
+  `cargo test -p kagari-embed --test standard_declarations` after consumer migration.
+  Completion and type/impl catalog consumers remain pending; this checkpoint does
+  not claim their removal or ST01 acceptance.
+- Documentation inventory validation: structure review checks 534 Rust files with
+  zero violations/exceptions; format and diff checks pass. SDK example inventory
+  no longer references the removed standard source/signature tables. No executable
+  test result is claimed while the carried ABI build errors remain.
+
 - ST01 callable consumer checkpoint: removed `ResolvedName::StandardFunction`,
   HIR `CallTarget::StandardIntrinsic` and the standard function/method catalog
   fallback. Calls now use ordinary checked function signatures, generic inference

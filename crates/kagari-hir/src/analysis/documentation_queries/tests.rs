@@ -1,5 +1,114 @@
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
+use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use std::collections::HashSet;
+
+#[test]
+fn installed_declaration_inventory_preserves_every_named_source_site() {
+    let sources = SourceDatabase::default();
+    let mut database = AnalysisDatabase::default();
+    let snapshot = database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let installed = database.stdlib.get().unwrap().clone();
+    let independent = AnalysisDatabase::default()
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    drop(database);
+    assert_eq!(snapshot.files().count(), installed.package.files().len());
+    let mut identities = HashSet::new();
+    let mut count = 0;
+    for source in installed.package.files() {
+        let file = snapshot.file(source.source().id()).unwrap();
+        for site in source.declarations() {
+            let Some(range) = site.name_span else {
+                continue;
+            };
+            let declaration = file.declarations().site_at(range.start).unwrap_or_else(|| {
+                panic!(
+                    "missing declaration in {} at {range:?}",
+                    file.source().name()
+                )
+            });
+            assert_eq!(declaration.location.range, range);
+            assert_eq!(
+                &file.source().text()[range.start..range.end],
+                declaration.name
+            );
+            assert!(
+                identities.insert(declaration.id.clone()),
+                "{:?}",
+                declaration.id
+            );
+            let metadata = snapshot.documentation(&declaration.id).unwrap();
+            assert_eq!(metadata.declaration, *declaration);
+            assert_eq!(metadata.documentation, site.documentation);
+            assert_eq!(metadata.written_signature, site.written_signature);
+            let other = independent.documentation(&declaration.id).unwrap();
+            assert_eq!(other.declaration.id, declaration.id);
+            assert_eq!(other.declaration.name, declaration.name);
+            assert_eq!(other.declaration.location.range, range);
+            assert_eq!(other.documentation, metadata.documentation);
+            assert_eq!(other.written_signature, metadata.written_signature);
+            count += 1;
+        }
+    }
+    assert!(count > 0);
+    for kind in StandardTrait::ALL {
+        assert!(identities.contains(&DeclarationId::Definition(standard_traits::identity(kind))));
+    }
+}
+
+#[test]
+fn associated_type_declarations_keep_owner_identity_and_written_documentation() {
+    let text = r#"
+trait Items {
+    /// Contract item.
+    type Item;
+}
+struct Values {}
+impl Items for Values {
+    /// Implementation item.
+    type Item = i32;
+}
+"#;
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("items.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let file = snapshot.file(id).unwrap();
+    let mut identities = HashSet::new();
+    for (needle, documentation, owner) in [
+        (
+            "Item;",
+            "Contract item.",
+            kagari_common::identity::DefinitionKind::Trait,
+        ),
+        (
+            "Item =",
+            "Implementation item.",
+            kagari_common::identity::DefinitionKind::Impl,
+        ),
+    ] {
+        let declaration = file.member_at(text.find(needle).unwrap()).unwrap();
+        let DeclarationId::Definition(identity) = &declaration.id else {
+            panic!("associated declaration identity")
+        };
+        assert_eq!(identity.path[0].kind, owner);
+        assert_eq!(
+            identity.path[1].kind,
+            kagari_common::identity::DefinitionKind::AssociatedType
+        );
+        assert!(identities.insert(identity.clone()));
+        assert_eq!(file.declarations().get(&declaration.id), Some(declaration));
+        let metadata = snapshot.documentation(&declaration.id).unwrap();
+        assert_eq!(metadata.documentation, documentation);
+        assert!(metadata.written_signature.contains(needle));
+    }
+}
 
 #[test]
 fn documentation_uses_declaration_identity_and_survives_edits() {

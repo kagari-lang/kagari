@@ -49,7 +49,7 @@ impl FileDeclarations {
         self.parsed.syntax()
     }
 
-    /// Named declarations, fields, variants and generic parameters; no local bindings.
+    /// Named declarations, members and generic parameters; no local bindings.
     pub fn declarations(&self) -> &Declarations {
         &self.declared.declarations
     }
@@ -81,6 +81,11 @@ impl DeclarationSnapshot {
     }
     pub fn file(&self, id: FileId) -> Option<&Arc<FileDeclarations>> {
         self.files.get(&id)
+    }
+    /// Enumerate the snapshot's user, inline-module and installed package files.
+    /// Source identities and declarations remain owned by this snapshot.
+    pub fn files(&self) -> impl Iterator<Item = &FileDeclarations> {
+        self.files.values().map(AsRef::as_ref)
     }
     pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph

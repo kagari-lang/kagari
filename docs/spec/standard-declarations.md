@@ -120,6 +120,12 @@ standard source. `DeclarationSnapshot::documentation` accepts a declaration iden
 without checking bodies. Neither query falls back to a process-global source catalog;
 old snapshots retain their original source revision and documentation.
 
+`DeclarationSnapshot::files` enumerates user files, inline modules and the installed
+package within the same snapshot. Declaration inventories and executable Markdown
+examples use these files and declaration IDs, rather than an ABI source table.
+Trait and impl associated types participate in the declaration index with separate
+owner identities, exact name ranges and their own written documentation.
+
 `FileAnalysis::call_signature_at` projects the selected local/imported function,
 trait method or offline host declaration into a declaration ID, named parameter
 types and result type. It applies checked call substitutions; it does not read a
