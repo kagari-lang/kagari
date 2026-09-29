@@ -710,6 +710,27 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 source-query checkpoint: replaced `FileAnalysis::standard_api_at` with
+  `AnalysisSnapshot::documentation_at` and the declaration-only
+  `DeclarationSnapshot::documentation` query. Both use snapshot-owned declaration
+  identities, source revisions and syntax; installed declarations read the prepared
+  package's source metadata. Ordinary and standard source share the public query.
+  Removed process-global source/declaration fallbacks from `AnalysisSnapshot`.
+  No compatibility alias or alternate type interpretation was introduced.
+- Migrated existing documentation/navigation assertions to the new query, including
+  explicit verification that a user declaration with a standard-looking name keeps
+  its own source identity. Added coverage for CRLF/Unicode/Markdown, unchanged old
+  snapshots after edits, same-named declarations in inline modules, native types,
+  variants and methods. These HIR tests are pending execution: the unchanged ABI
+  catalog-consumer errors recorded below prevent compiling HIR. No new passing
+  behavioral result is claimed. Resume with
+  `cargo test -p kagari-hir analysis::documentation_queries` after consumer migration.
+- Source-query structural validation: 527 Rust files, zero violations/exceptions;
+  format and diff checks pass. The old standard signature, completion, type-navigation
+  and trait consumers still depend on removed catalogs and remain ST01/ST02 work;
+  their global caches are not treated as a valid source-query fallback. ST01's exit
+  gate remains open, as do all carried ABI/compiler integration failures.
+
 - ST01 source-catalog removal checkpoint: deleted ABI's three-file build generator,
   `Api*` declaration descriptors and generated source/signature/module/implementation
   tables. Removed the syntax build dependency and lockfile edge. Closed engine

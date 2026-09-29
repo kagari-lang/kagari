@@ -28,8 +28,10 @@ use std::{
     sync::Arc,
 };
 
+mod documentation_queries;
 mod error;
 mod standard_queries;
+pub use documentation_queries::DeclarationDocumentation;
 pub use error::AnalysisError;
 pub use standard_queries::StandardSignature;
 mod body_queries;
@@ -945,19 +947,11 @@ impl AnalysisSnapshot {
         self.files
             .values()
             .find_map(|file| file.result.facts().declarations.get(id))
-            .or_else(|| declarations::declaration(id))
     }
 
-    /// Read an analyzed file or the exact bundled standard declaration source.
+    /// Read a source owned by this analysis, including its installed standard package.
     pub fn source(&self, file: FileId) -> Option<&SourceFile> {
-        self.files
-            .get(&file)
-            .map(|analysis| analysis.source())
-            .or_else(|| {
-                declarations::sources()
-                    .iter()
-                    .find(|source| source.id() == file)
-            })
+        self.files.get(&file).map(|analysis| analysis.source())
     }
 }
 

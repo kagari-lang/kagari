@@ -442,11 +442,9 @@ fn untouched()->i32 {1}
     let old = analyze(&mut db, &sources);
     assert!(old.file(file).unwrap().result().diagnostics().is_empty());
     let definition = old
-        .file(file)
-        .unwrap()
-        .standard_api_at(text.find("Fn(i32)").unwrap())
+        .documentation_at(file, text.find("Fn(i32)").unwrap())
         .unwrap();
-    assert_eq!(definition.path.last().unwrap().1, "Fn");
+    assert_eq!(definition.declaration.name, "Fn");
     sources
         .set(
             "callables.kgr",

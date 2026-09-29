@@ -100,16 +100,23 @@ the same example on every associated type.
 
 ## Tool queries
 
-`AnalysisSnapshot::source` reads ordinary analyzed files and the exact bundled SDK
-sources by file identity. `definition_at` and `declaration` route standard targets
-to their real identifier ranges. `FileAnalysis::standard_api_at` provides the
-written declaration and Markdown, `standard_signature_at` instantiates native
-function signatures from checked call arguments, and `standard_method_completions`
-uses the recovered receiver type even in incomplete code. Method signatures omit
-the receiver parameter. These queries do not register or execute host functions.
+`AnalysisSnapshot::source` reads ordinary analyzed files and the installed standard
+package retained by that snapshot. `definition_at` and `declaration` identify source
+declarations by their real identifier ranges. `AnalysisSnapshot::documentation_at`
+provides the resolved declaration, written syntax and Markdown for both user and
+standard source. `DeclarationSnapshot::documentation` accepts a declaration identity
+without checking bodies. Neither query falls back to a process-global source catalog;
+old snapshots retain their original source revision and documentation.
+
+Checked signature and completion queries consume semantic call and receiver facts,
+including incomplete code. Method signatures omit the receiver parameter. These
+queries do not register or execute host functions. Legacy `standard_signature_at`
+and `standard_method_completions` consumers still require migration in ST02; the
+[active ledger](../stdlib-hir-refactor.md#progress-ledger) records the intermediate
+build state rather than claiming this tool integration is complete.
 
 Standard trait methods and associated types have ordinary declaration identities.
-The catalog is immutable across snapshots. User declarations take precedence over
+Each snapshot owns immutable declaration facts. User declarations take precedence over
 unqualified native names; navigation follows resolution, not a text-name heuristic.
 Native method candidates are one input to completion; lexical trait completion and
 the LSP transport remain separate tool work.

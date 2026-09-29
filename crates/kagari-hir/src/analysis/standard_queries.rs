@@ -62,11 +62,6 @@ impl FileAnalysis {
         declarations::declaration(&DeclarationId::Definition(item.identity()))
     }
 
-    /// The declaration, Markdown and written signature for a resolved standard symbol.
-    pub fn standard_api_at(&self, offset: usize) -> Option<&'static ApiItem> {
-        declarations::item(&self.definition_at(offset)?.id)
-    }
-
     /// Instantiate a native call signature using its already checked type arguments.
     /// The smallest enclosing call wins, including positions within its arguments.
     pub fn standard_signature_at(&self, offset: usize) -> Option<StandardSignature> {
@@ -552,7 +547,7 @@ mod tests {
                 &source.text()[definition.location.range.start..definition.location.range.end],
                 expected
             );
-            let api = analysis.standard_api_at(offset).unwrap();
+            let api = snapshot.documentation_at(file, offset).unwrap();
             assert!(!api.documentation.is_empty());
             assert_eq!(snapshot.declaration(&definition.id), Some(definition));
         }
@@ -634,11 +629,20 @@ mod trait_tests {
         );
         for name in ["iter", "map", "collect"] {
             let offset = text.find(&format!(".{name}(")).unwrap() + 1;
-            let api = analysis.standard_api_at(offset).unwrap();
-            assert_eq!(api.path.last().unwrap().1, name);
-            assert!(api.uri.ends_with("iter.kgr"));
+            let api = snapshot.documentation_at(file, offset).unwrap();
+            assert_eq!(api.declaration.name, name);
+            assert!(
+                snapshot
+                    .source(api.declaration.location.file)
+                    .unwrap()
+                    .name()
+                    .ends_with("iter.kgr")
+            );
             let signature = analysis.standard_signature_at(offset).unwrap();
-            assert_eq!(signature.declaration, api);
+            assert_eq!(
+                DeclarationId::Definition(signature.declaration.identity()),
+                api.declaration.id
+            );
             assert_eq!(signature.parameters.len(), usize::from(name == "map"));
             assert!(signature.result.is_concrete());
             if name != "collect" {
@@ -664,11 +668,11 @@ mod trait_tests {
             analysis.result().diagnostics()
         );
         for (needle, name) in [("Eq>", "Eq"), ("eq(b)", "eq")] {
-            let item = analysis
-                .standard_api_at(text.find(needle).unwrap())
+            let item = snapshot
+                .documentation_at(file, text.find(needle).unwrap())
                 .unwrap();
-            assert_eq!(item.path.last().unwrap().1, name);
-            let declaration = item.declaration();
+            assert_eq!(item.declaration.name, name);
+            let declaration = item.declaration;
             assert!(
                 snapshot
                     .source(declaration.location.file)
@@ -677,11 +681,12 @@ mod trait_tests {
                     .contains("///")
             );
         }
-        assert!(
-            analysis
-                .standard_api_at(text.find("get(7)").unwrap())
-                .is_none()
-        );
+        let user = snapshot
+            .documentation_at(file, text.find("get(7)").unwrap())
+            .unwrap();
+        assert_eq!(user.declaration.name, "get");
+        assert_eq!(user.declaration.location.file, file);
+        assert!(user.documentation.is_empty());
         let iterator = StandardTrait::Iterator.contract();
         let member = iterator.associated_types.keys().next().unwrap();
         let declaration = snapshot
@@ -893,7 +898,9 @@ mod collection_access_tests {
             let offset = text.find(spelling).unwrap() + spelling.find("::").unwrap() + 2;
             let definition = file.definition_at(offset).unwrap();
             assert!(identities.insert(definition.id.clone()));
-            let api = file.standard_api_at(offset).unwrap();
+            let api = snapshot
+                .documentation_at(file.source().id(), offset)
+                .unwrap();
             assert!(api.documentation.contains("# Examples"));
             let source = snapshot.source(definition.location.file).unwrap();
             assert_eq!(
@@ -970,7 +977,7 @@ mod collection_access_tests {
         );
         let offset = text.find("strip_prefix").unwrap();
         let definition = file.definition_at(offset).unwrap();
-        let api = file.standard_api_at(offset).unwrap();
+        let api = snapshot.documentation_at(id, offset).unwrap();
         assert!(api.documentation.contains("# Examples"));
         let source = snapshot.source(definition.location.file).unwrap();
         assert_eq!(
