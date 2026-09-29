@@ -9,13 +9,14 @@ use kagari_abi::{
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic, bindings::NativeDefaultMethod, declarations as standard_declarations,
-        surface::StandardEnum, traits::StandardTrait,
+        StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
+        traits::StandardTrait,
     },
     types::AbiType,
 };
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
 use kagari_hir::{
+    aggregates::MethodDefault,
     builtin::traits::{self, StandardTraitSemantics},
     hir,
     typeck::CallTarget as HirCallTarget,
@@ -179,8 +180,16 @@ impl FunctionLowerer<'_, '_> {
         } else {
             interface
         };
+        let native_default = self
+            .planner
+            .catalog
+            .trait_method(method)
+            .and_then(|signature| match signature.default {
+                Some(MethodDefault::Native { binding, .. }) => Some(binding),
+                _ => None,
+            });
         if let TypeId::Trait(child) = &ty
-            && standard_declarations::native_default_method(method).is_none()
+            && native_default.is_none()
             && self
                 .planner
                 .catalog
@@ -221,7 +230,7 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
-            && standard_declarations::native_default_method(method).is_none()
+            && native_default.is_none()
             && traits::native_interface_applies(&interface, &ty)
         {
             return self.lower_native_collection_method(
@@ -268,7 +277,7 @@ impl FunctionLowerer<'_, '_> {
             }
         }
 
-        if let Some(operation) = standard_declarations::native_default_method(method)
+        if let Some(operation) = native_default
             && self
                 .planner
                 .catalog

@@ -1,6 +1,8 @@
 use super::*;
-use crate::{declarations::DeclarationId, typeck::CallTarget};
-use kagari_abi::scalar::BuiltinType;
+use crate::{
+    aggregates::MethodDefault, declarations::DeclarationId, typeck::CallTarget, types::NominalType,
+};
+use kagari_abi::{scalar::BuiltinType, standard::bindings::NativeDefaultMethod};
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
@@ -21,6 +23,212 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap()
+}
+
+#[test]
+fn native_and_script_defaults_keep_source_identity_and_override_policy() {
+    let mut sources = SourceDatabase::default();
+    let root = insert(
+        &mut sources,
+        "root",
+        "trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
+    );
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let catalog = &file.result().facts().aggregates;
+    let local = catalog
+        .traits()
+        .find(|item| item.declaration.name == "Local")
+        .unwrap();
+    assert_eq!(local.methods[0].default, None);
+    for method in &local.methods[1..] {
+        assert_eq!(method.default, Some(MethodDefault::Script));
+        assert!(method.allows_override());
+        assert_eq!(method.declaration.location.file, root);
+    }
+    let iterator = catalog
+        .traits()
+        .find(|item| item.declaration.name == "Iterator")
+        .unwrap();
+    assert_eq!(
+        iterator
+            .methods
+            .iter()
+            .find(|method| method.name == "next")
+            .unwrap()
+            .default,
+        None
+    );
+    for (name, binding, overridable) in [
+        ("map", NativeDefaultMethod::Map, true),
+        ("join", NativeDefaultMethod::Join, false),
+    ] {
+        let method = iterator
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .unwrap();
+        assert_eq!(
+            method.default,
+            Some(MethodDefault::Native {
+                binding,
+                overridable
+            })
+        );
+        assert_eq!(method.allows_override(), overridable);
+        let source = snapshot.source(method.declaration.location.file).unwrap();
+        assert_eq!(source.name(), "kagari://std/iter.kgr");
+        let range = method.declaration.location.range;
+        assert_eq!(&source.text()[range.start..range.end], name);
+    }
+    let point = TypeId::Struct(NominalType {
+        declaration: catalog
+            .structures()
+            .find(|item| item.declaration.name == "Point")
+            .unwrap()
+            .id
+            .clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let interface = NominalType {
+        declaration: local.id.clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    };
+    let (default, _) = catalog
+        .implementation_method(&local.methods[1].id, &interface, &point)
+        .unwrap();
+    assert_eq!(
+        catalog.default_method(&default).unwrap().1.id,
+        local.methods[1].id
+    );
+    let (overridden, _) = catalog
+        .implementation_method(&local.methods[2].id, &interface, &point)
+        .unwrap();
+    assert!(catalog.default_method(&overridden).is_none());
+}
+
+#[test]
+fn native_defaults_do_not_create_script_implementation_bodies() {
+    let mut sources = SourceDatabase::default();
+    let root = insert(
+        &mut sources,
+        "root",
+        "struct Values {} impl Iterator for Values { type Item = i32; fn next(self) -> Option<i32> { None } }",
+    );
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let catalog = &file.result().facts().aggregates;
+    let iterator = catalog
+        .traits()
+        .find(|item| item.declaration.name == "Iterator")
+        .unwrap();
+    let values = TypeId::Struct(NominalType {
+        declaration: catalog
+            .structures()
+            .find(|item| item.declaration.name == "Values")
+            .unwrap()
+            .id
+            .clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    });
+    let interface = NominalType {
+        declaration: iterator.id.clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    };
+    let next = iterator
+        .methods
+        .iter()
+        .find(|method| method.name == "next")
+        .unwrap();
+    let (target, _) = catalog
+        .implementation_method(&next.id, &interface, &values)
+        .unwrap();
+    let mut owner = target;
+    owner.path.pop();
+    let implementation = catalog.implementation_signature(&owner).unwrap();
+    assert_eq!(catalog.implementation_methods(implementation).len(), 1);
+    for method in iterator
+        .methods
+        .iter()
+        .filter(|method| method.default.is_some())
+    {
+        assert!(
+            catalog
+                .implementation_method(&method.id, &interface, &values)
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn installed_non_overridable_default_rejects_a_script_replacement() {
+    let mut sources = SourceDatabase::default();
+    let root = insert(
+        &mut sources,
+        "root",
+        "struct Values {} impl Iterator for Values { type Item = String; fn next(self) -> Option<String> { None } fn join(self, separator: String) -> String { separator } }",
+    );
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(root).unwrap();
+    assert!(file.result().diagnostics().iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
+            if method_name == "join" && reason == "this standard traversal operation cannot be overridden"
+    )));
+    assert!(file.result().clone().into_codegen().is_err());
+}
+
+#[test]
+fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
+    let mut sources = SourceDatabase::default();
+    let text = "trait Action { fn act(self) -> i32; } struct Point {} impl Action for Point {}";
+    let root = insert(&mut sources, "root", text);
+    let mut db = AnalysisDatabase::default();
+    let old = analyze(&mut db, &sources);
+    sources
+        .set(
+            "root",
+            text.replace("-> i32;", "-> i32 { 1 }"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let new = analyze(&mut db, &sources);
+    let before = old.file(root).unwrap();
+    let after = new.file(root).unwrap();
+    assert!(!before.result().diagnostics().is_empty());
+    assert!(
+        after.result().diagnostics().is_empty(),
+        "{:?}",
+        after.result().diagnostics()
+    );
+    let before = &before.result().facts().aggregates;
+    let after = &after.result().facts().aggregates;
+    assert!(!before.same_contracts(after));
+    let a = before
+        .traits()
+        .find(|item| item.declaration.name == "Action")
+        .unwrap();
+    let b = after
+        .traits()
+        .find(|item| item.declaration.name == "Action")
+        .unwrap();
+    assert_eq!(a.methods[0].id, b.methods[0].id);
+    assert_eq!(a.methods[0].default, None);
+    assert_eq!(b.methods[0].default, Some(MethodDefault::Script));
 }
 
 #[test]

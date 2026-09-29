@@ -76,7 +76,7 @@ fn native_collection_conversion_infers_items_through_source_aliases() {
                 };
                 matches!(&facts.lowered.module.expr(*callee).kind,
                 ExprKind::Name { name: actual, .. } if actual == name)
-                .then(|| facts.typed.type_table.expr_type(id).cloned())
+                .then(|| facts.typed.type_table.expr_type(id))
                 .flatten()
             })
     };

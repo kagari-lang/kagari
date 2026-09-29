@@ -25,6 +25,14 @@ pub struct SourceSnapshot {
 }
 
 impl SourceSnapshot {
+    /// Analyze an existing file without allocating a new source or module identity.
+    pub fn single_file(file: Arc<SourceFile>) -> Self {
+        Self {
+            revision: file.revision(),
+            files: Arc::new([(file.id(), file)].into()),
+        }
+    }
+
     pub fn revision(&self) -> Revision {
         self.revision
     }
@@ -315,6 +323,28 @@ mod tests {
         Span,
         line_index::{Position, PositionEncoding},
     };
+
+    #[test]
+    fn single_file_snapshot_preserves_identity_revision_and_span_validation() {
+        let mut db = SourceDatabase::default();
+        let id = db
+            .set("existing.kgr", "before".into(), SourceLayer::Base)
+            .unwrap();
+        let old = db.snapshot().file(id).unwrap().clone();
+        db.set("existing.kgr", "after".into(), SourceLayer::Overlay)
+            .unwrap();
+        let file = db.snapshot().file(id).unwrap().clone();
+        let snapshot = SourceSnapshot::single_file(file.clone());
+        assert_eq!(snapshot.revision(), file.revision());
+        assert!(Arc::ptr_eq(snapshot.file(id).unwrap(), &file));
+        assert!(Arc::ptr_eq(
+            snapshot.module(file.module_identity()).unwrap(),
+            &file
+        ));
+        assert!(snapshot.contains(file.span(Span::new(0, 5)).unwrap()));
+        assert!(!snapshot.contains(old.span(Span::new(0, 5)).unwrap()));
+        assert_eq!(snapshot.files().count(), 1);
+    }
 
     #[test]
     fn logical_module_bindings_survive_overlays_and_invalidate_old_revisions() {

@@ -17,7 +17,7 @@ use kagari_common::{SourceFile, Span, collection::CollectionAccess, identity};
 use kagari_stdlib::bundled_sources;
 
 use crate::{
-    aggregates::{MethodParameter, MethodSignature, TraitSignature},
+    aggregates::{MethodDefault, MethodParameter, MethodSignature, TraitSignature},
     declarations::{Declaration, DeclarationId},
     hir::Writeability,
     resolver::ResolvedName,
@@ -108,14 +108,6 @@ impl ApiItemSemantics for ApiItem {
     }
 }
 
-/// Look up public metadata by semantic identity, including trait members.
-pub fn item(id: &DeclarationId) -> Option<&'static ApiItem> {
-    let DeclarationId::Definition(id) = id else {
-        return None;
-    };
-    STANDARD_ITEMS.iter().find(|item| item.identity() == *id)
-}
-
 pub fn declaration(id: &DeclarationId) -> Option<&'static Declaration> {
     static DECLARATIONS: OnceLock<Vec<Declaration>> = OnceLock::new();
     DECLARATIONS
@@ -138,34 +130,6 @@ pub fn variant(variant: StandardVariant) -> Option<&'static ApiItem> {
             && item.path[0].1 == spec.name
             && item.path[1].1 == spec.variants[variant.index()].name
     })
-}
-
-pub fn native_type(ty: &TypeId) -> Option<&'static ApiItem> {
-    let name = match ty {
-        TypeId::Projection { member, .. } => {
-            return item(&DeclarationId::Definition(member.clone()));
-        }
-        TypeId::Builtin(BuiltinType::String) => "String",
-        TypeId::Array(_, CollectionAccess::ReadOnly) => "List",
-        TypeId::Array(_, CollectionAccess::Mutable) => "ArrayList",
-        TypeId::Map {
-            access: CollectionAccess::ReadOnly,
-            ..
-        } => "Map",
-        TypeId::Map {
-            access: CollectionAccess::Mutable,
-            ..
-        } => "LinkedHashMap",
-        TypeId::Set(_, CollectionAccess::ReadOnly) => "Set",
-        TypeId::Set(_, CollectionAccess::Mutable) => "LinkedHashSet",
-        TypeId::Iter(_) => "Iter",
-        TypeId::Range(_, kind) => kind.name(),
-        TypeId::StandardEnum { kind, .. } => kind.spec().name,
-        _ => return None,
-    };
-    STANDARD_ITEMS
-        .iter()
-        .find(|item| item.path.len() == 1 && item.path[0].1 == name)
 }
 
 pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
@@ -509,7 +473,7 @@ impl ApiTraitSemantics for ApiTrait {
                             );
                     }
                     MethodSignature {
-                        has_default: method.native_default.is_some(),
+                        default: method.native_default.map(MethodDefault::native),
                         declaration: method.item.declaration(),
                         id: method.item.identity(),
                         owner: id.clone(),

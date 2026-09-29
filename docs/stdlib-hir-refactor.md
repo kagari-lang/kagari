@@ -710,6 +710,48 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 default-contract checkpoint: `MethodSignature` now retains an optional
+  `MethodDefault::Script` or `MethodDefault::Native` with the installed binding
+  and override policy. Required methods have no default. Aggregate collection
+  reads installed native function metadata; contract comparison includes the
+  default kind and policy. Implementation selection/materialization only creates
+  script default bodies for script defaults. Missing-method and override checks
+  consume these checked method facts instead of reopening ABI declarations.
+  Compiler default selection and interface bridge construction now read the same
+  HIR facts; their source-catalog default lookups are removed. Existing compiler
+  algorithm expansion remains ST05 work, and executable contract migration remains
+  ST03 work.
+  The existing non-overridable traversal set is preserved. This is method-default
+  metadata, not completion of the ST02 provider-qualified callable contract.
+- Removed the implicit global standard-trait population from
+  `AggregateCatalog::default`. Source modules and their reachable imports now
+  populate the catalog, including installed standard declarations with snapshot
+  locations. Removed native type-navigation fallback through the process-global
+  API table; annotation navigation uses retained declaration targets.
+- The public `analyze_source` convenience entrypoint now uses `AnalysisDatabase`
+  and the installed package path instead of constructing an isolated second
+  declaration/signature pipeline. `SourceSnapshot::single_file` preserves an
+  existing file's identity, revision and module binding. No global parse cache or
+  alternate standard signature interpreter was added. Low-level test fixtures
+  that assemble a catalog without installed inputs must supply their actual
+  declaration dependencies when migrated under ST02; no implicit standard
+  catalog is retained for those callers.
+- Added tests for source-owned native/script/required default metadata, native
+  override policy/rejection, explicit script overrides, omission of synthetic script bodies
+  for native defaults, default changes across snapshots and the single-source
+  entrypoint's identity/native-declaration handoff. These HIR tests remain
+  unexecuted behind the carried ABI build failure. Resume with
+  `cargo test -p kagari-hir analysis::trait_catalog_tests` and
+  `cargo test -p kagari-hir single_source_analysis`. Also corrected an unexecuted
+  earlier alias-inference test to use the owned `TypeTable::expr_type` result.
+- Default-contract validation: all 23 common tests and all-target common Clippy
+  with warnings denied pass, including single-file snapshot revision/span checks.
+  Structure review passes for 531 Rust files with zero violations/exceptions;
+  format and diff checks pass. The
+  previously recorded ABI, HIR navigation and compiler export integration errors
+  remain carried. Remaining global standard call/trait/query catalogs still need
+  migration; neither ST01 nor whole-workspace acceptance is complete.
+
 - ST01 type-resolution checkpoint: named and applied standard types now resolve
   through ordinary local/imported declarations and their installed representation
   hooks. Removed type-checker fallbacks that constructed enums, ranges, traits or

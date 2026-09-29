@@ -15,6 +15,43 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
+fn single_source_analysis_uses_installed_declarations_without_replacing_source_identity() {
+    let mut sources = SourceDatabase::default();
+    let module = ModuleIdentity {
+        package: PackageId("application".into()),
+        path: vec!["logic".into()],
+    };
+    let id = sources.bind_module("source.kgr", module.clone()).unwrap();
+    sources
+        .set("source.kgr", "fn previous() {}".into(), SourceLayer::Base)
+        .unwrap();
+    sources.set("source.kgr", "use std::option::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
+    let files = sources.snapshot();
+    let source = files.file(id).unwrap();
+    let result = crate::analyze_source(source, Default::default());
+    assert!(
+        result.diagnostics().is_empty(),
+        "{:?}",
+        result.diagnostics()
+    );
+    let facts = result.facts();
+    assert_eq!(facts.lowered.source.id(), id);
+    assert_eq!(facts.lowered.source.revision(), source.revision());
+    assert_eq!(facts.lowered.source.module_identity(), &module);
+    let option = facts.declarations.imported_types().get("Maybe").unwrap();
+    assert_eq!(option.declaration.name, "Option");
+    assert_ne!(option.declaration.location.file, id);
+    assert!(option.native_type.is_some());
+    let enumeration = facts
+        .aggregates
+        .enumerations()
+        .find(|item| item.declaration.id == option.declaration.id)
+        .unwrap();
+    assert_eq!(enumeration.declaration, option.declaration);
+    assert!(enumeration.native_type.is_some());
+}
+
+#[test]
 fn named_declarations_point_to_identifier_tokens() {
     let text = "// 中文 😀\r\nconst C: i32 = 1; struct S { val x: i32 } enum E { V } trait T { fn f(self); } fn run() {}";
     let mut sources = SourceDatabase::default();

@@ -15,10 +15,7 @@ use crate::{
     lower::LoweredModule,
     types::{TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::{
-    bindings::NativeDefaultMethod, declarations as standard_declarations,
-    surface::StandardTypeConstraint, traits::StandardTrait,
-};
+use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
 use kagari_common::{
     Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken, identity::ModuleIdentity,
     range::RangeKind,
@@ -411,7 +408,7 @@ pub(crate) fn validate_signatures(
                 .iter()
                 .find(|candidate| candidate.name == method.name)
             else {
-                if method.has_default {
+                if method.default.is_some() {
                     continue;
                 }
                 diagnostics.push(
@@ -431,31 +428,7 @@ pub(crate) fn validate_signatures(
             else {
                 continue;
             };
-            if matches!(
-                standard_declarations::native_default_method(&method.id),
-                Some(
-                    NativeDefaultMethod::Join
-                        | NativeDefaultMethod::ListJoin
-                        | NativeDefaultMethod::ListWindows
-                        | NativeDefaultMethod::ListChunks
-                        | NativeDefaultMethod::ListFirst
-                        | NativeDefaultMethod::ListLast
-                        | NativeDefaultMethod::ListContains
-                        | NativeDefaultMethod::ListStartsWith
-                        | NativeDefaultMethod::ListEndsWith
-                        | NativeDefaultMethod::ListBinarySearch
-                        | NativeDefaultMethod::SetUnion
-                        | NativeDefaultMethod::SetIntersection
-                        | NativeDefaultMethod::SetDifference
-                        | NativeDefaultMethod::SetSymmetricDifference
-                        | NativeDefaultMethod::SetIsSubset
-                        | NativeDefaultMethod::SetIsSuperset
-                        | NativeDefaultMethod::SetIsDisjoint
-                        | NativeDefaultMethod::MapKeysView
-                        | NativeDefaultMethod::MapValuesView
-                        | NativeDefaultMethod::MapEntriesView
-                )
-            ) {
+            if !method.allows_override() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
                         trait_name: contract.declaration.name.clone(),

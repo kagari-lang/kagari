@@ -1,13 +1,13 @@
 use aggregates::AggregateCatalog;
+use analysis::AnalysisDatabase;
 use declarations::Declarations;
 use hir::BodySelection;
-use host::HostDeclarations;
-use imports::{FunctionCatalog, ModuleGraph, TypeCatalog};
 use kagari_common::{
     DiagnosticKind, Severity, SourceFile, Span,
     cancellation::{CancellationToken, Cancelled},
+    source_database::SourceSnapshot,
 };
-use kagari_syntax::{Parse, parse};
+use kagari_syntax::Parse;
 use smallvec::SmallVec;
 use std::sync::Arc;
 use typeck::associated_consts;
@@ -328,57 +328,18 @@ pub fn analyze_source(
     source: &SourceFile,
     profile: LanguageFeatureProfile,
 ) -> AnalysisResult<AnalyzedModule> {
-    let parsed = parse(source);
-    let lowered = lower::lower_module_controlled(
-        Arc::new(source.clone()),
-        &parsed.syntax(),
-        &Default::default(),
-    );
-    let hosts = HostDeclarations::empty();
-    let graph = ModuleGraph::build([&lowered], &hosts, &Default::default())
-        .expect("uncancelled source analysis");
-    let imports = graph
-        .node(source.module_identity())
-        .unwrap()
-        .imports
-        .clone();
-    let declared = declare_analysis(Arc::new(lowered), hosts, imports, &Default::default());
-    let imported_types = TypeCatalog::new([&declared])
-        .bindings(&declared.names.facts.imports, &Default::default())
-        .expect("uncancelled source analysis");
-    let mut prepared = declared.check_signatures(imported_types, None, &Default::default());
-    let mut imported_functions = FunctionCatalog::new([&prepared])
-        .bindings(&prepared.names.facts.imports, &Default::default())
-        .expect("uncancelled source analysis");
-    let mut aggregates = AggregateCatalog::default();
-    aggregates
-        .add_module(
-            &prepared.lowered,
-            &prepared.declarations,
-            prepared.signatures.facts(),
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(
+            SourceSnapshot::single_file(Arc::new(source.clone())),
+            profile,
             &Default::default(),
         )
-        .expect("uncancelled source analysis");
-    imported_functions.include_inherent_methods(&aggregates);
-    if let Some(signatures) = prepared
-        .completed_signatures(&aggregates, &Default::default())
-        .expect("uncancelled source analysis")
-    {
-        prepared.signatures = signatures;
-    }
-    analyze_parsed(
-        prepared,
-        &parsed,
-        AnalysisPolicy {
-            profile,
-            const_limits: Default::default(),
-            max_semantic_diagnostics: 1_000,
-        },
-        imported_functions,
-        aggregates,
-        None,
-        &Default::default(),
-    )
+        .expect("bundled standard library must prepare for uncancelled analysis");
+    snapshot
+        .file(source.id())
+        .expect("requested source belongs to its snapshot")
+        .result()
+        .clone()
 }
 
 pub(crate) struct AnalysisPolicy {

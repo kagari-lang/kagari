@@ -1,5 +1,5 @@
 use super::*;
-use crate::builtin::traits::StandardTraitSemantics;
+use crate::{aggregates::MethodDefault, builtin::traits::StandardTraitSemantics};
 use kagari_abi::standard::StandardIntrinsic;
 
 #[test]
@@ -184,8 +184,11 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         .find(|method| method.name == "difference")
         .expect("Set interface default");
     assert_eq!(
-        kagari_abi::standard::declarations::native_default_method(&difference.id),
-        Some(kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference)
+        difference.default,
+        Some(MethodDefault::Native {
+            binding: kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference,
+            overridable: false,
+        })
     );
     assert_eq!(
         kagari_abi::standard::surface::standard_method(

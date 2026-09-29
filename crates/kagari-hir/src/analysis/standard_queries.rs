@@ -7,6 +7,8 @@ use crate::builtin::declarations::{
 };
 #[cfg(test)]
 use crate::builtin::traits::StandardTraitSemantics;
+#[cfg(test)]
+use crate::declarations::DeclarationId;
 use kagari_abi::standard::{
     declarations::ApiItem,
     surface::{self as standard_surface, STANDARD_TRAITS, StandardMethodReceiver},
@@ -19,7 +21,6 @@ use crate::{
         declarations::{self, Arguments},
         traits,
     },
-    declarations::{Declaration, DeclarationId},
     hir::ExprKind,
     typeck::CallTarget,
     types::TypeId,
@@ -36,32 +37,6 @@ pub struct StandardSignature {
 }
 
 impl FileAnalysis {
-    pub(super) fn standard_type_definition_at(
-        &self,
-        offset: usize,
-    ) -> Option<&'static Declaration> {
-        let facts = self.result.facts();
-        let (index, _) = facts
-            .lowered
-            .source_map
-            .type_spans()
-            .iter()
-            .enumerate()
-            .filter(|(_, span)| span.start <= offset && offset < span.end)
-            .min_by_key(|(_, span)| span.end - span.start)?;
-        let id = facts.lowered.source_map.type_id(index);
-        let span = facts.lowered.source_map.type_name_span(id)?;
-        if !(span.start <= offset && offset < span.end) {
-            return None;
-        }
-        let resolved = facts.typed.type_table.type_ref(id)?;
-        if resolved.target.is_some() {
-            return None;
-        }
-        let item = declarations::native_type(&resolved.ty)?;
-        declarations::declaration(&DeclarationId::Definition(item.identity()))
-    }
-
     /// Instantiate a native call signature using its already checked type arguments.
     /// The smallest enclosing call wins, including positions within its arguments.
     pub fn standard_signature_at(&self, offset: usize) -> Option<StandardSignature> {
@@ -841,7 +816,7 @@ mod collection_access_tests {
                     contract
                         .methods
                         .iter()
-                        .filter(|method| !method.has_default)
+                        .filter(|method| method.default.is_none())
                         .count()
                 );
                 for method in implementation.methods {

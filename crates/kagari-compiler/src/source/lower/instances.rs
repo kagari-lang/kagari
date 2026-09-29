@@ -4,9 +4,7 @@ use crate::source::{
 };
 use kagari_abi::{
     representation::ValueType,
-    standard::{
-        bindings::NativeDefaultMethod, declarations as standard_declarations, traits::StandardTrait,
-    },
+    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
     types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
 };
 use kagari_common::{
@@ -16,7 +14,7 @@ use kagari_common::{
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, MethodDefault},
     builtin::traits,
     declarations::DeclarationId,
     hir,
@@ -508,7 +506,7 @@ impl<'a> InstancePlanner<'a> {
             .ok_or(MirLoweringError::MissingBinding("native bridge origin"))?;
         let mut methods = Vec::new();
         for method in &contract.methods {
-            if standard_declarations::native_default_method(&method.id).is_some() {
+            if matches!(method.default, Some(MethodDefault::Native { .. })) {
                 continue;
             }
             let mut id = declaration.clone();

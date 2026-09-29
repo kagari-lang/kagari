@@ -1,5 +1,5 @@
 use crate::{
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, MethodDefault},
     builtin::{
         numeric,
         traits::{self, StandardTraitSemantics},
@@ -10,7 +10,7 @@ use crate::{
     typeck::{self, ConstraintTarget, GenericBounds, ModuleSignatures, associated},
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::{declarations as standard_declarations, traits::StandardTrait};
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionId},
@@ -538,10 +538,7 @@ impl AggregateCatalog {
                 .collect::<Option<Vec<_>>>()?;
             let target = implementation.methods.get(method).cloned().or_else(|| {
                 self.trait_method(method)
-                    .filter(|method| {
-                        method.has_default
-                            && standard_declarations::native_default_method(&method.id).is_none()
-                    })
+                    .filter(|method| method.default == Some(MethodDefault::Script))
                     .map(|_| {
                         let mut target = implementation.id.clone();
                         target
@@ -570,8 +567,7 @@ impl AggregateCatalog {
             .methods
             .iter()
             .find(|method| method.id.path.last() == Some(&name))?;
-        (method.has_default
-            && standard_declarations::native_default_method(&method.id).is_none()
+        (method.default == Some(MethodDefault::Script)
             && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
@@ -585,9 +581,7 @@ impl AggregateCatalog {
             .flat_map(|contract| &contract.methods)
             .filter_map(|method| {
                 implementation.methods.get(&method.id).cloned().or_else(|| {
-                    (method.has_default
-                        && standard_declarations::native_default_method(&method.id).is_none())
-                    .then(|| {
+                    (method.default == Some(MethodDefault::Script)).then(|| {
                         let mut target = implementation.id.clone();
                         target
                             .path

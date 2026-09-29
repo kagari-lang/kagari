@@ -3,10 +3,12 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::Writeability,
     lower::LoweredModule,
+    native::NativeFunctionKind,
     resolver::ResolvedName,
     typeck::{ConstraintTarget, GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
+use kagari_abi::standard::bindings::NativeDefaultMethod;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionId, FileSpan, ModuleIdentity},
@@ -25,7 +27,7 @@ pub struct MethodParameter {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodSignature {
-    pub has_default: bool,
+    pub default: Option<MethodDefault>,
     pub id: DefinitionId,
     pub owner: DefinitionId,
     pub slot: usize,
@@ -37,9 +39,64 @@ pub struct MethodSignature {
     pub declaration: Declaration,
 }
 
+/// The method declaration owns a default's identity and checked signature.
+/// A native default has no script body to instantiate for an implementing type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodDefault {
+    Script,
+    Native {
+        binding: NativeDefaultMethod,
+        overridable: bool,
+    },
+}
+
+impl MethodDefault {
+    pub(crate) fn native(binding: NativeDefaultMethod) -> Self {
+        // These traversal contracts fix evaluation and snapshot behavior. The
+        // installer supplies a closed binding, never a source-spelled method name.
+        let overridable = !matches!(
+            binding,
+            NativeDefaultMethod::Join
+                | NativeDefaultMethod::ListJoin
+                | NativeDefaultMethod::ListWindows
+                | NativeDefaultMethod::ListChunks
+                | NativeDefaultMethod::ListFirst
+                | NativeDefaultMethod::ListLast
+                | NativeDefaultMethod::ListContains
+                | NativeDefaultMethod::ListStartsWith
+                | NativeDefaultMethod::ListEndsWith
+                | NativeDefaultMethod::ListBinarySearch
+                | NativeDefaultMethod::SetUnion
+                | NativeDefaultMethod::SetIntersection
+                | NativeDefaultMethod::SetDifference
+                | NativeDefaultMethod::SetSymmetricDifference
+                | NativeDefaultMethod::SetIsSubset
+                | NativeDefaultMethod::SetIsSuperset
+                | NativeDefaultMethod::SetIsDisjoint
+                | NativeDefaultMethod::MapKeysView
+                | NativeDefaultMethod::MapValuesView
+                | NativeDefaultMethod::MapEntriesView
+        );
+        Self::Native {
+            binding,
+            overridable,
+        }
+    }
+}
+
 impl MethodSignature {
+    pub fn allows_override(&self) -> bool {
+        !matches!(
+            self.default,
+            Some(MethodDefault::Native {
+                overridable: false,
+                ..
+            })
+        )
+    }
+
     fn same_contract(&self, other: &Self) -> bool {
-        self.has_default == other.has_default
+        self.default == other.default
             && self.id == other.id
             && self.owner == other.owner
             && self.slot == other.slot
@@ -186,7 +243,12 @@ impl AggregateCatalog {
                 self.methods
                     .insert(method_id.clone(), (id.clone(), methods.len()));
                 methods.push(MethodSignature {
-                    has_default: method.has_default,
+                    default: match lowered.native_functions.get(&method.function) {
+                        Some(NativeFunctionKind::TraitDefault(binding)) => {
+                            Some(MethodDefault::native(*binding))
+                        }
+                        _ => method.has_default.then_some(MethodDefault::Script),
+                    },
                     id: method_id.clone(),
                     owner: id.clone(),
                     slot,

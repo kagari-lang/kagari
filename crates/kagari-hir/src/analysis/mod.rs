@@ -498,7 +498,6 @@ impl FileAnalysis {
                 )
                 .flatten()
             })
-            .or_else(|| self.standard_type_definition_at(offset))
     }
 
     pub fn visible_bindings(&self, offset: usize) -> Vec<BindingInfo> {

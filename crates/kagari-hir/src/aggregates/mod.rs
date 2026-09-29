@@ -1,6 +1,5 @@
 //! Checked nominal contracts shared by local and imported member access.
 
-use crate::builtin::traits::StandardTraitSemantics;
 use kagari_common::identity;
 
 use crate::{
@@ -9,7 +8,6 @@ use crate::{
     typeck::GenericBounds,
     types::{GenericParameterType, NominalType},
 };
-use kagari_abi::standard::traits::StandardTrait;
 mod implementations;
 mod traits;
 use crate::{
@@ -32,7 +30,9 @@ use std::{
     sync::Arc,
 };
 pub use traits::AssociatedConstSignature;
-pub use traits::{MethodParameter, MethodSignature, TraitSignature, trait_inheritance_closure};
+pub use traits::{
+    MethodDefault, MethodParameter, MethodSignature, TraitSignature, trait_inheritance_closure,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldSignature {
@@ -85,7 +85,7 @@ pub struct EnumSignature {
     pub variants: Vec<VariantSignature>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AggregateCatalog {
     implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
     host_implementations: Vec<(NominalType, TypeId)>,
@@ -476,34 +476,5 @@ impl AggregateCatalog {
                         })
                 })
             })
-    }
-}
-
-impl Default for AggregateCatalog {
-    fn default() -> Self {
-        let mut catalog = Self {
-            implementation_constants: Default::default(),
-            host_implementations: vec![],
-            traits: Default::default(),
-            implementations: Default::default(),
-            methods: Default::default(),
-            inherent_methods: Default::default(),
-            structures: Default::default(),
-            fields: Default::default(),
-            enumerations: Default::default(),
-            variants: Default::default(),
-        };
-        for kind in StandardTrait::ALL {
-            let contract = kind.contract();
-            catalog
-                .traits
-                .insert(contract.id.clone(), Arc::new(contract.clone()));
-            for method in &contract.methods {
-                catalog
-                    .methods
-                    .insert(method.id.clone(), (contract.id.clone(), method.slot));
-            }
-        }
-        catalog
     }
 }
