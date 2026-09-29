@@ -252,3 +252,20 @@ fn native_functions_cannot_also_supply_script_bodies() {
     );
     assert!(lowered.native_functions.is_empty());
 }
+
+#[test]
+fn installed_native_functions_must_match_engine_operand_counts() {
+    let cancel = Default::default();
+    let package = ParsedStdlibPackage::prepare(Default::default(), &cancel).unwrap();
+    let file = package
+        .files()
+        .iter()
+        .find(|file| file.source().name() == "kagari://std/debug.kgr")
+        .unwrap();
+    let mut lowered =
+        lower_module_controlled(file.source().clone(), &file.parsed().syntax(), &cancel);
+    lowered.module.functions[0].params.clear();
+    assert!(matches!(functions::install(file, &mut lowered, &cancel),
+        Err(PackageError::Annotation { message, .. }) if message.contains("parameter count mismatch: expected 1, found 0")));
+    assert!(lowered.native_functions.is_empty());
+}

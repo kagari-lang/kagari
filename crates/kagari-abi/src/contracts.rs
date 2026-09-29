@@ -1,8 +1,8 @@
 use crate::{
-    numeric,
+    numeric::{self, method::IntegerMethodContract},
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
-    standard::{StandardIntrinsic, surface},
+    standard::StandardIntrinsic,
 };
 use kagari_common::host_interface::HostFunctionDeclaration;
 
@@ -179,42 +179,7 @@ pub fn verify_intrinsic(
     intrinsic: StandardIntrinsic,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
-    let arity = match intrinsic {
-        StandardIntrinsic::ParseNumber(_) => 1,
-        StandardIntrinsic::ParseRadix(_) => 2,
-        StandardIntrinsic::ArrayCopyWithinBounds => 4,
-        StandardIntrinsic::ArrayCopyFromStorage | StandardIntrinsic::ArrayExtendStorage => 2,
-        StandardIntrinsic::MapKeysStorage
-        | StandardIntrinsic::MapValuesStorage
-        | StandardIntrinsic::MapEntriesStorage => 1,
-        StandardIntrinsic::ArrayRemoveRangePrepare => 3,
-        StandardIntrinsic::ArrayReplaceStorage | StandardIntrinsic::CollectionRetainStorage => 2,
-        StandardIntrinsic::KeyLookupBegin
-        | StandardIntrinsic::CollectionMutationBegin
-        | StandardIntrinsic::CollectionMutationEnd
-        | StandardIntrinsic::IterResume => 1,
-        StandardIntrinsic::KeyCandidates => 2,
-        StandardIntrinsic::KeyMapGet
-        | StandardIntrinsic::KeyMapRemove
-        | StandardIntrinsic::KeySetContains
-        | StandardIntrinsic::KeySetRemove => 3,
-        StandardIntrinsic::KeySetInsert => 4,
-        StandardIntrinsic::KeyMapInsert => 5,
-        StandardIntrinsic::ValueEq
-        | StandardIntrinsic::ValuePartialCmp
-        | StandardIntrinsic::ValueCmp => 2,
-        StandardIntrinsic::ValueHash
-        | StandardIntrinsic::ValueDebug
-        | StandardIntrinsic::ValueDisplay => 1,
-        _ => {
-            surface::standard_function_by_intrinsic(intrinsic)
-                .ok_or(ContractError::Intrinsic {
-                    intrinsic,
-                    reason: "missing standard declaration",
-                })?
-                .arity
-        }
-    };
+    let arity = intrinsic.operand_count();
     if args.len() != arity {
         return Err(ContractError::Intrinsic {
             intrinsic,
@@ -245,40 +210,21 @@ pub fn verify_intrinsic(
             }
             verify_call_dst(dst, ValueType::HeapObject)?;
         }
-        StandardIntrinsic::Integer(_, _) => {
-            let spec = surface::standard_function_by_intrinsic(intrinsic).ok_or(
-                ContractError::Intrinsic {
+        StandardIntrinsic::Integer(method, receiver) => {
+            let contract =
+                IntegerMethodContract::new(method, receiver).ok_or(ContractError::Intrinsic {
                     intrinsic,
                     reason: "invalid numeric binding",
-                },
-            )?;
-            let arguments = Default::default();
-            for (index, parameter) in spec.api.params.iter().enumerate() {
+                })?;
+            for (index, parameter) in contract.parameters().into_iter().enumerate() {
                 expect_arg_ty(
                     args,
                     index,
-                    parameter
-                        .ty
-                        .resolve(&arguments)
-                        .ok_or(ContractError::Intrinsic {
-                            intrinsic,
-                            reason: "invalid numeric parameter descriptor",
-                        })?
-                        .representation(),
+                    ValueType::from_builtin_type(parameter),
                     "numeric parameter",
                 )?;
             }
-            verify_call_dst(
-                dst,
-                spec.api
-                    .result
-                    .resolve(&arguments)
-                    .ok_or(ContractError::Intrinsic {
-                        intrinsic,
-                        reason: "invalid numeric result descriptor",
-                    })?
-                    .representation(),
-            )?;
+            verify_call_dst(dst, contract.result().representation())?;
         }
         StandardIntrinsic::ArrayRetain
         | StandardIntrinsic::MapRetain

@@ -291,6 +291,16 @@ distinct from nominal struct/enum layout templates. Executable validation checks
 constructor arity and, for native enums, exact discriminant count and generic
 payload slots against the engine representation contract.
 
+Engine operation operand counts live in the closed
+[`StandardIntrinsic` registry](../crates/kagari-abi/src/standard/operands.rs),
+including private storage helpers. They validate executable call shape and the
+installed native declaration's parameter count; they contain no source names,
+generic binders or declaration syntax. Integer operations use a shared
+[`IntegerMethodContract`](../crates/kagari-abi/src/numeric/method.rs) for receiver
+validity, RHS type and scalar/Option/tuple result shape. Runtime reads the same RHS
+contract without constructing semantic result types on each invocation. HIR still
+owns public signatures and generic call applications.
+
 The portable native import record must carry provider and binding identity/version,
 concrete parameter/result contracts, witness requirements and necessary type references.
 Effects, root behavior and logical charges are constrained by the trusted engine
@@ -739,6 +749,28 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST02 engine operand checkpoint: removed source-function descriptor queries from
+  ABI physical intrinsic validation. The exhaustive engine operation registry now
+  supplies operand counts for public operations and internal helpers. Installed
+  direct-native declarations must match those counts before bindings are
+  published; trait-default/protocol callable contract migration remains pending.
+  Integer verification and runtime RHS validation share a closed contract that
+  preserves scalar widths, u32 rotate counts, signed offsets (including isize for
+  usize), checked Option results and overflowing tuples. Runtime integer error
+  context preserves its prior qualified diagnostic labels without a source table.
+- ST02 operand validation: added wrong-arity/representation/binding tests,
+  representative zero-through-five-operand calls, numeric shape/boundary checks,
+  installed declaration count rejection, and runtime result/error-context/root
+  regressions. These tests remain unexecuted behind the carried ABI migration.
+  Fresh `cargo check -p kagari-abi` now reports 15 errors, down from 17: both
+  `standard_function_by_intrinsic` failures in physical contracts are resolved.
+  Remaining errors concern removed trait/application/implementation catalogs and
+  their derivative type error; ST03 owns them. Log:
+  `target/stdlib-st02-engine-operands-abi.log`. Structure review passes on 548 Rust
+  files with zero violations/exceptions; format, documentation links and diff
+  checks pass. The stale SDK fixture and complete integration acceptance remain
+  pending; no native callback execution migration is claimed here.
 
 - ST02 public native-type handoff: compiler ABI collection now handles checked
   opaque declarations and marks installed native enums with an explicit portable

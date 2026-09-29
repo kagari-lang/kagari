@@ -1,7 +1,12 @@
-use kagari_abi::standard::surface;
 pub mod standard;
 
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::{
+    numeric::method::IntegerMethodContract,
+    scalar::BuiltinType,
+    standard::{StandardIntrinsic, surface},
+};
+use kagari_common::integer::IntegerMethod;
+use std::borrow::Cow;
 
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -49,7 +54,7 @@ pub fn invoke_standard(
     args: &[Value],
 ) -> Result<Value, BuiltinError> {
     standard::invoke(gc, intrinsic, args)
-        .map_err(|err| err.with_context(standard_intrinsic_name(intrinsic)))
+        .map_err(|err| err.with_context(&standard_intrinsic_name(intrinsic)))
 }
 
 pub fn invoke_standard_with_callbacks(
@@ -59,13 +64,14 @@ pub fn invoke_standard_with_callbacks(
     callbacks: &mut dyn standard::BuiltinCallbacks,
 ) -> Result<Value, BuiltinError> {
     standard::invoke_with_callbacks(gc, intrinsic, args, callbacks)
-        .map_err(|err| err.with_context(standard_intrinsic_name(intrinsic)))
+        .map_err(|err| err.with_context(&standard_intrinsic_name(intrinsic)))
 }
 
-fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
-    match intrinsic {
-        StandardIntrinsic::Integer(_, _) => surface::standard_function_by_intrinsic(intrinsic)
-            .map_or("integer method", |spec| spec.api.qualified_name),
+fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> Cow<'static, str> {
+    let name = match intrinsic {
+        StandardIntrinsic::Integer(method, receiver) => {
+            return integer_method_name(method, receiver);
+        }
         StandardIntrinsic::ArrayListNew
         | StandardIntrinsic::LinkedHashMapNew
         | StandardIntrinsic::LinkedHashSetNew => "collection constructor",
@@ -240,5 +246,37 @@ fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
         | StandardIntrinsic::KeySetContains
         | StandardIntrinsic::KeySetInsert
         | StandardIntrinsic::KeySetRemove => "internal key operation",
+    };
+    Cow::Borrowed(name)
+}
+
+/// Error labels preserve the native declaration's conventional diagnostic name;
+/// they are not used to resolve, type-check or dispatch a call.
+fn integer_method_name(method: IntegerMethod, receiver: BuiltinType) -> Cow<'static, str> {
+    if IntegerMethodContract::new(method, receiver).is_none() {
+        return Cow::Borrowed("integer method");
     }
+    let Some(receiver) = surface::builtin_types().iter().find(|ty| ty.ty == receiver) else {
+        return Cow::Borrowed("integer method");
+    };
+    let method = match method {
+        IntegerMethod::WrappingAdd => "wrapping_add",
+        IntegerMethod::WrappingSub => "wrapping_sub",
+        IntegerMethod::WrappingMul => "wrapping_mul",
+        IntegerMethod::CheckedAdd => "checked_add",
+        IntegerMethod::CheckedSub => "checked_sub",
+        IntegerMethod::CheckedMul => "checked_mul",
+        IntegerMethod::CheckedDiv => "checked_div",
+        IntegerMethod::CheckedRem => "checked_rem",
+        IntegerMethod::OverflowingAdd => "overflowing_add",
+        IntegerMethod::OverflowingSub => "overflowing_sub",
+        IntegerMethod::OverflowingMul => "overflowing_mul",
+        IntegerMethod::SaturatingAdd => "saturating_add",
+        IntegerMethod::SaturatingSub => "saturating_sub",
+        IntegerMethod::SaturatingMul => "saturating_mul",
+        IntegerMethod::WrappingAddSigned => "wrapping_add_signed",
+        IntegerMethod::RotateLeft => "rotate_left",
+        IntegerMethod::RotateRight => "rotate_right",
+    };
+    Cow::Owned(format!("std::numeric::{}::{method}", receiver.name))
 }

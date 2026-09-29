@@ -4,7 +4,7 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::{
-    numeric::{NumericConversion, NumericOperation},
+    numeric::{NumericConversion, NumericOperation, method::IntegerMethodContract},
     representation::ValueType,
     scalar::BuiltinType,
     types::AbiType,
@@ -145,26 +145,16 @@ pub fn integer_method(
         RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer receiver required")
     })?;
 
-    let rhs_ty = match operation {
-        IntegerMethod::RotateLeft | IntegerMethod::RotateRight => BuiltinType::U32,
-        IntegerMethod::WrappingAddSigned if signed => {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "signed-offset wrapping requires an unsigned receiver",
-            ));
-        }
-        IntegerMethod::WrappingAddSigned => match bits {
-            8 => BuiltinType::I8,
-            16 => BuiltinType::I16,
-            32 => BuiltinType::I32,
-            _ => BuiltinType::I64,
-        },
-        _ => ty,
-    };
+    let contract = IntegerMethodContract::new(operation, ty).ok_or_else(|| {
+        RuntimeError::new(
+            RuntimeErrorKind::ScriptTrap,
+            "signed-offset wrapping requires an unsigned receiver",
+        )
+    })?;
     let (value, overflow) = integer::arithmetic_method(
         operation,
         read_integer(ty, lhs)?,
-        read_integer(rhs_ty, rhs)?,
+        read_integer(contract.rhs(), rhs)?,
         bits,
         signed,
     );
@@ -267,6 +257,83 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
 #[cfg(test)]
 mod boundary_tests {
     use super::*;
+    use crate::builtin::invoke_standard;
+    use kagari_abi::standard::StandardIntrinsic;
+
+    #[test]
+    fn native_integer_results_and_error_context_preserve_the_declared_contract() {
+        let runtime = crate::Runtime::default();
+        let gc = runtime.gc();
+        assert_eq!(
+            integer_method(
+                gc,
+                IntegerMethod::WrappingAddSigned,
+                BuiltinType::USize,
+                &[Value::U64(0), Value::I64(-1)]
+            )
+            .unwrap(),
+            Value::U64(u64::MAX)
+        );
+        assert_eq!(
+            integer_method(
+                gc,
+                IntegerMethod::RotateLeft,
+                BuiltinType::U8,
+                &[Value::I64(128), Value::I64(1)]
+            )
+            .unwrap(),
+            Value::I64(1)
+        );
+        assert_eq!(
+            integer_method(
+                gc,
+                IntegerMethod::OverflowingAdd,
+                BuiltinType::U8,
+                &[Value::I64(255), Value::I64(1)]
+            )
+            .unwrap(),
+            Value::Tuple(vec![Value::I64(0), Value::Bool(true)])
+        );
+        let Value::Enum(result) = integer_method(
+            gc,
+            IntegerMethod::CheckedAdd,
+            BuiltinType::U8,
+            &[Value::I64(255), Value::I64(1)],
+        )
+        .unwrap() else {
+            panic!("checked result")
+        };
+        let result = gc.enum_snapshot(result).unwrap();
+        assert_eq!(result.tag, EnumTag::OptionNone);
+        assert!(result.fields.is_empty());
+        for (method, receiver, label) in [
+            (
+                IntegerMethod::WrappingAdd,
+                BuiltinType::I8,
+                "std::numeric::i8::wrapping_add",
+            ),
+            (
+                IntegerMethod::RotateRight,
+                BuiltinType::U32,
+                "std::numeric::u32::rotate_right",
+            ),
+            (
+                IntegerMethod::WrappingAddSigned,
+                BuiltinType::USize,
+                "std::numeric::usize::wrapping_add_signed",
+            ),
+        ] {
+            let error =
+                invoke_standard(gc, StandardIntrinsic::Integer(method, receiver), &[]).unwrap_err();
+            assert_eq!(
+                error.message(),
+                format!("{label}: integer method requires two arguments")
+            );
+            assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
+        }
+        assert_eq!(gc.active_roots(), 0);
+    }
+
     #[test]
     fn invalid_direct_native_inputs_return_errors_without_panicking() {
         use kagari_abi::scalar::BuiltinType as B;

@@ -1,5 +1,7 @@
 //! Concrete numeric contracts retained through verification and artifact loading.
 
+pub mod method;
+
 use crate::scalar::BuiltinType;
 use crate::{standard::surface::StandardEnum, types::AbiType};
 use kagari_common::integer::IntegerOp;

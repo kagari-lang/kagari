@@ -4,6 +4,7 @@ pub(crate) mod contracts;
 pub mod implementation;
 pub mod intrinsic;
 pub(crate) mod native;
+mod operands;
 mod resolve;
 pub mod surface;
 pub mod traits;
