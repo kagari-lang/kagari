@@ -257,6 +257,15 @@ Script { body identity }
 Native { provider: Engine | Host, binding identity, checked contract application }
 ```
 
+Each resolved ordinary call retains an `AppliedCallSignature`: ordered declared
+parameter types (including a method receiver) and the result after call-site
+substitution. Enclosing generic parameters remain until compiler specialization.
+The argument expressions do not define this signature: readonly/interface
+coercions and Never arguments preserve the selected declaration's contract.
+Incomplete or terminating calls may lack an application; executable lowering
+requires one before emitting an ordinary call. Tool signature queries combine
+these retained types with declaration-owned names, without redoing substitution.
+
 Trait declarations may have no implementation; calls to them select an impl
 statically or use a checked interface slot dynamically. They are not a third
 executable implementation kind. Host providers continue to enforce the existing
@@ -291,11 +300,14 @@ distinct from nominal struct/enum layout templates. Executable validation checks
 constructor arity and, for native enums, exact discriminant count and generic
 payload slots against the engine representation contract.
 
-Engine operation operand counts live in the closed
-[`StandardIntrinsic` registry](../crates/kagari-abi/src/standard/operands.rs),
-including private storage helpers. They validate executable call shape and the
-installed native declaration's parameter count; they contain no source names,
-generic binders or declaration syntax. Integer operations use a shared
+Standard-library source declarations are the sole source of public signature
+metadata. HIR retains ordered parameter types and the result after substitution;
+the executable contract carries their lowered forms. Operand counts are derived
+from those parameters, never maintained in a separate operation-count table.
+The existing `StandardIntrinsic::operand_count` implementation is rejected
+migration debt and must be removed with its dependent call-validation path, not
+renamed, moved, or replaced with another manually maintained signature catalog.
+Integer operations use a shared
 [`IntegerMethodContract`](../crates/kagari-abi/src/numeric/method.rs) for receiver
 validity, RHS type and scalar/Option/tuple result shape. Runtime reads the same RHS
 contract without constructing semantic result types on each invocation. HIR still
@@ -306,6 +318,17 @@ concrete parameter/result contracts, witness requirements and necessary type ref
 Effects, root behavior and logical charges are constrained by the trusted engine
 contract, not freely asserted by the artifact. Bindings are resolved to process
 functions during runtime linking; raw Rust addresses are never serialized.
+
+Trait declarations and applied ancestry also travel through their defining
+executable modules. A recognized standard trait ID does not supply an implicit
+global declaration or allow a consumer to substitute its own module as the owner.
+Each `FunctionAbi` retains its Required/Script/Native implementation beside its
+signature, including provider-qualified native binding identity. Trait methods
+use this same record; there is no separate default-slot catalog. Script defaults
+must be materialized into implementation tables; only a retained native default
+may omit that script entry.
+This metadata still requires provider validation and grants no engine authority
+by itself.
 
 Two different contracts remain necessary:
 
@@ -380,8 +403,10 @@ or promise that unrelated shared-mutable-state problems have been solved.
 
 ## Migration phases
 
-Implementation is authorized. Work proceeds through the ordered checkpoints
-below; several coherent commits may belong to a phase.
+Implementation is authorized. Work proceeds through the ordered phases below.
+The user requires complete migration paths rather than transitional models and
+small implementation commits. Keep coupled changes together in the worktree until
+the affected phase outcome is reviewable; existing history is not rewritten.
 
 ### ST00 — Baseline and behavior inventory
 
@@ -493,6 +518,12 @@ ST00 must pass before code migration. ST01–ST05 may have explicitly recorded
 intermediate build failures while obsolete cross-crate types are removed. This
 does not authorize compatibility aliases, forwarding crates, duplicate semantic
 paths, disabled checks or fake successful results to maintain compilation.
+
+Do not introduce temporary replacement tables, adapters or fallback models to
+reduce the intermediate error count. Complete the intended producer-to-consumer
+handoff directly, including validation. Commit cohesive phase outcomes instead
+of individual table removals, metadata additions or build-error reductions. This
+supersedes the finer-grained checkpoint cadence in the historical ledger below.
 
 At every checkpoint, run applicable focused tests, structure checks and
 `git diff --check`. Record a failing command, representative diagnostic, cause
@@ -749,6 +780,96 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- Machine handoff (2026-09-30): the user requested committing the current work
+  before continuing on another machine. This explicitly authorizes one coupled
+  ST02/ST03 work-in-progress checkpoint before phase acceptance; it does not
+  change the final architecture or authorize transitional implementations.
+  Resume from this checkpoint with ST02/ST03 incomplete and ST04–ST06 pending.
+  The working state is intentionally not buildable: `cargo check -p kagari-abi`
+  reports 10 errors, including `E0432` for removed `standard::declarations` and
+  `STANDARD_IMPLEMENTATIONS`, `E0425` for removed surface queries, and derivative
+  `E0308`/`E0599` errors. `cargo check -p kagari-abi --tests` reports 15 errors
+  including old descriptor-based test fixtures. Logs under `target/` are optional
+  local evidence; the commands and causes here are sufficient to reproduce on a
+  fresh checkout. Next complete the HIR-to-native callable/witness handoff and
+  migrate `standard/{application,implementation,resolve,intrinsic,native}` and
+  bytecode access/proof consumers. Remove `standard/operands.rs` through that
+  handoff, preserving input validation. Then implement ST04 continuations and
+  migrate ST05 algorithms. Regenerate the SDK artifact fixture after compilation
+  and schema stabilization; run all ST06 acceptance checks before closing the goal.
+
+- Coupled ST02/ST03 work in progress: removed ABI's standard-trait template
+  generator and `standard_trait_contract` global fallback. Interface call typing,
+  ancestry, host table matching, bytecode ownership and runtime object linking
+  now use declarations carried by the defining module. Missing standard contracts
+  fail instead of being fabricated from a well-known ID. MIR program checking
+  also validates host trait tables against the carried owner; offline unrelated
+  user-trait advertisements retain their existing behavior.
+- `FunctionAbi` now carries Required/Script/Native and the provider-qualified
+  native binding from checked HIR. Trait methods use the same representation;
+  the separate default-slot list is removed. The portable `EngineNativeBinding`
+  lives in ABI and is used by HIR installation without duplicating the enum.
+  Runtime and interface-table checks use retained implementation facts rather
+  than a source-name default lookup. Required methods cannot be executable table
+  entries; native declarations are not queued as script bodies. Standard
+  declaration tests lower installed HIR, including ancestry, generic counts,
+  defaults and Add's associated output. Artifact mutations cover duplicate or
+  unmatched methods, native-default forgery and missing materialized script
+  defaults. These tests remain unexecuted while integration is broken.
+- Linked trait application validation now checks carried owner declarations for
+  generic arity, associated member identity and family application arity. MIR
+  and bytecode cover public/private declarations, bounds, layouts, semantic
+  slots, instance arguments and typed instructions, including unused metadata.
+  Local nominal validation checks the encoded type's declaration kind. This
+  replaces `types::verify` queries into standard source declarations. Added
+  unknown-owner, mismatched arity/member, generic-family, nested unused type,
+  cancellation and traversal-limit cases; execution remains blocked by the
+  carried ABI consumers below.
+- The coupled wire change uses runtime ABI v105, KBC v106 and KMIR v4. Helper ABI
+  remains v6. Regenerate the SDK artifact fixture only after source compilation
+  and the executable schema stabilize. No compatibility readers were added.
+- Fresh `cargo check -p kagari-abi` fails with 10 carried errors in
+  `target/stdlib-callable-applications-abi.log`: remaining
+  `standard/{application,implementation,resolve}` descriptor consumers,
+  `STANDARD_IMPLEMENTATIONS` imports and derivative type errors. Attempting
+  `cargo check -p kagari-abi --tests` reports 15 errors with the same cause plus
+  old descriptor-based fixtures (`target/stdlib-callable-applications-abi-tests.log`).
+  ST03 must migrate implementation proofs and the full native-call handoff,
+  including the rejected operand-count table. Standard package publication
+  remains rejected until trusted native binding validation replaces the old
+  reserved-package boundary. Function metadata alone authenticates no provider;
+  linked Engine/Host signature/authority checks remain part of the pending
+  callable migration. ST04/ST05 continuation and algorithm migration remain
+  pending. These changes are included in the requested machine-handoff checkpoint;
+  neither phase exit nor executable acceptance is claimed. Format and diff checks
+  pass; structural review checks 552 Rust files with zero violations and no exceptions. No deleted generator
+  path or global standard trait-contract lookup remains in production consumers.
+
+- ST02 work in progress after restart: HIR now retains applied signatures for
+  source/host functions, inherent and trait methods, function values, operators
+  and conversion calls. Body reuse preserves them. Signature help consumes these
+  facts; closure/imported-call lowering uses them instead of reconstructing
+  signatures from declarations or argument values. Native integer/radix binding
+  specialization also consumes the application. Conversion-call arity comes from
+  the checked trait declaration. Added generic/native receiver, invalid-call,
+  coercion and diverging-argument coverage; tests remain unexecuted behind the
+  unchanged carried ABI errors. Structural review passes on 548 Rust files with
+  zero violations/exceptions; formatting and diff checks pass. The unchanged ABI
+  failure was not rerun. The native portable-call handoff and removal of
+  `operand_count` remain pending; this work is included in the coupled handoff
+  checkpoint, not a phase exit or an accepted replacement validation path.
+
+- Execution restart (2026-09-30): the user rejected the independent operand-count
+  table and transitional implementations, and requested fewer, cohesive commits.
+  The replacement goal resumes ST02–ST06 from clean `5074a88`; ST01 scope remains
+  complete and integration remains broken. The signature's single origin is the
+  installed source declaration (or the offline registration contract for host
+  functions), followed by HIR and executable contracts. Runtime implementation,
+  representation, authority and resource checks remain required. Remove the
+  rejected table through the complete callable handoff; do not merely relocate
+  its data. No existing commits are rewritten. No phase acceptance is claimed
+  by restarting the goal or updating this policy.
 
 - ST02 engine operand checkpoint: removed source-function descriptor queries from
   ABI physical intrinsic validation. The exhaustive engine operation registry now

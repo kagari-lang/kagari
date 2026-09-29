@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     scalar::BuiltinType,
     standard::traits::{self, StandardTrait},
-    types::GenericParameterAbi,
+    types::{GenericParameterAbi, PublicAbiItem, TraitContract, trait_contract},
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
@@ -37,7 +37,6 @@ fn contract(owner: &DefinitionId, arity: usize, parents: Vec<NominalAbiType>) ->
             .collect(),
         bounds: vec![],
         methods: vec![],
-        default_methods: vec![],
         associated_consts: vec![],
         associated_types: vec![],
         supertraits: parents,
@@ -169,26 +168,18 @@ fn ancestry_rejects_expanding_cycles_missing_contracts_and_wrong_arity() {
 }
 
 #[test]
-fn generated_standard_ancestry_closes_without_source_signatures_and_cancels() {
+fn standard_ids_require_carried_contracts_and_obey_cancellation() {
     for kind in StandardTrait::ALL {
         let owner = traits::identity(kind);
-        let record = standard_trait_contract(&owner).unwrap();
-        let root = applied(
-            &owner,
-            record
-                .generic_params
-                .iter()
-                .map(GenericParameterAbi::as_type)
-                .collect(),
-        );
-        assert!(
+        let root = applied(&owner, vec![]);
+        assert_eq!(
             trait_closure(
                 &root,
                 &AbiType::SelfType(owner.clone()),
                 &CancellationToken::default(),
                 &|_| None
-            )
-            .is_ok(),
+            ),
+            Err(TypeTransformError::InvalidContract),
             "{}",
             kind.name()
         );
@@ -199,4 +190,31 @@ fn generated_standard_ancestry_closes_without_source_signatures_and_cancels() {
             Err(TypeTransformError::Cancelled)
         );
     }
+}
+
+#[test]
+fn executable_trait_lookup_requires_exact_owner_and_declaration_identity() {
+    let owner = id("Read");
+    let record = contract(&owner, 0, vec![]);
+    let public = [PublicAbiItem::Trait(record.clone())];
+    assert_eq!(
+        trait_contract(&owner.module, &public, &[], &owner),
+        Some(&record)
+    );
+    let private = [TraitContract {
+        declaration: owner.clone(),
+        abi: record.clone(),
+    }];
+    assert_eq!(
+        trait_contract(&owner.module, &[], &private, &owner),
+        Some(&record)
+    );
+    let mut foreign = owner.clone();
+    foreign.module = ModuleIdentity::single_file("other.kgr");
+    assert!(trait_contract(&owner.module, &public, &private, &foreign).is_none());
+    let mut repeated = owner.clone();
+    repeated.path[0].occurrence = 1;
+    assert!(trait_contract(&owner.module, &public, &private, &repeated).is_none());
+    let standard = traits::identity(StandardTrait::PartialEq);
+    assert!(trait_contract(&standard.module, &[], &[], &standard).is_none());
 }

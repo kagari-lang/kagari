@@ -1,6 +1,6 @@
 use crate::{
     builtin::traits::{self, intrinsic_holds},
-    callable::CallableSignature,
+    callable::{AppliedCallSignature, CallableSignature},
     hir::{ExprId, ExprKind},
     imports::ImportedFunction,
     native::NativeBinding,
@@ -87,6 +87,13 @@ impl<'a> BodyChecker<'a> {
                 let arguments = self.infer_typed_args(args, params.iter().cloned(), env);
                 self.type_table
                     .insert_call(call_expr, CallTarget::Value, Some(callee));
+                self.type_table.insert_call_signature(
+                    call_expr,
+                    AppliedCallSignature {
+                        params: params.clone(),
+                        return_type: result.as_ref().clone(),
+                    },
+                );
                 self.check_builtin_arity("closure", params.len(), args.len(), callee);
                 for (index, ty) in params.iter().enumerate() {
                     self.check_arg_type(
@@ -264,8 +271,83 @@ impl<'a> BodyChecker<'a> {
                 .is_some_and(|call| call.receiver.is_some()),
         );
         self.check_function_arguments(function, &substitution, callee, &arg_tys, implicit);
-        self.aggregates
-            .normalize_type(&function.return_type().instantiate(&substitution))
+        self.record_callable_application(call_expr, function, &substitution)
+    }
+
+    pub(super) fn record_callable_application(
+        &mut self,
+        site: ExprId,
+        function: &impl CallableSignature,
+        substitution: &TypeSubstitution,
+    ) -> TypeId {
+        let signature = AppliedCallSignature {
+            params: function
+                .parameters()
+                .map(|(_, ty)| {
+                    self.aggregates
+                        .normalize_type(&ty.instantiate(substitution))
+                })
+                .collect(),
+            return_type: self
+                .aggregates
+                .normalize_type(&function.return_type().instantiate(substitution)),
+        };
+        let result = signature.return_type.clone();
+        self.type_table.insert_call_signature(site, signature);
+        result
+    }
+
+    pub(super) fn record_protocol_application(
+        &mut self,
+        site: ExprId,
+        receiver: &TypeId,
+        return_type: TypeId,
+    ) {
+        let Some(call) = self.type_table.call_resolution(site) else {
+            return;
+        };
+        let CallTarget::TraitMethod { method, interface } = &call.target else {
+            return;
+        };
+        let Some(method) = self.aggregates.trait_method(method) else {
+            return;
+        };
+        let Some(owner) = self.aggregates.trait_(&method.owner) else {
+            return;
+        };
+        let mut substitution: TypeSubstitution = owner
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().cloned())
+            .collect();
+        substitution.extend(
+            method
+                .generic_params
+                .iter()
+                .skip(owner.generic_params.len())
+                .cloned()
+                .zip(call.type_arguments),
+        );
+        substitution.insert_receiver(owner.id.clone(), receiver.clone());
+        self.type_table.insert_call_signature(
+            site,
+            AppliedCallSignature {
+                params: method
+                    .params
+                    .iter()
+                    .map(|parameter| {
+                        self.aggregates.normalize_type(
+                            &parameter
+                                .ty
+                                .instantiate(&substitution)
+                                .with_associated_types(interface),
+                        )
+                    })
+                    .collect(),
+                return_type,
+            },
+        );
     }
 
     pub(super) fn check_generic_call_bounds(

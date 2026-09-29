@@ -1,12 +1,11 @@
 //! Nominal host dependencies include signatures and layouts, even without a call.
 
-use crate::types::FunctionAbi;
 use crate::{
     layout::{EnumLayout, LayoutValidationError, StructLayout},
     standard::{surface::StandardTypeConstraint, traits::StandardTrait},
     types::{
-        self as abi, AbiType, ConstraintAbi, InterfaceTableAbi, PublicAbiItem, TraitAbi,
-        TraitContract,
+        self as abi, AbiType, ConstraintAbi, FunctionAbi, InterfaceTableAbi, PublicAbiItem,
+        TraitAbi, TraitContract,
         substitution::{MAX_TYPE_DEPTH, MAX_TYPE_NODES},
     },
 };
@@ -37,39 +36,16 @@ pub fn trait_bindings_match(
         for implementation in &host.trait_implementations {
             cancel.check()?;
             let id = &implementation.trait_id;
-            if let Some(kind) = StandardTrait::from_id(id) {
-                if !kind.host_implementable()
-                    || !host_trait_matches(
-                        implementation,
-                        host,
-                        abi::standard_trait_contract(id).expect("standard contract"),
-                        cancel,
-                    )?
-                {
-                    return Ok(false);
-                }
-                continue;
+            if StandardTrait::from_id(id).is_some_and(|kind| !kind.host_implementable()) {
+                return Ok(false);
             }
             if &id.module != module {
                 continue;
             }
-            let Some(name) = id.path.last().map(|part| &part.name) else {
+            let Some(trait_abi) = abi::trait_contract(module, items, contracts, id) else {
                 return Ok(false);
             };
-            let public = items.iter().find_map(|item| match item {
-                PublicAbiItem::Trait(trait_abi) if &trait_abi.name == name => Some(trait_abi),
-                _ => None,
-            });
-            let private = contracts.iter().find(|contract| &contract.abi.name == name);
-            let Some(trait_abi) = public.or_else(|| private.map(|contract| &contract.abi)) else {
-                return Ok(false);
-            };
-            if id.path.len() != 1
-                || id.path[0].kind != DefinitionKind::Trait
-                || id.path[0].occurrence != 0
-                || private.is_some_and(|contract| contract.declaration != *id)
-                || !host_trait_matches(implementation, host, trait_abi, cancel)?
-            {
+            if !host_trait_matches(implementation, host, trait_abi, cancel)? {
                 return Ok(false);
             }
         }

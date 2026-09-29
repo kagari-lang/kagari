@@ -5,7 +5,7 @@ use kagari_abi::{
     types::{ConcreteFunctionIdentity, PublicAbiItem},
 };
 use kagari_common::{Diagnostic, DiagnosticKind};
-use kagari_hir::{CheckedAnalysis, imports::ImportTarget};
+use kagari_hir::{CheckedAnalysis, imports::ImportTarget, typeck::FunctionImplementation};
 use kagari_mir::MirVerificationError;
 use std::{
     collections::{BTreeSet, HashSet},
@@ -81,6 +81,15 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         if (matches!(function.kind, FunctionKind::User) || callable_methods.contains(&function.id))
             && function.generic_params.is_empty()
         {
+            let signature = module
+                .typed
+                .functions
+                .iter()
+                .find(|signature| signature.id == function.id)
+                .ok_or(MirLoweringError::MissingTypedFunction(function.id))?;
+            if matches!(signature.implementation, FunctionImplementation::Native(_)) {
+                continue;
+            }
             planner.enqueue(
                 function.id,
                 Vec::new(),

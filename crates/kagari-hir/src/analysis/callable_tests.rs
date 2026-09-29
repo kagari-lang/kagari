@@ -4,13 +4,14 @@ use crate::{
     declarations::DeclarationId,
     hir::ExprKind,
     host::HostDeclarations,
-    native::{EngineNativeBinding, NativeBinding},
+    native::NativeBinding,
     typeck::{CallTarget, FunctionImplementation},
     types::TypeId,
 };
 use kagari_abi::{
+    callable::EngineNativeBinding,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeDefaultMethod},
+    standard::{StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum},
 };
 use kagari_common::{
     DiagnosticKind,
@@ -219,6 +220,25 @@ fn main() -> i32 {
             other => panic!("{name} must retain its checked declaration target: {other:?}"),
         };
         assert_eq!(signature.implementation, expected, "{name}");
+        let applied = call
+            .signature
+            .as_ref()
+            .expect("retained callable application");
+        assert_eq!(applied.return_type, TypeId::Builtin(BuiltinType::I32));
+        let scalar = TypeId::Builtin(BuiltinType::I32);
+        let expected_params = match name {
+            "bound" => vec![scalar.clone(); 3],
+            "identity" => vec![scalar.clone()],
+            "unwrap_or" => vec![
+                TypeId::StandardEnum {
+                    kind: StandardEnum::Option,
+                    args: vec![scalar.clone()],
+                },
+                scalar,
+            ],
+            _ => unreachable!(),
+        };
+        assert_eq!(applied.params, expected_params, "{name}");
         let queried = analysis
             .call_signature_at(facts.lowered.source_map.expr_span(*callee).start)
             .unwrap();
@@ -313,6 +333,34 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         [("flag".into(), TypeId::Builtin(BuiltinType::Bool))]
     );
     assert_eq!(method.result, TypeId::Builtin(BuiltinType::I32));
+    let facts = file.result().facts();
+    let mut checked = 0;
+    for (site, expression) in facts.lowered.module.body.expressions() {
+        let ExprKind::Call { callee, .. } = &expression.kind else {
+            continue;
+        };
+        let Some(call) = facts.typed.type_table.call_resolution(site) else {
+            continue;
+        };
+        let Some(applied) = &call.signature else {
+            continue;
+        };
+        let queried = file
+            .call_signature_at(facts.lowered.source_map.expr_span(*callee).start)
+            .unwrap();
+        let parameters = applied.params[usize::from(call.receiver.is_some())..].to_vec();
+        assert_eq!(
+            parameters,
+            queried
+                .parameters
+                .into_iter()
+                .map(|(_, ty)| ty)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(applied.return_type, queried.result);
+        checked += 1;
+    }
+    assert_eq!(checked, 3);
 }
 
 #[test]
@@ -406,4 +454,81 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
         .unwrap();
     assert_eq!(function.implementation, FunctionImplementation::Script);
     assert_eq!(function.return_type, TypeId::Builtin(BuiltinType::I32));
+}
+
+#[test]
+fn applied_signatures_preserve_parameter_contracts_through_coercion_and_divergence() {
+    let text = r#"
+use std::array::List;
+use std::debug::panic;
+fn read(values: List<i32>) -> i32 { 42 }
+fn consume(value: i32) -> i32 { value }
+fn stop() -> ! { panic("stop") }
+fn run(callback: fn(i32) -> bool) {
+    read([1, 2]);
+    callback(1);
+    consume(stop());
+}
+"#;
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("applied-contracts.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let analysis = snapshot.file(root).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let facts = analysis.result().facts();
+    let mut seen = Vec::new();
+    for (site, expression) in facts.lowered.module.body.expressions() {
+        let ExprKind::Call { callee, args, .. } = &expression.kind else {
+            continue;
+        };
+        let ExprKind::Name { name, .. } = &facts.lowered.module.expr(*callee).kind else {
+            continue;
+        };
+        if !matches!(name.as_str(), "read" | "consume" | "callback") {
+            continue;
+        }
+        let call = facts.typed.type_table.call_resolution(site).unwrap();
+        let signature = call.signature.unwrap();
+        assert_eq!(signature.params.len(), 1);
+        if name == "read" {
+            assert!(matches!(&signature.params[0], TypeId::Trait(interface)
+                if interface.arguments == [TypeId::Builtin(BuiltinType::I32)]));
+            let coercion = facts.typed.type_table.interface_coercion(args[0]).unwrap();
+            assert_eq!(
+                signature.params[0],
+                TypeId::Trait(coercion.interface_type.clone())
+            );
+        } else {
+            assert_eq!(signature.params, [TypeId::Builtin(BuiltinType::I32)]);
+        }
+        if name == "consume" {
+            assert!(
+                facts
+                    .typed
+                    .type_table
+                    .expr_type(args[0])
+                    .unwrap()
+                    .is_never()
+            );
+        }
+        assert_eq!(
+            signature.return_type,
+            TypeId::Builtin(if name == "callback" {
+                BuiltinType::Bool
+            } else {
+                BuiltinType::I32
+            })
+        );
+        seen.push(name.as_str());
+    }
+    seen.sort_unstable();
+    assert_eq!(seen, ["callback", "consume", "read"]);
 }

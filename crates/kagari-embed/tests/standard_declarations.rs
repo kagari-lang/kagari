@@ -1,15 +1,12 @@
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
 use kagari_common::{
     SourceFile, host_interface::standard_log, identity::DefinitionKind,
     source_database::SourceDatabase,
 };
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_hir::{
-    analysis::AnalysisDatabase,
-    declarations::DeclarationId,
-    native::{EngineNativeBinding, NativeBinding},
-    resolver::ResolvedName,
-    typeck::FunctionImplementation,
+    analysis::AnalysisDatabase, declarations::DeclarationId, native::NativeBinding,
+    resolver::ResolvedName, typeck::FunctionImplementation,
 };
 use kagari_runtime::{host::HostFunction, value::Value};
 use std::collections::HashSet;

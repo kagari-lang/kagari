@@ -3,6 +3,7 @@
 
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
+    callable::EngineNativeBinding,
     operations::{IterOp, StringIterKind},
     representation::ValueType,
     scalar::BuiltinType,
@@ -10,8 +11,9 @@ use kagari_abi::{
 };
 use kagari_hir::{
     builtin::traits::StandardTraitSemantics,
+    callable::AppliedCallSignature,
     hir,
-    native::{EngineNativeBinding, NativeBinding},
+    native::NativeBinding,
     typeck::{CallTarget, FunctionImplementation},
     types::TypeId,
 };
@@ -21,6 +23,7 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn engine_intrinsic_for_call(
         &self,
         target: &CallTarget,
+        application: Option<&AppliedCallSignature>,
     ) -> Result<Option<StandardIntrinsic>, MirLoweringError> {
         let signature = match target {
             CallTarget::Function(id) => self
@@ -54,12 +57,13 @@ impl FunctionLowerer<'_, '_> {
                 ));
             }
         };
+        let application = application.ok_or(MirLoweringError::MissingBinding(
+            "checked native callable application",
+        ))?;
         let intrinsic = match binding {
             EngineNativeBinding::Intrinsic(intrinsic) => intrinsic,
             EngineNativeBinding::Integer(method) => {
-                let Some(TypeId::Builtin(scalar)) =
-                    signature.params.first().map(|parameter| &parameter.ty)
-                else {
+                let Some(TypeId::Builtin(scalar)) = application.params.first() else {
                     return Err(MirLoweringError::MissingBinding("checked integer receiver"));
                 };
                 if scalar.integer_layout().is_none() {
@@ -71,7 +75,7 @@ impl FunctionLowerer<'_, '_> {
                 let TypeId::StandardEnum {
                     kind: StandardEnum::Result,
                     args,
-                } = &signature.return_type
+                } = &application.return_type
                 else {
                     return Err(MirLoweringError::MissingBinding("checked radix result"));
                 };

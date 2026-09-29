@@ -1,6 +1,7 @@
 use super::{ScalarValue, constraints};
 use crate::{
     builtin::{BuiltinFunction, traits},
+    callable::AppliedCallSignature,
     hir::{
         EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, OpaqueTypeId, PatternId,
         PlaceId, StructId, TraitId, TypeRefId,
@@ -67,6 +68,9 @@ pub struct ResolvedCall {
     pub receiver: Option<ExprId>,
     /// Declaration parameter order; arguments may refer to an enclosing binder.
     pub type_arguments: Vec<TypeId>,
+    /// Absent for incomplete calls, terminating callees and language helpers
+    /// whose operands are not an ordinary callable signature.
+    pub signature: Option<AppliedCallSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -636,6 +640,7 @@ impl TypeTable {
                         target: call.target.clone(),
                         receiver,
                         type_arguments: call.type_arguments.clone(),
+                        signature: call.signature.clone(),
                     },
                 ));
             }
@@ -791,6 +796,7 @@ impl TypeTable {
                 target,
                 receiver,
                 type_arguments: Vec::new(),
+                signature: None,
             },
         );
     }
@@ -800,6 +806,13 @@ impl TypeTable {
             .get_mut(&id)
             .expect("resolved generic call")
             .type_arguments = arguments;
+    }
+
+    pub(crate) fn insert_call_signature(&mut self, id: ExprId, signature: AppliedCallSignature) {
+        self.calls
+            .get_mut(&id)
+            .expect("resolved callable application")
+            .signature = Some(signature);
     }
 
     pub fn expr_type(&self, id: ExprId) -> Option<TypeId> {

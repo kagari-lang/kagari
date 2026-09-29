@@ -1,11 +1,11 @@
 use super::*;
 use crate::{
     declarations::DeclarationId,
-    native::{EngineNativeBinding, NativeBinding},
+    native::NativeBinding,
     typeck::{FunctionImplementation, reuse_signatures},
     types::TypeId,
 };
-use kagari_abi::scalar::BuiltinType;
+use kagari_abi::{callable::EngineNativeBinding, scalar::BuiltinType};
 use kagari_common::{
     DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},

@@ -6,7 +6,7 @@ use kagari_abi::{
     layout::{EnumLayout, StructLayout},
     operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
     representation::ValueType,
-    types::{self as abi, AbiType, ConcreteFunctionIdentity, NominalAbiType, PublicAbiItem},
+    types::{AbiType, ConcreteFunctionIdentity, NominalAbiType, PublicAbiItem},
 };
 use kagari_bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot,
@@ -55,10 +55,7 @@ pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, Bytec
                 Instruction::Call {
                     callee: MirCallTarget::InterfaceMethod(contract),
                     ..
-                } => {
-                    contract.interface.declaration.module != ir.identity
-                        && abi::standard_trait_contract(&contract.interface.declaration).is_none()
-                }
+                } => contract.interface.declaration.module != ir.identity,
                 Instruction::MakeInterface { implementation, .. } => {
                     implementation.module != ir.identity
                 }
@@ -259,11 +256,6 @@ struct BytecodeLoweringContext<'a> {
 
 impl BytecodeLoweringContext<'_> {
     fn owner_ref(&self, owner: &ModuleIdentity) -> ModuleRef {
-        let owner = if owner.package.0 == "kagari-std" {
-            self.identity.expect("lowering module identity")
-        } else {
-            owner
-        };
         if let Some(program) = self.program {
             let index = program
                 .modules()

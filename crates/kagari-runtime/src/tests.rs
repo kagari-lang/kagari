@@ -1,6 +1,7 @@
 use super::*;
 use kagari_abi::{
     budget::LogicalBudgetCharge,
+    callable::CallableImplementation,
     ids::FunctionRef,
     representation::ValueType,
     scalar::BuiltinType,
@@ -58,6 +59,7 @@ fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
 fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {
     BytecodeModule {
         public_items: vec![PublicAbiItem::Function(FunctionAbi {
+            implementation: CallableImplementation::Script,
             name: "main".to_owned(),
             generic_params: Vec::new(),
             bounds: Vec::new(),

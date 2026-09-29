@@ -3,12 +3,12 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::Writeability,
     lower::LoweredModule,
-    native::{EngineNativeBinding, NativeBinding},
+    native::NativeBinding,
     resolver::ResolvedName,
     typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
-use kagari_abi::standard::bindings::NativeDefaultMethod;
+use kagari_abi::{callable::EngineNativeBinding, standard::bindings::NativeDefaultMethod};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionId, FileSpan, ModuleIdentity},

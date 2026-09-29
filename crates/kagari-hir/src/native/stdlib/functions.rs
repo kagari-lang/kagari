@@ -1,11 +1,10 @@
-use crate::{
-    hir::FunctionKind,
-    lower::LoweredModule,
-    native::{EngineNativeBinding, stdlib::invalid},
-};
-use kagari_abi::standard::{
-    StandardIntrinsic,
-    bindings::{NativeDefaultMethod, NativeProtocolMethod},
+use crate::{hir::FunctionKind, lower::LoweredModule, native::stdlib::invalid};
+use kagari_abi::{
+    callable::EngineNativeBinding,
+    standard::{
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+    },
 };
 use kagari_common::{cancellation::CancellationToken, integer::IntegerMethod};
 use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile};

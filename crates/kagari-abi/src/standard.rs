@@ -1,6 +1,5 @@
 pub mod application;
 pub mod bindings;
-pub(crate) mod contracts;
 pub mod implementation;
 pub mod intrinsic;
 pub(crate) mod native;

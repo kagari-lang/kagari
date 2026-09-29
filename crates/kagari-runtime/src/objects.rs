@@ -6,10 +6,10 @@ use crate::{
     value::{self, EnumTag, Value},
 };
 use kagari_abi::{
+    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     ids::FunctionRef,
     operations::IterOp,
     representation::ValueType,
-    standard::declarations::native_trait_default,
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem},
 };
 use kagari_bytecode as bytecode;
@@ -105,36 +105,18 @@ impl Runtime {
         if !table.trait_type.is_concrete() {
             return Err(invalid());
         }
-        let trait_name = interface_type
-            .declaration
-            .path
-            .last()
-            .map(|segment| segment.name.as_str())
-            .ok_or_else(invalid)?;
         let trait_contract = implementation
             .members()
             .find(|member| member.bytecode.identity == interface_type.declaration.module)
             .and_then(|member| {
-                member
-                    .bytecode
-                    .trait_contracts
-                    .iter()
-                    .find(|contract| contract.declaration == interface_type.declaration)
-                    .map(|contract| contract.abi.clone())
-                    .or_else(|| {
-                        member
-                            .bytecode
-                            .public_items
-                            .iter()
-                            .find_map(|item| match item {
-                                PublicAbiItem::Trait(trait_abi) if trait_abi.name == trait_name => {
-                                    Some(trait_abi.clone())
-                                }
-                                _ => None,
-                            })
-                    })
+                abi::trait_contract(
+                    &member.bytecode.identity,
+                    &member.bytecode.public_items,
+                    &member.bytecode.trait_contracts,
+                    &interface_type.declaration,
+                )
+                .cloned()
             })
-            .or_else(|| abi::standard_trait_contract(&interface_type.declaration).cloned())
             .ok_or_else(invalid)?;
         if table.methods.iter().any(|method| {
             !trait_contract
@@ -151,7 +133,12 @@ impl Runtime {
                 .iter()
                 .find(|method| method.name == declared.name);
             let Some(method) = method else {
-                if native_trait_default(&interface_type.declaration, &declared.name) {
+                if matches!(
+                    declared.implementation,
+                    CallableImplementation::Native(NativeBinding::Engine(
+                        EngineNativeBinding::TraitDefault(_)
+                    ))
+                ) {
                     methods.push(None);
                     continue;
                 }

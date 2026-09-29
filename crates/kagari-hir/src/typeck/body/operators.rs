@@ -337,6 +337,7 @@ impl<'a> BodyChecker<'a> {
             CallTarget::TraitMethod { method, interface },
             Some(receiver),
         );
+        self.record_protocol_application(site, ty, result.clone());
         Some(result)
     }
 

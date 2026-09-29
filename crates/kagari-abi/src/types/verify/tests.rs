@@ -1,5 +1,33 @@
-use crate::types::ParameterAbi;
 use crate::types::verify::*;
+use crate::{callable::CallableImplementation, types::ParameterAbi};
+
+#[test]
+fn requirements_are_not_executable_functions_or_forged_native_entries() {
+    let module = ModuleIdentity::single_file("requirements.kgr");
+    let cancel = CancellationToken::default();
+    let mut function = FunctionAbi {
+        name: "read".into(),
+        implementation: CallableImplementation::Required,
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: AbiType::Builtin(BuiltinType::I32),
+    };
+    let valid = |function: &FunctionAbi| {
+        validate(
+            &[PublicAbiItem::Function(function.clone())],
+            &module,
+            &cancel,
+        )
+        .is_ok()
+    };
+    assert!(!valid(&function));
+    function.implementation = CallableImplementation::Script;
+    assert!(valid(&function));
+    function.implementation =
+        CallableImplementation::Native(NativeBinding::Engine(EngineNativeBinding::ParseRadix));
+    assert!(!valid(&function));
+}
 
 #[test]
 fn interface_method_contract_substitutes_self_and_method_binders_inside_containers() {
@@ -14,6 +42,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         arguments: Vec::new(),
     });
     let mut declared = FunctionAbi {
+        implementation: CallableImplementation::Required,
         name: "read".into(),
         generic_params: vec![GenericParameterAbi {
             owner: trait_method.clone(),
@@ -37,6 +66,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         return_type: AbiType::Builtin(BuiltinType::I32),
     };
     let mut implemented = FunctionAbi {
+        implementation: CallableImplementation::Script,
         name: "read".into(),
         generic_params: vec![GenericParameterAbi {
             owner: impl_method.clone(),
@@ -189,6 +219,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         associated_types: BTreeMap::new(),
     };
     let declared = FunctionAbi {
+        implementation: CallableImplementation::Required,
         name: "read".into(),
         generic_params: vec![],
         bounds: vec![],
@@ -201,6 +232,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         },
     };
     let mut implemented = FunctionAbi {
+        implementation: CallableImplementation::Script,
         return_type: AbiType::Builtin(BuiltinType::Bool),
         ..declared.clone()
     };

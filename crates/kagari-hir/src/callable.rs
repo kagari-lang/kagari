@@ -9,6 +9,17 @@ use crate::{
     types::{GenericParameterType, TypeId},
 };
 
+/// The selected declaration's signature after call-site substitution. Generic
+/// types belonging to the enclosing body remain for compiler monomorphization.
+/// These are parameter types, not the types of the argument expressions: a
+/// readonly conversion or a diverging argument must not change the contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppliedCallSignature {
+    /// Includes a method receiver; excludes the callee of a function-value call.
+    pub params: Vec<TypeId>,
+    pub return_type: TypeId,
+}
+
 pub trait CallableSignature {
     fn name(&self) -> &str;
     fn implementation(&self) -> FunctionImplementation;

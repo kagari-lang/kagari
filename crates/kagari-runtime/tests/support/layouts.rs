@@ -42,7 +42,6 @@ pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data:
                     public_items: vec![
                         PublicAbiItem::Trait(TraitAbi {
                             associated_consts: Vec::new(),
-                            default_methods: Vec::new(),
                             supertraits: Vec::new(),
                             associated_types: Vec::new(),
                             name: "Tag".into(),

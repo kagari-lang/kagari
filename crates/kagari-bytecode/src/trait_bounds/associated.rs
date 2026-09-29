@@ -2,20 +2,21 @@ use crate::{BytecodeModule, trait_bounds::contract};
 use kagari_abi::types::{
     AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
     NominalAbiType, TraitAbi,
+    applications::ApplicationValidator,
     proofs::{ProofCatalog, host_application},
     substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
 };
 use kagari_common::cancellation::CancellationToken;
 
-/// Check constructor references even in unused portable templates.
-pub(super) fn projection_uses_valid(
+/// Discharge family parameter bounds after validating the carried applications.
+fn projection_bounds_valid(
     ty: &AbiType,
-    assumptions: Option<&[GenericBoundAbi]>,
+    assumptions: &[GenericBoundAbi],
     catalog: &ProofCatalog<'_>,
     closure: &[&BytecodeModule],
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
-    TypeSubstitution::default().apply(ty, cancel)?;
+    ApplicationValidator::new(cancel, |id| contract(id, closure)).validate_type(ty)?;
     let mut pending = vec![ty];
     let mut remaining = 8192usize;
     while let Some(ty) = pending.pop() {
@@ -41,32 +42,25 @@ pub(super) fn projection_uses_valid(
                 else {
                     return Ok(false);
                 };
-                if definition.generic_params.len() != arguments.len()
-                    || record.generic_params.len() != interface.arguments.len()
+                let mut substitution = TypeSubstitution::default();
+                for (parameter, actual) in record
+                    .generic_params
+                    .iter()
+                    .zip(&interface.arguments)
+                    .chain(definition.generic_params.iter().zip(arguments))
                 {
-                    return Ok(false);
+                    substitution.bind(&parameter.owner, parameter.position, actual);
                 }
-                if let Some(assumptions) = assumptions {
-                    let mut substitution = TypeSubstitution::default();
-                    for (parameter, actual) in record
-                        .generic_params
-                        .iter()
-                        .zip(&interface.arguments)
-                        .chain(definition.generic_params.iter().zip(arguments))
-                    {
-                        substitution.bind(&parameter.owner, parameter.position, actual);
-                    }
-                    substitution.bind_receiver(&interface.declaration, receiver);
-                    for bound in substitution.apply_bounds(&definition.parameter_bounds, cancel)? {
-                        let actual = catalog.normalize(&bound.ty, cancel)?;
-                        if !catalog.constraints_hold(
-                            &actual,
-                            &bound.constraints,
-                            assumptions,
-                            cancel,
-                        )? {
-                            return Ok(false);
-                        }
+                substitution.bind_receiver(&interface.declaration, receiver);
+                for bound in substitution.apply_bounds(&definition.parameter_bounds, cancel)? {
+                    let actual = catalog.normalize(&bound.ty, cancel)?;
+                    if !catalog.constraints_hold(
+                        &actual,
+                        &bound.constraints,
+                        assumptions,
+                        cancel,
+                    )? {
+                        return Ok(false);
                     }
                 }
                 pending.push(receiver);
@@ -135,7 +129,7 @@ pub(super) fn associated_bounds_match(
             available.extend(family.bounds.clone());
             available.extend(substitution.apply_bounds(&member.parameter_bounds, cancel)?);
             available = catalog.expand_bounds(&available, cancel)?;
-            if !projection_uses_valid(&family.value, Some(&available), catalog, closure, cancel)? {
+            if !projection_bounds_valid(&family.value, &available, catalog, closure, cancel)? {
                 return Ok(false);
             }
             catalog.normalize(&family.value, cancel)?

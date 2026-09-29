@@ -157,7 +157,10 @@ impl BodyChecker<'_> {
         };
         let method_id = method.id.clone();
         let method_name = method.name.clone();
-        let arity = usize::from(!protocol.reverse_conversion());
+        let arity = method
+            .params
+            .len()
+            .saturating_sub(usize::from(source_expr.is_some()));
         if args.len() != arity {
             self.infer_call_args(args, env);
             self.diagnostics.push(
@@ -276,7 +279,8 @@ impl BodyChecker<'_> {
         } else {
             None
         };
-        self.type_table.insert_protocol_receiver(site, receiver);
+        self.type_table
+            .insert_protocol_receiver(site, receiver.clone());
         self.type_table.insert_call(
             site,
             CallTarget::TraitMethod {
@@ -288,13 +292,15 @@ impl BodyChecker<'_> {
         if protocol == StandardTrait::FromIterator || protocol.aggregation() {
             self.type_table.insert_type_arguments(site, vec![input]);
         }
-        Some(match error {
+        let result = match error {
             Some(error) => TypeId::StandardEnum {
                 kind: StandardEnum::Result,
                 args: vec![target, error],
             },
             None => target,
-        })
+        };
+        self.record_protocol_application(site, &receiver, result.clone());
+        Some(result)
     }
 
     fn conversion_error(&mut self, site: ExprId, reason: &str) {

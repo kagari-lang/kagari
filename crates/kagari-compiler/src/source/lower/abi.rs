@@ -1,17 +1,24 @@
 use crate::source::types::{lower_native_constructor, lower_nominal_type, lower_type};
-use kagari_abi::types::{
-    AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
-    ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
-    ModuleAbi, ParameterAbi, PublicAbiItem, TraitAbi, TraitContract, TypeAbi, TypeAbiKind,
-    VariantAbi,
+use kagari_abi::{
+    callable::{
+        CallableImplementation, EngineNativeBinding, NativeBinding as PortableNativeBinding,
+    },
+    types::{
+        AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
+        ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
+        InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem, TraitAbi, TraitContract,
+        TypeAbi, TypeAbiKind, VariantAbi,
+    },
 };
 use kagari_common::identity;
 use kagari_hir::{
     AnalyzedModule,
+    aggregates::MethodDefault,
     declarations::DeclarationId,
     hir::{self, FunctionKind, Item, Visibility},
+    native::NativeBinding,
     resolver::ResolvedName,
-    typeck::{ConstraintTarget, GenericBounds, ScalarValue},
+    typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ScalarValue},
     types::{GenericParameterType, TypeId},
 };
 
@@ -206,12 +213,6 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                                 .and_then(|id| module.typed.const_values.get(&id))
                                 .map(const_abi_value),
                         })
-                        .collect(),
-                    default_methods: trait_item
-                        .methods
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(slot, method)| method.has_default.then_some(slot))
                         .collect(),
                     supertraits: trait_item
                         .supertraits
@@ -500,6 +501,12 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
             .collect();
         result.push(FunctionAbi {
             name: method.name.clone(),
+            implementation: match method.default.expect("selected default method") {
+                MethodDefault::Script => CallableImplementation::Script,
+                MethodDefault::Native { binding, .. } => CallableImplementation::Native(
+                    PortableNativeBinding::Engine(EngineNativeBinding::TraitDefault(binding)),
+                ),
+            },
             generic_params: method_params
                 .iter()
                 .enumerate()
@@ -532,6 +539,24 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
         .find(|typed| typed.id == function.id)?;
     Some(FunctionAbi {
         name: typed.name.clone(),
+        implementation: match typed.implementation {
+            FunctionImplementation::Required => CallableImplementation::Required,
+            FunctionImplementation::Script => CallableImplementation::Script,
+            FunctionImplementation::Native(NativeBinding::Engine(binding)) => {
+                CallableImplementation::Native(PortableNativeBinding::Engine(binding))
+            }
+            FunctionImplementation::Native(NativeBinding::Host(id)) => {
+                CallableImplementation::Native(PortableNativeBinding::Host(
+                    module
+                        .names
+                        .hosts
+                        .function(id)
+                        .expect("checked host callable")
+                        .id
+                        .clone(),
+                ))
+            }
+        },
         generic_params: generic_param_abi(module, &function.generic_params),
         bounds: checked_bounds(&typed.bounds),
         params: typed

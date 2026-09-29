@@ -3,6 +3,7 @@ use crate::source::types::{lower_nominal_type, lower_type};
 
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
 use kagari_abi::{
+    callable::CallableImplementation,
     slots::SemanticSlots,
     types::{
         AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi,
@@ -71,6 +72,7 @@ pub(super) fn collect(
                 .collect();
             let result_type = AbiType::from_host_type(&host_call.return_type);
             methods.push(FunctionAbi {
+                implementation: CallableImplementation::Script,
                 name: method.name.clone(),
                 generic_params: Vec::new(),
                 bounds: Vec::new(),

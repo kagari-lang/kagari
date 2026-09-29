@@ -1,14 +1,9 @@
 //! HIR representation hooks supplied only by an installed native declaration.
 use crate::{host::HostFunctionId, types::TypeId};
 use kagari_abi::{
-    scalar::BuiltinType,
-    standard::{
-        StandardIntrinsic,
-        bindings::{NativeDefaultMethod, NativeProtocolMethod},
-        surface::StandardEnum,
-    },
+    callable::EngineNativeBinding, scalar::BuiltinType, standard::surface::StandardEnum,
 };
-use kagari_common::{collection::CollectionAccess, integer::IntegerMethod, range::RangeKind};
+use kagari_common::{collection::CollectionAccess, range::RangeKind};
 
 pub(crate) mod stdlib;
 
@@ -18,18 +13,6 @@ pub(crate) mod stdlib;
 pub enum NativeBinding {
     Engine(EngineNativeBinding),
     Host(HostFunctionId),
-}
-
-/// Closed engine binding attached only through installed declaration provenance.
-/// Numeric owners and generic arguments come from the checked source signature;
-/// executable linking must still validate its instantiated physical contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EngineNativeBinding {
-    Intrinsic(StandardIntrinsic),
-    Integer(IntegerMethod),
-    ParseRadix,
-    TraitDefault(NativeDefaultMethod),
-    Protocol(NativeProtocolMethod),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

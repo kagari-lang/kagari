@@ -1,9 +1,10 @@
 //! Recheck associated outputs and host trait bounds against the dependency closure.
+mod applications;
 mod associated;
 
 use crate::{
     BytecodeInstruction, BytecodeModule, BytecodeProgram,
-    trait_bounds::associated::{associated_bounds_match, host_bounds_match, projection_uses_valid},
+    trait_bounds::associated::{associated_bounds_match, host_bounds_match},
 };
 use kagari_abi::{
     standard::{intrinsic, traits::StandardTrait},
@@ -21,28 +22,13 @@ use kagari_common::{
 };
 
 fn contract<'a>(id: &DefinitionId, closure: &[&'a BytecodeModule]) -> Option<&'a TraitAbi> {
-    if let Some(contract) = abi::standard_trait_contract(id) {
-        return Some(contract);
-    }
     let owner = closure.iter().find(|module| module.identity == id.module)?;
-    owner
-        .trait_contracts
-        .iter()
-        .find(|record| &record.declaration == id)
-        .map(|record| &record.abi)
-        .or_else(|| {
-            owner.public_items.iter().find_map(|item| match item {
-                PublicAbiItem::Trait(record)
-                    if id.path.len() == 1
-                        && id.path[0].name == record.name
-                        && id.path[0].kind == DefinitionKind::Trait
-                        && id.path[0].occurrence == 0 =>
-                {
-                    Some(record)
-                }
-                _ => None,
-            })
-        })
+    abi::trait_contract(
+        &owner.identity,
+        &owner.public_items,
+        &owner.trait_contracts,
+        id,
+    )
 }
 
 /// Read the bounded applied parent closure from portable trait contracts.
@@ -92,9 +78,6 @@ fn executable_interface(
         let Some(owner) = closure
             .iter()
             .find(|module| module.identity == view.declaration.module)
-            .or_else(|| {
-                abi::standard_trait_contract(&view.declaration).and_then(|_| closure.first())
-            })
         else {
             return false;
         };
@@ -154,6 +137,7 @@ fn linked_bounds_match(
     program: Option<&BytecodeProgram>,
 ) -> Result<bool, TypeTransformError> {
     let cancel = CancellationToken::default();
+    applications::validate(module, closure, &cancel)?;
     let tables: Vec<_> = closure
         .iter()
         .flat_map(|dependency| &dependency.public_items)
@@ -190,16 +174,6 @@ fn linked_bounds_match(
             associated_types: Default::default(),
         };
         catalog.ancestry(&applied, &AbiType::SelfType(id), &cancel)?;
-        for method in &record.methods {
-            if !projection_uses_valid(&method.return_type, None, &catalog, closure, &cancel)? {
-                return Ok(false);
-            }
-            for parameter in &method.params {
-                if !projection_uses_valid(&parameter.ty, None, &catalog, closure, &cancel)? {
-                    return Ok(false);
-                }
-            }
-        }
     }
     for table in tables {
         let AbiType::Trait(applied) = &table.trait_type else {
@@ -316,7 +290,10 @@ fn parents_proven(
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     // Offline host declarations may advertise traits outside this program.
-    if matches!(receiver, AbiType::Host(_)) && contract(&interface.declaration, closure).is_none() {
+    if matches!(receiver, AbiType::Host(_))
+        && StandardTrait::from_id(&interface.declaration).is_none()
+        && contract(&interface.declaration, closure).is_none()
+    {
         return Ok(true);
     }
     let bounds = catalog.expand_bounds(bounds, cancel)?;

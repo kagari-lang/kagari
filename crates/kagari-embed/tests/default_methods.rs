@@ -1,3 +1,7 @@
+use kagari_abi::{
+    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
+    standard::bindings::NativeDefaultMethod,
+};
 use kagari_common::SourceFile;
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
@@ -240,10 +244,10 @@ fn main() -> i32 { Number {}.again() }
 #[test]
 fn malformed_default_contracts_and_source_origins_are_rejected() {
     let artifact = KagariEngine::default().compile_to_artifact(SourceFile::new("defaults.kgr", "pub trait Read { fn read(self) -> i32 { 42 } } struct Number {} impl Read for Number {} fn main() -> i32 { Number {}.read() }"), Default::default(), Default::default()).unwrap();
-    for mutation in 0..3 {
+    for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
-        if mutation < 2 {
+        if mutation < 3 {
             let contract = module
                 .public_items
                 .iter_mut()
@@ -255,10 +259,28 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 })
                 .unwrap();
             if mutation == 0 {
-                contract.default_methods.push(0);
+                contract.methods.push(contract.methods[0].clone());
+            } else if mutation == 1 {
+                contract.methods[0].name = "missing_implementation".into();
             } else {
-                contract.default_methods.push(usize::MAX);
+                contract.methods[0].implementation =
+                    CallableImplementation::Native(NativeBinding::Engine(
+                        EngineNativeBinding::TraitDefault(NativeDefaultMethod::ListFirst),
+                    ));
             }
+        } else if mutation == 3 {
+            let implementation = module
+                .public_items
+                .iter_mut()
+                .find_map(|item| {
+                    if let kagari_abi::types::PublicAbiItem::InterfaceTable(table) = item {
+                        Some(table)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            implementation.methods.clear();
         } else {
             module.functions[0].metadata.debug.source_module =
                 Some(kagari_bytecode::ModuleRef::new(999));

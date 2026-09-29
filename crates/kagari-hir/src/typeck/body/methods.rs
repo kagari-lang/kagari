@@ -307,10 +307,7 @@ impl<'a> BodyChecker<'a> {
         all_args.push((receiver, receiver_ty));
         all_args.extend(arg_tys);
         self.check_function_arguments(&function, &substitution, callee, &all_args, 1);
-        Some(
-            self.aggregates
-                .normalize_type(&function.return_type.instantiate(&substitution)),
-        )
+        Some(self.record_callable_application(call_expr, &function, &substitution))
     }
 
     pub(super) fn infer_associated_const(
@@ -647,9 +644,10 @@ impl<'a> BodyChecker<'a> {
             );
         }
 
-        Some(
-            self.aggregates
-                .normalize_type(&return_pattern.instantiate(&substitution)),
-        )
+        let return_type = self
+            .aggregates
+            .normalize_type(&return_pattern.instantiate(&substitution));
+        self.record_protocol_application(call_expr, &self_ty, return_type.clone());
+        Some(return_type)
     }
 }

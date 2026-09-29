@@ -1,6 +1,6 @@
 use super::*;
 use crate::{aggregates::MethodDefault, builtin::traits::StandardTraitSemantics};
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
 
 #[test]
 fn infers_array_method_call_types() {
@@ -71,7 +71,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     use crate::{
         analysis::AnalysisDatabase,
         declarations::DeclarationId,
-        native::{EngineNativeBinding, NativeTypeKind},
+        native::NativeTypeKind,
         typeck::{ConstraintTarget, FunctionImplementation},
     };
     use kagari_abi::standard::{
@@ -399,7 +399,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     assert_eq!(
         binding(keys_tail),
         crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
-            crate::native::{EngineNativeBinding, NativeBinding}::Intrinsic(StandardIntrinsic::MapKeys)
+            crate::native::NativeBinding::Intrinsic(StandardIntrinsic::MapKeys)
         ))
     );
     let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
@@ -417,7 +417,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     assert_eq!(
         binding(chars_tail),
         crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
-            crate::native::{EngineNativeBinding, NativeBinding}::Intrinsic(StandardIntrinsic::StringLenChars)
+            crate::native::NativeBinding::Intrinsic(StandardIntrinsic::StringLenChars)
         ))
     );
 

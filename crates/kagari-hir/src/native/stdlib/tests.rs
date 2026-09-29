@@ -6,11 +6,12 @@ use crate::{
     hir::{ExportItem, Item, Visibility},
     host::HostDeclarations,
     imports::ModuleGraph,
-    native::EngineNativeBinding,
     resolver::ResolvedName,
     types::TypeId,
 };
-use kagari_abi::{scalar::BuiltinType, standard::bindings::NativeDefaultMethod};
+use kagari_abi::{
+    callable::EngineNativeBinding, scalar::BuiltinType, standard::bindings::NativeDefaultMethod,
+};
 use kagari_common::{DiagnosticKind, SourceFile, collection::CollectionAccess};
 use kagari_syntax::parser;
 

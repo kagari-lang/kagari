@@ -3,6 +3,7 @@ use crate::source::{
     types::{lower_nominal_type, lower_type},
 };
 use kagari_abi::{
+    callable::CallableImplementation,
     representation::ValueType,
     standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
     types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
@@ -19,7 +20,7 @@ use kagari_hir::{
     declarations::DeclarationId,
     hir,
     resolver::ResolvedName,
-    typeck::ScalarValue,
+    typeck::{FunctionImplementation, ScalarValue},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use std::{
@@ -534,6 +535,7 @@ impl<'a> InstancePlanner<'a> {
                 native_method: Some((receiver.clone(), interface.clone(), method.id.clone())),
             });
             methods.push(FunctionAbi {
+                implementation: CallableImplementation::Script,
                 name: method.name.clone(),
                 generic_params: Vec::new(),
                 bounds: Vec::new(),
@@ -719,6 +721,11 @@ impl<'a> InstancePlanner<'a> {
             .iter()
             .find(|typed| typed.id == function)
             .ok_or(MirLoweringError::MissingTypedFunction(function))?;
+        if typed.implementation != FunctionImplementation::Script {
+            return Err(MirLoweringError::MissingBinding(
+                "script body implementation",
+            ));
+        }
         if arguments.len() != typed.generic_params.len() {
             return Err(MirLoweringError::MissingBinding("checked type arguments"));
         }

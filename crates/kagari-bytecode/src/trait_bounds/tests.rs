@@ -28,7 +28,6 @@ fn record(name: &str) -> TraitAbi {
         generic_params: vec![],
         bounds: vec![],
         methods: vec![],
-        default_methods: vec![],
         associated_consts: vec![],
         associated_types: vec![],
         supertraits: vec![],

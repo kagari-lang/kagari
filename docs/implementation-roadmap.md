@@ -19,7 +19,10 @@ checking and queries, with explicit Engine/Host bindings and retained host contr
 Optional host declaration/Rust origins are retained by analysis snapshots.
 Remaining engine metadata and executable provider contracts remain pending.
 Checked native type declarations now carry explicit portable representation
-constructors. Runtime ABI v104, KBC v105 and KMIR v3 accompany this schema change;
+constructors. The coupled callable migration carries source-derived trait
+contracts and per-function Required/Script/Native implementations instead of
+global standard trait templates or a separate default-slot catalog. Linked trait
+application checks use carried declarations across both MIR and bytecode. Runtime ABI v105, KBC v106 and KMIR v4 accompany the current wire changes;
 the SDK artifact fixture requires regeneration after compilation is restored.
 Integration is still broken by the carried errors recorded
 in the active plan; ST01 scope completion does not claim HIR or workspace acceptance.

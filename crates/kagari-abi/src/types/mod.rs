@@ -1,4 +1,5 @@
 pub mod access;
+pub mod applications;
 pub mod inheritance;
 pub mod matching;
 pub mod native;
@@ -8,10 +9,10 @@ pub mod verify;
 mod wire;
 
 use crate::{
+    callable::CallableImplementation,
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
-        contracts,
         surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
         traits::StandardTrait,
     },
@@ -30,7 +31,7 @@ use kagari_common::{
 };
 
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, fmt::Write, sync::OnceLock};
+use std::{collections::BTreeMap, fmt::Write};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleAbi {
@@ -91,6 +92,7 @@ impl PublicAbiItem {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionAbi {
     pub name: String,
+    pub implementation: CallableImplementation,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -313,8 +315,6 @@ pub struct TraitAbi {
     pub associated_consts: Vec<AssociatedConstAbi>,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    pub default_methods: Vec<usize>,
-    #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub supertraits: Vec<NominalAbiType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub generic_params: Vec<GenericParameterAbi>,
@@ -395,6 +395,7 @@ impl InterfaceTableAbi {
             .map(|method| {
                 Some(FunctionAbi {
                     name: method.name.clone(),
+                    implementation: method.implementation.clone(),
                     generic_params: method.generic_params.clone(),
                     bounds: method.bounds.clone(),
                     params: method
@@ -465,8 +466,7 @@ pub fn interface_method_semantics(
     slot: usize,
 ) -> Option<(Vec<AbiType>, AbiType)> {
     let path = &interface.declaration.path;
-    if (interface.declaration.module != *owner
-        && standard_trait_contract(&interface.declaration).is_none())
+    if interface.declaration.module != *owner
         || path.len() != 1
         || path[0].kind != DefinitionKind::Trait
         || path[0].occurrence != 0
@@ -474,20 +474,7 @@ pub fn interface_method_semantics(
     {
         return None;
     }
-    let trait_abi = standard_trait_contract(&interface.declaration).or_else(|| {
-        trait_contracts
-            .iter()
-            .find(|contract| contract.declaration == interface.declaration)
-            .map(|contract| &contract.abi)
-            .or_else(|| {
-                public_items.iter().find_map(|item| match item {
-                    PublicAbiItem::Trait(trait_abi) if trait_abi.name == path[0].name => {
-                        Some(trait_abi)
-                    }
-                    _ => None,
-                })
-            })
-    })?;
+    let trait_abi = trait_contract(owner, public_items, trait_contracts, &interface.declaration)?;
     if interface.arguments.len() != trait_abi.generic_params.len() {
         return None;
     }
@@ -570,20 +557,31 @@ pub enum ConstraintAbi {
 
 pub type PublicAbiItemBuffer = Vec<PublicAbiItem>;
 
-/// Canonical standard contracts are engine-owned, never supplied by an artifact.
-pub fn standard_trait_contract(id: &DefinitionId) -> Option<&'static TraitAbi> {
-    static CONTRACTS: OnceLock<Vec<TraitAbi>> = OnceLock::new();
-    let kind = StandardTrait::from_id(id)?;
-    Some(
-        &CONTRACTS.get_or_init(|| {
-            StandardTrait::ALL
-                .into_iter()
-                .map(|kind| {
-                    contracts::trait_contract(kind).expect("valid generated standard contract")
-                })
-                .collect()
-        })[kind as usize],
-    )
+/// Resolve a trait only within its defining executable module. Standard traits
+/// follow the same carried-contract path; a well-known ID is not a declaration.
+pub fn trait_contract<'a>(
+    owner: &ModuleIdentity,
+    public_items: &'a [PublicAbiItem],
+    private: &'a [TraitContract],
+    id: &DefinitionId,
+) -> Option<&'a TraitAbi> {
+    if id.module != *owner
+        || id.path.len() != 1
+        || id.path[0].kind != DefinitionKind::Trait
+        || id.path[0].occurrence != 0
+    {
+        return None;
+    }
+    private
+        .iter()
+        .find(|record| record.declaration == *id)
+        .map(|record| &record.abi)
+        .or_else(|| {
+            public_items.iter().find_map(|item| match item {
+                PublicAbiItem::Trait(record) if record.name == id.path[0].name => Some(record),
+                _ => None,
+            })
+        })
 }
 
 /// Whether a canonical standard interface uses collection identity semantics.

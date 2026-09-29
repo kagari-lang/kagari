@@ -1,13 +1,17 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
-use kagari_abi::types::inheritance;
-
+mod applications;
 use kagari_abi::{
-    contracts,
+    contracts, host,
     representation::ValueType,
-    types::{self as abi, AbiType, ConcreteFunctionIdentity, PublicAbiItem},
+    standard::traits::StandardTrait,
+    types::{
+        self as abi, AbiType, ConcreteFunctionIdentity, PublicAbiItem, inheritance,
+        substitution::TypeTransformError,
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
+    host_interface::HostInterface,
     identity::{DefinitionId, DefinitionKind, ModuleIdentity},
 };
 use std::collections::{HashMap, HashSet};
@@ -195,6 +199,65 @@ pub fn verify_program(
                 );
             }
         }
+        applications::validate(module, cancel, |id| {
+            let owner = *indices.get(&id.module)?;
+            if owner != index && !dependencies.contains(&owner) {
+                return None;
+            }
+            let owner = &modules[owner];
+            abi::trait_contract(
+                &owner.identity,
+                &owner.abi.public_items,
+                &owner.abi.trait_contracts,
+                id,
+            )
+        })
+        .map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })?;
+        let host_interface = HostInterface {
+            types: module.host_types.clone(),
+            ..Default::default()
+        };
+        for implementation in host_interface
+            .types
+            .iter()
+            .flat_map(|host| &host.trait_implementations)
+        {
+            let id = &implementation.trait_id;
+            let owner = indices.get(&id.module);
+            if StandardTrait::from_id(id).is_some()
+                && !owner.is_some_and(|owner| *owner == index || dependencies.contains(owner))
+            {
+                return Err(error(
+                    &module.identity,
+                    ProgramErrorKind::InterfaceContract(id.clone()),
+                ));
+            }
+            if let Some(owner) = owner {
+                let owner = &modules[*owner];
+                if !host::trait_bindings_match(
+                    &host_interface,
+                    &owner.identity,
+                    &owner.abi.public_items,
+                    &owner.abi.trait_contracts,
+                    cancel,
+                )
+                .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?
+                {
+                    return Err(error(
+                        &module.identity,
+                        ProgramErrorKind::InterfaceContract(id.clone()),
+                    ));
+                }
+            }
+        }
         for request in &module.interface_instances {
             let valid = indices
                 .get(&request.declaration.module)
@@ -279,10 +342,6 @@ pub fn verify_program(
             {
                 let valid = indices
                     .get(&contract.interface.declaration.module)
-                    .or_else(|| {
-                        abi::standard_trait_contract(&contract.interface.declaration)
-                            .map(|_| &index)
-                    })
                     .filter(|target| **target == index || dependencies.contains(target))
                     .and_then(|target| {
                         let owner = &modules[*target];

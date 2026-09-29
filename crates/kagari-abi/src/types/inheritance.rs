@@ -1,8 +1,8 @@
 //! Applied trait ancestry over portable declaration contracts.
-use crate::types::substitution::{
-    TypeSubstitution, TypeTransformError, resolve_associated_outputs,
+use crate::types::{
+    AbiType, NominalAbiType, TraitAbi,
+    substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
 };
-use crate::types::{AbiType, NominalAbiType, TraitAbi, standard_trait_contract};
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use std::collections::HashSet;
 
@@ -38,9 +38,7 @@ pub fn trait_closure<'a>(
         if result.len() >= MAX_TRAITS {
             return Err(TypeTransformError::LimitExceeded);
         }
-        let contract = standard_trait_contract(&applied.declaration)
-            .or_else(|| lookup(&applied.declaration))
-            .ok_or(TypeTransformError::InvalidContract)?;
+        let contract = lookup(&applied.declaration).ok_or(TypeTransformError::InvalidContract)?;
         if contract.generic_params.len() != applied.arguments.len() {
             return Err(TypeTransformError::InvalidContract);
         }

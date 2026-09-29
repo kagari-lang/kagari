@@ -148,7 +148,8 @@ impl BodyChecker<'_> {
                         && let Some(contract) = self.aggregates.trait_(&interface.declaration)
                         && let [method] = contract.methods.as_slice()
                     {
-                        self.type_table.insert_protocol_receiver(site, target);
+                        self.type_table
+                            .insert_protocol_receiver(site, target.clone());
                         self.type_table.insert_call(
                             site,
                             CallTarget::TraitMethod {
@@ -157,6 +158,7 @@ impl BodyChecker<'_> {
                             },
                             None,
                         );
+                        self.record_protocol_application(site, &target, target.clone());
                         true
                     } else {
                         self.diagnostics.push(

@@ -5,7 +5,7 @@ use crate::{
 use kagari_abi::{
     host, layout,
     standard::traits::StandardTrait,
-    types::{self as abi, AbiType, PublicAbiItem, TypeAbiKind, verify},
+    types::{AbiType, PublicAbiItem, TypeAbiKind, verify},
 };
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
@@ -181,9 +181,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let AbiType::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if let Some(contract) = abi::standard_trait_contract(&instance.declaration) {
-                let kind =
-                    StandardTrait::from_id(&instance.declaration).expect("standard contract");
+            if let Some(kind) = StandardTrait::from_id(&instance.declaration) {
                 if !kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
                     || !table.native_bridge
                         && !kind.conversion()
@@ -191,11 +189,9 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                             table.for_type,
                             AbiType::Struct(_) | AbiType::Enum(_) | AbiType::Host(_)
                         )
-                    || !verify::interface_contract_matches(table, contract, &Default::default())
                 {
                     return Err(BytecodeVerificationError::InvalidInterfaceTable);
                 }
-                continue;
             }
             if instance.declaration.module == module.identity {
                 continue;

@@ -1,9 +1,10 @@
 //! Validate serialized semantic types independently of display strings.
 use crate::types::matching;
 use crate::{
+    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     layout::LayoutValidationError,
     scalar::BuiltinType,
-    standard::{declarations as standard_declarations, native, traits::StandardTrait},
+    standard::native,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
         InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi, TraitContract, TypeAbi,
@@ -93,8 +94,10 @@ pub fn validate(
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let valid = match item {
             PublicAbiItem::Function(function) => {
-                function.generic_params.is_empty()
-                    && function.bounds.is_empty()
+                (matches!(
+                    function.implementation,
+                    CallableImplementation::Native(NativeBinding::Engine(_))
+                ) || (function.generic_params.is_empty() && function.bounds.is_empty()))
                     && function_valid(function, module, &[], &Parameters::new(), None, cancel)
             }
             PublicAbiItem::Const(value) => type_valid(&value.ty, &Parameters::new(), None, cancel),
@@ -301,12 +304,6 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
             })
         }
         && {
-            let mut defaults = HashSet::new();
-            ty.default_methods
-                .iter()
-                .all(|slot| *slot < ty.methods.len() && defaults.insert(slot))
-        }
-        && {
             let mut members = HashSet::new();
             ty.associated_types.iter().all(|member| {
                 members.insert(&member.declaration)
@@ -361,15 +358,17 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
 /// Engine defaults are declared once on their canonical protocol. They need no
 /// per-implementation ABI entry, especially when their bounds do not hold here.
 fn required_methods_present(table: &InterfaceTableAbi, interface: &TraitAbi) -> bool {
-    let AbiType::Trait(instance) = &table.trait_type else {
-        return false;
-    };
     interface.methods.iter().all(|method| {
         table
             .methods
             .iter()
             .any(|actual| actual.name == method.name)
-            || standard_declarations::native_trait_default(&instance.declaration, &method.name)
+            || matches!(
+                method.implementation,
+                CallableImplementation::Native(NativeBinding::Engine(
+                    EngineNativeBinding::TraitDefault(_)
+                ))
+            )
     })
 }
 
@@ -589,7 +588,8 @@ fn method_contract_matches(
     defer_projection: bool,
     cancel: &CancellationToken,
 ) -> bool {
-    if declared.generic_params.len() != implemented.generic_params.len()
+    if matches!(implemented.implementation, CallableImplementation::Required)
+        || declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
     {
         return false;
@@ -771,6 +771,24 @@ fn function_valid(
     self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,
 ) -> bool {
+    let implementation_valid = match &function.implementation {
+        CallableImplementation::Required => parent
+            .last()
+            .is_some_and(|owner| owner.kind == DefinitionKind::Trait),
+        CallableImplementation::Script => true,
+        // Provider authentication and signature matching are linked-program checks.
+        CallableImplementation::Native(NativeBinding::Engine(_)) => {
+            module.package.0 == "kagari-std"
+        }
+        CallableImplementation::Native(NativeBinding::Host(id)) => {
+            (nominal_valid(id, DefinitionKind::Function)
+                || nominal_valid(id, DefinitionKind::Method))
+                && id.within_path_limit()
+        }
+    };
+    if function.name.is_empty() || !implementation_valid {
+        return false;
+    }
     let kind = if parent.is_empty() {
         DefinitionKind::Function
     } else {
@@ -893,35 +911,19 @@ fn type_valid(
                 }
                 pending.extend(args);
             }
-            AbiType::Struct(ty) | AbiType::Enum(ty) | AbiType::Trait(ty) => {
-                if ty.declaration.module.package.0 == "kagari-std" {
-                    let Some(kind) = StandardTrait::from_id(&ty.declaration) else {
-                        return false;
-                    };
-                    if ty.arguments.len() != kind.declaration().generics.len()
-                        || ty.associated_types.keys().any(|id| {
-                            !kind
-                                .declaration()
-                                .associated_types
-                                .iter()
-                                .any(|member| member.item.identity() == *id)
-                        })
-                    {
-                        return false;
-                    }
-                }
-                pending.extend(&ty.arguments);
+            AbiType::Struct(nominal) | AbiType::Enum(nominal) | AbiType::Trait(nominal) => {
+                pending.extend(&nominal.arguments);
                 if !matches!(
-                    ty.declaration.path.last().map(|part| part.kind),
+                    nominal.declaration.path.last().map(|part| part.kind),
                     Some(DefinitionKind::Trait)
-                ) && !ty.associated_types.is_empty()
+                ) && !nominal.associated_types.is_empty()
                 {
                     return false;
                 }
-                for (member, value) in &ty.associated_types {
+                for (member, value) in &nominal.associated_types {
                     if *member
                         != identity::associated_type_id(
-                            &ty.declaration,
+                            &nominal.declaration,
                             member.path.last().map_or("", |p| p.name.as_str()),
                         )
                     {

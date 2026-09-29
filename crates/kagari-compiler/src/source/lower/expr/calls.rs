@@ -386,20 +386,18 @@ impl FunctionLowerer<'_, '_> {
                 let receiver = call
                     .receiver
                     .ok_or(MirLoweringError::MissingBinding("closure callee"))?;
-                let TypeId::Function { params, result } = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(receiver)
-                    .ok_or(MirLoweringError::MissingExprType(receiver))?
-                else {
-                    return Err(MirLoweringError::MissingBinding("checked closure callee"));
-                };
-                let param_types = params
+                let signature = call
+                    .signature
+                    .as_ref()
+                    .ok_or(MirLoweringError::MissingBinding(
+                        "checked closure application",
+                    ))?;
+                let param_types = signature
+                    .params
                     .iter()
                     .map(|ty| self.value_type(ty))
                     .collect::<Result<Vec<_>, _>>()?;
-                let return_type = self.value_type(&result)?;
+                let return_type = self.value_type(&signature.return_type)?;
                 let value = self.lower_expr(receiver)?;
                 if self.current_block_terminated() {
                     return Ok(value);
@@ -430,7 +428,9 @@ impl FunctionLowerer<'_, '_> {
                     ControlFlow::Continue(values) => lowered.extend(values),
                     ControlFlow::Break(value) => return Ok(value),
                 }
-                if let Some(intrinsic) = self.engine_intrinsic_for_call(&target)? {
+                if let Some(intrinsic) =
+                    self.engine_intrinsic_for_call(&target, call.signature.as_ref())?
+                {
                     return self.lower_engine_intrinsic(
                         expr,
                         intrinsic,
@@ -439,104 +439,88 @@ impl FunctionLowerer<'_, '_> {
                         lowered,
                     );
                 }
-                let target = match target {
-                    TypeckCallTarget::Function(id) => {
-                        let arguments = self.planner.arguments(
-                            &impl_arguments
-                                .iter()
-                                .chain(&call.type_arguments)
-                                .cloned()
-                                .collect::<Vec<_>>(),
-                            &self.instance.substitution,
-                            span,
-                        )?;
-                        let declaration = self
-                            .analyzed
-                            .declarations
-                            .target(ResolvedName::Function(id))
-                            .ok_or(MirLoweringError::MissingBinding("call declaration"))?;
-                        let DeclarationId::Definition(declaration) = &declaration.id else {
-                            return Err(MirLoweringError::MissingBinding("call identity"));
-                        };
-                        if declaration.module
-                            == *self.planner.owner().lowered.source.module_identity()
-                        {
-                            CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
-                        } else {
-                            let typed = self
+                let target =
+                    match target {
+                        TypeckCallTarget::Function(id) => {
+                            let arguments = self.planner.arguments(
+                                &impl_arguments
+                                    .iter()
+                                    .chain(&call.type_arguments)
+                                    .cloned()
+                                    .collect::<Vec<_>>(),
+                                &self.instance.substitution,
+                                span,
+                            )?;
+                            let declaration = self
                                 .analyzed
-                                .typed
-                                .functions
-                                .iter()
-                                .find(|function| function.id == id)
-                                .ok_or(MirLoweringError::MissingTypedFunction(id))?;
-                            let substitution = typed
-                                .generic_params
-                                .iter()
-                                .cloned()
-                                .zip(arguments.iter().cloned())
-                                .collect();
-                            let params = typed
+                                .declarations
+                                .target(ResolvedName::Function(id))
+                                .ok_or(MirLoweringError::MissingBinding("call declaration"))?;
+                            let DeclarationId::Definition(declaration) = &declaration.id else {
+                                return Err(MirLoweringError::MissingBinding("call identity"));
+                            };
+                            if declaration.module
+                                == *self.planner.owner().lowered.source.module_identity()
+                            {
+                                CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
+                            } else {
+                                let signature = call.signature.as_ref().ok_or(
+                                    MirLoweringError::MissingBinding("checked source application"),
+                                )?;
+                                let params = signature
+                                    .params
+                                    .iter()
+                                    .map(|ty| self.value_type(ty))
+                                    .collect::<Result<_, _>>()?;
+                                let return_type = self.value_type(&signature.return_type)?;
+                                CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                                    declaration: declaration.clone(),
+                                    arguments: arguments.iter().map(lower_type).collect(),
+                                    params,
+                                    return_type,
+                                }))
+                            }
+                        }
+                        TypeckCallTarget::SourceFunction(id) => {
+                            let imported = self.analyzed.imported_functions.target(id).ok_or(
+                                MirLoweringError::MissingBinding("source function contract"),
+                            )?;
+                            let signature =
+                                call.signature
+                                    .as_ref()
+                                    .ok_or(MirLoweringError::MissingBinding(
+                                        "checked imported application",
+                                    ))?;
+                            let params = signature
                                 .params
                                 .iter()
-                                .map(|param| {
-                                    self.planner.value_type(&param.ty, &substitution, span)
-                                })
+                                .map(|ty| self.value_type(ty))
                                 .collect::<Result<_, _>>()?;
-                            let return_type =
-                                self.planner
-                                    .value_type(&typed.return_type, &substitution, span)?;
+                            let return_type = self.value_type(&signature.return_type)?;
                             CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                                declaration: declaration.clone(),
-                                arguments: arguments.iter().map(lower_type).collect(),
+                                declaration: imported.declaration.clone(),
+                                arguments: Vec::new(),
                                 params,
                                 return_type,
                             }))
                         }
-                    }
-                    TypeckCallTarget::SourceFunction(id) => {
-                        let imported =
-                            self.analyzed.imported_functions.target(id).ok_or(
-                                MirLoweringError::MissingBinding("source function contract"),
-                            )?;
-                        let params = imported
-                            .signature
-                            .params
-                            .iter()
-                            .map(|param| {
-                                self.planner
-                                    .value_type(&param.ty, &Default::default(), span)
-                            })
-                            .collect::<Result<_, _>>()?;
-                        let return_type = self.planner.value_type(
-                            &imported.signature.return_type,
-                            &Default::default(),
-                            span,
-                        )?;
-                        CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                            declaration: imported.declaration.clone(),
-                            arguments: Vec::new(),
-                            params,
-                            return_type,
-                        }))
-                    }
-                    TypeckCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(
-                        self.analyzed
-                            .names
-                            .hosts
-                            .function(id)
-                            .ok_or(MirLoweringError::MissingBinding("host declaration"))?
-                            .clone(),
-                    )),
-                    TypeckCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
-                        MirLoweringError::MissingBinding("imported implementation contract"),
-                    )?,
-                    TypeckCallTarget::TerminatingCallee
-                    | TypeckCallTarget::RuntimeHelper(_)
-                    | TypeckCallTarget::Value => {
-                        unreachable!()
-                    }
-                };
+                        TypeckCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(
+                            self.analyzed
+                                .names
+                                .hosts
+                                .function(id)
+                                .ok_or(MirLoweringError::MissingBinding("host declaration"))?
+                                .clone(),
+                        )),
+                        TypeckCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
+                            MirLoweringError::MissingBinding("imported implementation contract"),
+                        )?,
+                        TypeckCallTarget::TerminatingCallee
+                        | TypeckCallTarget::RuntimeHelper(_)
+                        | TypeckCallTarget::Value => {
+                            unreachable!()
+                        }
+                    };
                 (target, lowered)
             }
         };

@@ -1,4 +1,5 @@
 use ast::Attribute;
+use kagari_abi::callable::EngineNativeBinding;
 use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
 use kagari_stdlib::ParsedStdlibPackage;
 use kagari_syntax::parse;
@@ -17,7 +18,7 @@ use kagari_syntax::ast::{self, AstNode};
 use crate::{
     hir::{EnumId, FunctionId, Module, OpaqueTypeId},
     lower::context::Lowerer,
-    native::{EngineNativeBinding, NativeTypeKind},
+    native::NativeTypeKind,
     source_map::SourceMap,
 };
 
