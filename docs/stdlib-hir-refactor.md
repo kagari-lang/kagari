@@ -710,6 +710,32 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 compiler trait-handoff checkpoint: compiler protocol method selection now
+  reads the supplied HIR aggregate catalog for callable adapters, iteration,
+  conversions, range bounds, indexing, collection queries and structural value
+  protocols. Missing contracts or method slots return a lowering error rather
+  than loading a global signature. Named list/set members use the same checked
+  contracts, and custom equality/hash detection propagates lookup failures.
+  Existing logical charging and algorithm expansion are unchanged; moving these
+  standard algorithms into runtime continuations remains ST04/ST05 work.
+- Removed `StandardTraitSemantics::contract`, its process-global trait cache and
+  `ApiTraitSemantics`, including the second trait signature/bound/member builder.
+  Legacy standard name resolution no longer supplies a global trait declaration.
+  Updated metadata/witness tests to obtain their trait contracts from an analysis
+  snapshot while preserving their signature and coverage assertions. SDK artifact
+  mutation/identity tests compare protocol IDs directly and no longer import HIR
+  trait-contract construction just to obtain an identity. Remaining
+  `ApiType`/native implementation and function catalogs are still migration inputs,
+  not a compatibility implementation of the removed trait contract API.
+- Compiler trait-handoff validation: structure review passes for 531 Rust files
+  with zero violations/exceptions; format and diff checks pass. HIR/compiler
+  tests remain unexecuted behind the carried ABI source-catalog removal failure.
+  Resume `cargo test -p kagari-hir` and `cargo test -p kagari-compiler --lib` after
+  the owning consumer migration, followed by SDK `operator_traits`,
+  `standard_traits` and `enum_payloads` integration targets. All existing integration
+  errors remain carried;
+  this checkpoint does not complete native callable lowering or ST01 acceptance.
+
 - ST01 trait-surface checkpoint: declaration generic parameters, associated member
   names/arities and inherited trait surfaces now come from local or imported HIR
   declarations. Removed the standard-ID branches that substituted process-global

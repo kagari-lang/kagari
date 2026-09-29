@@ -11,7 +11,7 @@ use kagari_abi::{
 };
 use kagari_hir::{
     AnalyzedModule,
-    builtin::traits::{StandardTraitSemantics, callable_signature},
+    builtin::traits::callable_signature,
     hir,
     resolver::ResolvedName,
     typeck::TypedFunction,
@@ -97,7 +97,7 @@ pub(crate) fn lower_callable<'a>(
         lowerer.lower_applied_operator(
             body.interface,
             body.receiver,
-            &StandardTrait::Fn.contract().methods[0].id,
+            &lowerer.protocol_method(StandardTrait::Fn, 0)?,
             &[values[0], packed],
         )
     })?;

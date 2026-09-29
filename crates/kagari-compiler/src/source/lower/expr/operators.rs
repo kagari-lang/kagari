@@ -333,7 +333,7 @@ impl FunctionLowerer<'_, '_> {
                 let iterator = self.lower_applied_operator(
                     StandardTrait::Iterable.nominal(),
                     ty.clone(),
-                    &StandardTrait::Iterable.contract().methods[0].id,
+                    &self.protocol_method(StandardTrait::Iterable, 0)?,
                     &[args[0]],
                 )?;
                 return self.lower_iterator_terminal(
@@ -358,7 +358,7 @@ impl FunctionLowerer<'_, '_> {
                 return self.lower_applied_method(
                     contract,
                     target.clone(),
-                    &protocol.contract().methods[0].id,
+                    &self.protocol_method(protocol, 0)?,
                     slice::from_ref(&ty),
                     args,
                 );
@@ -400,7 +400,7 @@ impl FunctionLowerer<'_, '_> {
             return self.lower_applied_method(
                 contract,
                 target.clone(),
-                &StandardTrait::FromIterator.contract().methods[0].id,
+                &self.protocol_method(StandardTrait::FromIterator, 0)?,
                 slice::from_ref(&ty),
                 args,
             );
@@ -435,7 +435,7 @@ impl FunctionLowerer<'_, '_> {
             return self.lower_applied_operator(
                 required,
                 target,
-                &kind.contract().methods[0].id,
+                &self.protocol_method(kind, 0)?,
                 args,
             );
         }

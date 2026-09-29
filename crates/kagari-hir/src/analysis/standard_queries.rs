@@ -662,7 +662,12 @@ mod trait_tests {
         assert_eq!(user.declaration.name, "get");
         assert_eq!(user.declaration.location.file, file);
         assert!(user.documentation.is_empty());
-        let iterator = StandardTrait::Iterator.contract();
+        let iterator = analysis
+            .result()
+            .facts()
+            .aggregates
+            .trait_(&StandardTrait::Iterator.nominal().declaration)
+            .unwrap();
         let member = iterator.associated_types.keys().next().unwrap();
         let declaration = snapshot
             .declaration(&DeclarationId::Definition(member.clone()))
@@ -776,6 +781,14 @@ mod collection_access_tests {
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
         use kagari_abi::standard::traits::StandardTrait as S;
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receivers = [
             TypeId::Array(Box::new(integer.clone()), CollectionAccess::Mutable),
@@ -800,7 +813,7 @@ mod collection_access_tests {
                     .iter()
                     .map(|ty| ty.instantiate(&arguments))
                     .collect();
-                let contract = kind.contract();
+                let contract = catalog.trait_(&interface.declaration).unwrap();
                 let substitution = contract
                     .generic_params
                     .iter()

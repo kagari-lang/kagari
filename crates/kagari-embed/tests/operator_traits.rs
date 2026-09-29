@@ -1,6 +1,6 @@
+use kagari_abi::standard::traits as standard_traits;
 use kagari_common::SourceFile;
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
-use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -351,7 +351,7 @@ fn main()->i32 {Number{value:20}+22}
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
         let table=module.public_items.iter_mut().find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type,AbiType::Trait(t) if t.declaration==StandardTrait::Add.contract().id)=>Some(table),
+            PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type,AbiType::Trait(t) if t.declaration==standard_traits::identity(StandardTrait::Add))=>Some(table),
             _=>None,
         }).unwrap();
         let AbiType::Trait(interface) = &mut table.trait_type else {

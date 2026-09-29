@@ -32,7 +32,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[value],
         )?;
         let input = self.iterator_item(&iterator_type)?;
@@ -120,7 +120,7 @@ impl FunctionLowerer<'_, '_> {
         let collection = self.lower_applied_method(
             contract,
             destination.clone(),
-            &StandardTrait::FromIterator.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::FromIterator, 0)?,
             &[buffer_type],
             &[buffer],
         )?;
@@ -159,7 +159,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[value],
         )?;
         let optional = TypeId::StandardEnum {
@@ -289,7 +289,7 @@ impl FunctionLowerer<'_, '_> {
                 );
             }
             TypeId::Set(key, _) => {
-                if self.has_custom_protocol(key) {
+                if self.has_custom_protocol(key)? {
                     self.lower_key_operation(StandardIntrinsic::SetInsert, key, &[output, item])?;
                 } else {
                     self.emit_intrinsic(
@@ -314,7 +314,7 @@ impl FunctionLowerer<'_, '_> {
                     base: item,
                     index: second,
                 });
-                if self.has_custom_protocol(key) {
+                if self.has_custom_protocol(key)? {
                     self.lower_key_operation(StandardIntrinsic::MapInsert, key, &[output, k, v])?;
                 } else {
                     self.emit_intrinsic(
@@ -339,7 +339,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[value],
         )?;
         let item_type = self.iterator_item(&iterator_type)?;
@@ -358,7 +358,7 @@ impl FunctionLowerer<'_, '_> {
         let next = self.lower_applied_operator(
             StandardTrait::Iterator.nominal(),
             iterator_type.clone(),
-            &StandardTrait::Iterator.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterator, 0)?,
             &[iterator],
         )?;
         let optional = TypeId::StandardEnum {

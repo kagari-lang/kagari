@@ -1,13 +1,13 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
 
 use crate::builtin::declarations::{
-    ApiBoundSemantics, ApiImplementationSemantics, ApiTraitSemantics, ApiTypeSemantics,
+    ApiBoundSemantics, ApiImplementationSemantics, ApiTypeSemantics,
 };
 use kagari_abi::{
     numeric as scalar_numeric,
     scalar::BuiltinType,
     standard::{
-        surface::{self as standard_surface, STANDARD_TRAITS, StandardEnum, StandardModule},
+        surface::{self as standard_surface, StandardEnum, StandardModule},
         traits::{StandardTrait, identity},
     },
 };
@@ -18,19 +18,15 @@ use kagari_common::{
 
 use super::{declarations, numeric, surface};
 use crate::{
-    aggregates::{self, AggregateCatalog, TraitSignature},
+    aggregates::{self, AggregateCatalog},
     typeck::{ConstraintTarget, GenericBounds},
     types::{NominalType, TypeId},
 };
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::OnceLock,
-};
+use std::collections::{BTreeMap, HashSet};
 
 pub trait StandardTraitSemantics {
     fn nominal(self) -> NominalType;
     fn intrinsic_view(self, receiver: &TypeId) -> NominalType;
-    fn contract(self) -> &'static TraitSignature;
 }
 impl StandardTraitSemantics for StandardTrait {
     fn nominal(self) -> NominalType {
@@ -60,20 +56,6 @@ impl StandardTraitSemantics for StandardTrait {
         }
         view
     }
-
-    fn contract(self) -> &'static TraitSignature {
-        static CONTRACTS: OnceLock<Vec<TraitSignature>> = OnceLock::new();
-        &CONTRACTS.get_or_init(|| Self::ALL.into_iter().map(build_contract).collect())
-            [self as usize]
-    }
-}
-
-fn build_contract(kind: StandardTrait) -> TraitSignature {
-    STANDARD_TRAITS
-        .iter()
-        .find(|spec| spec.item.identity() == identity(kind))
-        .expect("standard trait declaration")
-        .contract()
 }
 
 /// A zero-argument call uses unit; all other calls pass a positional tuple.

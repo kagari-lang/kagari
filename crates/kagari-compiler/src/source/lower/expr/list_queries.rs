@@ -18,14 +18,15 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<MirValue, MirLoweringError> {
         let mut interface = StandardTrait::List.nominal();
         interface.arguments.push(item.clone());
-        let method = &StandardTrait::List
-            .contract()
-            .methods
-            .iter()
-            .find(|m| m.name == name)
+        let method = self
+            .planner
+            .catalog
+            .trait_(&interface.declaration)
+            .and_then(|contract| contract.methods.iter().find(|method| method.name == name))
             .ok_or(MirLoweringError::MissingBinding("list query member"))?
-            .id;
-        self.lower_applied_operator(interface, source.clone(), method, args)
+            .id
+            .clone();
+        self.lower_applied_operator(interface, source.clone(), &method, args)
     }
     fn list_value(
         &mut self,
@@ -66,7 +67,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[value],
         )?;
         self.emit(Instruction::BeginIteration {
@@ -266,7 +267,7 @@ impl FunctionLowerer<'_, '_> {
         let comparison = self.lower_applied_operator(
             StandardTrait::Ord.nominal(),
             item.clone(),
-            &StandardTrait::Ord.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Ord, 0)?,
             &[value, args[1]],
         )?;
         let equal = self.standard_enum_op(&order, Op::Test(1), Some(comparison))?;

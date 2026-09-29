@@ -1,10 +1,10 @@
 use kagari_abi::{
     scalar::BuiltinType,
+    standard::traits::{self as standard_traits, StandardTrait},
     types::{AbiType, PublicAbiItem},
 };
 use kagari_common::SourceFile;
 use kagari_embed::{BytecodeArtifact, KagariEngine, program::PreparedProgram};
-use kagari_hir::builtin::traits::StandardTraitSemantics;
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine
@@ -270,9 +270,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     };
     assert_eq!(
         list.declaration,
-        kagari_abi::standard::traits::StandardTrait::List
-            .contract()
-            .id
+        standard_traits::identity(StandardTrait::List)
     );
     assert_eq!(list.arguments, vec![AbiType::Builtin(BuiltinType::String)]);
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();

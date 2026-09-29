@@ -285,7 +285,7 @@ impl FunctionLowerer<'_, '_> {
                         self.lower_applied_operator(
                             StandardTrait::Ord.nominal(),
                             ty.clone(),
-                            &StandardTrait::Ord.contract().methods[0].id,
+                            &self.protocol_method(StandardTrait::Ord, 0)?,
                             &[left, right],
                         )?
                     };
@@ -407,7 +407,7 @@ impl FunctionLowerer<'_, '_> {
             NativeDefaultMethod::GroupBy => {
                 let key_type = &arguments[0];
                 let key = self.call_function_value(values[1], key_type, &[item])?;
-                let custom = self.has_custom_protocol(key_type);
+                let custom = self.has_custom_protocol(key_type)?;
                 let group = if custom {
                     self.lower_key_operation(StandardIntrinsic::MapGet, key_type, &[result, key])?
                 } else {
@@ -470,7 +470,7 @@ impl FunctionLowerer<'_, '_> {
         if let Some(rejected) = rejected {
             let mut contract = StandardTrait::FromIterator.nominal();
             contract.arguments.push(item_type);
-            let method = StandardTrait::FromIterator.contract().methods[0].id.clone();
+            let method = self.protocol_method(StandardTrait::FromIterator, 0)?;
             let left = self.lower_applied_method(
                 contract.clone(),
                 arguments[0].clone(),

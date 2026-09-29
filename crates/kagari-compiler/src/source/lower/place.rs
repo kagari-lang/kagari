@@ -252,7 +252,7 @@ impl FunctionLowerer<'_, '_> {
                     if self.current_block_terminated() {
                         return Ok(None);
                     }
-                    let method = StandardTrait::Index.contract().methods[0].id.clone();
+                    let method = self.protocol_method(StandardTrait::Index, 0)?;
                     let value = self.lower_applied_operator(
                         interface,
                         receiver_ty,
@@ -382,12 +382,14 @@ impl FunctionLowerer<'_, '_> {
                 ProjectionKind::InterfaceIndex { index, write, .. } => {
                     let interface =
                         write.ok_or(MirLoweringError::MissingBinding("writable list interface"))?;
-                    let slot = StandardTrait::MutableList
-                        .contract()
-                        .methods
-                        .iter()
-                        .find(|m| m.name == "set")
-                        .expect("list setter")
+                    let slot = self
+                        .planner
+                        .catalog
+                        .trait_(&interface.declaration)
+                        .and_then(|contract| {
+                            contract.methods.iter().find(|method| method.name == "set")
+                        })
+                        .ok_or(MirLoweringError::MissingBinding("checked list setter"))?
                         .slot;
                     self.emit(Instruction::Call {
                         dst: None,

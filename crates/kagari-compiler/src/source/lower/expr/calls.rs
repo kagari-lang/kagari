@@ -602,7 +602,7 @@ impl FunctionLowerer<'_, '_> {
                             return self.lower_applied_operator(
                                 StandardTrait::FromStr.nominal(),
                                 members[0].clone(),
-                                &StandardTrait::FromStr.contract().methods[0].id,
+                                &self.protocol_method(StandardTrait::FromStr, 0)?,
                                 &lowered,
                             );
                         }
@@ -698,17 +698,16 @@ impl FunctionLowerer<'_, '_> {
                             interface
                                 .arguments
                                 .push(TypeId::Builtin(BuiltinType::USize));
-                            let methods = &StandardTrait::RangeBounds.contract().methods;
                             let start = self.lower_applied_operator(
                                 interface.clone(),
                                 source.clone(),
-                                &methods[0].id,
+                                &self.protocol_method(StandardTrait::RangeBounds, 0)?,
                                 &[lowered[1]],
                             )?;
                             let end = self.lower_applied_operator(
                                 interface,
                                 source,
-                                &methods[1].id,
+                                &self.protocol_method(StandardTrait::RangeBounds, 1)?,
                                 &[lowered[1]],
                             )?;
                             if intrinsic == StandardIntrinsic::ArrayRemoveRange {
@@ -798,7 +797,7 @@ impl FunctionLowerer<'_, '_> {
                                 _ => None,
                             };
                             if let Some(key) = key
-                                && self.has_custom_protocol(key)
+                                && self.has_custom_protocol(key)?
                                 && matches!(
                                     intrinsic,
                                     StandardIntrinsic::MapGet

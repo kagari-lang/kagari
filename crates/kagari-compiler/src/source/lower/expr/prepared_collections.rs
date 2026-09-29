@@ -357,8 +357,10 @@ impl FunctionLowerer<'_, '_> {
                                                     this.lower_applied_operator(
                                                         StandardTrait::Ord.nominal(),
                                                         comparison_type.clone(),
-                                                        &StandardTrait::Ord.contract().methods[0]
-                                                            .id,
+                                                        &this.protocol_method(
+                                                            StandardTrait::Ord,
+                                                            0,
+                                                        )?,
                                                         &[a, b],
                                                     )?
                                                 };

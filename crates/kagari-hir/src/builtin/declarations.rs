@@ -5,7 +5,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     standard::{
         StandardIntrinsic,
-        declarations::{ApiBound, ApiImplementation, ApiItem, ApiTrait, ApiType},
+        declarations::{ApiBound, ApiImplementation, ApiItem, ApiType},
         surface::{
             self as standard_surface, STANDARD_IMPLEMENTATIONS, STANDARD_ITEMS, StandardEnum,
             StandardVariant,
@@ -17,12 +17,9 @@ use kagari_common::{SourceFile, Span, collection::CollectionAccess, identity};
 use kagari_stdlib::bundled_sources;
 
 use crate::{
-    aggregates::{MethodDefault, MethodParameter, MethodSignature, TraitSignature},
     declarations::{Declaration, DeclarationId},
-    hir::Writeability,
     resolver::ResolvedName,
-    typeck::{ConstraintTarget, GenericBounds},
-    types::{GenericParameterType, NominalType, TypeId},
+    types::{NominalType, TypeId},
 };
 
 use super::surface;
@@ -136,7 +133,6 @@ pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
     let item = match name {
         ResolvedName::StandardFunction(intrinsic) => function(intrinsic)?,
         ResolvedName::StandardVariant(kind) => variant(kind)?,
-        ResolvedName::StandardTrait(kind) => return Some(&kind.contract().declaration),
         _ => return None,
     };
     declaration(&DeclarationId::Definition(item.identity()))
@@ -363,135 +359,6 @@ impl ApiBoundSemantics for ApiBound {
                         identity::associated_type_id(&id, name),
                         ty.instantiate(arguments),
                     )
-                })
-                .collect(),
-        }
-    }
-}
-
-pub trait ApiTraitSemantics {
-    fn contract(&self) -> TraitSignature;
-}
-impl ApiTraitSemantics for ApiTrait {
-    fn contract(&self) -> TraitSignature {
-        let id = self.item.identity();
-        let generics = self
-            .generics
-            .iter()
-            .enumerate()
-            .map(|(position, name)| GenericParameterType {
-                owner: id.clone(),
-                position,
-                name: (*name).into(),
-            })
-            .collect::<Vec<_>>();
-        let mut arguments: Arguments = self
-            .generics
-            .iter()
-            .copied()
-            .zip(generics.iter().cloned().map(TypeId::Generic))
-            .collect();
-        arguments.insert("Self", TypeId::SelfType(id.clone()));
-        arguments.insert(
-            "@self_trait",
-            TypeId::Trait(NominalType {
-                declaration: id.clone(),
-                arguments: generics.iter().cloned().map(TypeId::Generic).collect(),
-                associated_types: Default::default(),
-            }),
-        );
-        TraitSignature {
-            declaration: self.item.declaration(),
-            id: id.clone(),
-            generic_params: generics.clone(),
-            bounds: Default::default(),
-            supertraits: self
-                .supertraits
-                .iter()
-                .map(|b| b.nominal(&arguments))
-                .collect(),
-            associated_types: self
-                .associated_types
-                .iter()
-                .map(|a| {
-                    (
-                        a.item.identity(),
-                        a.bounds
-                            .iter()
-                            .map(|b| ConstraintTarget::Trait(b.nominal(&arguments)))
-                            .collect(),
-                    )
-                })
-                .collect(),
-            associated_type_parameters: Default::default(),
-            associated_consts: Default::default(),
-            methods: self
-                .methods
-                .iter()
-                .enumerate()
-                .map(|(slot, method)| {
-                    let mut arguments = arguments.clone();
-                    let mut parameters = generics.clone();
-                    let mut method_bounds = GenericBounds::new();
-                    for (position, generic) in method.generics.iter().enumerate() {
-                        let name = generic.name;
-                        let parameter = GenericParameterType {
-                            owner: method.item.identity(),
-                            position,
-                            name: name.into(),
-                        };
-                        arguments.insert(name, TypeId::Generic(parameter.clone()));
-                        parameters.push(parameter);
-                    }
-                    for generic in method.generics {
-                        let (name, bounds) = (generic.name, generic.bounds);
-                        if let Some(bound) = bounds
-                            .iter()
-                            .find(|b| matches!(b.name, "Iterator" | "Iterable"))
-                        {
-                            arguments.insert(
-                                generic.projection_key,
-                                TypeId::Trait(bound.nominal(&arguments)),
-                            );
-                        }
-                        method_bounds.insert(
-                            arguments[name].clone(),
-                            bounds
-                                .iter()
-                                .map(|b| ConstraintTarget::Trait(b.nominal(&arguments)))
-                                .collect(),
-                        );
-                    }
-                    for (target, bounds) in method.bounds {
-                        method_bounds
-                            .entry(target.instantiate(&arguments))
-                            .or_default()
-                            .extend(
-                                bounds
-                                    .iter()
-                                    .map(|b| ConstraintTarget::Trait(b.nominal(&arguments))),
-                            );
-                    }
-                    MethodSignature {
-                        default: method.native_default.map(MethodDefault::native),
-                        declaration: method.item.declaration(),
-                        id: method.item.identity(),
-                        owner: id.clone(),
-                        slot,
-                        name: method.item.path.last().unwrap().1.into(),
-                        generic_params: parameters,
-                        bounds: method_bounds,
-                        params: method
-                            .params
-                            .iter()
-                            .map(|p| MethodParameter {
-                                name: p.name.into(),
-                                writeability: Writeability::Val,
-                                ty: p.ty.instantiate(&arguments),
-                            })
-                            .collect(),
-                        return_type: method.result.instantiate(&arguments),
-                    }
                 })
                 .collect(),
         }

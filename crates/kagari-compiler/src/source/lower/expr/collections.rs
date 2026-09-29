@@ -64,7 +64,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[value],
         )?;
         let optional = TypeId::StandardEnum {
@@ -314,7 +314,7 @@ impl FunctionLowerer<'_, '_> {
                     "insert" => StandardIntrinsic::MapInsert,
                     _ => StandardIntrinsic::MapRemove,
                 };
-                let result = if self.has_custom_protocol(key) {
+                let result = if self.has_custom_protocol(key)? {
                     self.lower_key_operation(intrinsic, key, args)?
                 } else {
                     self.emit_intrinsic(
@@ -346,7 +346,7 @@ impl FunctionLowerer<'_, '_> {
                     "insert" => StandardIntrinsic::SetInsert,
                     _ => StandardIntrinsic::SetRemove,
                 };
-                let result = if self.has_custom_protocol(item) {
+                let result = if self.has_custom_protocol(item)? {
                     self.lower_key_operation(intrinsic, item, args)?
                 } else {
                     self.emit_intrinsic(

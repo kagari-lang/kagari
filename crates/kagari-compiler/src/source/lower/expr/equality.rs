@@ -15,7 +15,7 @@ use kagari_mir::instruction::{
 use std::{collections::HashSet, fmt::Write};
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> bool {
+    pub(super) fn has_custom_protocol(&self, ty: &TypeId) -> Result<bool, MirLoweringError> {
         let mut pending = vec![ty.clone()];
         let mut seen = HashSet::new();
         while let Some(ty) = pending.pop() {
@@ -23,7 +23,7 @@ impl FunctionLowerer<'_, '_> {
                 continue;
             }
             if seen.len() > self.planner.options.max_type_nodes {
-                return true;
+                return Ok(true);
             }
             match &ty {
                 TypeId::Struct(_) | TypeId::Enum(_) => {
@@ -31,13 +31,13 @@ impl FunctionLowerer<'_, '_> {
                         .planner
                         .catalog
                         .implementation_method(
-                            &StandardTrait::PartialEq.contract().methods[0].id,
+                            &self.protocol_method(StandardTrait::PartialEq, 0)?,
                             &StandardTrait::PartialEq.nominal(),
                             &ty,
                         )
                         .is_some()
                     {
-                        return true;
+                        return Ok(true);
                     }
                     if let TypeId::Enum(n) = &ty
                         && let Some(contract) = self.planner.catalog.enumeration(&n.declaration)
@@ -61,7 +61,7 @@ impl FunctionLowerer<'_, '_> {
                 _ => {}
             }
         }
-        false
+        Ok(false)
     }
 
     pub(super) fn emit_intrinsic(
@@ -89,11 +89,11 @@ impl FunctionLowerer<'_, '_> {
         if matches!(
             ty,
             TypeId::Tuple(_) | TypeId::Enum(_) | TypeId::StandardEnum { .. }
-        ) && self.has_custom_protocol(ty)
+        ) && self.has_custom_protocol(ty)?
             && self
                 .planner
                 .catalog
-                .implementation_method(&protocol.contract().methods[0].id, &protocol.nominal(), ty)
+                .implementation_method(&self.protocol_method(protocol, 0)?, &protocol.nominal(), ty)
                 .is_none()
         {
             let function = self.planner.enqueue_protocol(
@@ -136,7 +136,7 @@ impl FunctionLowerer<'_, '_> {
         } else {
             ValueType::I64
         };
-        if !self.has_custom_protocol(ty) {
+        if !self.has_custom_protocol(ty)? {
             if protocol == StandardTrait::PartialEq {
                 let dst = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::Binary {
@@ -149,7 +149,7 @@ impl FunctionLowerer<'_, '_> {
             }
             return Ok(self.emit_intrinsic(StandardIntrinsic::ValueHash, args, result_ty));
         }
-        let method = &protocol.contract().methods[0].id;
+        let method = &self.protocol_method(protocol, 0)?;
         if let Some((declaration, arguments)) =
             self.planner
                 .catalog

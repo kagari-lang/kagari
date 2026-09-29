@@ -171,7 +171,7 @@ impl FunctionLowerer<'_, '_> {
                 let value = self.lower_applied_operator(
                     StandardTrait::Iterable.nominal(),
                     arguments[0].clone(),
-                    &StandardTrait::Iterable.contract().methods[0].id,
+                    &self.protocol_method(StandardTrait::Iterable, 0)?,
                     &[values[1]],
                 )?;
                 captures.push(value);
@@ -245,7 +245,7 @@ impl FunctionLowerer<'_, '_> {
         self.lower_applied_operator(
             StandardTrait::Iterator.nominal(),
             ty.clone(),
-            &StandardTrait::Iterator.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterator, 0)?,
             &[value],
         )
     }
@@ -717,7 +717,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             inner_source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[value],
         )?;
         let state = self.standard_enum_op(inner_option, StandardEnumOp::Make(0), Some(iterator))?;

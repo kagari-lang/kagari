@@ -7,6 +7,7 @@ use kagari_abi::{
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
+    standard::traits::{self as standard_traits, StandardTrait},
     types::NominalAbiType,
 };
 use kagari_common::identity::DefinitionId;
@@ -35,6 +36,21 @@ pub(crate) fn lower_scalar(value: ScalarValue) -> Constant {
 }
 
 impl FunctionLowerer<'_, '_> {
+    /// Protocol lowering must use the checked declaration supplied by HIR. A
+    /// missing contract or slot is an invalid lowering input, not a catalog fallback.
+    pub(super) fn protocol_method(
+        &self,
+        protocol: StandardTrait,
+        slot: usize,
+    ) -> Result<DefinitionId, MirLoweringError> {
+        self.planner
+            .catalog
+            .trait_(&standard_traits::identity(protocol))
+            .and_then(|contract| contract.methods.get(slot))
+            .map(|method| method.id.clone())
+            .ok_or(MirLoweringError::MissingBinding("checked protocol method"))
+    }
+
     pub(super) fn lower_host_path_arguments(
         &mut self,
         arguments: &[(u32, hir::ExprId)],

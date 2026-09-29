@@ -177,8 +177,19 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
         )
         .is_none()
     );
-    let difference = kagari_abi::standard::traits::StandardTrait::Set
-        .contract()
+    let analysis = crate::analyze_source(
+        &kagari_common::SourceFile::new("contracts.kgr", "fn main() {}"),
+        Default::default(),
+    );
+    let difference = analysis
+        .facts()
+        .aggregates
+        .trait_(
+            &kagari_abi::standard::traits::StandardTrait::Set
+                .nominal()
+                .declaration,
+        )
+        .unwrap()
         .methods
         .iter()
         .find(|method| method.name == "difference")

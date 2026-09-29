@@ -287,7 +287,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             fact.into_interface,
             receiver,
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[source],
         )?;
         let concrete_iterator = self
@@ -316,7 +316,7 @@ impl FunctionLowerer<'_, '_> {
         let value = self.lower_applied_operator(
             fact.next_interface,
             fact.iterator,
-            &StandardTrait::Iterator.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterator, 0)?,
             &[iterator],
         )?;
         let optional = TypeId::StandardEnum {

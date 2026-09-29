@@ -38,7 +38,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),
             source.clone(),
-            &StandardTrait::Iterable.contract().methods[0].id,
+            &self.protocol_method(StandardTrait::Iterable, 0)?,
             &[args[0]],
         )?;
         let length = self.list_call(source, &item, "len", &[args[0]])?;

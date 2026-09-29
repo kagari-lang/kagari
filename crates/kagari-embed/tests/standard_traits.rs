@@ -1,7 +1,6 @@
-use kagari_abi::standard::traits::StandardTrait;
+use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
 use kagari_common::SourceFile;
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
-use kagari_hir::builtin::traits::StandardTraitSemantics;
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -214,7 +213,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                     let AbiType::Trait(trait_type) = &mut table.trait_type else {
                         panic!("trait");
                     };
-                    trait_type.declaration = StandardTrait::Hash.contract().id.clone();
+                    trait_type.declaration = standard_traits::identity(StandardTrait::Hash);
                 }
                 3 => table.methods.clear(),
                 _ => {
@@ -699,7 +698,7 @@ fn main()->i64 {Key{id:1}.hash()}
     for missing in [StandardTrait::Eq, StandardTrait::PartialEq] {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
-        module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==missing.contract().id)));
+        module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==standard_traits::identity(missing))));
         assert!(
             kagari_bytecode::verify_program(&program).is_err(),
             "missing {missing:?}"

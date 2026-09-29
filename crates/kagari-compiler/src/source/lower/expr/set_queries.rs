@@ -19,12 +19,19 @@ impl FunctionLowerer<'_, '_> {
         let mut interface = StandardTrait::Set.nominal();
         interface.arguments.push(item.clone());
         let other = TypeId::Trait(interface.clone());
-        let membership = StandardTrait::Set
-            .contract()
-            .methods
-            .iter()
-            .find(|m| m.name == "contains")
-            .unwrap()
+        let membership = self
+            .planner
+            .catalog
+            .trait_(&interface.declaration)
+            .and_then(|contract| {
+                contract
+                    .methods
+                    .iter()
+                    .find(|method| method.name == "contains")
+            })
+            .ok_or(MirLoweringError::MissingBinding(
+                "checked set membership method",
+            ))?
             .id
             .clone();
         let left = self.query_guard(source, args[0])?;
