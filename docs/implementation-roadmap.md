@@ -16,7 +16,8 @@ ordinary standard namespaces and snapshot tool queries replace the ABI generator
 and source descriptors. Shared callable/provider metadata and executable consumers
 remain under migration. Source and offline host calls now share HIR signature
 checking and queries, with explicit Engine/Host bindings and retained host contracts.
-Host origins and executable provider contracts remain pending.
+Optional host declaration/Rust origins are retained by analysis snapshots.
+Remaining engine metadata and executable provider contracts remain pending.
 Integration is still broken by the carried errors recorded
 in the active plan; ST01 scope completion does not claim HIR or workspace acceptance.
 The thirteen-crate description below is the pre-migration

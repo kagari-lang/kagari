@@ -8,7 +8,7 @@ use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableM
 use kagari_common::{
     SourceFile,
     cancellation::CancellationToken,
-    host_interface::{HostInterface, HostInterfaceError},
+    host_interface::HostInterfaceError,
     identity::{DefinitionId, FileId, ModuleIdentity},
     source_database::{SourceLayer, SourceSnapshot},
 };
@@ -22,7 +22,7 @@ use kagari_hir::{
     analysis::{
         AnalysisError, AnalysisSnapshot, DeclarationSnapshot, FunctionAnalysis, SignatureSnapshot,
     },
-    host::HostDeclarations,
+    host::{HostDeclarations, origin::HostInput},
     imports::ModuleOrderError,
     program::{CheckedProgram, ProgramCheckError},
     typeck::ConstLimits,
@@ -110,8 +110,13 @@ impl KagariEngine {
             .set_max_semantic_diagnostics(limit);
     }
 
-    pub fn set_host_interface(&self, interface: HostInterface) -> Result<(), HostInterfaceError> {
-        let declarations = HostDeclarations::new(interface)?;
+    /// Install an offline contract, optionally with declaration/Rust origins for
+    /// tooling. A plain HostInterface carries no source locations.
+    pub fn set_host_interface(
+        &self,
+        input: impl Into<HostInput>,
+    ) -> Result<(), HostInterfaceError> {
+        let declarations = HostDeclarations::new(input)?;
         self.analysis
             .borrow_mut()
             .set_host_declarations(declarations);

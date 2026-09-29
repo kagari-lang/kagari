@@ -3,6 +3,7 @@
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
+    host::origin::{HostDeclarationOrigin, HostInput},
     resolver::ResolvedName,
     typeck::{self, ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
@@ -24,6 +25,7 @@ use kagari_common::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    iter,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -31,6 +33,7 @@ use std::{
 };
 
 pub mod callable;
+pub mod origin;
 use callable::{HostCallable, HostSignature};
 
 #[cfg(test)]
@@ -70,6 +73,7 @@ pub struct HostDeclarations {
     revision: u64,
     interface: HostInterface,
     signatures: Vec<HostSignature>,
+    origins: HashMap<DefinitionId, HostDeclarationOrigin>,
     paths: HashMap<String, HostFunctionId>,
     methods: HashMap<(DefinitionId, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
@@ -399,7 +403,11 @@ impl HostDeclarations {
         Ok(diagnostics)
     }
 
-    pub fn new(mut interface: HostInterface) -> Result<Arc<Self>, HostInterfaceError> {
+    pub fn new(input: impl Into<HostInput>) -> Result<Arc<Self>, HostInterfaceError> {
+        let HostInput {
+            mut interface,
+            origins,
+        } = input.into();
         interface.validate()?;
         let mut present = interface
             .functions
@@ -414,6 +422,21 @@ impl HostDeclarations {
             }
         }
         interface.validate()?;
+        let declarations: HashSet<_> =
+            interface
+                .functions
+                .iter()
+                .map(|function| &function.id)
+                .chain(interface.types.iter().flat_map(|ty| {
+                    iter::once(&ty.id).chain(ty.fields.iter().map(|field| &field.id))
+                }))
+                .collect();
+        if origins
+            .iter()
+            .any(|(id, origin)| !declarations.contains(id) || origin.preferred().is_none())
+        {
+            return Err(HostInterfaceError::InvalidDeclaration);
+        }
         if interface
             .functions
             .iter()
@@ -500,6 +523,7 @@ impl HostDeclarations {
         Ok(Arc::new(Self {
             revision,
             signatures: interface.functions.iter().map(HostSignature::new).collect(),
+            origins,
             interface,
             paths,
             methods,
@@ -564,11 +588,17 @@ impl HostDeclarations {
     }
 
     pub fn callable(&self, id: HostFunctionId) -> Option<HostCallable<'_>> {
+        let declaration = self.function(id)?;
         Some(HostCallable {
             id,
-            declaration: self.function(id)?,
+            declaration,
             signature: self.signatures.get(id.index)?,
+            origin: self.origin(&declaration.id),
         })
+    }
+
+    pub fn origin(&self, id: &DefinitionId) -> Option<&HostDeclarationOrigin> {
+        self.origins.get(id)
     }
     pub(crate) fn resolve_name_in(&self, module: HostModuleId, path: &str) -> Option<ResolvedName> {
         if module.revision != self.revision {

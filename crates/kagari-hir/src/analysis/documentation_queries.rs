@@ -1,8 +1,9 @@
 //! Source presentation is resolved through declarations owned by the snapshot.
 
 use crate::{
-    analysis::{AnalysisSnapshot, DeclarationSnapshot, FileDeclarations},
+    analysis::{AnalysisSnapshot, DeclarationSnapshot, FileAnalysis, FileDeclarations},
     declarations::{Declaration, DeclarationId},
+    host::origin::HostDeclarationOrigin,
 };
 use kagari_common::{Span, identity::FileId};
 use kagari_syntax::ast::{AstNode, Field, Item, MethodDef, Name, Variant};
@@ -16,6 +17,22 @@ pub struct DeclarationDocumentation {
     pub declaration: Declaration,
     pub documentation: String,
     pub written_signature: String,
+}
+
+impl FileAnalysis {
+    /// Supplied host navigation metadata, resolved by the checked declaration
+    /// identity. Missing metadata never creates a synthetic source declaration.
+    pub fn host_origin_at(&self, offset: usize) -> Option<&HostDeclarationOrigin> {
+        let id = self
+            .host_function_at(offset)
+            .map(|declaration| &declaration.id)
+            .or_else(|| {
+                self.host_field_at(offset)
+                    .map(|declaration| &declaration.id)
+            })
+            .or_else(|| self.host_type_at(offset).map(|declaration| &declaration.id))?;
+        self.result.facts().names.hosts.origin(id)
+    }
 }
 
 impl DeclarationSnapshot {

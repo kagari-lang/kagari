@@ -203,12 +203,23 @@ stable declaration IDs. The document is a view of the same contract, not another
 handwritten source of signatures. Generated text alone cannot grant binding
 authority or encode away passing styles, capabilities and other non-syntax facts.
 
-HIR should accept optional declaration origin metadata now: a virtual document
-URI/range, and an optional Rust source origin supplied by registration tooling.
-LSP navigation can target the generated declaration by default and the Rust origin
-when it is available and valid. Rust source locations cannot be recovered from an
+HIR accepts optional declaration origins through
+[`HostInput`](../crates/kagari-hir/src/host/origin.rs): a virtual declaration URI and
+half-open UTF-8 byte range, plus an optional Rust source location supplied by
+registration tooling. Origins are keyed by an installed function, type, field or
+method identity. `HostDeclarations::new` and the source SDK's `set_host_interface`
+accept this input or a plain `HostInterface` without origins. `HostCallable::origin`
+and `FileAnalysis::host_origin_at` expose snapshot-owned metadata; `preferred`
+selects the declaration location before the Rust location.
+
+Installation validates identity membership and lexical locations without opening
+documents. Locations do not pin external document versions; a navigation client
+must check the range against the document it opens. They are not serialized into
+execution contracts or included in binding fingerprints, and their URI cannot
+grant native authority. Rust source locations cannot be recovered from an
 arbitrary function pointer; signature introspection is not provided by ordinary
-runtime registration either.
+runtime registration either. Declaration export and LSP transport remain later
+integrations.
 
 Offline tooling reads exported interface data without invoking application
 callbacks or starting host services. If generated text is parsed for presentation,
@@ -720,6 +731,22 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST02 host origin checkpoint: added optional `HostInput` origin metadata beside
+  the existing portable interface. Plain interfaces retain their valid role as
+  source-free contracts. Installation admits only known function/type/field/method
+  identities and valid lexical URI/range descriptors; expanded host methods share
+  their original declaration identity. HIR callable and use-site queries retain
+  both declaration and Rust locations, with declaration-first navigation. SDK
+  source installation accepts the same input. No runtime/ABI format changes,
+  document generation, document reads or binding authority come from origins.
+- ST02 origin validation: added absent/malformed/unknown-origin, expanded-method,
+  stale-installation, snapshot-retention and standard-URI authority regressions.
+  These remain unexecuted with the other HIR tests behind the unchanged ST03-owned
+  ABI build failure recorded below. Format, local documentation links and diff
+  checks pass; structure review passes on 542 Rust files with zero violations or
+  exceptions. ST02 still requires its remaining checked engine metadata and
+  consumer audit; HIR/compiler and workspace integration are not yet accepted.
 
 - ST02 shared callable checkpoint: replaced `EngineNative` with explicit
   `Native(Engine | Host)` implementation metadata and migrated checked source,
