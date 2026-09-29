@@ -4,34 +4,17 @@ use crate::builtin::traits::StandardTraitSemantics;
 use kagari_abi::{
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic,
-        declarations::{ApiBound, ApiImplementation, ApiItem, ApiType},
-        surface::{
-            self as standard_surface, STANDARD_IMPLEMENTATIONS, STANDARD_ITEMS, StandardEnum,
-        },
+        declarations::{ApiBound, ApiImplementation, ApiType},
+        surface::{self as standard_surface, STANDARD_IMPLEMENTATIONS, StandardEnum},
         traits::{self as standard_traits, StandardTrait},
     },
 };
-use kagari_common::{SourceFile, Span, collection::CollectionAccess, identity};
-use kagari_stdlib::bundled_sources;
+use kagari_common::{collection::CollectionAccess, identity};
 
-use crate::{
-    declarations::{Declaration, DeclarationId},
-    types::{NominalType, TypeId},
-};
+use crate::types::{NominalType, TypeId};
 
 use super::surface;
-use std::{collections::BTreeMap, sync::OnceLock};
-
-pub fn sources() -> &'static [SourceFile] {
-    static SOURCES: OnceLock<Vec<SourceFile>> = OnceLock::new();
-    SOURCES.get_or_init(|| {
-        bundled_sources()
-            .iter()
-            .map(|source| SourceFile::new(source.uri(), source.text()))
-            .collect()
-    })
-}
+use std::collections::BTreeMap;
 
 pub trait ApiImplementationSemantics {
     fn arguments(&self, receiver: &TypeId) -> Option<Arguments>;
@@ -82,40 +65,6 @@ pub fn implementations(receiver: &TypeId) -> Vec<&'static ApiImplementation> {
         .iter()
         .filter(|i| i.arguments(receiver).is_some())
         .collect()
-}
-
-pub trait ApiItemSemantics {
-    fn declaration(&self) -> Declaration;
-}
-impl ApiItemSemantics for ApiItem {
-    fn declaration(&self) -> Declaration {
-        let source = sources()
-            .iter()
-            .find(|source| source.name() == self.uri)
-            .expect("bundled declaration source");
-        Declaration {
-            id: DeclarationId::Definition(self.identity()),
-            name: self.path.last().unwrap().1.into(),
-            location: source
-                .span(Span::new(self.start, self.end))
-                .expect("declaration source span"),
-        }
-    }
-}
-
-pub fn declaration(id: &DeclarationId) -> Option<&'static Declaration> {
-    static DECLARATIONS: OnceLock<Vec<Declaration>> = OnceLock::new();
-    DECLARATIONS
-        .get_or_init(|| STANDARD_ITEMS.iter().map(ApiItem::declaration).collect())
-        .iter()
-        .find(|d| d.id == *id)
-}
-
-pub fn function(intrinsic: StandardIntrinsic) -> Option<&'static ApiItem> {
-    let api = standard_surface::standard_function_by_intrinsic(intrinsic)?.api;
-    STANDARD_ITEMS
-        .iter()
-        .find(|item| item.uri == api.uri && item.start == api.start)
 }
 
 pub type Arguments = BTreeMap<&'static str, TypeId>;

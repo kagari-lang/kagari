@@ -694,7 +694,7 @@ rejection and preserve existing assertions rather than replace them with totals.
 | --- | --- |
 | ABI `build/{main,api,implementations}.rs`, `standard/{surface,declarations}.rs` | Installed parsed stdlib package and ordinary HIR import; ST01 removes generator/source descriptors |
 | HIR `builtin/{declarations,surface,traits}`, `resolver`, `imports`, `aggregates`, `typeck` | Unified declarations, resolved types/bounds, checked implementations and call applications; ST01/ST02 |
-| HIR `analysis/{standard_queries,signature_queries,declaration_queries,body_queries}`, declaration/docs/completion/navigation consumers | HIR identities and retained package provenance, same source metadata as checking; ST02 |
+| HIR `analysis/{method_queries,signature_queries,declaration_queries,body_queries}`, declaration/docs/completion/navigation consumers | HIR identities and retained package provenance, same source metadata as checking; ST02 |
 | Compiler `source/lower/{abi,instances,function,stmt,expr}` and `expr/*` standard/protocol lowering | Checked HIR signatures, implementation/provider, substitutions and witness choices; ST02/ST03; algorithms removed ST05 |
 | ABI `standard/{application,implementation,resolve,contracts,traits,native}`, `contracts`, `host`, `types/{verify,proofs/*,wire}`, `layout`, `operations`, `numeric` | Carried portable declarations/layouts/witnesses plus trusted closed native operation contracts; ST03. General primitive classification may remain source-free. |
 | MIR instruction effects and verifier/analysis, bytecode `verifier` and `verifier/*`, `trait_bounds`, `access` | Explicit call/effect/layout/proof facts, checked against executable native contracts; ST03 |
@@ -709,6 +709,27 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST01 method-query checkpoint: replaced `standard_method_completions` and its
+  `ApiItem` result with `method_completions`/`MethodCompletion`, projecting checked
+  declaration IDs and names for both ordinary and native source methods. Receiver
+  matching and trait interface enumeration are shared with body checking; removed
+  the latter's direct generated collection-implementation fallback. Completion
+  applies receiver access checks, known method bounds and source visibility while
+  leaving unsupplied method generic arguments open. Explicit overrides navigate
+  to their implementation declaration; inherited defaults retain trait origins.
+- Deleted the process-global standard source/declaration caches and the old
+  intrinsic-to-source-item query. Standard source query tests now live in a
+  test-only module; completion tests use semantic identities and retain readonly,
+  item-type, ordering, inherited-default, navigation and snapshot assertions.
+  Added ordinary source-method, override and generic-bound completion regressions.
+  Deeper `ApiType`/`ApiImplementation` solver consumers and their remaining legacy
+  tests are still pending; this checkpoint does not claim a catalog-free solver.
+- Method-query validation: structure review checks 537 Rust files with zero
+  violations/exceptions; format and diff checks pass. Behavioral HIR tests remain unexecuted behind the
+  unchanged ABI catalog-removal errors, owned by ST03. Resume HIR method-query,
+  standard-query and full type-checking tests after consumer migration. ST01 and
+  ST02 remain open; no full integration result is claimed.
 
 - ST01 documentation inventory checkpoint: added snapshot-owned file enumeration
   and migrated SDK standard declaration/example tests away from ABI source tables.

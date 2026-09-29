@@ -1,222 +1,15 @@
-//! Standard API queries consume checked semantic targets and the bundled source catalog.
-
-#[cfg(test)]
-use crate::builtin::declarations::ApiItemSemantics;
-use crate::builtin::declarations::{
-    ApiBoundSemantics, ApiImplementationSemantics, ApiTypeSemantics,
-};
-#[cfg(test)]
-use crate::builtin::traits::StandardTraitSemantics;
-#[cfg(test)]
-use crate::declarations::DeclarationId;
-use kagari_abi::standard::{
-    declarations::ApiItem,
-    surface::{self as standard_surface, STANDARD_TRAITS, StandardMethodReceiver},
-    traits::StandardTrait,
-};
+//! Source query regressions, including native implementations and protocol views.
 
 use crate::{
-    analysis::FileAnalysis,
     builtin::{
-        declarations::{self, Arguments},
-        traits,
+        declarations::{self, ApiImplementationSemantics, ApiTypeSemantics},
+        traits::StandardTraitSemantics,
     },
+    declarations::DeclarationId,
     types::TypeId,
 };
-#[cfg(test)]
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::collection::CollectionAccess;
-
-impl FileAnalysis {
-    /// Native method candidates for a complete or incomplete member expression.
-    /// Trait-method completion can compose these with the lexical trait scope.
-    pub fn standard_method_completions(&self, offset: usize) -> Vec<&'static ApiItem> {
-        let Some(ty) = self.member_receiver_type(offset) else {
-            return Vec::new();
-        };
-        let mut candidates: Vec<_> = standard_surface::standard_methods()
-            .iter()
-            .filter(|method| {
-                matches!(
-                    (&ty, method.receiver),
-                    (TypeId::Array(_, _), StandardMethodReceiver::Array)
-                        | (TypeId::Map { .. }, StandardMethodReceiver::Map)
-                        | (TypeId::Set(_, _), StandardMethodReceiver::Set)
-                        | (
-                            TypeId::Builtin(kagari_abi::scalar::BuiltinType::String),
-                            StandardMethodReceiver::String
-                        )
-                        | (
-                            TypeId::StandardEnum {
-                                kind: kagari_abi::standard::surface::StandardEnum::Option,
-                                ..
-                            },
-                            StandardMethodReceiver::Option,
-                        )
-                        | (
-                            TypeId::StandardEnum {
-                                kind: kagari_abi::standard::surface::StandardEnum::Result,
-                                ..
-                            },
-                            StandardMethodReceiver::Result,
-                        )
-                )
-            })
-            .filter(|method| {
-                let Some(spec) = standard_surface::standard_function_by_intrinsic(method.intrinsic)
-                else {
-                    return false;
-                };
-                let mut arguments: Arguments = spec
-                    .type_params
-                    .iter()
-                    .map(|name| (*name, TypeId::Unknown))
-                    .collect();
-                let receiver = &spec.api.params[0].ty;
-                receiver.infer(&ty, &mut arguments);
-                !receiver.instantiate(&arguments).conflicts_with(&ty)
-                    || ty.can_weaken_to(&receiver.instantiate(&arguments))
-            })
-            .filter_map(|method| declarations::function(method.intrinsic))
-            .collect();
-        for implementation in declarations::implementations(&ty) {
-            candidates.extend(
-                implementation
-                    .methods
-                    .iter()
-                    .filter(|m| m.params.first().is_some_and(|p| p.name == "self"))
-                    .map(|m| &m.item),
-            );
-            candidates.extend(
-                implementation
-                    .trait_declaration()
-                    .methods
-                    .iter()
-                    .filter(|m| m.params.first().is_some_and(|p| p.name == "self"))
-                    .filter(|method| {
-                        !implementation
-                            .methods
-                            .iter()
-                            .any(|m| m.item.path.last() == method.item.path.last())
-                    })
-                    .map(|m| &m.item),
-            );
-        }
-        if let TypeId::Trait(interface) = &ty {
-            for parent in self
-                .result
-                .facts()
-                .aggregates
-                .trait_closure(interface, &ty, &Default::default())
-                .unwrap_or_default()
-            {
-                if let Some(contract) = STANDARD_TRAITS
-                    .iter()
-                    .find(|t| t.item.identity() == parent.declaration)
-                {
-                    candidates.extend(
-                        contract
-                            .methods
-                            .iter()
-                            .filter(|m| m.params.first().is_some_and(|p| p.name == "self"))
-                            .map(|m| &m.item),
-                    );
-                }
-            }
-        }
-        // Source-declared associated-item constraints also govern completion.
-        candidates.retain(|item| {
-            let Some(method) = STANDARD_TRAITS
-                .iter()
-                .flat_map(|t| t.methods)
-                .find(|m| m.item.identity() == item.identity())
-            else {
-                return true;
-            };
-            let mut arguments = Arguments::new();
-            arguments.insert("Self", ty.clone());
-            method.bounds.iter().all(|(target, constraints)| {
-                if !matches!(
-                    target,
-                    kagari_abi::standard::declarations::ApiType::Named("Self", _)
-                ) {
-                    let owner = STANDARD_TRAITS
-                        .iter()
-                        .find(|t| {
-                            t.methods
-                                .iter()
-                                .any(|m| m.item.identity() == item.identity())
-                        })
-                        .unwrap();
-                    let owner_id = owner.item.identity();
-                    let mut bindings = arguments.clone();
-                    if let Some(implementation) = declarations::implementations(&ty)
-                        .into_iter()
-                        .find(|i| i.trait_declaration().item.identity() == owner_id)
-                    {
-                        bindings.extend(implementation.arguments(&ty).unwrap());
-                    } else if let TypeId::Trait(interface) = &ty
-                        && let Some(parent) = self
-                            .result
-                            .facts()
-                            .aggregates
-                            .trait_closure(interface, &ty, &Default::default())
-                            .unwrap_or_default()
-                            .into_iter()
-                            .find(|n| n.declaration == owner_id)
-                    {
-                        bindings.extend(owner.generics.iter().copied().zip(parent.arguments));
-                    }
-                    let actual = target.instantiate(&bindings);
-                    if actual.is_unresolved() {
-                        return true;
-                    }
-                    return constraints.iter().all(|constraint| {
-                        let required = constraint.nominal(&bindings);
-                        traits::intrinsic_applies(
-                            &required,
-                            &actual,
-                            Some(&self.result.facts().aggregates),
-                            &Default::default(),
-                        ) || self
-                            .result
-                            .facts()
-                            .aggregates
-                            .concrete_interface_implementation(
-                                &required,
-                                &actual,
-                                &Default::default(),
-                                4096,
-                                64,
-                                &Default::default(),
-                            )
-                            .is_ok_and(|i| i.is_some())
-                    });
-                }
-                constraints.iter().all(|constraint| {
-                    let Some(kind @ (StandardTrait::Iterator | StandardTrait::Iterable)) =
-                        StandardTrait::from_name(constraint.name)
-                    else {
-                        return true;
-                    };
-                    let required = constraint.nominal(&arguments);
-                    let outputs = traits::iteration_outputs(
-                        kind,
-                        &ty,
-                        Some(&self.result.facts().aggregates),
-                        &Default::default(),
-                    );
-                    required.associated_types.iter().all(|(member, expected)| {
-                        outputs
-                            .as_ref()
-                            .and_then(|items| items.get(member))
-                            .is_some_and(|actual| !actual.conflicts_with(expected))
-                    })
-                })
-            })
-        });
-        candidates
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -246,19 +39,17 @@ mod tests {
                 .snapshot(sources.snapshot(), Default::default(), &Default::default())
                 .unwrap();
             let analysis = snapshot.file(file).unwrap();
-            let candidates = analysis.standard_method_completions(
+            let candidates = analysis.method_completions(
                 source.find(receiver).unwrap() + receiver.find('.').unwrap() + 1,
             );
             for name in expected {
                 let matches = candidates
                     .iter()
-                    .filter(|m| m.path.last().unwrap().1 == name)
+                    .filter(|m| m.name == name)
                     .collect::<Vec<_>>();
                 assert_eq!(matches.len(), 1, "{name}");
                 let api = matches[0];
-                let declaration = snapshot
-                    .declaration(&DeclarationId::Definition(api.identity()))
-                    .unwrap();
+                let declaration = snapshot.declaration(&api.declaration).unwrap();
                 let text = snapshot.source(declaration.location.file).unwrap();
                 assert_eq!(
                     &text.text()[declaration.location.range.start..declaration.location.range.end],
@@ -303,25 +94,23 @@ mod tests {
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
-        let candidates = analysis.standard_method_completions(text.find("values. }").unwrap() + 7);
+        let candidates = analysis.method_completions(text.find("values. }").unwrap() + 7);
         for name in ["next", "map", "filter", "collect"] {
-            let matches: Vec<_> = candidates
-                .iter()
-                .filter(|m| m.path.last().unwrap().1 == name)
-                .collect();
+            let matches: Vec<_> = candidates.iter().filter(|m| m.name == name).collect();
             assert_eq!(matches.len(), 1, "{name}");
             let api = matches[0];
             assert_eq!(
-                api.path[0].0,
+                match &api.declaration {
+                    DeclarationId::Definition(id) => id.path[0].kind,
+                    _ => panic!("source method"),
+                },
                 if name == "next" {
                     kagari_common::identity::DefinitionKind::Impl
                 } else {
                     kagari_common::identity::DefinitionKind::Trait
                 }
             );
-            let declaration = snapshot
-                .declaration(&DeclarationId::Definition(api.identity()))
-                .unwrap();
+            let declaration = snapshot.declaration(&api.declaration).unwrap();
             let source = snapshot.source(declaration.location.file).unwrap();
             assert_eq!(
                 &source.text()[declaration.location.range.start..declaration.location.range.end],
@@ -369,9 +158,21 @@ mod tests {
         let method = &collect.methods[0].item;
         assert_eq!(method.uri, "kagari://std/map.kgr");
         assert!(method.signature.contains("CollectionFromIterator"));
-        assert_eq!(
-            declarations::declaration(&DeclarationId::Definition(method.identity())),
-            Some(&method.declaration())
+        let declarations = AnalysisDatabase::default()
+            .declarations(SourceDatabase::default().snapshot(), &Default::default())
+            .unwrap();
+        let source = declarations
+            .files()
+            .find(|file| file.source().name() == method.uri)
+            .unwrap();
+        let declaration = source.declarations().site_at(method.start).unwrap();
+        assert_eq!(declarations.declaration(&declaration.id), Some(declaration));
+        assert!(
+            declarations
+                .documentation(&declaration.id)
+                .unwrap()
+                .written_signature
+                .contains("CollectionFromIterator")
         );
 
         let result = TypeId::StandardEnum {
@@ -470,12 +271,8 @@ mod tests {
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let offset = text.find("text. ").unwrap() + 5;
-        let candidates = old.file(file).unwrap().standard_method_completions(offset);
-        assert!(
-            candidates
-                .iter()
-                .any(|item| item.path.last().unwrap().1 == "len_bytes")
-        );
+        let candidates = old.file(file).unwrap().method_completions(offset);
+        assert!(candidates.iter().any(|item| item.name == "len_bytes"));
         sources
             .set(
                 "main.kgr",
@@ -487,7 +284,7 @@ mod tests {
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         assert_eq!(
-            old.file(file).unwrap().standard_method_completions(offset),
+            old.file(file).unwrap().method_completions(offset),
             candidates
         );
     }
@@ -671,11 +468,9 @@ mod interpolation_queries {
             let completions = snapshot
                 .file(file)
                 .unwrap()
-                .standard_method_completions(text.find(". }").unwrap() + 1);
+                .method_completions(text.find(". }").unwrap() + 1);
             assert_eq!(
-                completions
-                    .iter()
-                    .any(|item| item.path.last().unwrap().1 == "join"),
+                completions.iter().any(|item| item.name == "join"),
                 available
             );
         }
@@ -745,7 +540,7 @@ mod collection_access_tests {
                     let declared = contract
                         .methods
                         .iter()
-                        .find(|m| m.name == method.item.path.last().unwrap().1)
+                        .find(|m| m.name == method.item.name)
                         .unwrap();
                     assert_eq!(
                         method
@@ -842,18 +637,9 @@ mod collection_access_tests {
             let candidates = snapshot
                 .file(id)
                 .unwrap()
-                .standard_method_completions(text.find("values. }").unwrap() + 7);
-            assert!(
-                candidates
-                    .iter()
-                    .any(|item| item.path.last().unwrap().1 == "len")
-            );
-            assert_eq!(
-                candidates
-                    .iter()
-                    .any(|item| item.path.last().unwrap().1 == write),
-                mutable
-            );
+                .method_completions(text.find("values. }").unwrap() + 7);
+            assert!(candidates.iter().any(|item| item.name == "len"));
+            assert_eq!(candidates.iter().any(|item| item.name == write), mutable);
         }
     }
     #[test]
@@ -896,18 +682,12 @@ mod collection_access_tests {
             let items = snapshot
                 .file(id)
                 .unwrap()
-                .standard_method_completions(text.find("values. }").unwrap() + 7);
+                .method_completions(text.find("values. }").unwrap() + 7);
             assert_eq!(
-                items
-                    .iter()
-                    .any(|item| item.path.last().unwrap().1 == "binary_search"),
+                items.iter().any(|item| item.name == "binary_search"),
                 ordered
             );
-            assert!(
-                items
-                    .iter()
-                    .any(|item| item.path.last().unwrap().1 == "contains")
-            );
+            assert!(items.iter().any(|item| item.name == "contains"));
         }
     }
 }

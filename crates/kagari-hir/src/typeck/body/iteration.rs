@@ -1,84 +1,12 @@
 use crate::{
-    builtin::traits::{self, StandardTraitSemantics},
+    builtin::traits::StandardTraitSemantics,
     hir::ExprId,
     typeck::{BodyTypeEnv, ResolvedIteration, body::BodyChecker},
-    types::{NominalType, TypeId},
+    types::TypeId,
 };
-use kagari_abi::{
-    scalar::BuiltinType,
-    standard::traits::{self as standard_traits, StandardTrait},
-};
-use kagari_common::{identity::associated_type_id, range::RangeKind};
+use kagari_abi::standard::traits::StandardTrait;
+use kagari_common::identity::associated_type_id;
 impl BodyChecker<'_> {
-    pub(super) fn add_iterator_view(&self, receiver: &TypeId, views: &mut Vec<NominalType>) {
-        if let TypeId::Range(item, kind) = receiver
-            && *kind != RangeKind::Full
-        {
-            let mut view = StandardTrait::RangeBounds.nominal();
-            view.arguments.push((**item).clone());
-            views.push(view);
-        }
-        for kind in [StandardTrait::Iterator, StandardTrait::Iterable] {
-            if matches!(
-                receiver,
-                TypeId::Range(_, _)
-                    | TypeId::Iter(_)
-                    | TypeId::Array(_, _)
-                    | TypeId::Map { .. }
-                    | TypeId::Set(_, _)
-                    | TypeId::Builtin(BuiltinType::String)
-            ) && let Some(outputs) = traits::iteration_outputs(
-                kind,
-                receiver,
-                Some(self.aggregates),
-                &Default::default(),
-            ) {
-                if let Some(view) = views
-                    .iter_mut()
-                    .find(|n| n.declaration == standard_traits::identity(kind))
-                {
-                    view.associated_types.extend(outputs);
-                    continue;
-                }
-                let mut view = kind.nominal();
-                view.associated_types = outputs;
-                views.push(view);
-            }
-        }
-        if views
-            .iter()
-            .any(|n| n.declaration == standard_traits::identity(StandardTrait::Iterable))
-        {
-            return;
-        }
-        let Some(iterator) = views
-            .iter()
-            .find(|n| n.declaration == standard_traits::identity(StandardTrait::Iterator))
-        else {
-            return;
-        };
-        let member = associated_type_id(&iterator.declaration, "Item");
-        let item = iterator
-            .associated_types
-            .get(&member)
-            .cloned()
-            .unwrap_or_else(|| {
-                self.aggregates.normalize_type(&TypeId::Projection {
-                    receiver: Box::new(receiver.clone()),
-                    interface: Box::new(iterator.clone()),
-                    member,
-                    arguments: vec![],
-                })
-            });
-        let mut into = StandardTrait::Iterable.nominal();
-        into.associated_types
-            .insert(associated_type_id(&into.declaration, "Item"), item);
-        into.associated_types.insert(
-            associated_type_id(&into.declaration, "Iter"),
-            receiver.clone(),
-        );
-        views.push(into);
-    }
     pub(super) fn infer_iteration(
         &mut self,
         expr: ExprId,

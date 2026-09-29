@@ -133,10 +133,14 @@ standard signature catalog or replace declared types with the types of erroneous
 arguments. Method syntax omits the receiver parameter, and missing arguments do
 not remove declared parameters. The query does not register or execute callbacks.
 
-Completion queries also consume semantic receiver facts, including incomplete
-code. Legacy `standard_method_completions` consumers still require migration in ST02; the
-[active ledger](../stdlib-hir-refactor.md#progress-ledger) records the intermediate
-build state rather than claiming this tool integration is complete.
+`FileAnalysis::method_completions` returns declaration IDs and names for source
+methods, including incomplete member expressions. Inherent receiver matching and
+trait interface selection share the HIR call-checking path. Known receiver and
+method bounds filter candidates; unsupplied method type arguments remain open.
+Explicit implementations retain their declaration IDs, while inherited defaults
+refer to the trait declaration. The query does not load a separate standard method
+table. Remaining solver and executable migration work is recorded in the
+[active ledger](../stdlib-hir-refactor.md#progress-ledger).
 
 Standard trait methods and associated types have ordinary declaration identities.
 Each snapshot owns immutable declaration facts. User declarations take precedence over

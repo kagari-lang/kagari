@@ -1,15 +1,12 @@
 use crate::{
     aggregates::ImplementationSearchError,
-    builtin::{
-        declarations::{self, ApiImplementationSemantics, ApiTypeSemantics},
-        traits::{self, StandardTraitSemantics},
-    },
+    builtin::traits::{self, StandardTraitSemantics},
     hir::{ExprId, ExprKind, TypeKind},
     typeck::{
         BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, ResolvedAssociatedConst,
         ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
         body::BodyChecker,
-        completion, inference,
+        completion, inference, members,
         ty::{self, TypeContext, resolve_type_in},
     },
     types::{NominalType, TypeId, TypeSubstitution},
@@ -199,31 +196,12 @@ impl<'a> BodyChecker<'a> {
             })
             .filter_map(|method| {
                 let function = method.function.clone();
-                let mut substitution = TypeSubstitution::default();
-                let generics = function.generic_params.as_slice();
-                if inference::infer(
-                    &method.owner,
+                let substitution = members::inherent_substitution(
+                    self.aggregates,
+                    method,
                     &receiver_ty,
-                    generics,
-                    &mut substitution,
                     self.cancel,
-                )
-                .is_err()
-                {
-                    return None;
-                }
-                // Inference collects arguments; it does not establish that this
-                // impl owns the receiver. Mutability is checked against the
-                // method parameter after selecting the nominal/storage family.
-                let owner = self
-                    .aggregates
-                    .normalize_type(&method.owner.instantiate(&substitution));
-                if owner.conflicts_with(&receiver_ty)
-                    && !owner.can_weaken_to(&receiver_ty)
-                    && !receiver_ty.can_weaken_to(&owner)
-                {
-                    return None;
-                }
+                )?;
                 let target = if method.id.file == self.lowered.source.id()
                     && method.id.revision == self.lowered.source.revision()
                 {
@@ -434,179 +412,7 @@ impl<'a> BodyChecker<'a> {
     }
 
     pub(super) fn trait_bounds_for(&self, ty: &TypeId, env: &BodyTypeEnv) -> Vec<NominalType> {
-        if let TypeId::Trait(interface) = ty {
-            let mut bounds = self
-                .aggregates
-                .trait_closure(interface, ty, self.cancel)
-                .unwrap_or_default();
-            if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
-            {
-                bounds.extend(
-                    [
-                        StandardTrait::PartialEq,
-                        StandardTrait::Eq,
-                        StandardTrait::Hash,
-                        StandardTrait::Debug,
-                    ]
-                    .map(|kind| kind.nominal()),
-                );
-            }
-            return bounds;
-        }
-        if !matches!(
-            ty,
-            TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. }
-        ) {
-            let mut implemented = Vec::new();
-            for implementation in self.aggregates.implementations() {
-                let mut substitution = TypeSubstitution::default();
-                if inference::infer(
-                    &implementation.for_type,
-                    ty,
-                    &implementation.generic_params,
-                    &mut substitution,
-                    self.cancel,
-                )
-                .is_ok()
-                {
-                    let applied = implementation.trait_type.instantiate(&substitution);
-                    if matches!(
-                        self.aggregates.concrete_interface_implementation(
-                            &applied,
-                            ty,
-                            &env.generic_bounds,
-                            100_000,
-                            64,
-                            self.cancel
-                        ),
-                        Ok(Some(_))
-                    ) && !implemented.contains(&applied)
-                    {
-                        implemented.push(applied);
-                    }
-                }
-            }
-            for implementation in declarations::implementations(ty) {
-                let declaration = implementation.trait_declaration().item.identity();
-                if !StandardTrait::from_id(&declaration).is_some_and(StandardTrait::collection) {
-                    continue;
-                }
-                if let Some(arguments) = implementation.arguments(ty) {
-                    let applied = NominalType {
-                        declaration,
-                        arguments: implementation
-                            .trait_arguments
-                            .iter()
-                            .map(|t| t.instantiate(&arguments))
-                            .collect(),
-                        associated_types: Default::default(),
-                    };
-                    if !implemented.contains(&applied) {
-                        implemented.push(applied);
-                    }
-                }
-            }
-            for kind in StandardTrait::ALL {
-                let interface = kind.intrinsic_view(ty);
-                if traits::intrinsic_holds(kind, ty, Some(self.aggregates), &env.generic_bounds)
-                    && !implemented.contains(&interface)
-                {
-                    implemented.push(interface);
-                }
-            }
-            if !implemented.is_empty() {
-                self.add_iterator_view(ty, &mut implemented);
-                return implemented;
-            }
-        }
-        let mut bounds = env
-            .generic_bounds
-            .get(ty)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>();
-        if let TypeId::Projection {
-            receiver,
-            interface,
-            member,
-            arguments,
-        } = ty
-            && let Some(contract) = self.aggregates.trait_(&interface.declaration)
-        {
-            let mut applied = (**interface).clone();
-            for bound in env
-                .generic_bounds
-                .get(receiver.as_ref())
-                .into_iter()
-                .flatten()
-            {
-                if let ConstraintTarget::Trait(available) = bound
-                    && available.declaration == applied.declaration
-                    && available.arguments == applied.arguments
-                {
-                    applied
-                        .associated_types
-                        .extend(available.associated_types.clone());
-                }
-            }
-            let mut substitution: TypeSubstitution = contract
-                .generic_params
-                .iter()
-                .cloned()
-                .zip(interface.arguments.iter().cloned())
-                .collect();
-            substitution.insert_receiver(interface.declaration.clone(), (**receiver).clone());
-            if let Some(inputs) = contract.associated_type_parameters.get(member) {
-                substitution.extend(
-                    inputs
-                        .parameters
-                        .iter()
-                        .cloned()
-                        .zip(arguments.iter().cloned()),
-                );
-            }
-            bounds.extend(
-                contract
-                    .associated_types
-                    .get(member)
-                    .into_iter()
-                    .flatten()
-                    .map(|bound| match bound {
-                        ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
-                        ConstraintTarget::Trait(value) => {
-                            let TypeId::Trait(value) = TypeId::Trait(value.clone())
-                                .instantiate(&substitution)
-                                .with_associated_types(&applied)
-                            else {
-                                unreachable!("associated trait bound");
-                            };
-                            ConstraintTarget::Trait(value)
-                        }
-                    }),
-            );
-        }
-        let direct = bounds
-            .into_iter()
-            .filter_map(|bound| match bound {
-                ConstraintTarget::Trait(ty) => Some(ty),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let mut expanded = Vec::new();
-        for interface in direct {
-            for parent in self
-                .aggregates
-                .trait_closure(&interface, ty, self.cancel)
-                .unwrap_or_default()
-            {
-                if !expanded.contains(&parent) {
-                    expanded.push(parent);
-                }
-            }
-        }
-        self.add_iterator_view(ty, &mut expanded);
-        expanded
+        members::interfaces(self.aggregates, ty, &env.generic_bounds, self.cancel)
     }
 
     pub(super) fn infer_trait_method_call_type(

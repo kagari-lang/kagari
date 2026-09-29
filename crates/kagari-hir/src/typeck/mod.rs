@@ -25,6 +25,7 @@ mod const_eval;
 pub use const_budget::ConstLimits;
 mod constraints;
 mod inference;
+pub(crate) mod members;
 mod scalar;
 mod solver;
 pub use scalar::ScalarValue;

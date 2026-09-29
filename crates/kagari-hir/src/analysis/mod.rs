@@ -30,7 +30,10 @@ mod call_queries;
 pub use call_queries::CallSignature;
 mod documentation_queries;
 mod error;
-mod standard_queries;
+mod method_queries;
+pub use method_queries::MethodCompletion;
+#[cfg(test)]
+mod standard_query_tests;
 pub use documentation_queries::DeclarationDocumentation;
 pub use error::AnalysisError;
 mod body_queries;
