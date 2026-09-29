@@ -2,6 +2,7 @@ use crate::{
     aggregates::ImplementationSearchError,
     builtin::traits::{self, StandardTraitSemantics},
     hir::{ExprId, ExprKind, TypeKind},
+    native::NativeBinding,
     typeck::{
         BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, ResolvedAssociatedConst,
         ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
@@ -234,7 +235,7 @@ impl<'a> BodyChecker<'a> {
             && !function.generic_params.is_empty()
             && !matches!(
                 function.implementation,
-                FunctionImplementation::EngineNative(_)
+                FunctionImplementation::Native(NativeBinding::Engine(_))
             )
         {
             self.infer_call_args(args, env);
@@ -305,7 +306,7 @@ impl<'a> BodyChecker<'a> {
         let mut all_args = Vec::with_capacity(arg_tys.len() + 1);
         all_args.push((receiver, receiver_ty));
         all_args.extend(arg_tys);
-        self.check_function_arguments(&function, &substitution, callee, &all_args);
+        self.check_function_arguments(&function, &substitution, callee, &all_args, 1);
         Some(
             self.aggregates
                 .normalize_type(&function.return_type.instantiate(&substitution)),

@@ -12,6 +12,7 @@ use crate::{
     aggregates::{AggregateCatalog, MethodSignature},
     declarations::Declarations,
     hir::{Function, Module, Visibility, Writeability},
+    native::NativeBinding,
     types::{GenericParameterType, NominalType, TypeSubstitution},
 };
 #[cfg(test)]
@@ -236,13 +237,16 @@ pub(crate) fn check_signatures(
             break;
         }
         let implementation = match lowered.native_functions.get(&function.id) {
-            Some(binding) => FunctionImplementation::EngineNative(*binding),
+            Some(binding) => FunctionImplementation::Native(NativeBinding::Engine(*binding)),
             None if function.body.is_some() => FunctionImplementation::Script,
             None => FunctionImplementation::Required,
         };
         if function.visibility != Visibility::Private
             && !function.generic_params.is_empty()
-            && !matches!(implementation, FunctionImplementation::EngineNative(_))
+            && !matches!(
+                implementation,
+                FunctionImplementation::Native(NativeBinding::Engine(_))
+            )
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PublicGenericFunction {

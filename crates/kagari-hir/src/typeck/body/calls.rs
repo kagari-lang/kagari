@@ -1,11 +1,13 @@
 use crate::{
     builtin::traits::{self, intrinsic_holds},
+    callable::CallableSignature,
     hir::{ExprId, ExprKind},
     imports::ImportedFunction,
+    native::NativeBinding,
     resolver::ResolvedName,
     typeck::{
         BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, GenericBounds,
-        ScalarValue, TypedFunction, body::BodyChecker, check, completion, constraints, inference,
+        ScalarValue, body::BodyChecker, check, completion, constraints, inference,
         ty::display_type_id,
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
@@ -48,7 +50,7 @@ impl<'a> BodyChecker<'a> {
                 && !imported.signature.generic_params.is_empty()
                 && !matches!(
                     imported.signature.implementation,
-                    FunctionImplementation::EngineNative(_)
+                    FunctionImplementation::Native(NativeBinding::Engine(_))
                 )
             {
                 self.infer_typed_args(
@@ -183,9 +185,9 @@ impl<'a> BodyChecker<'a> {
         self.imported_functions.target(method.id)
     }
 
-    fn infer_checked_function_call(
+    pub(super) fn infer_checked_function_call(
         &mut self,
-        function: &TypedFunction,
+        function: &impl CallableSignature,
         call_expr: ExprId,
         callee: ExprId,
         args: &[ExprId],
@@ -193,18 +195,15 @@ impl<'a> BodyChecker<'a> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let mut substitution = TypeSubstitution::default();
-        self.seed_callable_context(
-            callee,
-            &function.generic_params,
-            &function.bounds,
-            &mut substitution,
-        );
-        self.seed_explicit_arguments(callee, &function.generic_params, &mut substitution);
+        let empty_bounds = GenericBounds::new();
+        let bounds = function.bounds().unwrap_or(&empty_bounds);
+        self.seed_callable_context(callee, function.generic_params(), bounds, &mut substitution);
+        self.seed_explicit_arguments(callee, function.generic_params(), &mut substitution);
         if let Some(expected) = expected
             && inference::infer(
-                &function.return_type,
+                function.return_type(),
                 expected,
-                &function.generic_params,
+                function.generic_params(),
                 &mut substitution,
                 self.cancel,
             )
@@ -214,10 +213,10 @@ impl<'a> BodyChecker<'a> {
         }
         let arg_tys = self.infer_bounded_args(
             args,
-            function.params.iter().map(|parameter| parameter.ty.clone()),
-            &function.generic_params,
+            function.parameters().map(|(_, ty)| ty.clone()),
+            function.generic_params(),
             &mut substitution,
-            &function.bounds,
+            bounds,
             env,
         );
         if self.cancel.check().is_err() {
@@ -245,23 +244,28 @@ impl<'a> BodyChecker<'a> {
         }
         let type_arguments = self.finish_inferred_arguments(
             &mut substitution,
-            &function.generic_params,
-            &function.name,
+            function.generic_params(),
+            function.name(),
             callee,
             suppress_missing,
         );
         self.type_table
             .insert_type_arguments(call_expr, type_arguments);
         self.check_generic_call_bounds(
-            &function.generic_params,
-            &function.bounds,
+            function.generic_params(),
+            bounds,
             &substitution,
             env,
             callee,
         );
-        self.check_function_arguments(function, &substitution, callee, &arg_tys);
+        let implicit = usize::from(
+            self.type_table
+                .call_resolution(call_expr)
+                .is_some_and(|call| call.receiver.is_some()),
+        );
+        self.check_function_arguments(function, &substitution, callee, &arg_tys, implicit);
         self.aggregates
-            .normalize_type(&function.return_type.instantiate(&substitution))
+            .normalize_type(&function.return_type().instantiate(&substitution))
     }
 
     pub(super) fn check_generic_call_bounds(
@@ -337,30 +341,31 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn check_function_arguments(
         &mut self,
-        function: &TypedFunction,
+        function: &impl CallableSignature,
         substitution: &TypeSubstitution,
         callee: ExprId,
         arg_tys: &[(ExprId, TypeId)],
+        implicit: usize,
     ) {
-        if function.params.len() != arg_tys.len() {
+        if function.parameters().len() != arg_tys.len() {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {
-                    function_name: function.name.clone(),
-                    expected: function.params.len(),
-                    found: arg_tys.len(),
+                    function_name: function.name().to_owned(),
+                    expected: function.parameters().len().saturating_sub(implicit),
+                    found: arg_tys.len().saturating_sub(implicit),
                 })
                 .with_span(self.lowered.source_map.expr_span(callee)),
             );
         }
-        for (index, param) in function.params.iter().enumerate() {
+        for (index, (name, ty)) in function.parameters().enumerate() {
             if self.cancel.check().is_err() {
                 return;
             }
             self.check_arg_type(
-                &function.name,
-                &param.name,
+                function.name(),
+                name,
                 self.aggregates
-                    .normalize_type(&param.ty.instantiate(substitution)),
+                    .normalize_type(&ty.instantiate(substitution)),
                 index,
                 arg_tys,
             );

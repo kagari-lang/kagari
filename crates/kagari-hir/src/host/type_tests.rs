@@ -1,5 +1,8 @@
 use super::*;
-use crate::{LanguageFeatureProfile, analysis::AnalysisDatabase};
+use crate::{
+    LanguageFeatureProfile, analysis::AnalysisDatabase, callable::CallableSignature,
+    declarations::DeclarationId, native::NativeBinding, typeck::FunctionImplementation,
+};
 use kagari_common::{
     host_interface::{HostParameter, HostPassingStyle},
     identity::{ModuleIdentity, PackageId},
@@ -51,7 +54,19 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
             .set("mem://method", text.clone(), SourceLayer::Base)
             .unwrap();
         let mut db = AnalysisDatabase::default();
-        db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
+        let hosts = HostDeclarations::new(declarations.clone()).unwrap();
+        let method_id = hosts.method(&declarations.types[0].id, "add").unwrap();
+        let callable = hosts.callable(method_id).unwrap();
+        assert_eq!(
+            callable.implementation(),
+            FunctionImplementation::Native(NativeBinding::Host(method_id))
+        );
+        assert_eq!(
+            callable.contract().params[0].passing,
+            HostPassingStyle::SharedBorrow
+        );
+        assert_eq!(callable.parameters().len(), 2);
+        db.set_host_declarations(hosts);
         let snapshot = db
             .snapshot(
                 sources.snapshot(),
@@ -94,6 +109,16 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         }
         assert_eq!(target.id, identity);
         assert_eq!(target.documentation, "Add to the host counter");
+        let signature = file.call_signature_at(text.find("add(").unwrap()).unwrap();
+        assert_eq!(
+            signature.declaration,
+            DeclarationId::Definition(identity.clone())
+        );
+        assert_eq!(
+            signature.parameters,
+            [("amount".into(), TypeId::Builtin(BuiltinType::I32))]
+        );
+        assert_eq!(signature.result, TypeId::Builtin(BuiltinType::I32));
         assert_eq!(
             target.params[0].ty,
             HostValueType::Opaque(declarations.types[0].id.clone())

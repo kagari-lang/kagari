@@ -1,5 +1,8 @@
 use super::*;
-use crate::{LanguageFeatureProfile, analysis::AnalysisDatabase};
+use crate::{
+    LanguageFeatureProfile, analysis::AnalysisDatabase, callable::CallableSignature,
+    native::NativeBinding, typeck::FunctionImplementation,
+};
 use kagari_common::{
     host_interface::{HostParameter, HostPassingStyle},
     source_database::{SourceDatabase, SourceLayer},
@@ -63,6 +66,43 @@ pub(super) fn declaration() -> HostFunctionDeclaration {
     );
     declaration.documentation = "Echo an integer".into();
     declaration
+}
+
+#[test]
+fn checked_host_callables_retain_provider_contracts_and_reject_other_inputs() {
+    let mut declaration = declaration();
+    declaration.params[0].ty = HostValueType::String;
+    declaration.params[0].passing = HostPassingStyle::SharedBorrow;
+    declaration.capability_requirements.clock = true;
+    declaration.resource_cost_hint = Some(23);
+    declaration.effects.may_call_host_services = true;
+    declaration.effects.may_trap = true;
+    let interface = HostInterface {
+        functions: vec![declaration.clone()],
+        ..Default::default()
+    };
+    let original = HostDeclarations::new(interface.clone()).unwrap();
+    let other = HostDeclarations::new(interface).unwrap();
+    let id = original.resolve("demo::echo").unwrap();
+    let callable = original.callable(id).unwrap();
+    assert_eq!(callable.contract(), &declaration);
+    assert_eq!(callable.name(), "demo.echo");
+    assert_eq!(
+        callable.implementation(),
+        FunctionImplementation::Native(NativeBinding::Host(id))
+    );
+    assert_eq!(
+        callable.parameters().collect::<Vec<_>>(),
+        [("value", &TypeId::Builtin(BuiltinType::String))]
+    );
+    assert_eq!(callable.return_type(), &TypeId::Builtin(BuiltinType::I32));
+    assert!(callable.generic_params().is_empty());
+    assert!(callable.bounds().is_none());
+    assert!(other.callable(id).is_none());
+    let other_id = other.resolve("demo::echo").unwrap();
+    assert_ne!(id, other_id);
+    assert_eq!(other.callable(other_id).unwrap().contract(), &declaration);
+    assert_eq!(original.callable(id).unwrap().contract(), &declaration);
 }
 
 #[test]
@@ -137,6 +177,14 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     assert_eq!(
         first_file.host_function_at(offset).unwrap().documentation,
         "Echo an integer"
+    );
+    assert_eq!(
+        first_file.call_signature_at(offset).unwrap().result,
+        TypeId::Builtin(BuiltinType::I32)
+    );
+    assert_eq!(
+        second_file.call_signature_at(offset).unwrap().result,
+        TypeId::Builtin(BuiltinType::String)
     );
 }
 

@@ -1,5 +1,5 @@
 //! HIR representation hooks supplied only by an installed native declaration.
-use crate::types::TypeId;
+use crate::{host::HostFunctionId, types::TypeId};
 use kagari_abi::{
     scalar::BuiltinType,
     standard::{
@@ -11,6 +11,14 @@ use kagari_abi::{
 use kagari_common::{collection::CollectionAccess, integer::IntegerMethod, range::RangeKind};
 
 pub(crate) mod stdlib;
+
+/// Provider-qualified semantic binding. Host identities are scoped to the
+/// installed offline interface; neither variant is a runtime function pointer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeBinding {
+    Engine(EngineNativeBinding),
+    Host(HostFunctionId),
+}
 
 /// Closed engine binding attached only through installed declaration provenance.
 /// Numeric owners and generic arguments come from the checked source signature;

@@ -4,7 +4,7 @@ use crate::{
     declarations::Declarations,
     hir::{BodySelection, GenericParam},
     imports::ImportedFunctions,
-    native::EngineNativeBinding,
+    native::NativeBinding,
     types::GenericParameterType,
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
@@ -124,14 +124,14 @@ pub struct TypedFunction {
     pub return_type: TypeId,
 }
 
-/// Implementation provenance carried with checked source function signatures.
+/// Implementation provenance carried with checked callable signatures.
 /// The enclosing module/function identity selects a script body; required trait
-/// methods await an implementation. Engine bindings are installed input and do
+/// methods await an implementation. Native bindings are installed input and do
 /// not acquire authority from the declaration's name or source URI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionImplementation {
     Script,
-    EngineNative(EngineNativeBinding),
+    Native(NativeBinding),
     Required,
 }
 

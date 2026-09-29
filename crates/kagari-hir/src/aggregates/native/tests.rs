@@ -1,3 +1,4 @@
+use crate::native::NativeBinding;
 use crate::{
     aggregates::AggregateCatalog,
     analysis::{AnalysisDatabase, AnalysisSnapshot},
@@ -189,7 +190,7 @@ fn every_native_signature_retains_resolved_public_types() {
         for function in file.signatures().facts().functions() {
             if !matches!(
                 function.implementation,
-                FunctionImplementation::EngineNative(_)
+                FunctionImplementation::Native(NativeBinding::Engine(_))
             ) {
                 continue;
             }

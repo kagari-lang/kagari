@@ -3,7 +3,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::Writeability,
     lower::LoweredModule,
-    native::EngineNativeBinding,
+    native::{EngineNativeBinding, NativeBinding},
     resolver::ResolvedName,
     typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
@@ -244,12 +244,13 @@ impl AggregateCatalog {
                     .insert(method_id.clone(), (id.clone(), methods.len()));
                 methods.push(MethodSignature {
                     default: match function.implementation {
-                        FunctionImplementation::EngineNative(
+                        FunctionImplementation::Native(NativeBinding::Engine(
                             EngineNativeBinding::TraitDefault(binding),
-                        ) => Some(MethodDefault::native(binding)),
+                        )) => Some(MethodDefault::native(binding)),
                         FunctionImplementation::Script => Some(MethodDefault::Script),
-                        FunctionImplementation::Required
-                        | FunctionImplementation::EngineNative(_) => None,
+                        FunctionImplementation::Required | FunctionImplementation::Native(_) => {
+                            None
+                        }
                     },
                     id: method_id.clone(),
                     owner: id.clone(),

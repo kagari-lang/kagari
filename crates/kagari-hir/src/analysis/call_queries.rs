@@ -1,12 +1,13 @@
 //! Call signatures are projections of the selected declaration's checked facts.
 
 use crate::{
+    aggregates::AggregateCatalog,
     analysis::FileAnalysis,
+    callable::CallableSignature,
     declarations::DeclarationId,
     hir::ExprKind,
-    host,
     resolver::ResolvedName,
-    typeck::{CallTarget, TypedFunction},
+    typeck::{CallTarget, ResolvedCall},
     types::{TypeId, TypeSubstitution},
 };
 
@@ -39,33 +40,6 @@ impl FileAnalysis {
             .min_by_key(|(length, _)| *length)?;
         let call = facts.typed.type_table.call_resolution(id)?;
         let receiver_offset = usize::from(call.receiver.is_some());
-        let source_signature = |declaration, signature: &TypedFunction| {
-            let substitution: TypeSubstitution = signature
-                .generic_params
-                .iter()
-                .cloned()
-                .zip(call.type_arguments.iter().cloned())
-                .collect();
-            CallSignature {
-                declaration,
-                parameters: signature
-                    .params
-                    .iter()
-                    .skip(receiver_offset)
-                    .map(|parameter| {
-                        (
-                            parameter.name.clone(),
-                            facts
-                                .aggregates
-                                .normalize_type(&parameter.ty.instantiate(&substitution)),
-                        )
-                    })
-                    .collect(),
-                result: facts
-                    .aggregates
-                    .normalize_type(&signature.return_type.instantiate(&substitution)),
-            }
-        };
         match &call.target {
             CallTarget::Function(function) => {
                 let declaration = facts
@@ -76,29 +50,30 @@ impl FileAnalysis {
                     .functions
                     .iter()
                     .find(|candidate| candidate.id == *function)?;
-                Some(source_signature(declaration.id.clone(), signature))
+                Some(callable_signature(
+                    declaration.id.clone(),
+                    signature,
+                    &call,
+                    &facts.aggregates,
+                ))
             }
             CallTarget::SourceFunction(function) => {
                 let imported = facts.imported_functions.target(*function)?;
-                Some(source_signature(
+                Some(callable_signature(
                     imported.site.id.clone(),
                     &imported.signature,
+                    &call,
+                    &facts.aggregates,
                 ))
             }
             CallTarget::HostFunction(function) => {
-                let declaration = facts.names.hosts.function(*function)?;
-                Some(CallSignature {
-                    declaration: DeclarationId::Definition(declaration.id.clone()),
-                    parameters: declaration
-                        .params
-                        .iter()
-                        .skip(receiver_offset)
-                        .map(|parameter| {
-                            (parameter.name.clone(), host::signature_type(&parameter.ty))
-                        })
-                        .collect(),
-                    result: host::signature_type(&declaration.return_type),
-                })
+                let callable = facts.names.hosts.callable(*function)?;
+                Some(callable_signature(
+                    DeclarationId::Definition(callable.contract().id.clone()),
+                    &callable,
+                    &call,
+                    &facts.aggregates,
+                ))
             }
             CallTarget::TraitMethod { method, interface } => {
                 let method = facts.aggregates.trait_method(method)?;
@@ -146,5 +121,33 @@ impl FileAnalysis {
             }
             _ => None,
         }
+    }
+}
+
+fn callable_signature(
+    declaration: DeclarationId,
+    signature: &impl CallableSignature,
+    call: &ResolvedCall,
+    aggregates: &AggregateCatalog,
+) -> CallSignature {
+    let substitution: TypeSubstitution = signature
+        .generic_params()
+        .iter()
+        .cloned()
+        .zip(call.type_arguments.iter().cloned())
+        .collect();
+    CallSignature {
+        declaration,
+        parameters: signature
+            .parameters()
+            .skip(usize::from(call.receiver.is_some()))
+            .map(|(name, ty)| {
+                (
+                    name.to_owned(),
+                    aggregates.normalize_type(&ty.instantiate(&substitution)),
+                )
+            })
+            .collect(),
+        result: aggregates.normalize_type(&signature.return_type().instantiate(&substitution)),
     }
 }

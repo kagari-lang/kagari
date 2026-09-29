@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     declarations::DeclarationId,
-    native::EngineNativeBinding,
+    native::{EngineNativeBinding, NativeBinding},
     typeck::{FunctionImplementation, reuse_signatures},
     types::TypeId,
 };
@@ -36,7 +36,9 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
             .any(|function| {
                 matches!(
                     function.implementation,
-                    FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(_))
+                    FunctionImplementation::Native(NativeBinding::Engine(
+                        EngineNativeBinding::Intrinsic(_)
+                    ))
                 )
             })
     );

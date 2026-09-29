@@ -5,8 +5,11 @@ use kagari_common::{
 };
 use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_hir::{
-    analysis::AnalysisDatabase, declarations::DeclarationId, native::EngineNativeBinding,
-    resolver::ResolvedName, typeck::FunctionImplementation,
+    analysis::AnalysisDatabase,
+    declarations::DeclarationId,
+    native::{EngineNativeBinding, NativeBinding},
+    resolver::ResolvedName,
+    typeck::FunctionImplementation,
 };
 use kagari_runtime::{host::HostFunction, value::Value};
 use std::collections::HashSet;
@@ -54,8 +57,8 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
                 .iter()
                 .filter(|function| {
                     function.implementation
-                        == FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(
-                            intrinsic,
+                        == FunctionImplementation::Native(NativeBinding::Engine(
+                            EngineNativeBinding::Intrinsic(intrinsic),
                         ))
                 })
             {
@@ -141,8 +144,9 @@ fn standard_api_documentation_examples_compile_and_execute() {
     for source in declarations.files() {
         let file = signatures.file(source.source().id()).unwrap();
         for function in file.signatures().facts().functions() {
-            if let FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(binding)) =
-                function.implementation
+            if let FunctionImplementation::Native(NativeBinding::Engine(
+                EngineNativeBinding::Intrinsic(binding),
+            )) = function.implementation
             {
                 intrinsic_bindings.insert(binding);
             }

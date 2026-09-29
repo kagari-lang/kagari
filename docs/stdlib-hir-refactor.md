@@ -184,6 +184,16 @@ host code access to engine internals. It does not make arbitrary Rust types,
 lifetimes, generics or async functions automatically script-callable. Registration
 adapters must express supported representations explicitly and validate them.
 
+HIR exposes the shared checked signature through
+[`CallableSignature`](../crates/kagari-hir/src/callable.rs). Source functions retain
+their parameter arena IDs and generic bounds. Installed
+[`HostCallable`](../crates/kagari-hir/src/host/callable.rs) views pair imported HIR
+types with the immutable provider contract; they do not fabricate source bindings.
+Call checking and signature queries consume this same interface. Host types are
+converted during interface installation, including methods expanded from host
+type declarations. `NativeBinding::Host` identifies that installation and is not
+a portable runtime registry slot; ST03 owns the executable binding contract.
+
 ### Later declaration documents and LSP integration
 
 One registration description should supply runtime binding, offline checking and
@@ -710,6 +720,30 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST02 shared callable checkpoint: replaced `EngineNative` with explicit
+  `Native(Engine | Host)` implementation metadata and migrated checked source,
+  compiler selection and SDK consumers. Host installations now retain imported
+  HIR parameter/result types once, alongside their original validated contracts.
+  `HostCallable` rejects IDs from another installation and retains capabilities,
+  effects, cost hints, documentation and passing styles without manufacturing
+  source `FunctionId`/`ParamId` values.
+- ST02 shared checking: source functions and offline host functions/methods now
+  use `CallableSignature` for inference, argument checks and signature help.
+  Method arity diagnostics exclude the implicit receiver. The legacy `print`
+  runtime helper retains its existing log-contract adapter; it is not an offline
+  host declaration or a replacement standard-library solver. Provider-qualified
+  executable calls, optional host origins and remaining engine contract metadata
+  are still pending; this checkpoint does not close ST02.
+- ST02 validation: added contract/installation identity regression coverage and
+  extended existing host snapshot/method tests to check retained signatures,
+  provider identity, borrow style and receiver omission even on invalid calls.
+  These HIR tests remain unexecuted behind the unchanged ST03-owned ABI failure
+  from `cargo check -p kagari-abi` (removed declaration catalogs; log
+  `target/stdlib-st01-catalog-removal-abi.log`). The unchanged failure was not rerun.
+  Structure review passes on 540 Rust files with zero violations/exceptions;
+  `cargo fmt --all -- --check`, documentation link and `git diff --check` checks
+  pass. HIR/compiler compilation and full acceptance remain outstanding.
 
 - ST01 type-surface closure: deleted unused name-based standard type constructors.
   Option/Result propagation uses the existing native representation arity hook;

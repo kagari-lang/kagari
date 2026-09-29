@@ -435,9 +435,13 @@ impl<'a> BodyChecker<'a> {
                     self.infer_enum_constructor(expr_id, *callee, args, env, expected)
                 {
                     ty
-                } else if let Some(ty) = self.infer_host_call_type(expr_id, *callee, args, env) {
+                } else if let Some(ty) =
+                    self.infer_host_call_type(expr_id, *callee, args, env, expected)
+                {
                     ty
-                } else if let Some(ty) = self.infer_host_method_call(expr_id, *callee, args, env) {
+                } else if let Some(ty) =
+                    self.infer_host_method_call(expr_id, *callee, args, env, expected)
+                {
                     ty
                 } else if let Some(method_ty) =
                     self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)

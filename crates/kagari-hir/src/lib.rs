@@ -14,6 +14,7 @@ use typeck::associated_consts;
 pub mod aggregates;
 pub mod analysis;
 pub mod builtin;
+pub mod callable;
 pub mod declarations;
 pub mod hir;
 pub mod host;

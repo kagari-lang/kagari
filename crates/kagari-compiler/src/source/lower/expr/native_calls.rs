@@ -11,7 +11,7 @@ use kagari_abi::{
 use kagari_hir::{
     builtin::traits::StandardTraitSemantics,
     hir,
-    native::EngineNativeBinding,
+    native::{EngineNativeBinding, NativeBinding},
     typeck::{CallTarget, FunctionImplementation},
     types::TypeId,
 };
@@ -47,7 +47,12 @@ impl FunctionLowerer<'_, '_> {
                     "unimplemented callable requirement",
                 ));
             }
-            FunctionImplementation::EngineNative(binding) => binding,
+            FunctionImplementation::Native(NativeBinding::Engine(binding)) => binding,
+            FunctionImplementation::Native(NativeBinding::Host(_)) => {
+                return Err(MirLoweringError::MissingBinding(
+                    "source callable has a host binding",
+                ));
+            }
         };
         let intrinsic = match binding {
             EngineNativeBinding::Intrinsic(intrinsic) => intrinsic,

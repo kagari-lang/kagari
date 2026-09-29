@@ -28,14 +28,16 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> Option<TypeId> {
         let ResolvedName::HostFunction(id) = self.names.expr_resolution(callee)? else {
             return None;
         };
-        let declaration = self.names.hosts.function(id)?.clone();
+        let hosts = self.names.hosts.clone();
+        let callable = hosts.callable(id)?;
         self.type_table
             .insert_call(call, CallTarget::HostFunction(id), None);
-        Some(self.infer_host_signature(&declaration, &declaration.symbol, callee, args, env))
+        Some(self.infer_checked_function_call(&callable, call, callee, args, env, expected))
     }
 
     pub(super) fn infer_host_method_call(
@@ -44,6 +46,7 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> Option<TypeId> {
         let ExprKind::Field { receiver, name } = &self.lowered.module.expr(callee).kind else {
             return None;
@@ -54,15 +57,16 @@ impl<'a> BodyChecker<'a> {
             return None;
         };
         let id = self.names.hosts.method(&owner, name)?;
-        let declaration = self.names.hosts.function(id)?.clone();
+        let hosts = self.names.hosts.clone();
+        let callable = hosts.callable(id)?;
         self.type_table
             .insert_call(call, CallTarget::HostFunction(id), Some(receiver));
         let mut operands = vec![receiver];
         operands.extend_from_slice(args);
-        Some(self.infer_host_signature(&declaration, &declaration.symbol, callee, &operands, env))
+        Some(self.infer_checked_function_call(&callable, call, callee, &operands, env, expected))
     }
 
-    pub(super) fn infer_host_signature(
+    pub(super) fn infer_log_signature(
         &mut self,
         declaration: &HostFunctionDeclaration,
         name: &str,
@@ -194,7 +198,7 @@ impl<'a> BodyChecker<'a> {
                 self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 Some(base_ty.unwrap_or(TypeId::Unknown))
             }
-            BuiltinFunction::Print => Some(self.infer_host_signature(
+            BuiltinFunction::Print => Some(self.infer_log_signature(
                 &host_interface::standard_log(),
                 "print",
                 callee,

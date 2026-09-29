@@ -165,8 +165,8 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .iter()
                     .find(|function| {
                         function.implementation
-                            == FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(
-                                binding,
+                            == FunctionImplementation::Native(NativeBinding::Engine(
+                                EngineNativeBinding::Intrinsic(binding),
                             ))
                     })
             })
@@ -187,7 +187,9 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     ] {
         assert_eq!(
             signature(binding).implementation,
-            FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(binding))
+            FunctionImplementation::Native(NativeBinding::Engine(EngineNativeBinding::Intrinsic(
+                binding
+            )))
         );
     }
     assert!(!facts.aggregates.inherent_methods().any(|method| matches!(
@@ -396,9 +398,9 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("keys tail expr");
     assert_eq!(
         binding(keys_tail),
-        crate::typeck::FunctionImplementation::EngineNative(
-            crate::native::EngineNativeBinding::Intrinsic(StandardIntrinsic::MapKeys)
-        )
+        crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
+            crate::native::{EngineNativeBinding, NativeBinding}::Intrinsic(StandardIntrinsic::MapKeys)
+        ))
     );
     let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
     list.arguments.push(TypeId::Builtin(BuiltinType::String));
@@ -414,9 +416,9 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("chars tail expr");
     assert_eq!(
         binding(chars_tail),
-        crate::typeck::FunctionImplementation::EngineNative(
-            crate::native::EngineNativeBinding::Intrinsic(StandardIntrinsic::StringLenChars)
-        )
+        crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
+            crate::native::{EngineNativeBinding, NativeBinding}::Intrinsic(StandardIntrinsic::StringLenChars)
+        ))
     );
 
     let popped_tail = lowered

@@ -1,7 +1,5 @@
 //! Declaration queries do not depend on the runtime or invoke host callbacks.
 
-use kagari_common::host_interface::HostPathSegmentDeclaration;
-
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
@@ -19,8 +17,8 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     host_interface::{
         HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostInterfaceError,
-        HostPathContract, HostPathDeclaration, HostTraitImplementationDeclaration,
-        HostTypeDeclaration, HostValueType,
+        HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration,
+        HostTraitImplementationDeclaration, HostTypeDeclaration, HostValueType,
     },
     identity::{DefinitionId, ModuleIdentity},
 };
@@ -31,6 +29,9 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+
+pub mod callable;
+use callable::{HostCallable, HostSignature};
 
 #[cfg(test)]
 mod facade_tests;
@@ -68,6 +69,7 @@ pub(crate) enum HostSourcePathStep {
 pub struct HostDeclarations {
     revision: u64,
     interface: HostInterface,
+    signatures: Vec<HostSignature>,
     paths: HashMap<String, HostFunctionId>,
     methods: HashMap<(DefinitionId, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
@@ -497,6 +499,7 @@ impl HostDeclarations {
         }
         Ok(Arc::new(Self {
             revision,
+            signatures: interface.functions.iter().map(HostSignature::new).collect(),
             interface,
             paths,
             methods,
@@ -558,6 +561,14 @@ impl HostDeclarations {
         (id.revision == self.revision)
             .then(|| self.interface.functions.get(id.index))
             .flatten()
+    }
+
+    pub fn callable(&self, id: HostFunctionId) -> Option<HostCallable<'_>> {
+        Some(HostCallable {
+            id,
+            declaration: self.function(id)?,
+            signature: self.signatures.get(id.index)?,
+        })
     }
     pub(crate) fn resolve_name_in(&self, module: HostModuleId, path: &str) -> Option<ResolvedName> {
         if module.revision != self.revision {
