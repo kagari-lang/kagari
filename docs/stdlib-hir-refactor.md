@@ -46,7 +46,7 @@ The following are concrete migration inputs, not target boundaries:
 | --- | --- | --- |
 | Former ABI `build/{main,api,implementations}.rs` (removed in ST01) | Parsed SDK files; interpreted selected generic bounds, receiver shapes and implementations; emitted source/API tables | [Installed package preparation](../crates/kagari-stdlib/src/package.rs) owns sources; ordinary HIR owns semantics |
 | Former ABI `standard/declarations.rs` and generated surface tables (removed in ST01) | Mixed docs, source locations, type expressions, default-method classification and execution identities | Separate source input from checked semantic facts and native execution contracts |
-| [HIR standard integration](../crates/kagari-hir/src/builtin/declarations.rs) | Convert generated standard descriptors into types, declarations and candidates | Import into the regular HIR declaration and checking model |
+| Former HIR `builtin/declarations.rs` (removed during ST01) | Converted generated descriptors into types, declarations and candidates | [Checked implementation selection](../crates/kagari-hir/src/aggregates/native.rs) consumes ordinary HIR facts and installed provenance |
 | [HIR call facts](../crates/kagari-hir/src/typeck/table.rs) | Distinguish `StandardIntrinsic` from ordinary function targets | Record resolved callable identity, implementation and checked application facts |
 | [Compiler standard lowering](../crates/kagari-compiler/src/source/lower/expr/standard.rs) and neighboring collection/iterator modules | Implement some library algorithms by expanding calls into MIR control flow | Replace library-specific expansions with native calls and explicit callback contracts |
 | [Runtime standard dispatch](../crates/kagari-runtime/src/builtin/standard.rs) | Execute some methods in Rust; reject others because they require compiler expansion | Own all native library behavior, including resumable callback operations |
@@ -693,7 +693,7 @@ rejection and preserve existing assertions rather than replace them with totals.
 | Existing consumers | Replacement facts / phase |
 | --- | --- |
 | ABI `build/{main,api,implementations}.rs`, `standard/{surface,declarations}.rs` | Installed parsed stdlib package and ordinary HIR import; ST01 removes generator/source descriptors |
-| HIR `builtin/{declarations,surface,traits}`, `resolver`, `imports`, `aggregates`, `typeck` | Unified declarations, resolved types/bounds, checked implementations and call applications; ST01/ST02 |
+| HIR `builtin/{surface,traits}`, `resolver`, `imports`, `aggregates`, `typeck` | Unified declarations, resolved types/bounds, checked implementations and call applications; ST01/ST02; former descriptor conversion module removed |
 | HIR `analysis/{method_queries,signature_queries,declaration_queries,body_queries}`, declaration/docs/completion/navigation consumers | HIR identities and retained package provenance, same source metadata as checking; ST02 |
 | Compiler `source/lower/{abi,instances,function,stmt,expr}` and `expr/*` standard/protocol lowering | Checked HIR signatures, implementation/provider, substitutions and witness choices; ST02/ST03; algorithms removed ST05 |
 | ABI `standard/{application,implementation,resolve,contracts,traits,native}`, `contracts`, `host`, `types/{verify,proofs/*,wire}`, `layout`, `operations`, `numeric` | Carried portable declarations/layouts/witnesses plus trusted closed native operation contracts; ST03. General primitive classification may remain source-free. |
@@ -709,6 +709,33 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST01 native-implementation checkpoint: collection capabilities, range bounds,
+  FromIterator selection and native iteration outputs now consume checked HIR impl
+  patterns, bounds and associated types. A native selection requires retained
+  installed provenance plus a unique implementation satisfying the current generic
+  context; ordinary user impls do not acquire native dispatch from matching trait
+  names. Compiler native-interface/collection helpers now receive that HIR catalog.
+- Installed receiver matching preserves storage access: readonly views can reuse
+  read and iteration capabilities but cannot satisfy mutable capability impls. The
+  ordinary implementation search applies this same check. Lifted Option/Result
+  collection obligations come from checked impl bounds; recursive searches retain
+  their existing budget while projecting those obligations.
+- Removed the final descriptor fallback from generic bound inference and deleted
+  `builtin/declarations.rs`, including its duplicate `ApiType`, `ApiBound` and
+  `ApiImplementation` semantic adapters. No such descriptor consumer remains in
+  HIR production or tests. Migrated implementation/source-member and collection
+  signature tests to HIR facts, and retained native signature/enum coverage in the
+  native aggregate tests. Added absent-installation, readonly-capability, failed
+  key-bound and ordinary-script iterator dispatch checks.
+- Native-implementation validation: structure review checks 538 Rust files with
+  zero violations/exceptions; format, local documentation links and diff checks
+  pass. HIR/compiler behavioral tests remain unexecuted
+  behind the unchanged ABI catalog-removal build errors, owned by ST03. Resume
+  native aggregate, standard query, HIR and compiler suites after that migration.
+  Remaining source-type constructor/name helpers still reference removed surface
+  APIs; portable contracts, shared host metadata and runtime migration also remain
+  open. This checkpoint does not claim ST01/ST02 acceptance or a working build.
 
 - ST01 method-query checkpoint: replaced `standard_method_completions` and its
   `ApiItem` result with `method_completions`/`MethodCompletion`, projecting checked

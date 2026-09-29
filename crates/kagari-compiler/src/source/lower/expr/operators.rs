@@ -231,7 +231,12 @@ impl FunctionLowerer<'_, '_> {
         }
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
             && native_default.is_none()
-            && traits::native_interface_applies(&interface, &ty)
+            && traits::native_interface_applies(
+                &interface,
+                &ty,
+                self.planner.catalog,
+                &Default::default(),
+            )
         {
             return self.lower_native_collection_method(
                 &ty,
@@ -413,7 +418,9 @@ impl FunctionLowerer<'_, '_> {
                 &Default::default(),
             )
         {
-            if traits::lifted_collection_requirement(&interface, &ty).is_some() {
+            if traits::lifted_collection_requirement(&interface, &ty, self.planner.catalog)
+                .is_some()
+            {
                 return self.lower_fallible_collect(&ty, &method_arguments[0], args[0]);
             }
             return self.lower_collect(&ty, &method_arguments[0], args[0]);

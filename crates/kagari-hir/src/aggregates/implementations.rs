@@ -711,6 +711,11 @@ impl AggregateCatalog {
         ) else {
             return Ok(None);
         };
+        if implementation.engine_owned
+            && !implementation.accepts_native_receiver(receiver, &matched)
+        {
+            return Ok(None);
+        }
         let key = (trait_type.clone(), receiver.clone());
         if !visiting.insert(key.clone()) {
             return Ok(None);
@@ -749,7 +754,7 @@ impl AggregateCatalog {
                                     .unwrap_or((required, actual.clone()));
                             let mut lifted = 0;
                             while let Some((inner, destination)) =
-                                traits::lifted_collection_requirement(&required, &actual)
+                                traits::lifted_collection_requirement(&required, &actual, self)
                             {
                                 budget.check_candidate()?;
                                 lifted += 1;

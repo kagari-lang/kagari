@@ -143,6 +143,11 @@ table. Remaining solver and executable migration work is recorded in the
 [active ledger](../stdlib-hir-refactor.md#progress-ledger).
 
 Standard trait methods and associated types have ordinary declaration identities.
+Installed collection and iteration implementations are selected from checked HIR
+impl patterns, bounds and associated types. Native selection additionally requires
+installed-package provenance; a user implementation of the same trait keeps its
+ordinary dispatch. Readonly native storage may satisfy read/iteration capabilities,
+but it cannot satisfy mutable capability implementations.
 Each snapshot owns immutable declaration facts. User declarations take precedence over
 unqualified native names; navigation follows resolution, not a text-name heuristic.
 Native method candidates are one input to completion; lexical trait completion and

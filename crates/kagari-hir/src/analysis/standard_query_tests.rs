@@ -1,13 +1,6 @@
 //! Source query regressions, including native implementations and protocol views.
 
-use crate::{
-    builtin::{
-        declarations::{self, ApiImplementationSemantics, ApiTypeSemantics},
-        traits::StandardTraitSemantics,
-    },
-    declarations::DeclarationId,
-    types::TypeId,
-};
+use crate::{builtin::traits::StandardTraitSemantics, declarations::DeclarationId, types::TypeId};
 use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::collection::CollectionAccess;
 
@@ -61,30 +54,6 @@ mod tests {
 
     #[test]
     fn native_iterator_implementation_exposes_members_and_inherited_defaults() {
-        let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
-        let receiver = TypeId::Iter(Box::new(item_type.clone()));
-        let implementations = declarations::implementations(&receiver);
-        assert_eq!(implementations.len(), 1);
-        let implementation = implementations[0];
-        assert_eq!(implementation.interface, "Iterator");
-        let (member, value) = &implementation.associated_types[0];
-        assert_eq!(
-            value.instantiate(&implementation.arguments(&receiver).unwrap()),
-            item_type
-        );
-        assert_eq!(member.path.last().unwrap().1, "Item");
-        assert_ne!(
-            member.identity(),
-            implementation.trait_declaration().associated_types[0]
-                .item
-                .identity()
-        );
-        assert!(
-            declarations::implementations(&item_type)
-                .iter()
-                .all(|implementation| implementation.interface != "Iterator")
-        );
-
         let text = "fn main() { val values: Iter<i32> = [20,22].iter(); values. }";
         let mut sources = SourceDatabase::default();
         let file = sources
@@ -94,6 +63,36 @@ mod tests {
             .snapshot(sources.snapshot(), Default::default(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
+        let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
+        let receiver = TypeId::Iter(Box::new(item_type.clone()));
+        let catalog = &analysis.result().facts().aggregates;
+        let interface = StandardTrait::Iterator.nominal();
+        let (implementation, arguments) = catalog
+            .engine_implementation(&interface, &receiver, &Default::default())
+            .unwrap();
+        let member = kagari_common::identity::associated_type_id(&interface.declaration, "Item");
+        assert_eq!(
+            implementation.trait_type.associated_types[&member].instantiate(&arguments),
+            item_type
+        );
+        let impl_member = kagari_common::identity::associated_type_id(&implementation.id, "Item");
+        assert_ne!(impl_member, member);
+        assert!(
+            snapshot
+                .declaration(&DeclarationId::Definition(impl_member))
+                .is_some()
+        );
+        assert!(
+            snapshot
+                .declaration(&DeclarationId::Definition(member))
+                .is_some()
+        );
+        assert!(
+            catalog
+                .engine_implementation(&interface, &item_type, &Default::default())
+                .is_none()
+        );
+
         let candidates = analysis.method_completions(text.find("values. }").unwrap() + 7);
         for name in ["next", "map", "filter", "collect"] {
             let matches: Vec<_> = candidates.iter().filter(|m| m.name == name).collect();
@@ -117,17 +116,36 @@ mod tests {
                 name
             );
         }
+        let method = catalog
+            .trait_(&interface.declaration)
+            .unwrap()
+            .methods
+            .iter()
+            .find(|method| method.name == "next")
+            .unwrap();
+        let target = &implementation.methods[&method.id];
         assert!(
-            implementation.methods[0]
-                .item
-                .signature
+            snapshot
+                .declaration_snapshot()
+                .documentation(&DeclarationId::Definition(target.clone()))
+                .unwrap()
+                .written_signature
                 .contains("intrinsic(IterNext)")
         );
     }
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use kagari_abi::standard::{surface::StandardEnum, traits::StandardTrait};
+        use crate::{builtin::traits, typeck::ConstraintTarget};
+        use kagari_abi::standard::surface::StandardEnum;
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .unwrap();
+        let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let string = TypeId::Builtin(kagari_abi::scalar::BuiltinType::String);
         let target = TypeId::Map {
@@ -135,68 +153,92 @@ mod tests {
             value: Box::new(string.clone()),
             access: CollectionAccess::Mutable,
         };
-        let implementations = declarations::implementations(&target);
-        assert_eq!(implementations.len(), 4);
-        let collect = implementations
-            .iter()
-            .find(|i| i.interface == "FromIterator")
-            .unwrap();
+        let item = TypeId::Tuple(vec![integer.clone(), string.clone()]);
+        for (kind, arguments) in [
+            (StandardTrait::Map, vec![integer.clone(), string.clone()]),
+            (
+                StandardTrait::MutableMap,
+                vec![integer.clone(), string.clone()],
+            ),
+            (StandardTrait::Iterable, vec![]),
+            (StandardTrait::FromIterator, vec![item.clone()]),
+        ] {
+            let mut interface = kind.nominal();
+            interface.arguments = arguments;
+            assert!(
+                catalog
+                    .engine_implementation(&interface, &target, &Default::default())
+                    .is_some(),
+                "{kind:?}"
+            );
+        }
         let mut interface = StandardTrait::FromIterator.nominal();
-        interface
-            .arguments
-            .push(TypeId::Tuple(vec![integer.clone(), string.clone()]));
-        let arguments = collect.applied_arguments(&target, &interface).unwrap();
-        assert_eq!(collect.bounds[0].0.instantiate(&arguments), integer);
+        interface.arguments.push(item.clone());
+        let (collect, arguments) = catalog
+            .engine_implementation(&interface, &target, &Default::default())
+            .unwrap();
+        let constraints = collect
+            .bounds
+            .iter()
+            .find(|(ty, _)| ty.instantiate(&arguments) == integer)
+            .unwrap()
+            .1;
+        let mut names = constraints
+            .iter()
+            .map(|constraint| {
+                let ConstraintTarget::Trait(bound) = constraint else {
+                    panic!("declared trait bound")
+                };
+                bound.declaration.path.last().unwrap().name.as_str()
+            })
+            .collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, ["Eq", "Hash"]);
+        let method = collect.methods.values().next().unwrap();
+        let metadata = snapshot
+            .declaration_snapshot()
+            .documentation(&DeclarationId::Definition(method.clone()))
+            .unwrap();
         assert_eq!(
-            collect.bounds[0]
-                .1
-                .iter()
-                .map(|b| b.name)
-                .collect::<Vec<_>>(),
-            ["Eq", "Hash"]
-        );
-        let method = &collect.methods[0].item;
-        assert_eq!(method.uri, "kagari://std/map.kgr");
-        assert!(method.signature.contains("CollectionFromIterator"));
-        let declarations = AnalysisDatabase::default()
-            .declarations(SourceDatabase::default().snapshot(), &Default::default())
-            .unwrap();
-        let source = declarations
-            .files()
-            .find(|file| file.source().name() == method.uri)
-            .unwrap();
-        let declaration = source.declarations().site_at(method.start).unwrap();
-        assert_eq!(declarations.declaration(&declaration.id), Some(declaration));
-        assert!(
-            declarations
-                .documentation(&declaration.id)
+            snapshot
+                .source(metadata.declaration.location.file)
                 .unwrap()
+                .name(),
+            "kagari://std/map.kgr"
+        );
+        assert!(
+            metadata
                 .written_signature
                 .contains("CollectionFromIterator")
+        );
+        assert_eq!(
+            snapshot.declaration(&metadata.declaration.id),
+            Some(&metadata.declaration)
         );
 
         let result = TypeId::StandardEnum {
             kind: StandardEnum::Result,
-            args: vec![target, string.clone()],
+            args: vec![target.clone(), string.clone()],
         };
-        let mut interface = StandardTrait::FromIterator.nominal();
-        interface.arguments.push(TypeId::StandardEnum {
+        let mut lifted = StandardTrait::FromIterator.nominal();
+        lifted.arguments.push(TypeId::StandardEnum {
             kind: StandardEnum::Result,
-            args: vec![TypeId::Tuple(vec![integer, string.clone()]), string],
+            args: vec![item, string],
         });
-        let implementation = declarations::implementations(&result)[0];
-        let arguments = implementation
-            .applied_arguments(&result, &interface)
+        let (required, destination) =
+            traits::lifted_collection_requirement(&lifted, &result, catalog).unwrap();
+        assert_eq!(required, interface);
+        assert_eq!(destination, target);
+        assert!(destination.is_concrete());
+        let (implementation, _) = catalog
+            .engine_implementation(&lifted, &result, &Default::default())
             .unwrap();
-        assert_eq!(implementation.bounds[0].1[0].name, "FromIterator");
-        assert!(
-            implementation.bounds[0]
-                .0
-                .instantiate(&arguments)
-                .is_concrete()
-        );
+        let method = implementation.methods.values().next().unwrap();
+        let declaration = snapshot
+            .declaration(&DeclarationId::Definition(method.clone()))
+            .unwrap();
         assert_eq!(
-            implementation.methods[0].item.uri,
+            snapshot.source(declaration.location.file).unwrap().name(),
             "kagari://std/result.kgr"
         );
     }
@@ -505,18 +547,21 @@ mod collection_access_tests {
         ];
         let mut checked = 0;
         for receiver in receivers {
-            for implementation in declarations::implementations(&receiver) {
-                let kind = S::from_name(implementation.interface).unwrap();
-                if !kind.collection() {
-                    continue;
-                }
-                let arguments = implementation.arguments(&receiver).unwrap();
+            let (kinds, arguments) = match &receiver {
+                TypeId::Array(item, _) => ([S::List, S::MutableList], vec![(**item).clone()]),
+                TypeId::Map { key, value, .. } => (
+                    [S::Map, S::MutableMap],
+                    vec![(**key).clone(), (**value).clone()],
+                ),
+                TypeId::Set(item, _) => ([S::Set, S::MutableSet], vec![(**item).clone()]),
+                _ => unreachable!(),
+            };
+            for kind in kinds {
                 let mut interface = kind.nominal();
-                interface.arguments = implementation
-                    .trait_arguments
-                    .iter()
-                    .map(|ty| ty.instantiate(&arguments))
-                    .collect();
+                interface.arguments = arguments.clone();
+                let (implementation, arguments) = catalog
+                    .engine_implementation(&interface, &receiver, &Default::default())
+                    .unwrap();
                 let contract = catalog.trait_(&interface.declaration).unwrap();
                 let substitution = contract
                     .generic_params
@@ -536,11 +581,26 @@ mod collection_access_tests {
                         .filter(|method| method.default.is_none())
                         .count()
                 );
-                for method in implementation.methods {
-                    let declared = contract
-                        .methods
+                for (trait_method, target) in &implementation.methods {
+                    let declared = catalog.trait_method(trait_method).unwrap();
+                    let declaration = snapshot
+                        .declaration(&DeclarationId::Definition(target.clone()))
+                        .unwrap();
+                    let file = snapshot
+                        .signature_snapshot()
+                        .file(declaration.location.file)
+                        .unwrap();
+                    let Some(crate::resolver::ResolvedName::Function(function)) =
+                        file.declarations().definition_target(target)
+                    else {
+                        panic!("implementation method")
+                    };
+                    let method = file
+                        .signatures()
+                        .facts()
+                        .functions()
                         .iter()
-                        .find(|m| m.name == method.item.name)
+                        .find(|method| method.id == function)
                         .unwrap();
                     assert_eq!(
                         method
@@ -555,7 +615,7 @@ mod collection_access_tests {
                             .collect::<Vec<_>>()
                     );
                     assert_eq!(
-                        method.result.instantiate(&arguments),
+                        method.return_type.instantiate(&arguments),
                         instantiate(&declared.return_type)
                     );
                 }

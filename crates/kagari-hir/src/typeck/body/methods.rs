@@ -102,7 +102,12 @@ impl<'a> BodyChecker<'a> {
                 expected.recover_from(actual);
             }
         }
-        if traits::native_interface_applies(&native_interface, &source) {
+        if traits::native_interface_applies(
+            &native_interface,
+            &source,
+            self.aggregates,
+            &env.generic_bounds,
+        ) {
             self.type_table.insert_interface_coercion(
                 expr_id,
                 ResolvedInterfaceCoercion {

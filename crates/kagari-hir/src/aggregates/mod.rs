@@ -9,6 +9,7 @@ use crate::{
     types::{GenericParameterType, NominalType},
 };
 mod implementations;
+mod native;
 mod traits;
 use crate::{
     declarations::{Declaration, DeclarationId, Declarations},

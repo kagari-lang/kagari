@@ -1,8 +1,5 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
 
-use crate::builtin::declarations::{
-    ApiBoundSemantics, ApiImplementationSemantics, ApiTypeSemantics,
-};
 use kagari_abi::{
     numeric as scalar_numeric,
     scalar::BuiltinType,
@@ -16,7 +13,7 @@ use kagari_common::{
     identity::{DefinitionId, associated_type_id},
 };
 
-use super::{declarations, numeric, surface};
+use super::{numeric, surface};
 use crate::{
     aggregates::{self, AggregateCatalog},
     typeck::{ConstraintTarget, GenericBounds},
@@ -208,77 +205,23 @@ pub fn intrinsic_applies(
                 })
         });
     }
-    if kind.collection() {
-        return declarations::implementations(receiver)
-            .iter()
-            .any(|implementation| {
-                implementation
-                    .applied_arguments(receiver, interface)
-                    .is_some()
-            });
+    if kind.collection()
+        || matches!(
+            kind,
+            StandardTrait::RangeBounds | StandardTrait::FromIterator
+        )
+    {
+        return catalog.is_some_and(|catalog| {
+            catalog
+                .engine_implementation(interface, receiver, bounds)
+                .is_some()
+        });
     }
     if kind.aggregation() {
         return interface.arguments.as_slice() == [receiver.clone()]
             && interface.associated_types.is_empty()
             && numeric_aggregation_item(receiver).is_some();
     }
-    if kind == StandardTrait::RangeBounds {
-        return declarations::implementations(receiver)
-            .into_iter()
-            .any(|i| i.applied_arguments(receiver, interface).is_some());
-    }
-    if kind == StandardTrait::FromIterator {
-        if let Some((mut required, mut target)) = lifted_collection_requirement(interface, receiver)
-        {
-            for depth in 0..64 {
-                if bounds.get(&target).is_some_and(|bounds| {
-                    bounds
-                        .iter()
-                        .any(|b| matches!(b, ConstraintTarget::Trait(t) if t.satisfies(&required)))
-                }) {
-                    return true;
-                }
-                if let Some((inner, destination)) =
-                    lifted_collection_requirement(&required, &target)
-                {
-                    if depth == 63 {
-                        return false;
-                    }
-                    required = inner;
-                    target = destination;
-                } else {
-                    return intrinsic_applies(&required, &target, catalog, bounds)
-                        || catalog.is_some_and(|c| {
-                            c.concrete_interface_implementation(
-                                &required,
-                                &target,
-                                bounds,
-                                4096,
-                                64,
-                                &Default::default(),
-                            )
-                            .is_ok_and(|i| i.is_some())
-                        });
-                }
-            }
-            return false;
-        }
-        return declarations::implementations(receiver)
-            .into_iter()
-            .any(|implementation| {
-                let Some(arguments) = implementation.applied_arguments(receiver, interface) else {
-                    return false;
-                };
-                implementation.bounds.iter().all(|(target, constraints)| {
-                    let actual = target.instantiate(&arguments);
-                    constraints.iter().all(|constraint| {
-                        let required = constraint.nominal(&arguments);
-                        intrinsic_applies(&required, &actual, catalog, bounds)
-                    })
-                })
-            });
-    }
-
     if kind.iteration() {
         return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {
             interface.arguments.is_empty()
@@ -338,26 +281,32 @@ pub fn collection_item(receiver: &TypeId) -> Option<TypeId> {
 pub fn lifted_collection_requirement(
     interface: &NominalType,
     receiver: &TypeId,
+    catalog: &AggregateCatalog,
 ) -> Option<(NominalType, TypeId)> {
     if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::FromIterator) {
         return None;
     }
-    for implementation in declarations::implementations(receiver) {
-        let Some(arguments) = implementation.applied_arguments(receiver, interface) else {
-            continue;
-        };
-        for (target, constraints) in implementation.bounds {
-            for constraint in *constraints {
-                if constraint.name == "FromIterator" {
-                    return Some((
-                        constraint.nominal(&arguments),
-                        target.instantiate(&arguments),
-                    ));
-                }
-            }
-        }
-    }
-    None
+    let (implementation, substitution) =
+        catalog.engine_implementation_pattern(interface, receiver)?;
+    let mut requirements = implementation
+        .bounds
+        .iter()
+        .flat_map(|(target, constraints)| {
+            constraints.iter().filter_map(|constraint| {
+                let ConstraintTarget::Trait(required) = constraint else {
+                    return None;
+                };
+                (StandardTrait::from_id(&required.declaration) == Some(StandardTrait::FromIterator))
+                    .then(|| {
+                        (
+                            required.instantiate(&substitution),
+                            target.instantiate(&substitution),
+                        )
+                    })
+            })
+        });
+    let selected = requirements.next()?;
+    requirements.next().is_none().then_some(selected)
 }
 
 pub fn ordering_type(optional: bool) -> TypeId {
@@ -553,19 +502,18 @@ pub fn iteration_outputs(
     } else {
         kind
     };
-    if let Some(implementation) = declarations::implementations(receiver)
-        .into_iter()
-        .find(|i| i.interface == declared_kind.name())
-    {
-        let arguments = implementation.arguments(receiver)?;
+    if let Some((implementation, substitution)) = catalog.and_then(|catalog| {
+        catalog.engine_implementation(&declared_kind.nominal(), receiver, bounds)
+    }) {
         let id = identity(kind);
         let mut outputs: BTreeMap<_, _> = implementation
+            .trait_type
             .associated_types
             .iter()
             .map(|(member, ty)| {
                 (
-                    associated_type_id(&id, member.path.last().unwrap().1),
-                    ty.instantiate(&arguments),
+                    associated_type_id(&id, &member.path.last().expect("associated member").name),
+                    ty.instantiate(&substitution),
                 )
             })
             .collect();
@@ -652,12 +600,17 @@ pub fn iterator_requirement(interface: &NominalType, receiver: &TypeId) -> Optio
 }
 
 /// Native collection views eligible for ordinary interface dispatch.
-pub fn native_interface_applies(interface: &NominalType, receiver: &TypeId) -> bool {
+pub fn native_interface_applies(
+    interface: &NominalType,
+    receiver: &TypeId,
+    catalog: &AggregateCatalog,
+    bounds: &GenericBounds,
+) -> bool {
     if matches!(receiver, TypeId::Trait(_)) {
         return false;
     }
     StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::dynamic)
-        && intrinsic_applies(interface, receiver, None, &Default::default())
+        && intrinsic_applies(interface, receiver, Some(catalog), bounds)
 }
 
 /// The default concrete storage family corresponding to a collection capability.

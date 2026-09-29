@@ -632,7 +632,12 @@ impl<'a> InstancePlanner<'a> {
             .trait_closure(interface, receiver, &self.options.cancel)
             .map_err(|_| MirLoweringError::MissingBinding("checked inheritance closure"))?;
         for parent in parents.into_iter().skip(1) {
-            if traits::native_interface_applies(&parent, receiver) {
+            if traits::native_interface_applies(
+                &parent,
+                receiver,
+                &self.module.aggregates,
+                &Default::default(),
+            ) {
                 self.native_interface(receiver, &parent, span)?;
                 continue;
             }

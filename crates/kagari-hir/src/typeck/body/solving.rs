@@ -1,8 +1,5 @@
 use crate::{
-    builtin::{
-        declarations::{self, ApiImplementationSemantics, ApiTypeSemantics},
-        traits,
-    },
+    builtin::traits,
     hir::{BlockId, ExprId, ExprKind, TypeKind, TypeRefId},
     typeck::{
         BodyTypeEnv,
@@ -154,26 +151,7 @@ impl BodyChecker<'_> {
         {
             let _ = self.solver.constrain(&item, argument, self.cancel);
         }
-        let mut candidates = declarations::implementations(actual)
-            .into_iter()
-            .filter(|implementation| {
-                implementation.trait_declaration().item.identity() == interface.declaration
-            })
-            .filter_map(|implementation| {
-                let arguments = implementation.arguments(actual)?;
-                let declared = NominalType {
-                    declaration: interface.declaration.clone(),
-                    arguments: implementation
-                        .trait_arguments
-                        .iter()
-                        .map(|ty| ty.instantiate(&arguments))
-                        .collect(),
-                    associated_types: Default::default(),
-                };
-                (!TypeId::Trait(declared.clone()).conflicts_with(&TypeId::Trait(interface.clone())))
-                    .then_some(declared)
-            })
-            .collect::<Vec<_>>();
+        let mut candidates = Vec::new();
         for implementation in self.aggregates.implementations() {
             if self.cancel.check().is_err() {
                 return;
