@@ -1,5 +1,4 @@
 use crate::builtin::traits::StandardTraitSemantics;
-use kagari_abi::standard::surface as standard_surface;
 mod calls;
 mod constructors;
 mod host_access;
@@ -15,7 +14,7 @@ use crate::{
     imports::ImportedFunctions,
     types,
 };
-use kagari_abi::standard::{surface::StandardEnum, traits::StandardTrait};
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::{
     cancellation::CancellationToken, collection::CollectionAccess, range::RangeKind,
 };
@@ -42,10 +41,7 @@ use crate::{
     },
     types::TypeId,
 };
-use kagari_abi::{
-    scalar::BuiltinType,
-    standard::{StandardIntrinsic, surface::StandardMethodReceiver},
-};
+use kagari_abi::scalar::BuiltinType;
 
 #[derive(Clone)]
 enum HostPathNode<Id> {
@@ -274,7 +270,6 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
                     | ResolvedName::HostFunction(_)
-                    | ResolvedName::StandardFunction(_)
                     | ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
@@ -448,10 +443,6 @@ impl<'a> BodyChecker<'a> {
                     self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)
                 {
                     method_ty
-                } else if let Some(standard_ty) =
-                    self.infer_standard_call_type(expr_id, *callee, args, env, expected)
-                {
-                    standard_ty
                 } else if let Some(helper_ty) =
                     self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
                 {
@@ -984,49 +975,5 @@ impl<'a> BodyChecker<'a> {
         env.exprs.insert(expr_id, ty.clone());
         self.type_table.insert_expr(expr_id, ty.clone());
         ty
-    }
-}
-
-fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
-    match ty {
-        TypeId::Array(_, _) => Some(StandardMethodReceiver::Array),
-        TypeId::Map { .. } => Some(StandardMethodReceiver::Map),
-        TypeId::Set(_, _) => Some(StandardMethodReceiver::Set),
-        TypeId::Builtin(BuiltinType::String) => Some(StandardMethodReceiver::String),
-        TypeId::Builtin(ty) if ty.integer_layout().is_some() => {
-            Some(StandardMethodReceiver::Builtin(*ty))
-        }
-        TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            ..
-        } => Some(StandardMethodReceiver::Option),
-        TypeId::StandardEnum {
-            kind: StandardEnum::Result,
-            ..
-        } => Some(StandardMethodReceiver::Result),
-        _ => None,
-    }
-}
-
-fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
-    if let Some(spec) = standard_surface::standard_function_by_intrinsic(intrinsic) {
-        return spec.api.qualified_name;
-    }
-    match intrinsic {
-        StandardIntrinsic::ValueEq => "std::cmp::PartialEq::eq",
-        StandardIntrinsic::ValueHash => "std::hash::Hash::hash",
-        StandardIntrinsic::ValueDebug => "std::fmt::Debug::debug",
-        StandardIntrinsic::ValueDisplay => "std::fmt::Display::display",
-        StandardIntrinsic::ValuePartialCmp
-        | StandardIntrinsic::ValueCmp
-        | StandardIntrinsic::KeyLookupBegin
-        | StandardIntrinsic::KeyCandidates
-        | StandardIntrinsic::KeyMapGet
-        | StandardIntrinsic::KeyMapInsert
-        | StandardIntrinsic::KeyMapRemove
-        | StandardIntrinsic::KeySetContains
-        | StandardIntrinsic::KeySetInsert
-        | StandardIntrinsic::KeySetRemove => "internal key operation",
-        _ => unreachable!("public intrinsic has a declaration"),
     }
 }

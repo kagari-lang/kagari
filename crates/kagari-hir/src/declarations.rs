@@ -7,7 +7,6 @@ use kagari_common::{
 };
 
 use crate::{
-    builtin::declarations,
     hir::{
         BodyOwner, ConstOwner, EnumId, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId,
         Item, OpaqueTypeId, VariantId,
@@ -216,7 +215,6 @@ impl Declarations {
         self.targets
             .get(&DeclarationKey::Name(name))
             .or_else(|| self.imported_types.variant(name))
-            .or_else(|| declarations::resolved(name))
     }
 
     pub fn field(&self, field: FieldId) -> Option<&Declaration> {

@@ -1,18 +1,17 @@
 use crate::{
     builtin::traits::{self, intrinsic_holds},
     hir::{ExprId, ExprKind},
+    imports::ImportedFunction,
     resolver::ResolvedName,
     typeck::{
         BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, GenericBounds,
-        ScalarValue, TypedFunction,
-        body::{BodyChecker, standard_method_receiver},
-        check, completion, constraints, inference,
+        ScalarValue, TypedFunction, body::BodyChecker, check, completion, constraints, inference,
         ty::display_type_id,
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
+use kagari_abi::scalar::BuiltinType;
 use kagari_abi::standard::{
-    StandardIntrinsic,
     surface::{self as standard_surface, StandardTypeConstraint},
     traits::StandardTrait,
 };
@@ -32,10 +31,21 @@ impl<'a> BodyChecker<'a> {
             .names
             .expr_resolution(callee)
             .and_then(|name| self.imported_functions.get(name))
+            .or_else(|| self.primitive_associated_function(callee))
         {
-            self.type_table
-                .insert_call(call_expr, CallTarget::SourceFunction(imported.id), None);
-            if !imported.signature.generic_params.is_empty()
+            let local = imported.id.file == self.lowered.source.id()
+                && imported.id.revision == self.lowered.source.revision();
+            self.type_table.insert_call(
+                call_expr,
+                if local {
+                    CallTarget::Function(imported.id.function)
+                } else {
+                    CallTarget::SourceFunction(imported.id)
+                },
+                None,
+            );
+            if !local
+                && !imported.signature.generic_params.is_empty()
                 && !matches!(
                     imported.signature.implementation,
                     FunctionImplementation::EngineNative(_)
@@ -136,6 +146,41 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_call(call_expr, CallTarget::Function(id), None);
         self.infer_checked_function_call(function, call_expr, callee, args, env, expected)
+    }
+
+    /// Primitive type names are language syntax; their associated functions are
+    /// ordinary checked impl members. A lexical binding still takes precedence.
+    fn primitive_associated_function(&self, callee: ExprId) -> Option<&'a ImportedFunction> {
+        if self.names.expr_resolution(callee).is_some()
+            || self.names.qualified_member(callee).is_some()
+        {
+            return None;
+        }
+        let ExprKind::Name {
+            name,
+            explicit_type: None,
+        } = &self.lowered.module.expr(callee).kind
+        else {
+            return None;
+        };
+        let (owner, member) = name.rsplit_once("::")?;
+        let ty = TypeId::from_name(owner)?;
+        if !matches!(ty, TypeId::Builtin(scalar) if scalar != BuiltinType::String) {
+            return None;
+        }
+        let mut methods = self.aggregates.inherent_methods().filter(|method| {
+            method.owner == ty
+                && method.function.name == member
+                && method.visibility.allows(
+                    &method.declaration.module,
+                    self.lowered.source.module_identity(),
+                )
+        });
+        let method = methods.next()?;
+        if methods.next().is_some() {
+            return None;
+        }
+        self.imported_functions.target(method.id)
     }
 
     fn infer_checked_function_call(
@@ -320,28 +365,6 @@ impl<'a> BodyChecker<'a> {
                 arg_tys,
             );
         }
-    }
-
-    pub(super) fn standard_function(&self, expr_id: ExprId) -> Option<StandardIntrinsic> {
-        match self.names.expr_resolution(expr_id) {
-            Some(ResolvedName::StandardFunction(intrinsic)) => Some(intrinsic),
-            _ => None,
-        }
-    }
-
-    pub(super) fn standard_method(
-        &mut self,
-        expr_id: ExprId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<(StandardIntrinsic, ExprId, TypeId)> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.infer_expr_type(*receiver, env);
-        let receiver_kind = standard_method_receiver(&receiver_ty)?;
-        standard_surface::standard_method(receiver_kind, name)
-            .map(|method| (method.intrinsic, *receiver, receiver_ty))
     }
 
     pub(super) fn check_arg_type(

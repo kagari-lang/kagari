@@ -113,7 +113,6 @@ impl<'a> BodyChecker<'a> {
                         | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
                         | ResolvedName::HostFunction(_)
-                        | ResolvedName::StandardFunction(_)
                         | ResolvedName::RuntimeHelper(_)
                         | ResolvedName::OpaqueType(_)
                         | ResolvedName::Struct(_)
@@ -191,7 +190,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::HostType(_)
                     | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
-                    ResolvedName::StandardFunction(_) | ResolvedName::RuntimeHelper(_) => {
+                    ResolvedName::RuntimeHelper(_) => {
                         "standard function item is not assignable".to_string()
                     }
                     ResolvedName::OpaqueType(_) => "opaque type is not assignable".to_string(),

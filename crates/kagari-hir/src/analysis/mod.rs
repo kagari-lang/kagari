@@ -2,7 +2,6 @@
 
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed,
-    builtin::declarations,
     declarations::{Declaration, DeclarationId, Declarations},
     hir::{ExportItem, ExprKind, PlaceKind},
     host::HostDeclarations,
@@ -460,10 +459,6 @@ impl FileAnalysis {
                     _ => callee_span,
                 };
                 match call.target {
-                    CallTarget::StandardIntrinsic(intrinsic) => Some((
-                        callee_span,
-                        declarations::resolved(ResolvedName::StandardFunction(intrinsic))?,
-                    )),
                     CallTarget::Function(function) => Some((
                         callee_span,
                         facts

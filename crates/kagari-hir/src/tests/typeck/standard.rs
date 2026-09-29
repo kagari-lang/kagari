@@ -352,8 +352,9 @@ fn clamp(value: i32) -> i32 {
 }
 
 #[test]
-fn type_checks_standard_methods_and_records_intrinsics() {
-    let lowered = common::lower_ok(
+fn type_checks_standard_methods_and_records_checked_bindings() {
+    let source = SourceFile::new(
+        "standard-methods.kgr",
         r#"
 fn keys(values: LinkedHashMap<String, i32>) -> List<String> {
     values.keys()
@@ -368,12 +369,23 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 }
 "#,
     );
-    let names = resolve_names(&lowered)
+    let analyzed = crate::analyze_source(&source, Default::default())
         .into_checked()
-        .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
-        .into_checked()
-        .expect("type checker should succeed");
+        .expect("checked installed method declarations");
+    let lowered = &analyzed.lowered;
+    let typed = &analyzed.typed;
+    let binding = |expression| {
+        let call = typed.type_table.call_resolution(expression).unwrap();
+        let crate::typeck::CallTarget::SourceFunction(target) = call.target else {
+            panic!("ordinary imported method target");
+        };
+        analyzed
+            .imported_functions
+            .target(target)
+            .unwrap()
+            .signature
+            .implementation
+    };
 
     let keys_tail = lowered
         .module
@@ -381,13 +393,10 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .tail_expr
         .expect("keys tail expr");
     assert_eq!(
-        typed
-            .type_table
-            .call_resolution(keys_tail)
-            .map(|call| call.target),
-        Some(crate::typeck::CallTarget::StandardIntrinsic(
-            StandardIntrinsic::MapKeys
-        ))
+        binding(keys_tail),
+        crate::typeck::FunctionImplementation::EngineNative(
+            crate::native::EngineNativeBinding::Intrinsic(StandardIntrinsic::MapKeys)
+        )
     );
     let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
     list.arguments.push(TypeId::Builtin(BuiltinType::String));
@@ -402,13 +411,10 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .tail_expr
         .expect("chars tail expr");
     assert_eq!(
-        typed
-            .type_table
-            .call_resolution(chars_tail)
-            .map(|call| call.target),
-        Some(crate::typeck::CallTarget::StandardIntrinsic(
-            StandardIntrinsic::StringLenChars
-        ))
+        binding(chars_tail),
+        crate::typeck::FunctionImplementation::EngineNative(
+            crate::native::EngineNativeBinding::Intrinsic(StandardIntrinsic::StringLenChars)
+        )
     );
 
     let popped_tail = lowered

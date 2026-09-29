@@ -28,6 +28,7 @@ mod keys;
 mod list_queries;
 mod list_windows;
 mod map_updates;
+mod native_calls;
 mod operators;
 mod prepared_collections;
 mod set_queries;

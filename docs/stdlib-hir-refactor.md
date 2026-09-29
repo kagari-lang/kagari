@@ -710,6 +710,28 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 callable consumer checkpoint: removed `ResolvedName::StandardFunction`,
+  HIR `CallTarget::StandardIntrinsic` and the standard function/method catalog
+  fallback. Calls now use ordinary checked function signatures, generic inference
+  and declaration identities. Primitive associated functions are selected from
+  visible checked inherent impl members; lexical bindings retain precedence.
+- Compiler direct native calls now consume `FunctionImplementation::EngineNative`
+  from the selected local/imported signature. Integer and radix operations retain
+  their declared scalar owner. Receiver and argument evaluation remains once-only
+  and left-to-right. Existing engine operation expansion moved into a focused
+  lowering module; the physical MIR intrinsic target, protocol witness paths and
+  callback algorithm expansion remain migration work for ST03 through ST05.
+  This handoff does not establish the final portable provider contract.
+- Added regressions for aliased native functions, integer methods, primitive
+  associated calls, signature navigation and absent installed declarations.
+  Updated the standard method test to inspect checked implementation bindings.
+  Tests remain unexecuted behind the unchanged ABI catalog-removal build failure
+  (`cargo check -p kagari-abi`, owner ST03); resume HIR and compiler tests after
+  consumer migration. Structural review checks 534 Rust files with zero violations
+  or exceptions; format and diff checks pass. Completion/declaration catalogs,
+  remaining type/impl catalog consumers and shared host callable metadata remain
+  open, and ST01 is not complete.
+
 - ST01 callable signature checkpoint: `TypedFunction` now carries explicit
   Script/EngineNative/Required implementation facts. Installed binding identities
   are exposed as `EngineNativeBinding`; imported and inherent signatures retain

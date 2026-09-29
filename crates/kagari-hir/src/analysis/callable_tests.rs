@@ -17,8 +17,77 @@ use kagari_common::{
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
     },
+    integer::IntegerMethod,
     source_database::{SourceDatabase, SourceLayer},
 };
+
+#[test]
+fn primitive_methods_and_associated_functions_keep_their_declared_scalar_owner() {
+    let text = r#"
+fn narrow() { (1i8).wrapping_add(2i8); i8::from_str_radix("7f", 16u32); }
+fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
+"#;
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("numeric-bindings.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let analysis = snapshot.file(root).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let facts = analysis.result().facts();
+    let mut seen = 0;
+    for function in &facts.lowered.module.functions {
+        let expected = if function.name == "narrow" {
+            BuiltinType::I8
+        } else {
+            BuiltinType::U64
+        };
+        let block = facts.lowered.module.block(function.body.unwrap());
+        for statement in &block.statements {
+            let crate::hir::StmtKind::Expr(expression) = facts.lowered.module.stmt(*statement).kind
+            else {
+                panic!("call statement")
+            };
+            let call = facts.typed.type_table.call_resolution(expression).unwrap();
+            let CallTarget::SourceFunction(id) = call.target else {
+                panic!("checked source impl member")
+            };
+            let imported = facts.imported_functions.target(id).unwrap();
+            assert_eq!(imported.declaration.module.path, ["numeric"]);
+            assert!(call.type_arguments.is_empty());
+            match imported.signature.implementation {
+                FunctionImplementation::EngineNative(EngineNativeBinding::Integer(
+                    IntegerMethod::WrappingAdd,
+                )) => {
+                    assert_eq!(imported.signature.params[0].ty, TypeId::Builtin(expected));
+                    assert_eq!(
+                        facts.typed.type_table.expr_type(expression),
+                        Some(TypeId::Builtin(expected))
+                    );
+                }
+                FunctionImplementation::EngineNative(EngineNativeBinding::ParseRadix) => {
+                    let TypeId::StandardEnum { args, .. } = &imported.signature.return_type else {
+                        panic!("radix result")
+                    };
+                    assert_eq!(args[0], TypeId::Builtin(expected));
+                }
+                other => panic!("unexpected primitive implementation: {other:?}"),
+            }
+            let signature = analysis
+                .call_signature_at(facts.lowered.source_map.expr_span(expression).start)
+                .unwrap();
+            assert_eq!(signature.declaration, imported.site.id);
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 4);
+}
 
 #[test]
 fn required_script_and_native_methods_keep_distinct_signature_implementations() {

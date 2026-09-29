@@ -5,9 +5,53 @@ use kagari_abi::{
     standard::StandardIntrinsic,
 };
 use kagari_bytecode as bytecode;
+use kagari_common::integer::IntegerMethod;
 use kagari_mir::{
     CallTarget, Instruction, MirFunction, MirValue, Terminator, instruction::RuntimeHelper,
 };
+
+#[test]
+fn source_native_bindings_select_engine_calls_through_aliases_and_primitive_impls() {
+    let checked = common::analyze_ok(
+        r#"
+use std::math::clamp as limit;
+fn main() -> i32 {
+    val value = (1i32).wrapping_add(41i32);
+    val parsed = i32::from_str_radix("2a", 16u32);
+    limit(value, 0, 100)
+}
+"#,
+    );
+    let ir = lower_to_mir(&checked, &Default::default()).unwrap();
+    let calls = ir
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .filter_map(|instruction| {
+            if let Instruction::Call { callee, .. } = instruction {
+                Some(callee)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    for expected in [
+        StandardIntrinsic::Integer(
+            IntegerMethod::WrappingAdd,
+            kagari_abi::scalar::BuiltinType::I32,
+        ),
+        StandardIntrinsic::ParseRadix(kagari_abi::scalar::BuiltinType::I32),
+        StandardIntrinsic::MathClamp,
+    ] {
+        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::StandardIntrinsic(actual) if *actual == expected)).count(), 1, "{expected:?}");
+    }
+    assert!(
+        !calls
+            .iter()
+            .any(|callee| matches!(callee, CallTarget::SourceFunction(_)))
+    );
+}
 
 #[test]
 fn generic_interface_instances_share_the_instantiation_budget() {

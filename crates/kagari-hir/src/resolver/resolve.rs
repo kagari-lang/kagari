@@ -12,7 +12,6 @@ use crate::{
     },
     source_map::SourceMap,
 };
-use kagari_abi::standard::surface as standard_surface;
 use kagari_common::{Span, cancellation::CancellationToken};
 use std::{
     collections::{HashMap, HashSet},
@@ -447,12 +446,7 @@ impl<'a> BodyResolver<'a> {
         if let Some(helper) = BuiltinFunction::from_name(name) {
             return Some(ResolvedName::RuntimeHelper(helper));
         }
-        if let Some(function) = standard_surface::standard_associated_function(name) {
-            return Some(ResolvedName::StandardFunction(function.intrinsic));
-        }
-        let (module, member) = name.rsplit_once("::")?;
-        standard_surface::standard_function(standard_surface::standard_module(module)?.kind, member)
-            .map(|f| ResolvedName::StandardFunction(f.intrinsic))
+        None
     }
 
     fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {

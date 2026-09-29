@@ -8,7 +8,6 @@ use crate::{
     imports::ModuleImports,
     resolver::table::NameTable,
 };
-use kagari_abi::standard::StandardIntrinsic;
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 
 use kagari_common::Span;
@@ -41,7 +40,6 @@ pub enum ResolvedName {
     Param(ParamId),
     Local(LocalId),
     Module(ModuleId),
-    StandardFunction(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
     Struct(StructId),
     Enum(EnumId),

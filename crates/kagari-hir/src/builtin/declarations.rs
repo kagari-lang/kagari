@@ -17,7 +17,6 @@ use kagari_stdlib::bundled_sources;
 
 use crate::{
     declarations::{Declaration, DeclarationId},
-    resolver::ResolvedName,
     types::{NominalType, TypeId},
 };
 
@@ -117,14 +116,6 @@ pub fn function(intrinsic: StandardIntrinsic) -> Option<&'static ApiItem> {
     STANDARD_ITEMS
         .iter()
         .find(|item| item.uri == api.uri && item.start == api.start)
-}
-
-pub fn resolved(name: ResolvedName) -> Option<&'static Declaration> {
-    let item = match name {
-        ResolvedName::StandardFunction(intrinsic) => function(intrinsic)?,
-        _ => return None,
-    };
-    declaration(&DeclarationId::Definition(item.identity()))
 }
 
 pub type Arguments = BTreeMap<&'static str, TypeId>;

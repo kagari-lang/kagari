@@ -13,9 +13,7 @@ use crate::{
         TypeSubstitution,
     },
 };
-use kagari_abi::standard::{
-    StandardIntrinsic, surface::StandardTypeConstraint, traits::StandardTrait,
-};
+use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
 use kagari_common::{
     Span,
     host_interface::{HostPathContract, HostPathDeclaration},
@@ -55,7 +53,6 @@ pub enum CallTarget {
     HostFunction(HostFunctionId),
     Function(FunctionId),
     Value,
-    StandardIntrinsic(StandardIntrinsic),
     RuntimeHelper(BuiltinFunction),
     TraitMethod {
         method: DefinitionId,
