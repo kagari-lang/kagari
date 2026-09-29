@@ -34,7 +34,6 @@ pub enum ConstraintTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeTarget {
     OpaqueType(OpaqueTypeId),
-    StandardTrait(StandardTrait),
     Host(HostTypeId),
     Source(SourceTypeId),
     Struct(StructId),

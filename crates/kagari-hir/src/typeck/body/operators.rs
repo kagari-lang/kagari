@@ -11,7 +11,10 @@ use crate::{
 };
 use kagari_abi::{
     scalar::BuiltinType,
-    standard::{surface::StandardTypeConstraint, traits::StandardTrait},
+    standard::{
+        surface::StandardTypeConstraint,
+        traits::{self as standard_traits, StandardTrait},
+    },
 };
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::Cancelled, identity};
 
@@ -134,7 +137,7 @@ impl BodyChecker<'_> {
                 let inputs: Vec<_> = self
                     .trait_bounds_for(left, env)
                     .into_iter()
-                    .filter(|bound| bound.declaration == protocol.contract().id)
+                    .filter(|bound| bound.declaration == standard_traits::identity(protocol))
                     .filter_map(|bound| bound.arguments.into_iter().next())
                     .collect();
                 if inputs.is_empty() && matches!(left, TypeId::Inference(_) | TypeId::Builtin(_)) {
@@ -204,7 +207,7 @@ impl BodyChecker<'_> {
         let context = self
             .trait_bounds_for(&receiver_ty, env)
             .into_iter()
-            .find(|t| t.declaration == StandardTrait::Index.contract().id)
+            .find(|t| t.declaration == standard_traits::identity(StandardTrait::Index))
             .and_then(|t| t.arguments.into_iter().next());
         let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
         let Ok(completes) = completion::expr_can_complete(

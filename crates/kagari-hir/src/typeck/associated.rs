@@ -1,5 +1,4 @@
 //! Associated types are declaration-owned projections, never diagnostic names.
-use crate::builtin::traits::StandardTraitSemantics;
 
 use kagari_common::{
     Diagnostic, DiagnosticKind,
@@ -19,7 +18,6 @@ use crate::{
     resolver::ResolvedName,
     types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
 };
-use kagari_abi::standard::traits::StandardTrait;
 use smallvec::SmallVec;
 use std::{cell::RefCell, collections::HashSet};
 
@@ -276,15 +274,6 @@ pub(super) fn member_arity(
     owner: &DefinitionId,
     name: &str,
 ) -> Option<usize> {
-    if let Some(kind) = StandardTrait::from_id(owner) {
-        let id = associated_type_id(owner, name);
-        return kind.contract().associated_types.contains_key(&id).then(|| {
-            kind.contract()
-                .associated_type_parameters
-                .get(&id)
-                .map_or(0, |p| p.parameters.len())
-        });
-    }
     if let Some(item) = module
         .traits
         .iter()
@@ -309,14 +298,6 @@ pub(super) fn members(
     declarations: &Declarations,
     owner: &DefinitionId,
 ) -> Vec<String> {
-    if let Some(kind) = StandardTrait::from_id(owner) {
-        return kind
-            .contract()
-            .associated_types
-            .keys()
-            .filter_map(|id| id.path.last().map(|p| p.name.clone()))
-            .collect();
-    }
     if let Some(item) = module
         .traits
         .iter()
@@ -716,12 +697,6 @@ fn inherited_traits(
                 .collect();
             Some((params, parents))
         } else {
-            if let Some(kind) = StandardTrait::from_id(owner) {
-                return Some((
-                    kind.contract().generic_params.clone(),
-                    kind.contract().supertraits.clone(),
-                ));
-            }
             let imported = declarations.imported_types().by_declaration(owner)?;
             let TypeId::Trait(ty) = &imported.ty else {
                 return None;
@@ -793,4 +768,87 @@ pub(crate) fn normalize(
         ty
     }
     walk(ty, lookup, 0, &mut 8192)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{declare_analysis, host::HostDeclarations, lower::lower_module};
+    use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
+    use kagari_common::source_database::{SourceDatabase, SourceLayer};
+    use std::sync::Arc;
+
+    #[test]
+    fn trait_identity_alone_does_not_replace_source_parameter_or_member_declarations() {
+        let identity = standard_traits::identity(StandardTrait::Add);
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .bind_module("untrusted.kgr", identity.module.clone())
+            .unwrap();
+        sources
+            .set(
+                "untrusted.kgr",
+                "pub trait Add<Rhs, Extra> { type Output<T>; type Local; }".into(),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let source = sources.snapshot().file(file).unwrap().clone();
+        let lowered = Arc::new(lower_module(&source));
+        assert!(lowered.installed_stdlib.is_none());
+        let declared = declare_analysis(
+            lowered,
+            HostDeclarations::empty(),
+            Default::default(),
+            &Default::default(),
+        );
+        let declaration = declared
+            .declarations
+            .definition(ResolvedName::Trait(declared.lowered.module.traits[0].id))
+            .unwrap();
+        assert_eq!(declaration, &identity);
+        assert_eq!(
+            declared
+                .declarations
+                .parameters_of(declaration)
+                .iter()
+                .map(|parameter| parameter.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Rhs", "Extra"]
+        );
+        assert_eq!(
+            members(
+                &declared.lowered.module,
+                &declared.declarations,
+                declaration
+            ),
+            ["Output", "Local"]
+        );
+        assert_eq!(
+            member_arity(
+                &declared.lowered.module,
+                &declared.declarations,
+                declaration,
+                "Output"
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            member_arity(
+                &declared.lowered.module,
+                &declared.declarations,
+                declaration,
+                "Local"
+            ),
+            Some(0)
+        );
+        assert_eq!(
+            member_arity(
+                &declared.lowered.module,
+                &declared.declarations,
+                declaration,
+                "Unknown"
+            ),
+            None
+        );
+    }
 }

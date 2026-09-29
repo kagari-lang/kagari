@@ -1,5 +1,4 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
-use crate::builtin::traits::StandardTraitSemantics;
 
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed,
@@ -538,7 +537,6 @@ fn type_reference_at<'a>(
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
             TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
-            TypeTarget::StandardTrait(kind) => Some(&kind.contract().declaration),
             TypeTarget::Host(_) => None,
             TypeTarget::Source(id) => declarations
                 .imported_types()

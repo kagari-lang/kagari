@@ -10,7 +10,7 @@ use crate::{
     typeck::{self, ConstraintTarget, GenericBounds, ModuleSignatures, associated},
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::traits::StandardTrait;
+use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionId},
@@ -78,7 +78,7 @@ impl AggregateCatalog {
                 StandardTrait::Iterator
             };
             if self.implementations.values().any(|candidate| {
-                candidate.trait_type.declaration == other.contract().id
+                candidate.trait_type.declaration == standard_traits::identity(other)
                     && typeck::possibly_overlapping_impls(
                         &candidate.for_type,
                         &implementation.for_type,

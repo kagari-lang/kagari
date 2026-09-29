@@ -14,7 +14,7 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::traits::StandardTrait;
+use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
 use kagari_common::{Diagnostic, DiagnosticKind, identity};
 
 impl<'a> BodyChecker<'a> {
@@ -639,7 +639,7 @@ impl<'a> BodyChecker<'a> {
             && (protocol.binary_operator() || protocol == StandardTrait::Index)
             && candidates
                 .iter()
-                .all(|(_, interface)| interface.declaration == protocol.contract().id)
+                .all(|(_, interface)| interface.declaration == standard_traits::identity(protocol))
         {
             let argument = self.infer_expr_type(args[0], env);
             let applicable: Vec<_> = candidates

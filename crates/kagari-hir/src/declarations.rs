@@ -1,6 +1,5 @@
 //! Declaration and binding identities owned by one semantic analysis.
 
-use crate::builtin::traits::StandardTraitSemantics;
 use kagari_common::{
     SourceFile, Span,
     cancellation::CancellationToken,
@@ -8,7 +7,7 @@ use kagari_common::{
 };
 
 use crate::{
-    builtin::{declarations, traits},
+    builtin::declarations,
     hir::{
         BodyOwner, ConstOwner, EnumId, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId,
         Item, OpaqueTypeId, VariantId,
@@ -21,7 +20,6 @@ use crate::{
     source_map::SourceMap,
     types::GenericParameterType,
 };
-use kagari_abi::standard::traits::StandardTrait;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -96,30 +94,6 @@ impl Declarations {
     pub fn native_enum(&self, id: EnumId) -> Option<NativeTypeKind> {
         self.native_enums.get(&id).copied()
     }
-    pub(crate) fn standard_trait(&self, name: &str) -> Option<StandardTrait> {
-        if let Some(binding) = self.names.lookup(name) {
-            return match binding.target()? {
-                ResolvedName::StandardTrait(kind) => Some(kind),
-                _ => None,
-            };
-        }
-        if let Some((alias, member)) = name.split_once("::")
-            && let Some(binding) = self.names.lookup(alias)
-        {
-            return match binding.target()? {
-                ResolvedName::StandardModule(module) => traits::in_module(module, member),
-                ResolvedName::SourceImport(index) => {
-                    match self.imports.resolve_member(index, member, &self.hosts)? {
-                        ResolvedName::StandardTrait(kind) => Some(kind),
-                        _ => None,
-                    }
-                }
-                _ => None,
-            };
-        }
-        StandardTrait::from_name(name)
-    }
-
     pub fn impl_identity(&self, id: ImplId) -> Option<&DefinitionId> {
         self.impl_identities.get(&id)
     }
@@ -217,9 +191,6 @@ impl Declarations {
     /// Parameters declared by this owner, in declaration order. Inherited method
     /// binders keep their original owner and are not included here.
     pub fn parameters_of(&self, owner: &DefinitionId) -> Vec<GenericParameterType> {
-        if let Some(kind) = StandardTrait::from_id(owner) {
-            return kind.contract().generic_params.clone();
-        }
         let mut params = self
             .iter()
             .filter_map(|declaration| {

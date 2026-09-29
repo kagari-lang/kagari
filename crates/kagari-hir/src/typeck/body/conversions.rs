@@ -11,7 +11,10 @@ use crate::{
 };
 use kagari_abi::{
     scalar::BuiltinType,
-    standard::{surface::StandardEnum, traits::StandardTrait},
+    standard::{
+        surface::StandardEnum,
+        traits::{self as standard_traits, StandardTrait},
+    },
 };
 use kagari_common::{Diagnostic, DiagnosticKind, identity};
 
@@ -147,6 +150,13 @@ impl BodyChecker<'_> {
                 }
                 _ => return None,
             };
+        let protocol_id = standard_traits::identity(protocol);
+        let contract = self.aggregates.trait_(&protocol_id)?;
+        let [method] = contract.methods.as_slice() else {
+            return None;
+        };
+        let method_id = method.id.clone();
+        let method_name = method.name.clone();
         let arity = usize::from(!protocol.reverse_conversion());
         if args.len() != arity {
             self.infer_call_args(args, env);
@@ -172,7 +182,7 @@ impl BodyChecker<'_> {
                             contract
                                 .methods
                                 .iter()
-                                .any(|method| method.name == protocol.contract().methods[0].name)
+                                .any(|method| method.name == method_name)
                         })
             })
         {
@@ -181,7 +191,7 @@ impl BodyChecker<'_> {
         let target = target.filter(|ty| !ty.is_unresolved()).or_else(|| {
             let mut targets = Vec::new();
             for bound in self.trait_bounds_for(&input, env) {
-                if bound.declaration == protocol.contract().id
+                if bound.declaration == protocol_id
                     && bound.arguments.len() == 1
                     && !targets.contains(&bound.arguments[0])
                 {
@@ -270,7 +280,7 @@ impl BodyChecker<'_> {
         self.type_table.insert_call(
             site,
             CallTarget::TraitMethod {
-                method: protocol.contract().methods[0].id.clone(),
+                method: method_id,
                 interface,
             },
             source_expr,

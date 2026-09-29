@@ -29,7 +29,6 @@ use std::{
 
 pub trait StandardTraitSemantics {
     fn nominal(self) -> NominalType;
-    fn declaration_type(self) -> NominalType;
     fn intrinsic_view(self, receiver: &TypeId) -> NominalType;
     fn contract(self) -> &'static TraitSignature;
 }
@@ -40,19 +39,6 @@ impl StandardTraitSemantics for StandardTrait {
             arguments: vec![],
             associated_types: Default::default(),
         }
-    }
-
-    /// Declaration view used by type syntax; callers supply concrete arguments.
-    fn declaration_type(self) -> NominalType {
-        let mut ty = self.nominal();
-        ty.arguments = self
-            .contract()
-            .generic_params
-            .iter()
-            .cloned()
-            .map(TypeId::Generic)
-            .collect();
-        ty
     }
 
     fn intrinsic_view(self, receiver: &TypeId) -> NominalType {
@@ -431,7 +417,7 @@ pub fn intrinsic_holds(
         return intrinsic_output(&protocol.intrinsic_view(ty), ty).is_some();
     }
     if matches!(protocol, StandardTrait::PartialOrd | StandardTrait::Ord) {
-        if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if n.declaration == protocol.contract().id || protocol == StandardTrait::PartialOrd && n.declaration == StandardTrait::Ord.contract().id))) {return true;}
+        if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if n.declaration == identity(protocol) || protocol == StandardTrait::PartialOrd && n.declaration == identity(StandardTrait::Ord)))) {return true;}
         if let Some(catalog) = catalog
             && matches!(
                 catalog.concrete_interface_implementation(
@@ -576,9 +562,7 @@ pub fn iteration_outputs(
             receiver,
             &Default::default(),
             &|id| {
-                let contract = StandardTrait::from_id(id)
-                    .map(StandardTrait::contract)
-                    .or_else(|| catalog.and_then(|c| c.trait_(id)))?;
+                let contract = catalog?.trait_(id)?;
                 Some((
                     contract.generic_params.clone(),
                     contract.supertraits.clone(),
@@ -588,7 +572,7 @@ pub fn iteration_outputs(
         .ok()?;
         return inherited
             .into_iter()
-            .find(|parent| parent.declaration == kind.contract().id)
+            .find(|parent| parent.declaration == identity(kind))
             .map(|parent| parent.associated_types);
     }
     let declared_kind = if matches!(receiver, TypeId::Iter(_)) && kind == StandardTrait::Iterable {

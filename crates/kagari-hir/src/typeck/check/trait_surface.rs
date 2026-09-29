@@ -1,5 +1,5 @@
 use crate::{
-    builtin::traits::{self, StandardTraitSemantics},
+    builtin::traits,
     declarations::Declarations,
     hir::{FunctionId, TypeKind},
     lower::LoweredModule,
@@ -213,19 +213,7 @@ pub(super) fn validate_trait_surface(
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidTraitImpl { trait_name: trait_name.clone(), type_name: type_name.clone(), reason: "standard operator/equality impls require a script Struct or enum; formatting requires a nominal receiver".into() }).with_span(lowered.source_map.impl_span(impl_block.id)));
             continue;
         }
-        let methods = if let Some(kind) = standard {
-            kind.contract()
-                .methods
-                .iter()
-                .filter_map(|method| {
-                    impl_block
-                        .methods
-                        .iter()
-                        .find(|m| m.name == method.name)
-                        .map(|m| (method.id.clone(), m.function))
-                })
-                .collect()
-        } else if let Some(trait_def) = trait_def {
+        let methods = if let Some(trait_def) = trait_def {
             trait_def
                 .methods
                 .iter()

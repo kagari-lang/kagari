@@ -710,6 +710,39 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 trait-surface checkpoint: declaration generic parameters, associated member
+  names/arities and inherited trait surfaces now come from local or imported HIR
+  declarations. Removed the standard-ID branches that substituted process-global
+  trait contracts. Implementation method maps use those same local/imported
+  declarations. Interface iteration follows the provided aggregate catalog; an
+  absent catalog no longer supplies an implicit global standard inheritance graph.
+- Conversion calls and Result propagation take their method identities from the
+  checked aggregate trait contract. Protocol identity comparisons use closed
+  protocol IDs without loading source contracts. Removed the obsolete
+  `TypeTarget::StandardTrait`, declaration-name fallback and standard declaration
+  type constructor. Annotation navigation retains ordinary declaration targets.
+  This removes direct global trait-contract queries from HIR type checking, but
+  remaining legacy intrinsic/implementation solvers still require ST02 replacement.
+- HIR now owns recognition of the existing `OrderedNumber` and `SignedNumber`
+  sealed language predicates; ABI no longer provides the source-spelling lookup.
+  Explicit names and generic binders still shadow them. Ordinary imported traits,
+  including installed generic traits, require type arguments just like local
+  generic traits; their declaration target remains available on an invalid bound.
+- Added regression coverage for declaration metadata whose identity matches a
+  standard protocol without installed provenance, imported/native trait argument
+  requirements, inherited standard associated members through a user facade and
+  numeric predicate shadowing. HIR tests remain unexecuted behind the unchanged
+  ABI catalog-removal build errors. Resume with
+  `cargo test -p kagari-hir trait_identity_alone` and
+  `cargo test -p kagari-hir analysis::trait_reference_tests` after migration of the
+  owning consumers. The global trait contract builder remains only for legacy
+  name/tooling/compiler consumers and tests; it is not treated as a replacement
+  for these source-owned surfaces.
+- Trait-surface validation: structure review passes for 531 Rust files with zero
+  violations/exceptions; format and diff checks pass. No blocked build/test was
+  rerun and no historical HIR results are claimed as current validation. All
+  carried integration errors remain; ST01/ST02 and later phases are still open.
+
 - ST01 default-contract checkpoint: `MethodSignature` now retains an optional
   `MethodDefault::Script` or `MethodDefault::Native` with the installed binding
   and override policy. Required methods have no default. Aggregate collection

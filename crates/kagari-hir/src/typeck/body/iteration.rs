@@ -4,7 +4,10 @@ use crate::{
     typeck::{BodyTypeEnv, ResolvedIteration, body::BodyChecker},
     types::{NominalType, TypeId},
 };
-use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::traits::{self as standard_traits, StandardTrait},
+};
 use kagari_common::{identity::associated_type_id, range::RangeKind};
 impl BodyChecker<'_> {
     pub(super) fn add_iterator_view(&self, receiver: &TypeId, views: &mut Vec<NominalType>) {
@@ -32,7 +35,7 @@ impl BodyChecker<'_> {
             ) {
                 if let Some(view) = views
                     .iter_mut()
-                    .find(|n| n.declaration == kind.contract().id)
+                    .find(|n| n.declaration == standard_traits::identity(kind))
                 {
                     view.associated_types.extend(outputs);
                     continue;
@@ -44,13 +47,13 @@ impl BodyChecker<'_> {
         }
         if views
             .iter()
-            .any(|n| n.declaration == StandardTrait::Iterable.contract().id)
+            .any(|n| n.declaration == standard_traits::identity(StandardTrait::Iterable))
         {
             return;
         }
         let Some(iterator) = views
             .iter()
-            .find(|n| n.declaration == StandardTrait::Iterator.contract().id)
+            .find(|n| n.declaration == standard_traits::identity(StandardTrait::Iterator))
         else {
             return;
         };

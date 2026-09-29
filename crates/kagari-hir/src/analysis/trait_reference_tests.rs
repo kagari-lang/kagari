@@ -89,6 +89,8 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
         "trait View {} struct Point {} impl<View> View for Point {}",
         "trait View {} fn bad<View, T: View>(x: T) {}",
         "fn bad<Eq, T: Eq>(x: T) {}",
+        "fn bad<OrderedNumber, T: OrderedNumber>(x: T) {}",
+        "fn bad<SignedNumber, T: SignedNumber>(x: T) {}",
         "struct Point {} impl Eq for Point {}",
         "trait View {} struct Point {} impl View<> for Point {}",
         "trait View<T> {} struct Point {} impl View for Point {}",
@@ -133,6 +135,123 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
             .constraint(function.generic_params[0].bounds[0].ty),
         Some(ConstraintTarget::Trait(_))
     ));
+}
+
+#[test]
+fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() {
+    for (path, declaration) in [
+        ("std::ops::Add", None),
+        ("pkg::library::Build", Some("pub trait Build<T> {}")),
+    ] {
+        let mut sources = SourceDatabase::default();
+        if let Some(declaration) = declaration {
+            sources
+                .bind_module(
+                    "library",
+                    ModuleIdentity {
+                        package: PackageId("pkg".into()),
+                        path: vec!["library".into()],
+                    },
+                )
+                .unwrap();
+            sources
+                .set("library", declaration.into(), SourceLayer::Base)
+                .unwrap();
+        }
+        let text = format!(
+            "use {path} as Protocol; fn bad<T: Protocol>(value: T) {{}} fn good<T: Protocol<i32>>(value: T) {{}}"
+        );
+        let file = sources
+            .set("root", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+        let analysis = snapshot.file(file).unwrap();
+        let bad = text.find("T: Protocol>").unwrap() + 3;
+        let good = text.find("T: Protocol<i32>").unwrap() + 3;
+        assert_eq!(
+            snapshot.definition_at(file, bad).unwrap().id,
+            snapshot.definition_at(file, good).unwrap().id
+        );
+        assert!(
+            analysis
+                .result()
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| matches!(
+                    &diagnostic.kind,
+                    kagari_common::DiagnosticKind::InvalidTraitReference { reason, .. }
+                        if *reason == "generic trait references require concrete type arguments"
+                ))
+        );
+        let facts = analysis.result().facts();
+        for function in &facts.lowered.module.functions {
+            let bound = function.generic_params[0].bounds[0].ty;
+            assert_eq!(
+                facts.typed.type_table.constraint(bound).is_some(),
+                function.name == "good"
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .bind_module(
+            "library",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["library".into()],
+            },
+        )
+        .unwrap();
+    sources
+        .set(
+            "library",
+            "use std::iter::Iterator as Base; pub trait Stream: Base {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let text = "use pkg::library::Stream; fn identity<S: Stream>(source: S, item: S::Item) -> S::Item { item }";
+    let root = sources.set("root", text.into(), SourceLayer::Base).unwrap();
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let signature = file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|function| function.name == "identity")
+        .unwrap();
+    let TypeId::Projection {
+        interface,
+        member,
+        arguments,
+        ..
+    } = &signature.return_type
+    else {
+        panic!("inherited associated type must retain its declaring interface");
+    };
+    assert_eq!(interface.declaration.module.package.0, "kagari-std");
+    assert_eq!(interface.declaration.path.last().unwrap().name, "Iterator");
+    assert_eq!(member.path.last().unwrap().name, "Item");
+    assert!(arguments.is_empty());
+    assert_eq!(signature.params[1].ty, signature.return_type);
+    let declaration = snapshot
+        .declaration(&crate::declarations::DeclarationId::Definition(
+            member.clone(),
+        ))
+        .unwrap();
+    assert_eq!(
+        snapshot.source(declaration.location.file).unwrap().name(),
+        "kagari://std/iter.kgr"
+    );
 }
 
 #[test]

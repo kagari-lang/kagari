@@ -346,12 +346,15 @@ impl BodyChecker<'_> {
                     interface.arguments.push(source.clone());
                     if source.is_unresolved() || target.is_unresolved() {
                         true
-                    } else if self.conversion_holds(&interface, &target, env) {
+                    } else if self.conversion_holds(&interface, &target, env)
+                        && let Some(contract) = self.aggregates.trait_(&interface.declaration)
+                        && let [method] = contract.methods.as_slice()
+                    {
                         self.type_table.insert_protocol_receiver(site, target);
                         self.type_table.insert_call(
                             site,
                             CallTarget::TraitMethod {
-                                method: StandardTrait::From.contract().methods[0].id.clone(),
+                                method: method.id.clone(),
                                 interface,
                             },
                             None,

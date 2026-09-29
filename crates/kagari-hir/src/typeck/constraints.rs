@@ -11,10 +11,7 @@ use crate::{
     types::TypeId,
 };
 use hir::TypeKind;
-use kagari_abi::standard::{
-    surface::{self as standard_surface, StandardTypeConstraint},
-    traits::StandardTrait,
-};
+use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 use smallvec::SmallVec;
 
@@ -234,20 +231,23 @@ pub(super) fn resolve_constraint(
             }
         }
     }
-    // Standard constraints are a fallback, so a binder or explicit declaration
-    // cannot resolve differently here and in an ordinary type annotation.
+    // The two sealed numeric predicates are language bounds, not traits from
+    // a source catalog. A binder or explicit declaration still shadows them.
     let standard = (resolved.target.is_none() && context.declarations.names.lookup(name).is_none())
-        .then(|| standard_surface::standard_constraint(name))
+        .then(|| match name.as_str() {
+            "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
+            "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
+            _ => None,
+        })
         .flatten();
     let target = standard
         .map(ConstraintTarget::Standard)
         .or(match &resolved.ty {
             TypeId::Trait(instance)
-                if StandardTrait::from_id(&instance.declaration).is_some()
-                    || context
-                        .declarations
-                        .definition_target(&instance.declaration)
-                        .is_some()
+                if context
+                    .declarations
+                    .definition_target(&instance.declaration)
+                    .is_some()
                     || context
                         .declarations
                         .imported_types()
@@ -261,7 +261,7 @@ pub(super) fn resolve_constraint(
     let reason = if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
         Some("invalid generic trait application")
     } else if !applied
-        && matches!(resolved.target, Some(TypeTarget::Trait(id)) if lowered.module.traits.iter().any(|item| item.id == id && !item.generic_params.is_empty()))
+        && matches!(&resolved.ty, TypeId::Trait(instance) if !instance.arguments.is_empty())
     {
         Some("generic trait references require concrete type arguments")
     } else if !resolved.ty.is_unresolved() && target.is_none() {
