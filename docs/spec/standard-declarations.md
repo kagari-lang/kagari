@@ -13,6 +13,15 @@ requires a body. Parsing an interface does not grant code-generation authority.
 Standard library sources are installed by the engine, not discovered from user
 imports or recognized by a user-controlled file extension.
 
+`stdlib/std.kgr` declares the public namespace through ordinary re-exports.
+`stdlib/prelude.kgr` declares the types and protocols available without an explicit
+import. HIR installs the `std` package alias and those prelude bindings only from
+the prepared engine package. A local declaration, explicit import or glob binding
+takes precedence over an implicit prelude binding; an ambiguous explicit import
+does not fall back to the prelude. Standard modules, functions, types and traits
+are ordinary source import targets. Enum-constructor prelude and remaining legacy
+type/call consumers are still being migrated under the active plan.
+
 Functions and methods returning unit omit the return annotation, for example
 `fn clear(self);`. Callback function types still spell out `-> ()`, as in
 `fn for_each(self, callback: fn(Self::Item) -> ());`.

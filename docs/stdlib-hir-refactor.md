@@ -710,6 +710,34 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 namespace checkpoint: added `stdlib/std.kgr` and `stdlib/prelude.kgr` to the
+  installed manifest (now 17 files). Public namespaces and default type/protocol
+  imports are ordinary source re-exports. HIR installs the `std` alias only when
+  the graph contains the trusted installed root, and resolves its imports through
+  the existing source graph, visibility, alias, glob and re-export machinery.
+  Local declarations and existing explicit/glob bindings take precedence, including
+  ambiguous imports that must not recover through the prelude.
+- Removed all four standard-specific `ImportTarget` variants and their ABI catalog
+  lookups. Standard imports now retain ordinary file/revision/item identities,
+  including native functions, opaque types and traits. Native capability remains
+  attached to installed HIR declarations; the namespace does not grant capability
+  based on a URI or package spelling. Root and prelude re-exports do not introduce
+  a second signature/type model.
+- Added import-graph tests for qualified paths, aliases, globs, ordinary native
+  type/trait targets, default imports, shadowing, ambiguity and counterfeit package
+  identities. HIR tests remain unexecuted behind the unchanged ABI catalog-consumer
+  compilation failure. Resume with `cargo test -p kagari-hir imports::stdlib`.
+  Ordinary enum variant imports/prelude constructors, inherent member imports,
+  removal of legacy `ResolvedName` standard classifications and checked native call
+  typing remain ST01/ST02 work. Standard calls now arriving as source targets still
+  need the Script/Native implementation handoff; no empty script body is supplied.
+- Namespace checkpoint validation: all seven stdlib tests and all-target stdlib
+  Clippy with warnings denied pass, including parsing the two new source modules.
+  Structure checks pass for 529 Rust files with zero violations/exceptions; format
+  and diff checks pass. ABI/HIR/workspace acceptance remains pending for the
+  previously recorded consumer failures; dependency or syntax checks alone do not
+  prove the new import-graph behavioral tests pass.
+
 - ST01 source-query checkpoint: replaced `FileAnalysis::standard_api_at` with
   `AnalysisSnapshot::documentation_at` and the declaration-only
   `DeclarationSnapshot::documentation` query. Both use snapshot-owned declaration

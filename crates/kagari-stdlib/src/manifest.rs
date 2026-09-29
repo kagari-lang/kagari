@@ -32,6 +32,8 @@ macro_rules! source {
 /// Deterministic manifest order, independent of the current working directory.
 pub fn bundled_sources() -> &'static [BundledSource] {
     &[
+        source!("std"),
+        source!("prelude"),
         source!("array"),
         source!("map"),
         source!("set"),

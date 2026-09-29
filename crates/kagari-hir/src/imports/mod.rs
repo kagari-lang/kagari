@@ -1,13 +1,6 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 
-use kagari_abi::standard::StandardIntrinsic;
-use kagari_abi::standard::{
-    surface::{self as standard_surface, StandardModule, StandardVariant},
-    traits::StandardTrait,
-};
-
 use crate::{
-    builtin::traits,
     hir::{ExportItem, FunctionKind, ModuleId, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
@@ -25,6 +18,7 @@ use std::{
 
 mod bindings;
 mod functions;
+mod stdlib;
 mod types;
 pub(crate) use types::TypeCatalog;
 pub use types::{ImportedType, ImportedTypes, SourceTypeId};
@@ -51,10 +45,6 @@ pub struct SourceImport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportTarget {
-    StandardTrait(StandardTrait),
-    StandardModule(StandardModule),
-    StandardFunction(StandardIntrinsic),
-    StandardVariant(StandardVariant),
     HostModule(HostModuleId),
     HostFunction(HostFunctionId),
     HostType(HostTypeId),
@@ -460,35 +450,6 @@ fn resolve_imports(
                     .then(|| (name.clone(), target))
                 })
                 .collect::<Vec<_>>(),
-            Some(ImportTarget::StandardModule(module)) => {
-                standard_surface::standard_functions_in_module(*module)
-                    .map(|function| {
-                        (
-                            function.name.to_owned(),
-                            ImportTarget::StandardFunction(function.intrinsic),
-                        )
-                    })
-                    .chain(
-                        StandardTrait::ALL
-                            .into_iter()
-                            .filter(|kind| traits::in_module(*module, kind.name()) == Some(*kind))
-                            .map(|kind| (kind.name().into(), ImportTarget::StandardTrait(kind))),
-                    )
-                    .chain((*module == StandardModule::Cmp).then(|| {
-                        (
-                            "Ordering".into(),
-                            ImportTarget::StandardModule(StandardModule::Ordering),
-                        )
-                    }))
-                    .chain(
-                        standard_surface::standard_variants_in_module(*module)
-                            .iter()
-                            .map(|(name, variant)| {
-                                (name.to_string(), ImportTarget::StandardVariant(*variant))
-                            }),
-                    )
-                    .collect()
-            }
             Some(ImportTarget::HostModule(module)) => hosts
                 .members_of_module(*module)
                 .into_iter()
@@ -548,6 +509,7 @@ fn resolve_imports(
             entry.target = None;
         }
     }
+    catalog.install_standard_prelude(module, &local_items, &mut result);
     let mut roots = result
         .entries
         .iter()
@@ -717,27 +679,6 @@ fn resolve_path(
     hosts: &HostDeclarations,
 ) -> Result<ImportTarget, DiagnosticKind> {
     let mut candidates = Vec::new();
-    if let Some(module) = standard_surface::standard_module(path) {
-        candidates.push(ImportTarget::StandardModule(module.kind));
-    }
-    if let Some(function) = path.rsplit_once("::").and_then(|(module, name)| {
-        standard_surface::standard_module(module)
-            .and_then(|module| standard_surface::standard_function(module.kind, name))
-    }) {
-        candidates.push(ImportTarget::StandardFunction(function.intrinsic));
-    }
-    if let Some(function) = standard_surface::standard_associated_function(path) {
-        candidates.push(ImportTarget::StandardFunction(function.intrinsic));
-    }
-    if let Some(variant) = path.rsplit_once("::").and_then(|(module, name)| {
-        standard_surface::standard_module(module)
-            .and_then(|module| standard_surface::standard_variant_in_module(module.kind, name))
-    }) {
-        candidates.push(ImportTarget::StandardVariant(variant));
-    }
-    if let Some(kind) = StandardTrait::from_name(path) {
-        candidates.push(ImportTarget::StandardTrait(kind));
-    }
     if let Some(function) = hosts.resolve(path) {
         candidates.push(ImportTarget::HostFunction(function));
     }
@@ -747,15 +688,21 @@ fn resolve_path(
     if let Some(module) = hosts.module(path) {
         candidates.push(ImportTarget::HostModule(module));
     }
+    let source_path = catalog.source_path(path);
     let mut private = false;
-    for module in catalog.paths.get(path).into_iter().flatten() {
+    for module in catalog
+        .paths
+        .get(source_path.as_ref())
+        .into_iter()
+        .flatten()
+    {
         if source_module_accessible(module.source.module_identity(), importer, catalog) {
             candidates.push(ImportTarget::Source(module.target(None, importer)));
         } else {
             private = true;
         }
     }
-    if let Some((parent, member)) = path.rsplit_once("::") {
+    if let Some((parent, member)) = source_path.rsplit_once("::") {
         for module in catalog.paths.get(parent).into_iter().flatten() {
             if !source_module_accessible(module.source.module_identity(), importer, catalog) {
                 private = true;
@@ -774,7 +721,7 @@ fn resolve_path(
             match visible.as_deref() {
                 Some([item])
                     if matches!(item.item, ExportItem::Module(_))
-                        && catalog.paths.contains_key(path) => {}
+                        && catalog.paths.contains_key(source_path.as_ref()) => {}
                 Some([item]) => {
                     let namespace = match item.item {
                         ExportItem::Import(index) => {
@@ -840,7 +787,7 @@ fn canonical_namespace_target(
                         })?;
                 target = entry.reexports.get(&index)?.clone();
             }
-            ImportTarget::StandardModule(_) | ImportTarget::HostModule(_) => return Some(target),
+            ImportTarget::HostModule(_) => return Some(target),
             _ => return None,
         }
     }
@@ -884,6 +831,7 @@ fn source_module_accessible(
 
 struct SourceCatalog<'a> {
     paths: BTreeMap<String, Vec<SourceCatalogEntry<'a>>>,
+    standard_root: Option<ModuleIdentity>,
 }
 
 struct SourceCatalogEntry<'a> {
@@ -905,8 +853,13 @@ impl<'a> SourceCatalog<'a> {
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut paths = BTreeMap::<_, Vec<_>>::new();
+        let mut standard_root = None;
         for module in sources {
             cancel.check()?;
+            if module.installed_stdlib.is_some() && module.source.module_identity().path == ["std"]
+            {
+                standard_root = Some(module.source.module_identity().clone());
+            }
             let mut members = BTreeMap::<_, Vec<_>>::new();
             let mut add = |name: &str, item, visibility| {
                 members
@@ -990,11 +943,15 @@ impl<'a> SourceCatalog<'a> {
                     }),
                 });
         }
-        Ok(Self { paths })
+        Ok(Self {
+            paths,
+            standard_root,
+        })
     }
 
     fn same_members(&self, other: &Self) -> bool {
-        self.paths.len() == other.paths.len()
+        self.standard_root == other.standard_root
+            && self.paths.len() == other.paths.len()
             && self.paths.iter().all(|(path, entries)| {
                 other.paths.get(path).is_some_and(|old| {
                     entries.len() == old.len()

@@ -1,9 +1,6 @@
 //! Resolve facade targets once, before declaration/name/signature consumers run.
 
-use kagari_abi::standard::surface as standard_surface;
-
 use crate::{
-    builtin::traits,
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, ModuleImports},
     resolver::ResolvedName,
@@ -69,13 +66,9 @@ impl ModuleImports {
     pub(crate) fn resolved_name(&self, key: ResolvedName) -> Option<ResolvedName> {
         Some(match self.binding(key)? {
             ImportTarget::Source(_) => key,
-            ImportTarget::StandardTrait(kind) => ResolvedName::StandardTrait(*kind),
             ImportTarget::HostFunction(function) => ResolvedName::HostFunction(*function),
             ImportTarget::HostType(ty) => ResolvedName::HostType(*ty),
             ImportTarget::HostModule(module) => ResolvedName::HostModule(*module),
-            ImportTarget::StandardVariant(variant) => ResolvedName::StandardVariant(*variant),
-            ImportTarget::StandardFunction(function) => ResolvedName::StandardFunction(*function),
-            ImportTarget::StandardModule(module) => ResolvedName::StandardModule(*module),
         })
     }
 
@@ -116,17 +109,6 @@ impl ModuleImports {
                     self.resolve_member(namespace, member, hosts)
                 }
                 ResolvedName::HostModule(module) => hosts.resolve_name_in(module, member),
-                ResolvedName::StandardModule(module) => {
-                    standard_surface::standard_function(module, member)
-                        .map(|f| ResolvedName::StandardFunction(f.intrinsic))
-                        .or_else(|| {
-                            standard_surface::standard_variant_in_module(module, member)
-                                .map(ResolvedName::StandardVariant)
-                        })
-                        .or_else(|| {
-                            traits::in_module(module, member).map(ResolvedName::StandardTrait)
-                        })
-                }
                 _ => None,
             },
         }
