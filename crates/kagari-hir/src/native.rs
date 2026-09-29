@@ -77,9 +77,7 @@ impl NativeTypeKind {
 
     pub fn arity(self) -> usize {
         match self {
-            Self::Enum(StandardEnum::Option | StandardEnum::Bound) => 1,
-            Self::Enum(StandardEnum::Result) => 2,
-            Self::Enum(_) => 0,
+            Self::Enum(kind) => kind.arity(),
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::LinkedHashMap => 2,
             _ => 1,

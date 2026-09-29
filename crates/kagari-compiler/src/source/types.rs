@@ -1,14 +1,27 @@
 //! Encode checked source types at the compiler boundary.
-use kagari_abi::numeric::NumericOperation;
 use kagari_abi::{
+    numeric::NumericOperation,
     scalar::BuiltinType,
-    types::{AbiType, NominalAbiType},
+    types::{AbiType, NominalAbiType, native::NativeTypeConstructor},
 };
 use kagari_common::integer::IntegerOp;
 use kagari_hir::{
     hir::BinaryOp,
+    native::NativeTypeKind,
     types::{GenericParameterType, NominalType, TypeId},
 };
+
+pub(crate) fn lower_native_constructor(kind: NativeTypeKind) -> NativeTypeConstructor {
+    match kind {
+        NativeTypeKind::String => NativeTypeConstructor::String,
+        NativeTypeKind::ArrayList => NativeTypeConstructor::Array,
+        NativeTypeKind::LinkedHashMap => NativeTypeConstructor::Map,
+        NativeTypeKind::LinkedHashSet => NativeTypeConstructor::Set,
+        NativeTypeKind::Iter => NativeTypeConstructor::Iter,
+        NativeTypeKind::Range(kind) => NativeTypeConstructor::Range(kind),
+        NativeTypeKind::Enum(kind) => NativeTypeConstructor::Enum(kind),
+    }
+}
 pub(crate) fn lower_nominal_type(ty: &NominalType) -> NominalAbiType {
     NominalAbiType {
         associated_types: ty

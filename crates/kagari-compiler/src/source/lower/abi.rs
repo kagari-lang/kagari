@@ -1,5 +1,10 @@
-use crate::source::types::{lower_nominal_type, lower_type};
-use kagari_abi::types::{AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi};
+use crate::source::types::{lower_native_constructor, lower_nominal_type, lower_type};
+use kagari_abi::types::{
+    AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
+    ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
+    ModuleAbi, ParameterAbi, PublicAbiItem, TraitAbi, TraitContract, TypeAbi, TypeAbiKind,
+    VariantAbi,
+};
 use kagari_common::identity;
 use kagari_hir::{
     AnalyzedModule,
@@ -10,27 +15,23 @@ use kagari_hir::{
     types::{GenericParameterType, TypeId},
 };
 
+#[cfg(test)]
+mod tests;
+
 // Versioned scalar encoding; float bits and UTF-8 byte length are explicit.
 fn const_abi_value(value: &ScalarValue) -> String {
     match value {
         ScalarValue::Unit => "const-v1:unit".to_owned(),
         ScalarValue::Bool(value) => format!("const-v1:bool:{}", u8::from(*value)),
         ScalarValue::I32(value) => format!("const-v1:i32:{value}"),
-        ScalarValue::Integer { value, ty } => format!(
-            "const-v2:{}:{value}",
-            kagari_hir::types::TypeId::Builtin(*ty).display_name()
-        ),
+        ScalarValue::Integer { value, ty } => {
+            format!("const-v2:{}:{value}", TypeId::Builtin(*ty).display_name())
+        }
         ScalarValue::F32(value) => format!("const-v1:f32:{:08x}", value.to_bits()),
         ScalarValue::F64(value) => format!("const-v2:f64:{:016x}", value.to_bits()),
         ScalarValue::String(value) => format!("const-v1:str:{}:{value}", value.len()),
     }
 }
-
-use kagari_abi::types::{
-    AbiType, ConstAbi, ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-    InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem, TraitAbi, TraitContract, TypeAbi,
-    TypeAbiKind, VariantAbi,
-};
 
 pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     let hir_module = &module.lowered.module;
@@ -105,6 +106,27 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                     variants: Vec::new(),
                 }));
             }
+            Item::OpaqueType(id) => {
+                let Some(item) = hir_module
+                    .opaque_types
+                    .iter()
+                    .find(|item| item.id == id && item.visibility == Visibility::Public)
+                else {
+                    continue;
+                };
+                let representation = module
+                    .declarations
+                    .native_type(id)
+                    .expect("checked native type representation");
+                public_items.push(PublicAbiItem::Type(TypeAbi {
+                    name: item.name.clone(),
+                    kind: TypeAbiKind::Native(lower_native_constructor(representation)),
+                    generic_params: generic_param_abi(module, &item.generic_params),
+                    bounds: parameter_bounds(module, &item.generic_params),
+                    fields: Vec::new(),
+                    variants: Vec::new(),
+                }));
+            }
             Item::Enum(id) => {
                 let Some(enum_item) = hir_module.enums.iter().find(|enum_item| {
                     enum_item.id == id && enum_item.visibility == Visibility::Public
@@ -113,7 +135,12 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 };
                 public_items.push(PublicAbiItem::Type(TypeAbi {
                     name: enum_item.name.clone(),
-                    kind: TypeAbiKind::Enum,
+                    kind: module
+                        .declarations
+                        .native_enum(id)
+                        .map(lower_native_constructor)
+                        .map(TypeAbiKind::Native)
+                        .unwrap_or(TypeAbiKind::Enum),
                     generic_params: generic_param_abi(module, &enum_item.generic_params),
                     bounds: parameter_bounds(module, &enum_item.generic_params),
                     fields: Vec::new(),

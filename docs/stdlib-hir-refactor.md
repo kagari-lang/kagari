@@ -283,6 +283,14 @@ resolved callable witnesses. For example, a generic collection operation must
 receive its selected hash/equality or iterator method targets; runtime must not
 resolve those protocols from standard source descriptions.
 
+Public native type declarations carry `TypeAbiKind::Native` and a closed
+[`NativeTypeConstructor`](../crates/kagari-abi/src/types/native.rs). HIR supplies
+the constructor, binders, bounds and enum payload facts; compiler lowering does
+not select a representation by the written type name. Native declarations remain
+distinct from nominal struct/enum layout templates. Executable validation checks
+constructor arity and, for native enums, exact discriminant count and generic
+payload slots against the engine representation contract.
+
 The portable native import record must carry provider and binding identity/version,
 concrete parameter/result contracts, witness requirements and necessary type references.
 Effects, root behavior and logical charges are constrained by the trusted engine
@@ -731,6 +739,35 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST02 public native-type handoff: compiler ABI collection now handles checked
+  opaque declarations and marks installed native enums with an explicit portable
+  representation constructor. Their public names, binders, bounds and variants
+  remain HIR-derived. They are no longer omitted by the item match or classified
+  as ordinary nominal enum templates. Added source-package coverage for all 18
+  installed native type declarations, including Result's distinct payload slots.
+- ST02 representation contract: native public type validation checks arity,
+  binder ownership, storage/variant shape and exact generic payload references.
+  `StandardEnum` now exposes closed wire tags, arity and payload slots; enum
+  operations use these runtime facts instead of removed source descriptors.
+  Added malformed-template, forged-payload and enum-operation regressions.
+  This is the portable encoding needed for ST02's type handoff; ST03 still owns
+  native callable contracts, proof migration and full executable validation.
+- Breaking contract update: runtime ABI v104, KBC v105 and KMIR v3 reject
+  superseded products after the native public-type schema extension. Helper ABI
+  remains v6. `crates/kagari-embed/tests/fixtures/feature_artifact.kbc` is now stale;
+  regenerate it with the existing documented recipe once source compilation is
+  restored in ST03, and retain canonical-byte and execution assertions. No old
+  artifact reader or compatibility mode is added.
+- ST02 handoff validation: fresh `cargo check -p kagari-abi` fails with 17 carried
+  errors (previously 19): removed declaration imports/catalogs in standard
+  application/contracts/implementation/resolve/proofs and physical intrinsic
+  contracts, plus their derivative type error. The two enum-operation descriptor
+  errors are resolved. Full diagnostics are in
+  `target/stdlib-st02-native-types-abi.log`; ST03 owns the remaining migration.
+  ABI/HIR/compiler regression tests cannot yet run. Structure review checks 545
+  Rust files with zero violations/exceptions; formatting, local documentation
+  links and diff checks pass. ST02 and full integration acceptance remain open.
 
 - ST02 host origin checkpoint: added optional `HostInput` origin metadata beside
   the existing portable interface. Plain interfaces retain their valid role as

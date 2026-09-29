@@ -18,6 +18,9 @@ remain under migration. Source and offline host calls now share HIR signature
 checking and queries, with explicit Engine/Host bindings and retained host contracts.
 Optional host declaration/Rust origins are retained by analysis snapshots.
 Remaining engine metadata and executable provider contracts remain pending.
+Checked native type declarations now carry explicit portable representation
+constructors. Runtime ABI v104, KBC v105 and KMIR v3 accompany this schema change;
+the SDK artifact fixture requires regeneration after compilation is restored.
 Integration is still broken by the carried errors recorded
 in the active plan; ST01 scope completion does not claim HIR or workspace acceptance.
 The thirteen-crate description below is the pre-migration

@@ -1,6 +1,7 @@
 pub mod access;
 pub mod inheritance;
 pub mod matching;
+pub mod native;
 pub mod proofs;
 pub mod substitution;
 pub mod verify;
@@ -14,7 +15,10 @@ use crate::{
         surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
         traits::StandardTrait,
     },
-    types::substitution::{TypeSubstitution, resolve_associated_outputs},
+    types::{
+        native::NativeTypeConstructor,
+        substitution::{TypeSubstitution, resolve_associated_outputs},
+    },
 };
 use bincode::{DefaultOptions, Options};
 use kagari_common::{
@@ -128,6 +132,7 @@ pub struct TypeAbi {
 pub enum TypeAbiKind {
     Struct,
     Enum,
+    Native(NativeTypeConstructor),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -33,6 +33,44 @@ pub enum StandardEnum {
     Ordering,
 }
 
+impl StandardEnum {
+    /// Generic slots in the engine representation, independently of source names.
+    pub fn arity(self) -> usize {
+        match self {
+            Self::Bound | Self::Option => 1,
+            Self::Result => 2,
+            Self::ParseError | Self::TryFromIntError | Self::Infallible | Self::Ordering => 0,
+        }
+    }
+
+    /// Wire discriminant order and payload slots are part of the runtime ABI.
+    pub fn variants(self) -> &'static [StandardVariant] {
+        match self {
+            Self::Bound => &[
+                StandardVariant::Included,
+                StandardVariant::Excluded,
+                StandardVariant::Unbounded,
+            ],
+            Self::ParseError => &[
+                StandardVariant::ParseEmpty,
+                StandardVariant::ParseInvalidDigit,
+                StandardVariant::ParseOutOfRange,
+                StandardVariant::ParseInvalidRadix,
+                StandardVariant::ParseInvalidSyntax,
+            ],
+            Self::TryFromIntError => &[StandardVariant::OutOfRange],
+            Self::Infallible => &[],
+            Self::Option => &[StandardVariant::Some, StandardVariant::None],
+            Self::Result => &[StandardVariant::Ok, StandardVariant::Err],
+            Self::Ordering => &[
+                StandardVariant::Less,
+                StandardVariant::Equal,
+                StandardVariant::Greater,
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StandardVariant {
     ParseEmpty,

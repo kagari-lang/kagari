@@ -48,18 +48,14 @@ impl StandardEnumOp {
         let AbiType::StandardEnum { kind, args } = ty else {
             return None;
         };
-        if args.len() != kind.spec().arity {
+        if args.len() != kind.arity() {
             return None;
         }
         let variant = match self {
             Self::Make(v) | Self::Test(v) | Self::Read(v) => v,
         };
-        let spec = kind.spec().variants.get(variant as usize)?;
-        let payload = if spec.payload_arity == 0 {
-            None
-        } else {
-            Some(args[if args.len() == 2 { variant as usize } else { 0 }].representation())
-        };
+        let variant = kind.variants().get(variant as usize)?;
+        let payload = variant.payload().map(|slot| args[slot].representation());
         match self {
             Self::Make(_) => Some((payload, ValueType::HeapObject)),
             Self::Test(_) => Some((Some(ValueType::HeapObject), ValueType::Bool)),

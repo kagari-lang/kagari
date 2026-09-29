@@ -3,10 +3,7 @@ use crate::types::matching;
 use crate::{
     layout::LayoutValidationError,
     scalar::BuiltinType,
-    standard::{
-        declarations as standard_declarations, native, surface::StandardEnum as StandardEnumKind,
-        traits::StandardTrait,
-    },
+    standard::{declarations as standard_declarations, native, traits::StandardTrait},
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
         InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi, TraitContract, TypeAbi,
@@ -105,6 +102,7 @@ pub fn validate(
                 let kind = match ty.kind {
                     TypeAbiKind::Struct => DefinitionKind::Struct,
                     TypeAbiKind::Enum => DefinitionKind::Enum,
+                    TypeAbiKind::Native(kind) => kind.declaration_kind(),
                 };
                 let owner = owner(module, &[], kind, &ty.name);
                 aggregate_names.insert(&ty.name)
@@ -675,6 +673,7 @@ fn aggregate_shape_valid(ty: &TypeAbi, cancel: &CancellationToken) -> bool {
         || match ty.kind {
             TypeAbiKind::Struct => !ty.variants.is_empty(),
             TypeAbiKind::Enum => !ty.fields.is_empty(),
+            TypeAbiKind::Native(kind) => !kind.shape_valid(ty),
         }
     {
         return false;
@@ -889,15 +888,7 @@ fn type_valid(
             AbiType::Array(ty, _) | AbiType::Set(ty, _) | AbiType::Iter(ty) => pending.push(ty),
             AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::StandardEnum { kind, args } => {
-                let count = match kind {
-                    StandardEnumKind::Ordering
-                    | StandardEnumKind::ParseError
-                    | StandardEnumKind::TryFromIntError
-                    | StandardEnumKind::Infallible => 0,
-                    StandardEnumKind::Bound | StandardEnumKind::Option => 1,
-                    StandardEnumKind::Result => 2,
-                };
-                if args.len() != count {
+                if args.len() != kind.arity() {
                     return false;
                 }
                 pending.extend(args);
