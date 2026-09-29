@@ -925,6 +925,7 @@ impl AnalysisSnapshot {
             ExportItem::Module(id) => ResolvedName::Module(id),
             ExportItem::Struct(id) => ResolvedName::Struct(id),
             ExportItem::Enum(id) => ResolvedName::Enum(id),
+            ExportItem::Variant(id) => return file.result.facts().declarations.variant(id),
             ExportItem::Trait(id) => ResolvedName::Trait(id),
             ExportItem::Import(_) => return None,
         };

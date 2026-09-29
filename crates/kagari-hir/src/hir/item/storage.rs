@@ -1,6 +1,6 @@
 use crate::hir::{
     ConstId, EnumId, ExprId, FunctionId, ImplId, ModuleId, OpaqueTypeId, StructId, TraitId,
-    TypeRefId,
+    TypeRefId, VariantId,
 };
 use kagari_common::identity::ModuleIdentity;
 
@@ -53,6 +53,7 @@ pub enum ExportItem {
     Import(usize),
     Struct(StructId),
     Enum(EnumId),
+    Variant(VariantId),
     Trait(TraitId),
 }
 

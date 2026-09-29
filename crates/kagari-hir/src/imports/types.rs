@@ -49,9 +49,14 @@ pub struct ImportedTypes {
     types: HashMap<String, ImportedType>,
     resolutions: HashMap<ResolvedName, String>,
     nominal_types: HashMap<DefinitionId, ImportedType>,
+    variants: HashMap<ResolvedName, Declaration>,
 }
 
 impl ImportedTypes {
+    pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration> {
+        self.variants.get(&name)
+    }
+
     pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType> {
         self.types.get(self.resolutions.get(&name)?)
     }
@@ -132,6 +137,23 @@ impl<'a> TypeCatalog<'a> {
                         result.types.insert(name, ty);
                     }
                 }
+            }
+        }
+        for (key, target) in &imports.bindings {
+            cancel.check()?;
+            let ImportTarget::Source(source) = target else {
+                continue;
+            };
+            let Some(ExportItem::Variant(variant)) = source.item else {
+                continue;
+            };
+            let Some(module) = self.modules.get(&source.file) else {
+                continue;
+            };
+            if module.lowered.source.revision() == source.revision
+                && let Some(declaration) = module.declarations.variant(variant)
+            {
+                result.variants.insert(*key, declaration.clone());
             }
         }
         let cache = self.surfaces.borrow();

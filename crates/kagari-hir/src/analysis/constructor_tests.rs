@@ -12,6 +12,83 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
+fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
+    let text = "enum Local<T> { Some(T), None } use self::Local::{Some as LocalSome, None as LocalNone}; fn native(value:i32)->Option<i32> { Some(value) } fn script(value:i32)->Local<i32> { LocalSome(value) } fn read(value:Option<i32>)->i32 { match value { Some(payload)=>payload, None=>0 } }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("variants.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut AnalysisDatabase::default(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let facts = analysis.result().facts();
+    let mut checked = 0;
+    for (id, expression) in facts.lowered.module.body.expressions() {
+        let ExprKind::Call { callee, .. } = &expression.kind else {
+            continue;
+        };
+        let ExprKind::Name { name, .. } = &facts.lowered.module.expr(*callee).kind else {
+            continue;
+        };
+        if !matches!(name.as_str(), "Some" | "LocalSome") {
+            continue;
+        }
+        let constructor = facts.typed.type_table.enum_constructor(id).unwrap();
+        let variant = facts
+            .aggregates
+            .variant(constructor.variant.as_ref().unwrap())
+            .unwrap();
+        assert_eq!(variant.name, "Some");
+        let owner = facts
+            .aggregates
+            .enumeration(&constructor.enumeration)
+            .unwrap();
+        assert_eq!(owner.native_type.is_some(), name == "Some");
+        let actual = facts.typed.type_table.expr_type(id).unwrap();
+        assert_eq!(
+            matches!(actual, TypeId::StandardEnum { .. }),
+            name == "Some"
+        );
+        assert_eq!(matches!(actual, TypeId::Enum(_)), name == "LocalSome");
+        checked += 1;
+    }
+    assert_eq!(checked, 2);
+    for needle in ["Some(payload)", "None=>"] {
+        let offset = text.find(needle).unwrap();
+        let pattern = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(_, expression)| {
+                let ExprKind::Match { arms, .. } = &expression.kind else {
+                    return None;
+                };
+                arms.iter()
+                    .find(|arm| facts.lowered.source_map.pattern_span(arm.pattern).start == offset)
+                    .map(|arm| arm.pattern)
+            })
+            .unwrap();
+        let variant = facts.typed.type_table.pattern_variant(pattern).unwrap();
+        let variant = facts.aggregates.variant(variant).unwrap();
+        assert_eq!(variant.owner.module.package.0, "kagari-std");
+    }
+    let native = snapshot
+        .definition_at(file, text.find("Some(value)").unwrap())
+        .unwrap();
+    let script = snapshot
+        .definition_at(file, text.find("LocalSome(value)").unwrap())
+        .unwrap();
+    assert_ne!(native.id, script.id);
+    assert_ne!(native.location.file, file);
+    assert_eq!(script.location.file, file);
+}
+
+#[test]
 fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors() {
     let text = "enum Event<T> { Empty, Data(T) } fn good() { Event<bool>::Data(true); } fn wrong() { Event<i32>::Data(false); } fn unknown() { Event<Missing>::Data(missing); }";
     let mut sources = SourceDatabase::default();

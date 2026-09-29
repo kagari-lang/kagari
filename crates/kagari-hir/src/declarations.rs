@@ -241,6 +241,7 @@ impl Declarations {
     pub fn target(&self, name: ResolvedName) -> Option<&Declaration> {
         self.targets
             .get(&DeclarationKey::Name(name))
+            .or_else(|| self.imported_types.variant(name))
             .or_else(|| declarations::resolved(name))
     }
 

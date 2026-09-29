@@ -19,8 +19,11 @@ import. HIR installs the `std` package alias and those prelude bindings only fro
 the prepared engine package. A local declaration, explicit import or glob binding
 takes precedence over an implicit prelude binding; an ambiguous explicit import
 does not fall back to the prelude. Standard modules, functions, types and traits
-are ordinary source import targets. Enum-constructor prelude and remaining legacy
-type/call consumers are still being migrated under the active plan.
+are ordinary source import targets. Option and Result re-export their variants,
+and the prelude imports those source declarations. Constructor and pattern facts
+retain the variant identity, checked payload types and the owning enum's native
+representation hook. Remaining legacy type/call and executable consumers are still
+being migrated under the active plan.
 
 Functions and methods returning unit omit the return annotation, for example
 `fn clear(self);`. Callback function types still spell out `-> ()`, as in

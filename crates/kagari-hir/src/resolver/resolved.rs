@@ -77,7 +77,7 @@ pub struct ResolvedNames {
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
-    pub(crate) pattern_variants: HashMap<PatternId, StandardVariant>,
+    pub(crate) pattern_variants: HashMap<PatternId, ResolvedName>,
     closure_captures: HashMap<ExprId, Vec<ResolvedName>>,
 }
 

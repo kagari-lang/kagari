@@ -259,7 +259,7 @@ impl<'a> BodyChecker<'a> {
                 TypeId::Unknown
             }
             ExprKind::Name { explicit_type, .. }
-                if explicit_type.is_some() || self.enum_member_owner(expr_id).is_some() =>
+                if explicit_type.is_some() || self.enum_member(expr_id).is_some() =>
             {
                 self.infer_enum_constructor(expr_id, expr_id, &[], env, expected)
                     .expect("resolved enum member owner")

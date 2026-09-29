@@ -710,6 +710,34 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 enum-member checkpoint: source import targets now include arena-qualified
+  enum variants. Associated paths and module globs use source member identities;
+  Option/Result explicitly re-export their variants and the prelude imports
+  Some/None/Ok/Err through those declarations. Enum aliases and module re-exports
+  retain associated members. Module globs do not accidentally expose qualified
+  members as unqualified names. Non-module glob targets remain invalid as required
+  by the syntax specification.
+- Imported variants retain ordinary declaration metadata. Native and script enum
+  constructors consume the same checked payload signatures and generic arguments;
+  `EnumSignature` carries the installed representation hook and includes it in
+  cache contract comparison. Result types preserve native storage while constructor
+  and pattern facts identify the actual enum/variant declarations. Pattern name
+  resolution recognizes imported unit variants without creating local bindings;
+  payload substitution is shared with ordinary enum pattern checking. Native unit
+  variants still reject function-call parentheses.
+- Added import identity/glob/prelude checks and a mixed native/script constructor
+  and pattern test. HIR execution remains pending behind the unchanged ABI build
+  failure. Resume with `cargo test -p kagari-hir enum_variants` and
+  `cargo test -p kagari-hir native_and_script_variants` after consumer migration.
+  Legacy standard-name fallbacks and constructor/pattern tables remain to be
+  removed as ST02 consumers converge; ST03 must lower native enum representation
+  from the ordinary HIR facts. No duplicate legacy constructor fact is emitted
+  merely to satisfy the old compiler path. All carried integration errors remain.
+- Enum-member validation: all seven stdlib tests and all-target stdlib Clippy with
+  warnings denied pass; structure review passes for 531 Rust files with zero
+  violations/exceptions. Format and diff checks pass. This is a source/HIR API
+  checkpoint with unexecuted HIR tests, not a passing compiler or runtime claim.
+
 - ST01 namespace checkpoint: added `stdlib/std.kgr` and `stdlib/prelude.kgr` to the
   installed manifest (now 17 files). Public namespaces and default type/protocol
   imports are ordinary source re-exports. HIR installs the `std` alias only when

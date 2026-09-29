@@ -139,6 +139,56 @@ fn declared_prelude_types_and_traits_use_ordinary_import_precedence() {
 }
 
 #[test]
+fn enum_variants_use_source_identity_through_aliases_globs_and_prelude() {
+    let imports = prepare_imports(
+        "use std::option::Option::{Some as Present, None as Absent}; use std::option::Option as Maybe; use std::option::*; use std::prelude::Option::Some as Forwarded;",
+    );
+    assert!(imports.diagnostics.is_empty(), "{:?}", imports.diagnostics);
+    let expected = source(&imports, "Present", None);
+    assert!(matches!(expected.item, Some(ExportItem::Variant(_))));
+    for (name, member) in [
+        ("Some", None),
+        ("Forwarded", None),
+        ("Maybe", Some("Some")),
+        ("std", Some("option::Option::Some")),
+        ("std", Some("prelude::Option::Some")),
+    ] {
+        let target = source(&imports, name, member);
+        assert_eq!(
+            (&target.module, target.file, target.revision, target.item),
+            (
+                &expected.module,
+                expected.file,
+                expected.revision,
+                expected.item
+            )
+        );
+    }
+    assert_ne!(source(&imports, "Absent", None).item, expected.item);
+    let defaults = prepare_imports("");
+    for name in ["Some", "None", "Ok", "Err"] {
+        assert!(matches!(
+            source(&defaults, name, None).item,
+            Some(ExportItem::Variant(_))
+        ));
+    }
+    let user = prepare_imports("enum Choice { Yes(i32), No } use self::Choice::{Yes, No};");
+    assert!(user.diagnostics.is_empty());
+    for name in ["Yes", "No"] {
+        let target = source(&user, name, None);
+        assert_eq!(target.module.package.0, "source");
+        assert!(matches!(target.item, Some(ExportItem::Variant(_))));
+    }
+    let invalid = prepare_imports("use std::option::Option::*;");
+    assert!(
+        invalid
+            .diagnostics
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::InvalidGlobTarget { .. }))
+    );
+}
+
+#[test]
 fn copying_installed_names_and_uris_does_not_install_the_package_alias() {
     let mut sources = SourceDatabase::default();
     let uri = "kagari://std/std.kgr";

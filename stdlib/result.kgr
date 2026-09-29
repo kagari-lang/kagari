@@ -2,6 +2,8 @@
 //!
 //! Resource exhaustion and cancellation follow the execution-session contract.
 
+pub use self::Result::{Ok, Err};
+
 /// A successful value `Ok(T)` or a recoverable business error `Err(E)`.
 ///
 /// Use `Result` for failures callers can inspect and handle. It does not turn engine

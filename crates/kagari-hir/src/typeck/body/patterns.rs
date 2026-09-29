@@ -8,6 +8,8 @@ use kagari_abi::scalar::BuiltinType;
 use kagari_common::{Diagnostic, DiagnosticKind, Span};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod enums;
+
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_match_arm_type(
         &mut self,
@@ -106,6 +108,12 @@ impl<'a> BodyChecker<'a> {
                         self.type_table.insert_pattern_range(pattern, start, end);
                     }
                 }
+            }
+            PatternKind::Name { name, .. }
+                if self.names.pattern_variants.contains_key(&pattern) =>
+            {
+                let name = name.clone();
+                self.check_enum_pattern(pattern, &name, &[], expected, env);
             }
             PatternKind::Name { local, .. } => {
                 env.locals.insert(*local, expected.clone());
@@ -219,74 +227,7 @@ impl<'a> BodyChecker<'a> {
             PatternKind::EnumVariant { path, fields } => {
                 let path = path.clone();
                 let fields = fields.clone();
-                let TypeId::Enum(owner) = expected else {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
-                            found: format!("enum variant `{path}`"),
-                        })
-                        .with_span(span),
-                    );
-                    return;
-                };
-                let Some((owner_path, variant_name)) = path.rsplit_once("::") else {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
-                            found: format!("enum variant `{path}`"),
-                        })
-                        .with_span(span),
-                    );
-                    return;
-                };
-                if self.resolve_enum_id(owner_path).as_ref() != Some(&owner.declaration) {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
-                            found: format!("enum variant `{path}`"),
-                        })
-                        .with_span(span),
-                    );
-                    return;
-                }
-                let Some(enumeration) = self.aggregates.enumeration(&owner.declaration) else {
-                    return;
-                };
-                let Some(variant) = enumeration
-                    .variants
-                    .iter()
-                    .find(|variant| variant.name == variant_name)
-                    .cloned()
-                else {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: display_type_id(expected),
-                            found: format!("unknown enum variant `{path}`"),
-                        })
-                        .with_span(span),
-                    );
-                    return;
-                };
-                if variant.payload.len() != fields.len() {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
-                            expected: format!("{} payload fields", variant.payload.len()),
-                            found: format!("{} payload fields", fields.len()),
-                        })
-                        .with_span(span),
-                    );
-                    return;
-                }
-                let substitution = enumeration
-                    .generic_params
-                    .iter()
-                    .cloned()
-                    .zip(owner.arguments.iter().cloned())
-                    .collect();
-                self.type_table.insert_pattern_variant(pattern, variant.id);
-                for (field, ty) in fields.into_iter().zip(variant.payload) {
-                    self.check_pattern(field, &ty.instantiate(&substitution), env);
-                }
+                self.check_enum_pattern(pattern, &path, &fields, expected, env);
             }
         }
     }
@@ -301,6 +242,9 @@ impl<'a> BodyChecker<'a> {
         while let Some(pattern) = work.pop() {
             match &self.lowered.module.pattern(pattern).kind {
                 PatternKind::Name { name, local } => {
+                    if self.names.pattern_variants.contains_key(&pattern) {
+                        continue;
+                    }
                     duplicate |= names.insert(name.clone(), *local).is_some();
                 }
                 PatternKind::Or(alternatives) => work.extend(alternatives.first().copied()),

@@ -2,6 +2,8 @@
 //!
 //! Resource exhaustion and cancellation follow the execution-session contract.
 
+pub use self::Option::{Some, None};
+
 /// An optional value: either `Some(T)` or `None`.
 ///
 /// Use `Option` when absence is expected and needs no error payload. `get` operations

@@ -2,11 +2,11 @@ use super::NameResolution;
 use crate::{
     builtin::{BuiltinFunction, traits},
     hir::{
-        BlockId, BodyOwner, Condition, ConstId, ExprId, ExprKind, FunctionId, HirOwner, Module,
-        ParamId, PatternId, PatternKind, PlaceId, PlaceKind, StmtId, StmtKind,
+        BlockId, BodyOwner, Condition, ConstId, ExportItem, ExprId, ExprKind, FunctionId, HirOwner,
+        Module, ParamId, PatternId, PatternKind, PlaceId, PlaceKind, StmtId, StmtKind,
     },
     host::HostDeclarations,
-    imports::ModuleImports,
+    imports::{ImportTarget, ModuleImports},
     resolver::{
         LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding, table::NameTable,
     },
@@ -306,14 +306,10 @@ impl<'a> BodyResolver<'a> {
         }
         match self.module.pattern(pattern).kind.clone() {
             PatternKind::Name { name, .. } => {
-                if let Some(ResolvedName::StandardVariant(variant)) = self.resolve_name(&name) {
-                    self.resolved.pattern_variants.insert(pattern, variant);
-                }
+                self.record_pattern_variant(pattern, &name);
             }
             PatternKind::EnumVariant { path, fields } => {
-                if let Some(ResolvedName::StandardVariant(variant)) = self.resolve_name(&path) {
-                    self.resolved.pattern_variants.insert(pattern, variant);
-                }
+                self.record_pattern_variant(pattern, &path);
                 for field in fields {
                     self.resolve_pattern_variants(field);
                 }
@@ -329,6 +325,17 @@ impl<'a> BodyResolver<'a> {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn record_pattern_variant(&mut self, pattern: PatternId, path: &str) {
+        let Some(resolved) = self.resolve_name(path) else {
+            return;
+        };
+        if matches!(resolved, ResolvedName::StandardVariant(_))
+            || matches!(self.resolved.imports.binding(resolved), Some(ImportTarget::Source(source)) if matches!(source.item, Some(ExportItem::Variant(_))))
+        {
+            self.resolved.pattern_variants.insert(pattern, resolved);
         }
     }
 

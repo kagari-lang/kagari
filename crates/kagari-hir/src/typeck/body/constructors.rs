@@ -1,5 +1,7 @@
 use crate::{
-    hir::{ExprId, ExprKind, FieldInit, TypeRefId},
+    declarations::DeclarationId,
+    hir::{ExportItem, ExprId, ExprKind, FieldInit, TypeRefId},
+    native::NativeTypeKind,
     resolver::ResolvedName,
     typeck::{
         BodyTypeEnv, ResolvedEnumConstructor, ResolvedStructInit,
@@ -13,23 +15,33 @@ use kagari_common::{Diagnostic, DiagnosticKind, identity::DefinitionId};
 use std::collections::HashSet;
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn enum_member_owner(&self, expr: ExprId) -> Option<DefinitionId> {
+    pub(super) fn enum_member(&self, expr: ExprId) -> Option<(DefinitionId, String)> {
+        if let Some(variant) = self
+            .names
+            .expr_resolution(expr)
+            .and_then(|name| self.declarations.imported_types().variant(name))
+        {
+            let DeclarationId::Definition(id) = &variant.id else {
+                return None;
+            };
+            let variant = self.aggregates.variant(id)?;
+            return Some((variant.owner.clone(), variant.name.clone()));
+        }
         let member = self.names.qualified_member(expr)?;
         if let ResolvedName::Enum(id) = member.owner {
             return self
                 .declarations
                 .definition(ResolvedName::Enum(id))
-                .cloned();
+                .map(|owner| (owner.clone(), member.name.clone()));
         }
-        let TypeId::Enum(id) = &self
-            .declarations
-            .imported_types()
-            .resolved(member.owner)?
-            .ty
-        else {
+        let imported = self.declarations.imported_types().resolved(member.owner)?;
+        if !matches!(imported.id.item, ExportItem::Enum(_)) {
+            return None;
+        }
+        let DeclarationId::Definition(id) = &imported.declaration.id else {
             return None;
         };
-        Some(id.declaration.clone())
+        Some((id.clone(), member.name.clone()))
     }
 
     pub(super) fn resolve_constructor_type(&mut self, ty: TypeRefId, env: &BodyTypeEnv) -> TypeId {
@@ -78,7 +90,7 @@ impl<'a> BodyChecker<'a> {
             }
             _ => None,
         };
-        let enumeration = match self.enum_member_owner(callee) {
+        let (enumeration, member) = match self.enum_member(callee) {
             Some(owner) => owner,
             None if explicit.is_some() => {
                 self.diagnostics.push(
@@ -93,10 +105,6 @@ impl<'a> BodyChecker<'a> {
             None => return None,
         };
         let expected = explicit.as_ref().or(expected);
-        let member = self
-            .names
-            .qualified_member(callee)
-            .expect("qualified owner");
         let signature = self
             .aggregates
             .enumeration(&enumeration)
@@ -104,9 +112,10 @@ impl<'a> BodyChecker<'a> {
         let variant = signature
             .variants
             .iter()
-            .find(|variant| variant.name == member.name)
+            .find(|variant| variant.name == member)
             .cloned();
-        let name = format!("{}::{}", signature.declaration.name, member.name);
+        let name = format!("{}::{}", signature.declaration.name, member);
+        let native_type = signature.native_type;
         let generic_params = signature.generic_params.clone();
         let target = ResolvedEnumConstructor {
             enumeration: enumeration.clone(),
@@ -118,15 +127,25 @@ impl<'a> BodyChecker<'a> {
         // Every argument is checked once, even when the variant is absent or its
         // signature is erroneous. Known target facts survive argument failures.
         let mut substitution = TypeSubstitution::default();
-        if let Some(TypeId::Enum(nominal)) = expected
-            && nominal.declaration == enumeration
-            && nominal.arguments.len() == generic_params.len()
+        let expected_arguments = match expected {
+            Some(TypeId::Enum(nominal)) if nominal.declaration == enumeration => {
+                Some(&nominal.arguments)
+            }
+            Some(TypeId::StandardEnum { kind, args })
+                if native_type == Some(NativeTypeKind::Enum(*kind)) =>
+            {
+                Some(args)
+            }
+            _ => None,
+        };
+        if let Some(arguments) = expected_arguments
+            && arguments.len() == generic_params.len()
         {
             substitution.extend(
                 generic_params
                     .iter()
                     .cloned()
-                    .zip(nominal.arguments.iter().cloned()),
+                    .zip(arguments.iter().cloned()),
             );
         }
         self.seed_explicit_arguments(callee, &generic_params, &mut substitution);
@@ -158,14 +177,27 @@ impl<'a> BodyChecker<'a> {
             callee,
             !completes,
         );
-        let result = TypeId::Enum(NominalType {
-            associated_types: Default::default(),
-            declaration: enumeration,
-            arguments,
-        });
+        let result = match native_type {
+            Some(kind) => kind
+                .apply(&arguments)
+                .expect("checked native enum arguments"),
+            None => TypeId::Enum(NominalType {
+                associated_types: Default::default(),
+                declaration: enumeration,
+                arguments,
+            }),
+        };
         self.type_table.insert_expr(callee, result.clone());
         env.exprs.insert(callee, result.clone());
         if let Some(variant) = variant {
+            if native_type.is_some() && variant.payload.is_empty() && expression != callee {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                        type_name: format!("{name} (unit variant; omit parentheses)"),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(expression)),
+                );
+            }
             if actual.len() != variant.payload.len() {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::CallArityMismatch {

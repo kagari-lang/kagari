@@ -18,6 +18,7 @@ use std::{
 
 mod bindings;
 mod functions;
+mod members;
 mod stdlib;
 mod types;
 pub(crate) use types::TypeCatalog;
@@ -40,6 +41,7 @@ pub struct SourceImport {
     pub revision: Revision,
     /// Arena item identity is qualified by its source file and revision.
     pub item: Option<ExportItem>,
+    /// Source member paths, including enum-qualified variant names.
     pub members: Arc<BTreeMap<String, Vec<ExportItem>>>,
 }
 
@@ -432,10 +434,10 @@ fn resolve_imports(
         }
         let members = match result.entries[root].target.as_ref() {
             Some(ImportTarget::Source(source)) if source.item.is_none() => source
-                .members
-                .iter()
+                .namespace_members()
+                .filter(|(name, _)| !name.contains("::"))
                 .filter_map(|(name, items)| {
-                    let [item] = items.as_slice() else {
+                    let [item] = items else {
                         return None;
                     };
                     let mut target = source.clone();
@@ -447,7 +449,7 @@ fn resolve_imports(
                         module.source.module_identity(),
                         catalog,
                     )
-                    .then(|| (name.clone(), target))
+                    .then(|| (name.to_owned(), target))
                 })
                 .collect::<Vec<_>>(),
             Some(ImportTarget::HostModule(module)) => hosts
@@ -702,8 +704,12 @@ fn resolve_path(
             private = true;
         }
     }
-    if let Some((parent, member)) = source_path.rsplit_once("::") {
-        for module in catalog.paths.get(parent).into_iter().flatten() {
+    for (split, _) in source_path.rmatch_indices("::") {
+        let (parent, member) = (&source_path[..split], &source_path[split + 2..]);
+        let Some(modules) = catalog.paths.get(parent) else {
+            continue;
+        };
+        for module in modules {
             if !source_module_accessible(module.source.module_identity(), importer, catalog) {
                 private = true;
                 continue;
@@ -737,9 +743,16 @@ fn resolve_path(
                 }
                 Some([]) => private = true,
                 Some(_) => return Err(DiagnosticKind::AmbiguousImport { path: path.into() }),
-                None => private = true,
+                None => {
+                    if let Some(target) = catalog.member_path(module, member, importer) {
+                        candidates.push(target);
+                    } else {
+                        private = true;
+                    }
+                }
             }
         }
+        break;
     }
     match candidates.len() {
         1 => Ok(candidates.pop().unwrap()),
@@ -757,7 +770,7 @@ fn canonical_namespace_target(
     let mut seen = HashSet::new();
     loop {
         match &target {
-            ImportTarget::Source(source) if source.item.is_none() => {
+            ImportTarget::Source(source) if source.is_namespace() => {
                 let entry =
                     catalog
                         .paths
@@ -767,7 +780,7 @@ fn canonical_namespace_target(
                             entry.source.id() == source.file
                                 && entry.source.revision() == source.revision
                         })?;
-                return Some(ImportTarget::Source(entry.target(None, importer)));
+                return Some(ImportTarget::Source(entry.target(source.item, importer)));
             }
             ImportTarget::Source(source) => {
                 let Some(ExportItem::Import(index)) = source.item else {
@@ -895,6 +908,14 @@ impl<'a> SourceCatalog<'a> {
             for item in &module.module.enums {
                 cancel.check()?;
                 add(&item.name, ExportItem::Enum(item.id), item.visibility);
+                for variant in &item.variants {
+                    cancel.check()?;
+                    add(
+                        &format!("{}::{}", item.name, variant.name),
+                        ExportItem::Variant(variant.id),
+                        item.visibility,
+                    );
+                }
             }
             for item in &module.module.traits {
                 cancel.check()?;

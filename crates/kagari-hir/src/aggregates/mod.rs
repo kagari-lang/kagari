@@ -17,6 +17,7 @@ use crate::{
     hir::{Visibility, Writeability},
     imports::{ModuleGraph, SourceFunctionId},
     lower::LoweredModule,
+    native::NativeTypeKind,
     resolver::ResolvedName,
     typeck::{ModuleSignatures, TypedFunction},
     types::TypeId,
@@ -77,6 +78,7 @@ pub struct VariantSignature {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumSignature {
     pub id: DefinitionId,
+    pub native_type: Option<NativeTypeKind>,
     pub generic_params: Vec<GenericParameterType>,
     pub bounds: GenericBounds,
     pub declaration: Declaration,
@@ -245,6 +247,7 @@ impl AggregateCatalog {
                 id.clone(),
                 Arc::new(EnumSignature {
                     id: id.clone(),
+                    native_type: declarations.native_enum(enumeration.id),
                     generic_params: declarations.parameters_of(id),
                     bounds: signatures
                         .type_bounds(id)
@@ -445,7 +448,8 @@ impl AggregateCatalog {
             && self.enumerations.len() == other.enumerations.len()
             && self.enumerations.iter().all(|(id, a)| {
                 other.enumeration(id).is_some_and(|b| {
-                    a.generic_params == b.generic_params
+                    a.native_type == b.native_type
+                        && a.generic_params == b.generic_params
                         && a.bounds == b.bounds
                         && a.variants.len() == b.variants.len()
                         && a.variants.iter().zip(&b.variants).all(|(a, b)| {

@@ -1,6 +1,7 @@
 //! Resolve facade targets once, before declaration/name/signature consumers run.
 
 use crate::{
+    hir::ExportItem,
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, ModuleImports},
     resolver::ResolvedName,
@@ -25,16 +26,37 @@ impl ModuleGraph {
                     continue;
                 };
                 if let ImportTarget::Source(source) = &target
-                    && source.item.is_none()
+                    && source.is_namespace()
                 {
-                    for items in source.members.values() {
+                    for (_, items) in source.namespace_members() {
                         cancel.check()?;
-                        let [item] = items.as_slice() else {
+                        let [item] = items else {
                             continue;
                         };
                         let mut member = source.clone();
                         member.item = Some(*item);
                         if let Some(target) = self.resolve_export(member, cancel)? {
+                            // Enum re-exports retain their associated namespace too.
+                            // Variant arena identities distinguish identically named members.
+                            if let ImportTarget::Source(enumeration) = &target
+                                && matches!(enumeration.item, Some(ExportItem::Enum(_)))
+                            {
+                                for (_, variants) in enumeration.namespace_members() {
+                                    cancel.check()?;
+                                    let [variant] = variants else {
+                                        continue;
+                                    };
+                                    let mut member = enumeration.clone();
+                                    member.item = Some(*variant);
+                                    bindings.insert(
+                                        ResolvedName::SourceItem {
+                                            import: index,
+                                            item: *variant,
+                                        },
+                                        ImportTarget::Source(member),
+                                    );
+                                }
+                            }
                             bindings.insert(
                                 ResolvedName::SourceItem {
                                     import: index,
@@ -81,13 +103,24 @@ impl ModuleImports {
         let ImportTarget::Source(source) = self.binding(ResolvedName::SourceImport(import))? else {
             return None;
         };
-        if source.item.is_some() {
+        if !source.is_namespace() {
             return None;
+        }
+        // A complete associated path (for example Option::Some) is a source
+        // member before considering a nested module prefix.
+        if let Some((_, [item])) = source.namespace_members().find(|(name, _)| *name == path) {
+            return self.resolved_name(ResolvedName::SourceItem {
+                import,
+                item: *item,
+            });
         }
         let (name, suffix) = path
             .split_once("::")
             .map_or((path, None), |(name, suffix)| (name, Some(suffix)));
-        let [item] = source.members.get(name)?.as_slice() else {
+        let (_, [item]) = source
+            .namespace_members()
+            .find(|(candidate, _)| *candidate == name)?
+        else {
             return None;
         };
         let key = ResolvedName::SourceItem {
@@ -102,7 +135,17 @@ impl ModuleImports {
                     let ImportTarget::Source(next) = self.binding(key)? else {
                         return None;
                     };
-                    if next.item.is_some() {
+                    if matches!(next.item, Some(ExportItem::Enum(_))) {
+                        let (_, [item]) =
+                            next.namespace_members().find(|(name, _)| *name == member)?
+                        else {
+                            return None;
+                        };
+                        return self.resolved_name(ResolvedName::SourceItem {
+                            import,
+                            item: *item,
+                        });
+                    } else if next.item.is_some() {
                         return None;
                     }
                     let namespace = *self.namespace_entries.get(&next.module)?;
