@@ -47,7 +47,9 @@ pub struct ImportedTraitMethod {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportedTypes {
     types: HashMap<String, ImportedType>,
-    resolutions: HashMap<ResolvedName, String>,
+    // Internal namespace entries have no public alias. Resolve by their bound
+    // target so equal member spellings in different modules cannot overwrite facts.
+    resolutions: HashMap<ResolvedName, ImportedType>,
     nominal_types: HashMap<DefinitionId, ImportedType>,
     variants: HashMap<ResolvedName, Declaration>,
 }
@@ -58,18 +60,18 @@ impl ImportedTypes {
     }
 
     pub fn resolved(&self, name: ResolvedName) -> Option<&ImportedType> {
-        self.types.get(self.resolutions.get(&name)?)
+        self.resolutions.get(&name)
     }
 
     pub fn get(&self, name: &str) -> Option<&ImportedType> {
         self.types.get(name)
     }
     pub fn target(&self, id: SourceTypeId) -> Option<&ImportedType> {
-        self.types.values().find(|ty| ty.id == id)
+        self.resolutions.values().find(|ty| ty.id == id)
     }
 
     pub fn by_declaration(&self, id: &DefinitionId) -> Option<&ImportedType> {
-        self.types
+        self.resolutions
             .values()
             .chain(self.nominal_types.values())
             .find(|ty| matches!(&ty.declaration.id, DeclarationId::Definition(declaration) if declaration == id))
@@ -107,10 +109,12 @@ impl<'a> TypeCatalog<'a> {
                 continue;
             };
             if let Some(ty) = self.resolve(source, cancel)? {
-                result.types.insert(import.alias.clone(), ty);
+                if !import.internal_namespace {
+                    result.types.insert(import.alias.clone(), ty.clone());
+                }
                 result
                     .resolutions
-                    .insert(ResolvedName::SourceImport(index), import.alias.clone());
+                    .insert(ResolvedName::SourceImport(index), ty);
             }
             if source.item.is_none() {
                 for (name, items) in source.members.iter() {
@@ -132,9 +136,11 @@ impl<'a> TypeCatalog<'a> {
                                 import: index,
                                 item: *item,
                             },
-                            name.clone(),
+                            ty.clone(),
                         );
-                        result.types.insert(name, ty);
+                        if !import.internal_namespace {
+                            result.types.insert(name, ty);
+                        }
                     }
                 }
             }
@@ -158,7 +164,7 @@ impl<'a> TypeCatalog<'a> {
         }
         let cache = self.surfaces.borrow();
         let mut pending = result
-            .types
+            .resolutions
             .values()
             .filter_map(|item| match &item.ty {
                 TypeId::Trait(ty) => Some(ty.declaration.clone()),

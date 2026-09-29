@@ -710,6 +710,34 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST01 type-resolution checkpoint: named and applied standard types now resolve
+  through ordinary local/imported declarations and their installed representation
+  hooks. Removed type-checker fallbacks that constructed enums, ranges, traits or
+  collection types from standard spellings. `String` resolves to its source
+  declaration while primitive scalar spellings remain engine types. Native
+  collection `from_iter` inference reads the resolved declaration's hook instead
+  of the deleted ABI constructor and namespace tables.
+- Qualified type resolution follows the ordinary bound module namespace, including
+  re-exported modules and aliases. Imported type facts are indexed directly by
+  resolved targets; internal namespaces no longer share facts through empty alias
+  strings. Exact ambiguous/unresolved imports and non-namespace bindings block
+  fallback. Existing host type resolution uses the same name lookup with its
+  existing offline host fallback.
+- Added annotation identity, native collection alias inference, standard type/root
+  shadowing and nested same-name module type tests. Extended empty-application
+  rejection to native declarations, including non-generic `String`/`RangeFull`.
+  These HIR tests remain
+  **unexecuted** behind the unchanged ABI source-catalog removal failure; resume
+  with `cargo test -p kagari-hir analysis::type_application_tests` after its owning
+  consumer migration. Legacy `builtin/declarations` descriptor conversion and
+  other standard call/trait solvers still require ST01/ST02 replacement. This
+  checkpoint does not restore the workspace build or complete ST01.
+- Type-resolution validation: structure review passes for 531 Rust files with zero
+  violations/exceptions; format and diff checks pass. The known ABI build failure,
+  earlier HIR navigation failure and compiler opaque-export match failure remain
+  carried under their existing owners. No unchanged blocked build was rerun and
+  no previous passing HIR test count is claimed as current validation.
+
 - ST01 enum-member checkpoint: source import targets now include arena-qualified
   enum variants. Associated paths and module globs use source member identities;
   Option/Result explicitly re-export their variants and the prelude imports

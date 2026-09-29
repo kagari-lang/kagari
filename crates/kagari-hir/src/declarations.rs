@@ -124,8 +124,8 @@ impl Declarations {
         self.impl_identities.get(&id)
     }
 
-    pub(crate) fn host_type(&self, name: &str) -> Option<HostTypeId> {
-        let resolved = if let Some(binding) = self.names.lookup(name) {
+    pub(crate) fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
+        if let Some(binding) = self.names.lookup(name) {
             binding.target()
         } else if let Some((alias, member)) = name.split_once("::")
             && let Some(binding) = self.names.lookup(alias)
@@ -139,8 +139,11 @@ impl Declarations {
             }
         } else {
             self.hosts.resolve_name(name)
-        };
-        match resolved? {
+        }
+    }
+
+    pub(crate) fn host_type(&self, name: &str) -> Option<HostTypeId> {
+        match self.resolve_name(name)? {
             ResolvedName::HostType(id) => Some(id),
             _ => None,
         }

@@ -1,9 +1,7 @@
 use crate::{
-    builtin::{
-        surface,
-        traits::{self, StandardTraitSemantics, conversion_requirement},
-    },
+    builtin::traits::{self, StandardTraitSemantics, conversion_requirement},
     hir::{ExprId, ExprKind, TypeKind},
+    native::NativeTypeKind,
     typeck::{
         BodyTypeEnv, CallTarget,
         body::BodyChecker,
@@ -13,10 +11,7 @@ use crate::{
 };
 use kagari_abi::{
     scalar::BuiltinType,
-    standard::{
-        surface::{self as standard_surface, STANDARD_ITEMS, StandardEnum},
-        traits::StandardTrait,
-    },
+    standard::{surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_common::{Diagnostic, DiagnosticKind, identity};
 
@@ -29,141 +24,129 @@ impl BodyChecker<'_> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> Option<TypeId> {
-        let (protocol, source_expr, target, qualified) = match &self
-            .lowered
-            .module
-            .expr(callee)
-            .kind
-        {
-            ExprKind::Field { receiver, name } if matches!(name.as_str(), "into" | "try_into") => {
-                let protocol = if name == "into" {
-                    StandardTrait::Into
-                } else {
-                    StandardTrait::TryInto
-                };
-                let target = if protocol.fallible_conversion() {
-                    match expected {
-                        Some(TypeId::StandardEnum {
-                            kind: StandardEnum::Result,
-                            args,
-                        }) => args.first().cloned(),
-                        _ => None,
-                    }
-                } else {
-                    expected.cloned()
-                };
-                (protocol, Some(*receiver), target, None)
-            }
-            ExprKind::Name {
-                name,
-                explicit_type,
-            } => {
-                let (owner, member) = if explicit_type.is_some_and(|id| {
-                    matches!(
-                        self.lowered.module.type_ref(id).kind,
-                        crate::hir::TypeKind::Projection { .. }
-                    )
-                }) {
-                    ("", name.as_str())
-                } else {
-                    name.rsplit_once("::")?
-                };
-                let protocol = match member {
-                    "from_str" => StandardTrait::FromStr,
-                    "from" => StandardTrait::From,
-                    "try_from" => StandardTrait::TryFrom,
-                    "from_iter" => StandardTrait::FromIterator,
-                    "sum" => StandardTrait::Sum,
-                    "product" => StandardTrait::Product,
-                    _ => return None,
-                };
-                let context = TypeContext {
-                    declarations: self.declarations,
-                    generics: &env.generics,
-                    self_type: None,
-                    implementation: None,
-                };
-                let (mut target, qualified) = if let Some(id) = explicit_type {
-                    if let TypeKind::Projection {
-                        receiver,
-                        trait_ref,
-                        ..
-                    } = &self.lowered.module.type_ref(*id).kind
-                    {
-                        let target = resolve_type_in(
-                            &self.lowered.module,
-                            *receiver,
-                            context,
-                            self.type_table,
-                            self.cancel,
-                        );
-                        let interface = resolve_type_in(
-                            &self.lowered.module,
-                            *trait_ref,
-                            context,
-                            self.type_table,
-                            self.cancel,
-                        );
-                        (target, Some(interface))
+        let (protocol, source_expr, target, qualified) =
+            match &self.lowered.module.expr(callee).kind {
+                ExprKind::Field { receiver, name }
+                    if matches!(name.as_str(), "into" | "try_into") =>
+                {
+                    let protocol = if name == "into" {
+                        StandardTrait::Into
                     } else {
-                        (
-                            resolve_type_in(
+                        StandardTrait::TryInto
+                    };
+                    let target = if protocol.fallible_conversion() {
+                        match expected {
+                            Some(TypeId::StandardEnum {
+                                kind: StandardEnum::Result,
+                                args,
+                            }) => args.first().cloned(),
+                            _ => None,
+                        }
+                    } else {
+                        expected.cloned()
+                    };
+                    (protocol, Some(*receiver), target, None)
+                }
+                ExprKind::Name {
+                    name,
+                    explicit_type,
+                } => {
+                    let (owner, member) = if explicit_type.is_some_and(|id| {
+                        matches!(
+                            self.lowered.module.type_ref(id).kind,
+                            TypeKind::Projection { .. }
+                        )
+                    }) {
+                        ("", name.as_str())
+                    } else {
+                        name.rsplit_once("::")?
+                    };
+                    let protocol = match member {
+                        "from_str" => StandardTrait::FromStr,
+                        "from" => StandardTrait::From,
+                        "try_from" => StandardTrait::TryFrom,
+                        "from_iter" => StandardTrait::FromIterator,
+                        "sum" => StandardTrait::Sum,
+                        "product" => StandardTrait::Product,
+                        _ => return None,
+                    };
+                    let context = TypeContext {
+                        declarations: self.declarations,
+                        generics: &env.generics,
+                        self_type: None,
+                        implementation: None,
+                    };
+                    let mut native_constructor = None;
+                    let (mut target, qualified) = if let Some(id) = explicit_type {
+                        if let TypeKind::Projection {
+                            receiver,
+                            trait_ref,
+                            ..
+                        } = &self.lowered.module.type_ref(*id).kind
+                        {
+                            let target = resolve_type_in(
                                 &self.lowered.module,
-                                *id,
+                                *receiver,
                                 context,
                                 self.type_table,
                                 self.cancel,
-                            ),
-                            None,
-                        )
-                    }
-                } else if owner == "Self" {
-                    (env.self_type.clone().unwrap_or(TypeId::Error), None)
-                } else {
-                    (ty::resolve_named_type(owner, context).ty, None)
-                };
-                if protocol == StandardTrait::FromIterator
-                    && explicit_type.is_none()
-                    && let Some(constructor) = standard_surface::standard_type_constructor(owner)
-                        .or_else(|| {
-                            let (module, name) = owner.rsplit_once("::")?;
-                            STANDARD_ITEMS
-                                .iter()
-                                .any(|item| {
-                                    Some(item.module) == module.strip_prefix("std::")
-                                        && item.path.len() == 1
-                                        && item.path[0].1 == name
-                                })
-                                .then(|| standard_surface::standard_type_constructor(name))
-                                .flatten()
-                        })
-                    && matches!(
-                        constructor.name,
-                        "Array" | "ArrayList" | "Set" | "LinkedHashSet" | "Map" | "LinkedHashMap"
-                    )
-                    && let Some(source) = args.first()
-                {
-                    let input = self.infer_expr_type(*source, env);
-                    if let Some(item) = self.infer_iteration(site, &input, env) {
-                        let arguments = if matches!(constructor.name, "Map" | "LinkedHashMap") {
-                            match item {
-                                TypeId::Tuple(items) if items.len() == 2 => items,
-                                _ => vec![],
-                            }
+                            );
+                            let interface = resolve_type_in(
+                                &self.lowered.module,
+                                *trait_ref,
+                                context,
+                                self.type_table,
+                                self.cancel,
+                            );
+                            (target, Some(interface))
                         } else {
-                            vec![item]
-                        };
-                        target = surface::standard_generic_type(constructor.name, arguments)
-                            .unwrap_or(TypeId::Error);
+                            (
+                                resolve_type_in(
+                                    &self.lowered.module,
+                                    *id,
+                                    context,
+                                    self.type_table,
+                                    self.cancel,
+                                ),
+                                None,
+                            )
+                        }
+                    } else if owner == "Self" {
+                        (env.self_type.clone().unwrap_or(TypeId::Error), None)
+                    } else {
+                        let reference = ty::resolve_named_type(owner, context);
+                        native_constructor = ty::native_type(reference.target, self.declarations);
+                        (reference.ty, None)
+                    };
+                    if protocol == StandardTrait::FromIterator
+                        && explicit_type.is_none()
+                        && let Some(
+                            constructor @ (NativeTypeKind::ArrayList
+                            | NativeTypeKind::LinkedHashSet
+                            | NativeTypeKind::LinkedHashMap),
+                        ) = native_constructor
+                        && let Some(source) = args.first()
+                    {
+                        let input = self.infer_expr_type(*source, env);
+                        if let Some(item) = self.infer_iteration(site, &input, env) {
+                            let arguments = if constructor == NativeTypeKind::LinkedHashMap {
+                                match item {
+                                    TypeId::Tuple(items) if items.len() == 2 => items,
+                                    _ => vec![],
+                                }
+                            } else {
+                                vec![item]
+                            };
+                            target = constructor.apply(&arguments).unwrap_or(TypeId::Error);
+                        }
                     }
+                    if target.is_unresolved() {
+                        return None;
+                    }
+                    (protocol, None, Some(target), qualified)
                 }
-                if target.is_unresolved() {
-                    return None;
-                }
-                (protocol, None, Some(target), qualified)
-            }
-            _ => return None,
-        };
+                _ => return None,
+            };
         let arity = usize::from(!protocol.reverse_conversion());
         if args.len() != arity {
             self.infer_call_args(args, env);

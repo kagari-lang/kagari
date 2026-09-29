@@ -1,9 +1,5 @@
 use super::{ResolvedTypeRef, TypeTable, TypeTarget, associated};
 use crate::{
-    builtin::{
-        surface,
-        traits::{self, StandardTraitSemantics},
-    },
     declarations::Declarations,
     hir,
     native::NativeTypeKind,
@@ -11,14 +7,8 @@ use crate::{
     types::{NominalType, TypeId},
 };
 use hir::{BodyOwner, HirOwner, TypeKind};
-use kagari_abi::{
-    scalar::BuiltinType,
-    standard::{
-        surface::{self as standard_surface, StandardEnum, StandardModule},
-        traits::StandardTrait,
-    },
-};
-use kagari_common::{cancellation::CancellationToken, identity, range::RangeKind};
+use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_common::{cancellation::CancellationToken, identity};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
@@ -28,7 +18,10 @@ pub(super) struct TypeContext<'a> {
     pub implementation: Option<hir::ImplId>,
 }
 
-fn native_type(target: Option<TypeTarget>, declarations: &Declarations) -> Option<NativeTypeKind> {
+pub(super) fn native_type(
+    target: Option<TypeTarget>,
+    declarations: &Declarations,
+) -> Option<NativeTypeKind> {
     match target? {
         TypeTarget::OpaqueType(id) => declarations.native_type(id),
         TypeTarget::Enum(id) => declarations.native_enum(id),
@@ -58,125 +51,68 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                 .definition(ResolvedName::Trait(context.self_type?))
                 .cloned()
                 .map(TypeId::SelfType)
-        } else if let Some(ty) = TypeId::from_name(name) {
+        } else if let Some(ty) =
+            TypeId::from_name(name).filter(|ty| *ty != TypeId::Builtin(BuiltinType::String))
+        {
             Some(ty)
-        } else if let Some(binding) = context.declarations.names.lookup(name) {
-            binding.target().and_then(|resolved| {
-                if let ResolvedName::StandardModule(
-                    kind @ (StandardModule::ParseError
-                    | StandardModule::TryFromIntError
-                    | StandardModule::Infallible),
-                ) = resolved
-                {
-                    return Some(TypeId::StandardEnum {
-                        kind: if kind == StandardModule::ParseError {
-                            StandardEnum::ParseError
-                        } else if kind == StandardModule::TryFromIntError {
-                            StandardEnum::TryFromIntError
-                        } else {
-                            StandardEnum::Infallible
-                        },
-                        args: vec![],
-                    });
-                }
-                if resolved == ResolvedName::StandardModule(StandardModule::Ordering) {
-                    return Some(traits::ordering_type(false));
-                }
-                if let ResolvedName::StandardTrait(kind) = resolved {
-                    target = Some(TypeTarget::StandardTrait(kind));
-                    return Some(TypeId::Trait(kind.declaration_type()));
-                }
-                if let ResolvedName::HostType(id) = resolved {
-                    target = Some(TypeTarget::Host(id));
-                    return Some(TypeId::Host(
-                        context.declarations.hosts.type_declaration(id)?.id.clone(),
-                    ));
-                }
-                if let Some(imported) = context.declarations.imported_types().resolved(resolved) {
-                    target = Some(TypeTarget::Source(imported.id));
-                    return Some(imported.ty.clone());
-                }
-                let definition = context.declarations.definition(resolved)?.clone();
-                let arguments = context
-                    .declarations
-                    .parameters_of(&definition)
-                    .into_iter()
-                    .map(TypeId::Generic)
-                    .collect::<Vec<_>>();
-                Some(match resolved {
-                    ResolvedName::OpaqueType(id) => {
-                        target = Some(TypeTarget::OpaqueType(id));
-                        return context.declarations.native_type(id)?.apply(&arguments);
-                    }
-                    ResolvedName::Struct(id) => {
-                        target = Some(TypeTarget::Struct(id));
-                        TypeId::Struct(NominalType {
-                            associated_types: Default::default(),
-                            declaration: definition,
-                            arguments,
-                        })
-                    }
-                    ResolvedName::Enum(id) => {
-                        target = Some(TypeTarget::Enum(id));
-                        if let Some(kind) = context.declarations.native_enum(id) {
-                            return kind.apply(&arguments);
-                        }
-                        TypeId::Enum(NominalType {
-                            associated_types: Default::default(),
-                            declaration: definition,
-                            arguments,
-                        })
-                    }
-                    ResolvedName::Trait(id) => {
-                        target = Some(TypeTarget::Trait(id));
-                        TypeId::Trait(NominalType {
-                            associated_types: Default::default(),
-                            declaration: definition,
-                            arguments,
-                        })
-                    }
-                    _ => return None,
-                })
-            })
-        } else if let Some(imported) = context.declarations.imported_types().get(name) {
-            target = Some(TypeTarget::Source(imported.id));
-            Some(imported.ty.clone())
-        } else if let Some(kind) = context.declarations.standard_trait(name) {
-            target = Some(TypeTarget::StandardTrait(kind));
-            Some(TypeId::Trait(kind.declaration_type()))
-        } else if matches!(
-            name,
-            "ParseError"
-                | "std::string::ParseError"
-                | "TryFromIntError"
-                | "std::convert::TryFromIntError"
-                | "Infallible"
-                | "std::convert::Infallible"
-        ) {
-            Some(TypeId::StandardEnum {
-                kind: if name.ends_with("ParseError") {
-                    StandardEnum::ParseError
-                } else if name.ends_with("Infallible") {
-                    StandardEnum::Infallible
-                } else {
-                    StandardEnum::TryFromIntError
-                },
-                args: vec![],
-            })
-        } else if matches!(name, "RangeFull" | "std::ops::RangeFull") {
-            Some(TypeId::Range(
-                Box::new(TypeId::Builtin(BuiltinType::Unit)),
-                RangeKind::Full,
-            ))
-        } else if matches!(name, "Ordering" | "std::cmp::Ordering") {
-            Some(traits::ordering_type(false))
-        } else if let Some(id) = context.declarations.host_type(name) {
-            target = Some(TypeTarget::Host(id));
-            Some(TypeId::Host(
-                context.declarations.hosts.type_declaration(id)?.id.clone(),
-            ))
         } else {
-            None
+            context
+                .declarations
+                .resolve_name(name)
+                .and_then(|resolved| {
+                    if let ResolvedName::HostType(id) = resolved {
+                        target = Some(TypeTarget::Host(id));
+                        return Some(TypeId::Host(
+                            context.declarations.hosts.type_declaration(id)?.id.clone(),
+                        ));
+                    }
+                    if let Some(imported) = context.declarations.imported_types().resolved(resolved)
+                    {
+                        target = Some(TypeTarget::Source(imported.id));
+                        return Some(imported.ty.clone());
+                    }
+                    let definition = context.declarations.definition(resolved)?.clone();
+                    let arguments = context
+                        .declarations
+                        .parameters_of(&definition)
+                        .into_iter()
+                        .map(TypeId::Generic)
+                        .collect::<Vec<_>>();
+                    Some(match resolved {
+                        ResolvedName::OpaqueType(id) => {
+                            target = Some(TypeTarget::OpaqueType(id));
+                            return context.declarations.native_type(id)?.apply(&arguments);
+                        }
+                        ResolvedName::Struct(id) => {
+                            target = Some(TypeTarget::Struct(id));
+                            TypeId::Struct(NominalType {
+                                associated_types: Default::default(),
+                                declaration: definition,
+                                arguments,
+                            })
+                        }
+                        ResolvedName::Enum(id) => {
+                            target = Some(TypeTarget::Enum(id));
+                            if let Some(kind) = context.declarations.native_enum(id) {
+                                return kind.apply(&arguments);
+                            }
+                            TypeId::Enum(NominalType {
+                                associated_types: Default::default(),
+                                declaration: definition,
+                                arguments,
+                            })
+                        }
+                        ResolvedName::Trait(id) => {
+                            target = Some(TypeTarget::Trait(id));
+                            TypeId::Trait(NominalType {
+                                associated_types: Default::default(),
+                                declaration: definition,
+                                arguments,
+                            })
+                        }
+                        _ => return None,
+                    })
+                })
         }
     })();
     ResolvedTypeRef {
@@ -309,11 +245,6 @@ pub(super) fn resolve_type_in(
         } => {
             let reference = resolve_named_type(name, context);
             target = reference.target;
-            // An application has the same base binding as a named annotation.
-            // A declaration, binder or unresolved import blocks prelude fallback.
-            let prelude = reference.target.is_none()
-                && reference.ty.is_unresolved()
-                && context.declarations.names.lookup(name).is_none();
             // Visit every argument even if an earlier one cannot resolve.
             let args = args
                 .iter()
@@ -328,11 +259,7 @@ pub(super) fn resolve_type_in(
                     )
                 })
                 .collect::<Vec<_>>();
-            if reference.ty.is_unresolved()
-                && name.contains("::")
-                && bindings.is_empty()
-                && !(prelude && standard_surface::standard_type_constructor(name).is_some())
-            {
+            if reference.ty.is_unresolved() && name.contains("::") && bindings.is_empty() {
                 let resolved =
                     associated::resolve_projection_name(module, name, args, context, table, cancel);
                 table.resolving_types.remove(&ty);
@@ -346,7 +273,7 @@ pub(super) fn resolve_type_in(
                 return resolved;
             }
             match native_type(target, context.declarations) {
-                Some(kind) if bindings.is_empty() && !*callable_syntax => {
+                Some(kind) if kind.arity() != 0 && bindings.is_empty() && !*callable_syntax => {
                     kind.apply(&args).unwrap_or(TypeId::Error)
                 }
                 Some(_) => TypeId::Error,
@@ -395,9 +322,6 @@ pub(super) fn resolve_type_in(
                         } else {
                             TypeId::Error
                         }
-                    }
-                    _ if prelude && bindings.is_empty() => {
-                        surface::standard_generic_type(name, args).unwrap_or(TypeId::Error)
                     }
                     _ => TypeId::Error,
                 },

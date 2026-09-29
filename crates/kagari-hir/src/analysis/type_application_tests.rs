@@ -1,5 +1,5 @@
 use super::*;
-use crate::hir::TypeKind;
+use crate::hir::{ExprKind, TypeKind};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
@@ -12,8 +12,196 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
+fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
+    let text = "use std as library; use std::string::String as Text; use std::option::Option as Maybe; fn inspect(a: String, b: Text, c: library::string::String, d: std::option::Option<i32>, e: Maybe<i32>, f: library::ops::RangeFull, g: RangeFull) {}";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("native-types.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let annotation = |parameter: &str| text.find(parameter).unwrap() + parameter.len();
+    for (left, right) in [
+        ("a: ", "b: "),
+        ("a: ", "c: "),
+        ("d: ", "e: "),
+        ("f: ", "g: "),
+    ] {
+        let left = annotation(left);
+        let right = annotation(right);
+        let declaration = snapshot.definition_at(id, left).unwrap();
+        assert_eq!(
+            declaration.id,
+            snapshot.definition_at(id, right).unwrap().id
+        );
+        assert_ne!(declaration.location.file, id);
+        assert_eq!(file.type_at(left), file.type_at(right));
+        assert!(file.type_at(left).is_some_and(|ty| !ty.is_unresolved()));
+    }
+    assert_eq!(
+        file.type_at(annotation("a: ")),
+        Some(TypeId::Builtin(BuiltinType::String))
+    );
+}
+
+#[test]
+fn native_collection_conversion_infers_items_through_source_aliases() {
+    let text = "use std::array::ArrayList as Sequence; use std::map::LinkedHashMap as Dictionary; fn collect() -> ArrayList<i32> { Sequence::from_iter([1, 2]) } fn pairs() -> LinkedHashMap<i32, bool> { Dictionary::from_iter([(1, true)]) }";
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("conversion-aliases.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let facts = file.result().facts();
+    let call_type = |name: &str| {
+        facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expression)| {
+                let ExprKind::Call { callee, .. } = &expression.kind else {
+                    return None;
+                };
+                matches!(&facts.lowered.module.expr(*callee).kind,
+                ExprKind::Name { name: actual, .. } if actual == name)
+                .then(|| facts.typed.type_table.expr_type(id).cloned())
+                .flatten()
+            })
+    };
+    assert!(matches!(
+        call_type("Sequence::from_iter"),
+        Some(TypeId::Array(item, _)) if *item == TypeId::Builtin(BuiltinType::I32)
+    ));
+    assert!(matches!(
+        call_type("Dictionary::from_iter"),
+        Some(TypeId::Map { key, value, .. })
+            if *key == TypeId::Builtin(BuiltinType::I32)
+                && *value == TypeId::Builtin(BuiltinType::Bool)
+    ));
+}
+
+#[test]
+fn source_bindings_shadow_native_types_and_the_standard_namespace() {
+    for name in [
+        "String",
+        "ParseError",
+        "Ordering",
+        "RangeFull",
+        "Infallible",
+    ] {
+        let text = format!("struct {name} {{}} fn inspect(value: {name}) {{}}");
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("shadow.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+        let offset = text.find("value: ").unwrap() + "value: ".len();
+        let file = snapshot.file(id).unwrap();
+        assert!(file.result().diagnostics().is_empty(), "{text}");
+        assert!(
+            matches!(file.type_at(offset), Some(TypeId::Struct(_))),
+            "{text}"
+        );
+        assert_eq!(
+            snapshot.definition_at(id, offset).unwrap().location.file,
+            id
+        );
+    }
+    for binding in ["struct std {}", "use std::math as std;", "use absent::std;"] {
+        let text = format!("{binding} fn bad(value: std::ops::RangeFull) {{}}");
+        let mut sources = SourceDatabase::default();
+        let id = sources
+            .set("namespace-shadow.kgr", text.clone(), SourceLayer::Base)
+            .unwrap();
+        let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+        let offset = text.find("value: ").unwrap() + "value: ".len();
+        assert_eq!(
+            snapshot.file(id).unwrap().type_at(offset),
+            Some(TypeId::Error),
+            "{text}"
+        );
+        assert!(
+            snapshot
+                .file(id)
+                .unwrap()
+                .result()
+                .clone()
+                .into_codegen()
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn nested_namespace_types_keep_distinct_declaration_identities() {
+    let mut sources = SourceDatabase::default();
+    for name in ["left", "right", "facade", "main"] {
+        sources
+            .bind_module(
+                name,
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec![name.into()],
+                },
+            )
+            .unwrap();
+    }
+    let left = sources
+        .set("left", "pub struct Same {}".into(), SourceLayer::Base)
+        .unwrap();
+    let right = sources
+        .set("right", "pub struct Same {}".into(), SourceLayer::Base)
+        .unwrap();
+    sources
+        .set(
+            "facade",
+            "pub use pkg::left; pub use pkg::right;".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let text = "use pkg::facade as library; fn inspect(a: library::left::Same, b: library::right::Same) {}";
+    let id = sources.set("main", text.into(), SourceLayer::Base).unwrap();
+    let snapshot = snapshot(&mut AnalysisDatabase::default(), &sources);
+    let file = snapshot.file(id).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let a = text.find("library::left::Same").unwrap();
+    let b = text.find("library::right::Same").unwrap();
+    assert_eq!(snapshot.definition_at(id, a).unwrap().location.file, left);
+    assert_eq!(snapshot.definition_at(id, b).unwrap().location.file, right);
+    assert!(matches!(file.type_at(a), Some(TypeId::Struct(_))));
+    assert!(matches!(file.type_at(b), Some(TypeId::Struct(_))));
+    assert_ne!(file.type_at(a), file.type_at(b));
+}
+
+#[test]
 fn explicit_empty_applications_are_not_erased_to_bare_types() {
-    for name in ["i32", "Point", "Mode", "View", "T"] {
+    for name in [
+        "i32",
+        "Point",
+        "Mode",
+        "View",
+        "T",
+        "String",
+        "RangeFull",
+        "Option",
+        "ArrayList",
+    ] {
         let text = format!(
             "struct Point {{}} enum Mode {{ Ready }} trait View {{}} fn bad<T>(value: {name}<>) {{}} fn good(x: i32) -> i32 {{ x }}"
         );
