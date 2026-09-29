@@ -1,6 +1,7 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00 complete, ST01 package ownership and HIR import in progress.
+Status: active; ST00 complete, ST01 implementation scope complete, ST02 checked
+callable facts in progress. Integration remains broken with carried ABI errors.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -365,12 +366,12 @@ must be resolved before migration; historical test counts are not a fresh baseli
 - [x] Add the functional `kagari-stdlib` crate and package preparation API.
 - [x] Cache installed parses in the analysis owner and retain opaque type
   declarations, their generic syntax and source provenance in ordinary HIR.
-- [ ] Move source/package ownership from ABI, preserving paths, source text,
+- [x] Move source/package ownership from ABI, preserving paths, source text,
   declaration locations and deterministic identities.
-- [ ] Import standard declarations and bodies into HIR; map native markers only
+- [x] Import standard declarations and bodies into HIR; map native markers only
   for engine-installed provenance. Reuse ordinary resolution and signature checks.
 - [x] Delete ABI source generation and its syntax build dependency.
-- [ ] Migrate tool source/docs access to the HIR-owned standard package.
+- [x] Migrate tool source/docs access to the HIR-owned standard package.
 
 Exit: ABI no longer owns or builds source descriptors; standard input has one
 import path. Downstream users of removed catalogs may remain broken until ST02/ST03.
@@ -709,6 +710,31 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST01 type-surface closure: deleted unused name-based standard type constructors.
+  Option/Result propagation uses the existing native representation arity hook;
+  enum diagnostic labels no longer require a source descriptor. Those labels do
+  not resolve names or grant native authority. Migrated the remaining generated
+  surface metadata test to installed HIR enum/type declarations, module identities,
+  checked callable signatures, key bounds and native defaults. Array/string call
+  and native annotation tests now install the package through normal analysis.
+- ST01 implementation-scope audit: the 17-file manifest and exact source ownership
+  reside in `kagari-stdlib`; ABI has no bundled Kagari sources, generator or syntax build
+  dependency. The analysis owner retains installation/provenance and parsed source;
+  ordinary declaration/import/signature/body machinery and snapshot-owned tooling
+  consume it. Searches find no generated declaration table, `Api*` semantic adapter,
+  standard name constructor or global stdlib source/semantic cache in HIR. The
+  completed ST01 checklist records these implementation boundaries, not a passing
+  HIR/compiler build. ST02 owns remaining callable/provider metadata and checked
+  consumer integration; ST03 owns the recorded ABI build failure.
+- ST01 closure validation: fresh `cargo test -p kagari-stdlib` passes all seven
+  package tests (exact sources/spans/identity/docs, immutable preparation, malformed
+  inputs, cancellation and fingerprints). Structure review checks 538 Rust files
+  with zero violations/exceptions; format, local documentation links and diff
+  checks pass. HIR/compiler tests remain unexecuted
+  behind unchanged ABI errors; their regression tests and integration acceptance
+  remain required. Full workspace acceptance and post-migration measurements are
+  still pending ST06.
 
 - ST01 native-implementation checkpoint: collection capabilities, range bounds,
   FromIterator selection and native iteration outputs now consume checked HIR impl

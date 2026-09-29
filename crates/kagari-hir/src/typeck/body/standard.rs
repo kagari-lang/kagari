@@ -1,6 +1,7 @@
 use crate::{
-    builtin::traits::{self, StandardTraitSemantics},
+    builtin::traits::StandardTraitSemantics,
     hir::{ExprId, ExprKind},
+    native::NativeTypeKind,
     typeck::{BodyTypeEnv, CallTarget, body::BodyChecker, completion},
     types::TypeId,
 };
@@ -66,11 +67,8 @@ impl BodyChecker<'_> {
         let source_error = self.inference_variable(site, 2048);
         let context = match &self.expected_return {
             TypeId::StandardEnum { kind, args }
-                if matches!(
-                    kind,
-                    kagari_abi::standard::surface::StandardEnum::Option
-                        | kagari_abi::standard::surface::StandardEnum::Result
-                ) && args.len() == kind.spec().arity =>
+                if matches!(kind, StandardEnum::Option | StandardEnum::Result)
+                    && args.len() == NativeTypeKind::Enum(*kind).arity() =>
             {
                 let mut args = args.clone();
                 args[0] = expected.cloned().unwrap_or(TypeId::Unknown);
@@ -106,12 +104,8 @@ impl BodyChecker<'_> {
             }
             return TypeId::Error;
         };
-        if args.len() != kind.spec().arity
-            || !matches!(
-                kind,
-                kagari_abi::standard::surface::StandardEnum::Option
-                    | kagari_abi::standard::surface::StandardEnum::Result
-            )
+        if args.len() != NativeTypeKind::Enum(*kind).arity()
+            || !matches!(kind, StandardEnum::Option | StandardEnum::Result)
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
@@ -136,7 +130,7 @@ impl BodyChecker<'_> {
             TypeId::StandardEnum {
                 kind: target,
                 args: target_args,
-            } if target == *kind && target_args.len() == kind.spec().arity => {
+            } if target == *kind && target_args.len() == NativeTypeKind::Enum(*kind).arity() => {
                 if *kind == StandardEnum::Result {
                     let source = args[1].clone();
                     let target = target_args[1].clone();

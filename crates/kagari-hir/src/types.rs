@@ -1,5 +1,6 @@
 use crate::{
     builtin::traits::StandardTraitSemantics,
+    native::enum_display_name,
     typeck::{GenericBounds, associated},
 };
 use kagari_abi::{
@@ -1094,7 +1095,7 @@ impl TypeId {
                     }
                     Self::StandardEnum { kind, args } => {
                         sequence(&mut pending, args, "<", ">");
-                        pending.push(Part::Text(kind.spec().name));
+                        pending.push(Part::Text(enum_display_name(*kind)));
                     }
                 },
             }

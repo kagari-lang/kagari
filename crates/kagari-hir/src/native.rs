@@ -35,6 +35,20 @@ pub enum NativeTypeKind {
     Enum(StandardEnum),
 }
 
+/// Canonical diagnostic labels for native representation tags. This does not
+/// resolve source names; declarations and aliases are resolved through HIR.
+pub(crate) fn enum_display_name(kind: StandardEnum) -> &'static str {
+    match kind {
+        StandardEnum::Bound => "Bound",
+        StandardEnum::ParseError => "ParseError",
+        StandardEnum::TryFromIntError => "TryFromIntError",
+        StandardEnum::Infallible => "Infallible",
+        StandardEnum::Option => "Option",
+        StandardEnum::Result => "Result",
+        StandardEnum::Ordering => "Ordering",
+    }
+}
+
 impl NativeTypeKind {
     pub(crate) fn from_binding(binding: &str) -> Option<Self> {
         Some(match binding {

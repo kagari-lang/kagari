@@ -4,7 +4,8 @@ use kagari_abi::standard::StandardIntrinsic;
 
 #[test]
 fn infers_array_method_call_types() {
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "array-method.kgr",
         r#"
 fn main() -> usize {
     val values = [1, 2];
@@ -13,12 +14,11 @@ fn main() -> usize {
 }
 "#,
     );
-    let names = resolve_names(&lowered)
+    let analyzed = crate::analyze_source(&source, Default::default())
         .into_checked()
-        .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
-        .into_checked()
-        .expect("type checker should succeed");
+        .expect("checked installed declarations");
+    let typed = &analyzed.typed;
+    let lowered = &analyzed.lowered;
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body.unwrap());
 
@@ -43,19 +43,19 @@ fn main() -> usize {
 
 #[test]
 fn infers_string_method_call_types() {
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "string-method.kgr",
         r#"
 fn main(value: String) -> usize {
     value.len_bytes()
 }
 "#,
     );
-    let names = resolve_names(&lowered)
+    let analyzed = crate::analyze_source(&source, Default::default())
         .into_checked()
-        .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
-        .into_checked()
-        .expect("type checker should succeed");
+        .expect("checked installed declarations");
+    let typed = &analyzed.typed;
+    let lowered = &analyzed.lowered;
     let function = &lowered.module.functions[0];
     let block = lowered.module.block(function.body.unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
@@ -67,41 +67,77 @@ fn main(value: String) -> usize {
 }
 
 #[test]
-fn exposes_stdlib_standard_builtin_surface_metadata() {
-    assert!(kagari_abi::standard::surface::builtin_type("String").is_some());
-    assert!(kagari_abi::standard::surface::builtin_type("usize").is_some());
-    assert!(kagari_abi::standard::surface::builtin_type("str").is_none());
+fn exposes_installed_standard_declarations_and_checked_signatures() {
+    use crate::{
+        analysis::AnalysisDatabase,
+        declarations::DeclarationId,
+        native::{EngineNativeBinding, NativeTypeKind},
+        typeck::{ConstraintTarget, FunctionImplementation},
+    };
+    use kagari_abi::standard::{
+        surface::{self as standard_surface, StandardEnum},
+        traits::StandardTrait,
+    };
+    use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
-    let option =
-        kagari_abi::standard::surface::standard_enum("Option").expect("Option should be standard");
-    assert_eq!(option.arity, 1);
-    assert_eq!(option.variants[0].name, "Some");
-    assert_eq!(option.variants[1].name, "None");
-
-    let result =
-        kagari_abi::standard::surface::standard_enum("Result").expect("Result should be standard");
-    assert_eq!(result.arity, 2);
-    assert_eq!(result.variants[0].name, "Ok");
-    assert_eq!(result.variants[1].name, "Err");
-    assert_eq!(
-        kagari_abi::standard::surface::standard_type_constructor("LinkedHashMap")
-            .expect("Map should be standard")
-            .arity,
-        2
+    assert!(standard_surface::builtin_type("String").is_some());
+    assert!(standard_surface::builtin_type("usize").is_some());
+    assert!(standard_surface::builtin_type("str").is_none());
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let facts = snapshot.file(root).unwrap().result().facts();
+    let declarations = snapshot.declaration_snapshot();
+    for (kind, arity, variants) in [
+        (StandardEnum::Option, 1, ["Some", "None"]),
+        (StandardEnum::Result, 2, ["Ok", "Err"]),
+    ] {
+        let enumeration = facts
+            .aggregates
+            .enumerations()
+            .find(|declaration| declaration.native_type == Some(NativeTypeKind::Enum(kind)))
+            .unwrap();
+        assert_eq!(enumeration.generic_params.len(), arity);
+        assert_eq!(
+            enumeration
+                .variants
+                .iter()
+                .map(|variant| variant.name.as_str())
+                .collect::<Vec<_>>(),
+            variants
+        );
+    }
+    for (name, arity) in [("LinkedHashMap", 2), ("LinkedHashSet", 1)] {
+        let (file, declaration) = declarations
+            .files()
+            .find_map(|file| {
+                file.declarations()
+                    .iter()
+                    .find(|item| item.name == name)
+                    .map(|declaration| (file, declaration))
+            })
+            .unwrap();
+        let DeclarationId::Definition(id) = &declaration.id else {
+            panic!("type declaration")
+        };
+        assert_eq!(file.declarations().parameters_of(id).len(), arity);
+    }
+    for namespace in ["array", "map", "set", "string", "iter"] {
+        assert!(
+            declarations
+                .files()
+                .any(|file| file.source().module_identity().path == [namespace])
+        );
+    }
+    assert!(
+        !declarations
+            .files()
+            .any(|file| file.source().module_identity().path == ["fs"])
     );
-    assert_eq!(
-        kagari_abi::standard::surface::standard_type_constructor("LinkedHashSet")
-            .expect("Set should be standard")
-            .arity,
-        1
-    );
-    assert!(kagari_abi::standard::surface::standard_module("std::array").is_some());
-    assert!(kagari_abi::standard::surface::standard_module("std::map").is_some());
-    assert!(kagari_abi::standard::surface::standard_module("std::set").is_some());
-    assert!(kagari_abi::standard::surface::standard_module("std::string").is_some());
-    assert!(kagari_abi::standard::surface::standard_module("std::iter").is_some());
-    assert!(kagari_abi::standard::surface::standard_module("std::fs").is_none());
-
     assert!(surface::supports_const_type(&TypeId::Builtin(
         BuiltinType::U64
     )));
@@ -114,86 +150,59 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
     assert!(!surface::supports_hash_key(&TypeId::Builtin(
         BuiltinType::F64
     )));
-    let map_get = kagari_abi::standard::surface::standard_function(
-        kagari_abi::standard::surface::StandardModule::Map,
-        "LinkedHashMap::get",
-    )
-    .expect("std::map::LinkedHashMap::get should be standard");
-    assert_eq!(map_get.intrinsic, StandardIntrinsic::MapGet);
-    assert_eq!(
-        map_get.constraints[0].constraint,
-        kagari_abi::standard::surface::StandardTypeConstraint::HashKey
-    );
-    assert_eq!(
-        kagari_abi::standard::surface::standard_function(
-            kagari_abi::standard::surface::StandardModule::String,
-            "String::slice"
-        )
-        .expect("std::string::String::slice should be standard")
-        .arity,
-        3
-    );
-    assert!(
-        kagari_abi::standard::surface::standard_function(
-            kagari_abi::standard::surface::StandardModule::Option,
-            "Option::and_then"
-        )
-        .is_some()
-    );
-    assert!(
-        kagari_abi::standard::surface::standard_function(
-            kagari_abi::standard::surface::StandardModule::Result,
-            "Result::map_err"
-        )
-        .is_some()
-    );
-    assert!(
-        kagari_abi::standard::surface::standard_function(
-            kagari_abi::standard::surface::StandardModule::Math,
-            "clamp"
-        )
-        .is_some()
-    );
-    assert!(
-        kagari_abi::standard::surface::standard_function(
-            kagari_abi::standard::surface::StandardModule::Debug,
-            "panic"
-        )
-        .is_some()
-    );
-    assert_eq!(
-        kagari_abi::standard::surface::standard_method(
-            kagari_abi::standard::surface::StandardMethodReceiver::Map,
-            "insert"
-        )
-        .expect("Map.insert should be standard")
-        .intrinsic,
-        StandardIntrinsic::MapInsert
-    );
-    assert!(
-        kagari_abi::standard::surface::standard_method(
-            kagari_abi::standard::surface::StandardMethodReceiver::Set,
-            "difference"
-        )
-        .is_none()
-    );
-    let analysis = crate::analyze_source(
-        &kagari_common::SourceFile::new("contracts.kgr", "fn main() {}"),
-        Default::default(),
-    );
-    let difference = analysis
-        .facts()
+
+    let signature = |binding| {
+        declarations
+            .files()
+            .find_map(|source| {
+                snapshot
+                    .signature_snapshot()
+                    .file(source.source().id())
+                    .unwrap()
+                    .signatures()
+                    .facts()
+                    .functions()
+                    .iter()
+                    .find(|function| {
+                        function.implementation
+                            == FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(
+                                binding,
+                            ))
+                    })
+            })
+            .expect("checked native function signature")
+    };
+    let map_get = signature(StandardIntrinsic::MapGet);
+    let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
+    for kind in [StandardTrait::Eq, StandardTrait::Hash] {
+        assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal().declaration)));
+    }
+    assert_eq!(signature(StandardIntrinsic::StringSlice).params.len(), 3);
+    for binding in [
+        StandardIntrinsic::OptionAndThen,
+        StandardIntrinsic::ResultMapErr,
+        StandardIntrinsic::MathClamp,
+        StandardIntrinsic::DebugAssert,
+        StandardIntrinsic::MapInsert,
+    ] {
+        assert_eq!(
+            signature(binding).implementation,
+            FunctionImplementation::EngineNative(EngineNativeBinding::Intrinsic(binding))
+        );
+    }
+    assert!(!facts.aggregates.inherent_methods().any(|method| matches!(
+        method.owner,
+        TypeId::Set(_, _)
+    ) && method.function.name
+        == "difference"));
+    let difference = facts
         .aggregates
-        .trait_(
-            &kagari_abi::standard::traits::StandardTrait::Set
-                .nominal()
-                .declaration,
-        )
+        .trait_(&StandardTrait::Set.nominal().declaration)
         .unwrap()
         .methods
         .iter()
         .find(|method| method.name == "difference")
-        .expect("Set interface default");
+        .unwrap();
     assert_eq!(
         difference.default,
         Some(MethodDefault::Native {
@@ -201,20 +210,15 @@ fn exposes_stdlib_standard_builtin_surface_metadata() {
             overridable: false,
         })
     );
-    assert_eq!(
-        kagari_abi::standard::surface::standard_method(
-            kagari_abi::standard::surface::StandardMethodReceiver::String,
-            "len_chars"
-        )
-        .expect("String.len_chars should be standard")
-        .arity,
-        0
-    );
+    let len_chars = signature(StandardIntrinsic::StringLenChars);
+    assert_eq!(len_chars.params.len(), 1);
+    assert_eq!(len_chars.params[0].name, "self");
 }
 
 #[test]
 fn resolves_stdlib_standard_builtin_type_annotations() {
-    let lowered = common::lower_ok(
+    let source = SourceFile::new(
+        "native-annotations.kgr",
         r#"
 fn choose(value: Option<i32>) -> Option<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
@@ -223,12 +227,10 @@ fn unique(value: LinkedHashSet<String>) -> LinkedHashSet<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
-    let names = resolve_names(&lowered)
+    let analyzed = crate::analyze_source(&source, Default::default())
         .into_checked()
-        .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
-        .into_checked()
-        .expect("type checker should succeed");
+        .expect("checked installed declarations");
+    let typed = &analyzed.typed;
 
     assert_eq!(
         typed.functions[0].return_type,
