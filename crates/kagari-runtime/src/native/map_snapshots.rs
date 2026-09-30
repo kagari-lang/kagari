@@ -6,12 +6,13 @@ use crate::{
     native::{
         NativeAction,
         protocols::{self, ProtocolStep},
+        results,
     },
     value::{EnumTag, Value},
 };
 use kagari_abi::{
     callable::EngineNativeBinding,
-    native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeWitness},
     operations::IterOp,
     standard::{
         StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
@@ -215,43 +216,6 @@ impl SnapshotInvocation {
         self.phase = next;
         Ok(NativeAction::Continue)
     }
-    fn interface(
-        &self,
-        runtime: &Runtime,
-        owner: &LoadedModule,
-        contract: &EngineNativeImport,
-        roots: &RootSet,
-    ) -> Result<Value, RuntimeError> {
-        let AbiType::Trait(interface) = &contract.signature.result else {
-            return Err(invalid());
-        };
-        let witness = contract
-            .witnesses
-            .iter()
-            .find(|witness| witness.interface == *interface)
-            .ok_or_else(invalid)?;
-        let NativeWitnessImplementation::Table(target) = &witness.implementation else {
-            return Err(invalid());
-        };
-        let implementation = owner
-            .members()
-            .find(|module| module.bytecode.identity == target.declaration.module)
-            .ok_or_else(invalid)?;
-        runtime.validate_loaded_module(&implementation)?;
-        let index = implementation
-            .bytecode
-            .interface_tables
-            .iter()
-            .position(|table| {
-                table.declaration == target.declaration && table.arguments == target.arguments
-            })
-            .ok_or_else(invalid)?;
-        let value = runtime.make_interface(&implementation, index, self.get(roots, ARRAY)?)?;
-        if !runtime.matches_interface_method_abi(&value, &contract.signature.result, owner) {
-            return Err(invalid());
-        }
-        Ok(value)
-    }
     pub(super) fn advance(
         &mut self,
         runtime: &Runtime,
@@ -358,8 +322,7 @@ impl SnapshotInvocation {
                 self.phase = Phase::Interface;
             }
             Phase::Interface => {
-                return self
-                    .interface(runtime, owner, contract, roots)
+                return results::readonly_list(runtime, owner, contract, self.get(roots, ARRAY)?)
                     .map(NativeAction::Complete);
             }
             Phase::WaitingIter | Phase::WaitingNext => return Err(invalid()),

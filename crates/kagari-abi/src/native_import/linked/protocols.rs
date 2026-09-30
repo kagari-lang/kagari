@@ -47,6 +47,7 @@ pub(super) fn valid<'a>(
                 StandardIntrinsic::MapKeys
                     | StandardIntrinsic::MapValues
                     | StandardIntrinsic::MapEntries
+                    | StandardIntrinsic::ArrayRemoveRange
             ) | EngineNativeBinding::TraitDefault(
                 NativeDefaultMethod::MapKeysView
                     | NativeDefaultMethod::MapValuesView
@@ -54,6 +55,18 @@ pub(super) fn valid<'a>(
             )
         );
         let collection = StandardTrait::from_id(&witness.interface.declaration);
+        if matches!(
+            import.binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange
+            )
+        ) && collection == Some(StandardTrait::RangeBounds)
+        {
+            if !ranges::valid(witness, catalog, &table, &callable, cancel)? {
+                return Ok(false);
+            }
+            continue;
+        }
         if (list_query || snapshot || arrays::selected(import))
             && collection == Some(StandardTrait::List)
             || snapshot && collection == Some(StandardTrait::Map)
@@ -287,3 +300,4 @@ pub(super) fn valid<'a>(
 }
 
 mod collections;
+mod ranges;

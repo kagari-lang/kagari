@@ -17,7 +17,8 @@ static/dynamic Map snapshots execute through checked runtime traversal and resul
 construction. ArrayList per-index initialization executes through rooted native
 callbacks and checked append operations. ArrayList source construction, FromIterator,
 copy and extension execute through selected native source traversal and atomic
-final storage helpers. Remaining ST05 iterator/collection
+final storage helpers. Array interval copying/removal also execute through checked
+static RangeBounds witnesses and prepared native storage updates. Remaining ST05 iterator/collection
 migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -524,6 +525,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   once-only construction, exact logical charges and failure cleanup.
 - [x] Migrate ArrayList source construction and FromIterator, plus copy/extension,
   with checked traversal witnesses, rooted snapshots and atomic final storage updates.
+- [x] Migrate ArrayList interval copying/removal with selected RangeBounds methods,
+  rooted prepared storage and checked readonly result construction before commit.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -819,6 +822,63 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 ArrayList interval checkpoint (2026-09-30): completes one family checklist
+  covering `copy_within` and `remove_range`, including six native range forms and
+  concrete/generic custom RangeBounds implementations. Removed their entire
+  compiler algorithm/routing branch. Runtime evaluates the selected start/end
+  methods once in order, then reuses the existing Rust interval validation,
+  overlap-safe snapshot copy, removal preparation and final storage helpers.
+  RangeBounds retains its specified static-only interface policy. No script
+  algorithm, forwarding route or public-operation static expansion remains.
+- Native imports carry both exact physical Bound<usize> methods, canonical
+  defining-module applications and the ArrayList-to-readonly-List result factory
+  for removal. Portable validation checks both required methods, their signatures,
+  selected script targets or exact native range providers, empty method generics,
+  instantiated receiver and usize endpoint type. It rejects missing/substituted
+  witnesses, reversed method targets, altered instantiations, write-authority
+  forgeries and bare public-binding calls without consulting source catalogs.
+  The readonly result constructor now has one native owner shared with Map
+  snapshots; both retain their validated pinned concrete table and existing charges.
+- Arguments and bound/prepared/result values are rooted before the already
+  charged first bound operation. Script methods use shared callback frames;
+  native ranges retain primitive field interpretation and enum allocation.
+  Removal owns the mutation guard, retained/removed buffers and checked readonly
+  interface until the result is fully prepared, releases its preparation guard
+  and performs the final storage commit. Cleanup on callback traps, cancellation,
+  budgets and allocation failure drops partial roots and guards. Copying preserves
+  overlap and active iteration; removal keeps structural mutation checks. Boundary
+  effects remain visible on failure, and bounds resolve against current storage
+  after both methods have returned.
+- Recorded 144 cases at 199e509: empty/interior/full intervals, all native forms,
+  scalar/heap payloads, direct/generic native and custom sources, excluded starts,
+  included ends, forward/backward overlap and independent readonly removal slots.
+  All 28,496 source/decoded budget cuts preserve results, argument/start/end/
+  committed/done positions, exact counters and GC/session cleanup at threshold one.
+  The baseline retains 536 bulk-charge rejection cutpoints from existing storage
+  helpers. Additional tests cover nested successful/failed host reentry,
+  cancellation at each bound callback, all allocation limits through publication,
+  bound traps, arithmetic overflow, reversed/outside intervals, invalid destination,
+  live iteration guards, alias shrink effects, shared result payloads, foreign
+  generic methods with caller-defined private elements and subsequent clean calls.
+  All 128 import/witness/result/signature/instantiation/bare-call corruptions reject
+  in memory and encoded loading.
+- Runtime ABI is v120 for the newly executable interval bindings; binding v2,
+  KBC v109, KMIR v7 and helper ABI v6 retain their schemas. ABI 46, bytecode 27,
+  compiler 177, HIR 414, MIR 1, runtime 71, stdlib 7 and VM 187 library tests pass
+  (930 cumulative). Embedding array_operations, collection_interfaces,
+  error_traces, iteration_traits, lazy_iterators, list_mutations, list_windows and
+  prepared_collections pass 84 tests (1,014 combined), across their supported
+  source, decoded and JIT/fallback routes. The existing range-primitive forgery
+  fixture now explicitly calls start_bound instead of depending on copy_within's
+  deleted expansion; all six range-shape and four bound corruptions still reject.
+  Workspace all-target Clippy with warnings denied, formatting, structure and diff
+  checks pass. Structure covers 643 Rust files with zero violations/exceptions.
+  Manual review covered explicit imports, module ownership, both physical bound
+  signatures, exact providers, charges, roots, guards, result permissions, commit
+  and cleanup. No new build or test error is carried; other ST05 families and
+  ST06 fixture regeneration, documentation, measurements and final acceptance
+  remain pending.
 
 - ST05 ArrayList source construction/copy checkpoint (2026-09-30): completes one
   family checklist covering `ArrayList::from`, the ArrayList FromIterator provider,

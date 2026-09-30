@@ -8,7 +8,6 @@ use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     operations::{IterOp, StringIterKind},
     representation::ValueType,
-    scalar::BuiltinType,
     standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_hir::{
@@ -224,85 +223,6 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
 
-        if matches!(
-            intrinsic,
-            StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange
-        ) {
-            let input = args[usize::from(receiver.is_none())];
-            let source = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(input)
-                .ok_or(MirLoweringError::MissingExprType(input))?;
-            let source = self
-                .planner
-                .arguments(&[source], &self.instance.substitution, span)?
-                .remove(0);
-            let mut interface = StandardTrait::RangeBounds.nominal();
-            interface
-                .arguments
-                .push(TypeId::Builtin(BuiltinType::USize));
-            let start = self.lower_applied_operator(
-                interface.clone(),
-                source.clone(),
-                &self.protocol_method(StandardTrait::RangeBounds, 0)?,
-                &[lowered[1]],
-            )?;
-            let end = self.lower_applied_operator(
-                interface,
-                source,
-                &self.protocol_method(StandardTrait::RangeBounds, 1)?,
-                &[lowered[1]],
-            )?;
-            if intrinsic == StandardIntrinsic::ArrayRemoveRange {
-                let base = receiver
-                    .or_else(|| args.first().copied())
-                    .ok_or(MirLoweringError::MissingBinding("array receiver"))?;
-                let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .expr_type(base)
-                    .ok_or(MirLoweringError::MissingExprType(base))?;
-                let ty = self
-                    .planner
-                    .arguments(&[ty], &self.instance.substitution, span)?
-                    .remove(0);
-                let TypeId::Array(item, _) = &ty else {
-                    return Err(MirLoweringError::MissingBinding("array storage"));
-                };
-                self.emit_intrinsic(
-                    StandardIntrinsic::CollectionMutationBegin,
-                    &[lowered[0]],
-                    ValueType::Unit,
-                );
-                let prepared = self.emit_intrinsic(
-                    StandardIntrinsic::ArrayRemoveRangePrepare,
-                    &[lowered[0], start, end],
-                    ValueType::HeapObject,
-                );
-                let remaining = self.prepared_field(prepared, 0, &ty)?;
-                let removed = self.prepared_field(prepared, 1, &ty)?;
-                let result = self.readonly_array((**item).clone(), removed)?;
-                self.emit_intrinsic(
-                    StandardIntrinsic::CollectionMutationEnd,
-                    &[lowered[0]],
-                    ValueType::Unit,
-                );
-                self.emit_intrinsic(
-                    StandardIntrinsic::ArrayReplaceStorage,
-                    &[lowered[0], remaining],
-                    ValueType::Unit,
-                );
-                return Ok(result);
-            }
-            return Ok(self.emit_intrinsic(
-                StandardIntrinsic::ArrayCopyWithinBounds,
-                &[lowered[0], start, end, lowered[2]],
-                ValueType::Unit,
-            ));
-        }
         if matches!(
             intrinsic,
             StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom

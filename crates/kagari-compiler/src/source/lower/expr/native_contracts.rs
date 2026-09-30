@@ -115,6 +115,7 @@ impl FunctionLowerer<'_, '_> {
                 StandardIntrinsic::MapKeys
                     | StandardIntrinsic::MapValues
                     | StandardIntrinsic::MapEntries
+                    | StandardIntrinsic::ArrayRemoveRange
             )
         ) {
             witnesses.push(self.native_list_result(&result[0])?);
@@ -143,7 +144,12 @@ impl FunctionLowerer<'_, '_> {
         binding: EngineNativeBinding,
         requirements: &[GenericBoundAbi],
     ) -> Result<Vec<NativeWitness>, MirLoweringError> {
-        let traversal = matches!(
+        let invoked_protocols = matches!(
+            binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange
+            )
+        ) || matches!(
             binding,
             EngineNativeBinding::Protocol(
                 NativeProtocolMethod::NumericSum
@@ -159,7 +165,7 @@ impl FunctionLowerer<'_, '_> {
                 };
                 let receiver = raise_type(&bound.ty);
                 let applied = raise_nominal_type(interface);
-                let witness = if traversal {
+                let witness = if invoked_protocols {
                     self.lower_native_witness(&receiver, &applied, &[])?
                 } else {
                     let implementation = if let Some((declaration, arguments)) = self
@@ -196,7 +202,7 @@ impl FunctionLowerer<'_, '_> {
                 if !witnesses.contains(&witness) {
                     witnesses.push(witness);
                 }
-                if traversal
+                if invoked_protocols
                     && StandardTrait::from_id(&interface.declaration)
                         == Some(StandardTrait::Iterable)
                 {
@@ -272,6 +278,7 @@ impl FunctionLowerer<'_, '_> {
                 StandardIntrinsic::MapKeys
                     | StandardIntrinsic::MapValues
                     | StandardIntrinsic::MapEntries
+                    | StandardIntrinsic::ArrayRemoveRange
             )
         ) {
             witnesses.push(self.native_list_result(result)?);

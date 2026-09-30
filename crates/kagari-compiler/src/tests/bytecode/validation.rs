@@ -847,7 +847,9 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
     };
     use kagari_common::range::RangeKind;
-    let module = common::bytecode_ok("fn main() { val a = [1, 2, 3]; a.copy_within(0..2, 1); }");
+    let module = common::bytecode_ok(
+        "fn main() { val a = [1, 2, 3]; val range = 0usize..2usize; range.start_bound(); a.copy_within(range, 1usize); }",
+    );
     verify_program(&module).unwrap();
     for mutation in 0..6 {
         let mut invalid = module.clone();

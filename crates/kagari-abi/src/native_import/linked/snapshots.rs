@@ -1,4 +1,4 @@
-//! Source-free obligations for Map traversal and readonly result construction.
+//! Source-free obligations for native readonly List construction and Map traversal.
 use crate::{
     callable::EngineNativeBinding,
     native_import::{EngineNativeImport, NativeWitnessImplementation},
@@ -21,19 +21,20 @@ pub(super) fn obligations<'a>(
     table: &impl Fn(&DefinitionId) -> Option<&'a InterfaceTableAbi>,
     cancel: &CancellationToken,
 ) -> Result<Option<Vec<GenericBoundAbi>>, TypeTransformError> {
-    let map_snapshot = matches!(
+    let readonly_result = matches!(
         import.binding,
         EngineNativeBinding::Intrinsic(
             StandardIntrinsic::MapKeys
                 | StandardIntrinsic::MapValues
                 | StandardIntrinsic::MapEntries
+                | StandardIntrinsic::ArrayRemoveRange
         ) | EngineNativeBinding::TraitDefault(
             NativeDefaultMethod::MapKeysView
                 | NativeDefaultMethod::MapValuesView
                 | NativeDefaultMethod::MapEntriesView
         )
     );
-    if !map_snapshot {
+    if !readonly_result {
         return Ok(Some(vec![]));
     }
     let mut obligations = Vec::new();

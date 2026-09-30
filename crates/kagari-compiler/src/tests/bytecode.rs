@@ -78,3 +78,5 @@ mod native_lists;
 mod native_numeric;
 mod native_snapshots;
 mod validation;
+
+mod native_array_ranges;

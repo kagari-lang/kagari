@@ -463,3 +463,42 @@ fn table_call(
         | NativeWitnessImplementation::Derived => Err(invalid()),
     }
 }
+
+/// RangeBounds remains a static protocol: native ranges or selected script methods.
+pub(super) fn range_bound(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    source: Value,
+    upper: bool,
+) -> Result<ProtocolStep, RuntimeError> {
+    let output = AbiType::StandardEnum {
+        kind: StandardEnum::Bound,
+        args: vec![AbiType::Builtin(BuiltinType::USize)],
+    };
+    if !runtime.matches_interface_method_abi(&source, &witness.receiver, owner) {
+        return Err(invalid());
+    }
+    if witness.methods.is_empty()
+        && matches!(
+            witness.implementation,
+            NativeWitnessImplementation::Table(_)
+        )
+    {
+        let Value::Range(range) = source else {
+            return Err(invalid());
+        };
+        return range
+            .bound(runtime.gc(), &witness.receiver, &output, upper)
+            .map(ProtocolStep::Value);
+    }
+    table_call(
+        runtime,
+        owner,
+        witness,
+        usize::from(upper),
+        vec![source],
+        slice::from_ref(&witness.receiver),
+        &output,
+    )
+}
