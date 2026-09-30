@@ -41,6 +41,10 @@ pub(super) fn valid(
             };
             matches!(args.as_slice(), [AbiType::Builtin(scalar), error] if *input == builtin(BuiltinType::String) && numeric::parsing_error(*scalar).is_some_and(|kind| *error == enumeration(kind, vec![])))
         }
+        (NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct, [source]) => {
+            matches!(output, AbiType::Builtin(scalar) if scalar.number_type().is_some())
+                && iterable_item(bounds, source) == Some(output)
+        }
         (NativeProtocolMethod::CollectionFromIterator, [source]) => {
             collection_item(output).is_some_and(|item| iterable_item(bounds, source) == Some(&item))
         }

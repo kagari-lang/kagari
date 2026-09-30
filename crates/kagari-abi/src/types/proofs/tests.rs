@@ -53,6 +53,21 @@ fn bound(ty: AbiType, required: NominalAbiType) -> GenericBoundAbi {
 }
 
 #[test]
+fn scalar_aggregation_is_not_a_source_free_intrinsic_proof() {
+    let cancel = CancellationToken::default();
+    let catalog = ProofCatalog::new(vec![], vec![], [], [], &cancel).unwrap();
+    for kind in [StandardTrait::Sum, StandardTrait::Product] {
+        let interface = intrinsic::applied(kind, vec![scalar()]);
+        assert!(
+            intrinsic::requirements(&interface, &scalar(), &cancel)
+                .unwrap()
+                .is_none()
+        );
+        assert!(!catalog.holds(&interface, &scalar(), &[], &cancel).unwrap());
+    }
+}
+
+#[test]
 fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
     let cancel = CancellationToken::default();
     let marker = nominal(id(DefinitionKind::Trait, "Marker"), vec![]);

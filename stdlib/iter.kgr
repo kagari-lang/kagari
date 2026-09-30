@@ -969,3 +969,149 @@ pub trait Product<T> {
     /// Aggregate the iterable source into Self.
     fn product<I: Iterable<Item = T>>(source: I) -> Self;
 }
+
+// Numeric implementations retain checked scalar destinations and iterable sources.
+
+impl Sum<i8> for i8 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = i8>>(source: I) -> Self;
+}
+
+impl Product<i8> for i8 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = i8>>(source: I) -> Self;
+}
+
+impl Sum<i16> for i16 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = i16>>(source: I) -> Self;
+}
+
+impl Product<i16> for i16 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = i16>>(source: I) -> Self;
+}
+
+impl Sum<i32> for i32 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = i32>>(source: I) -> Self;
+}
+
+impl Product<i32> for i32 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = i32>>(source: I) -> Self;
+}
+
+impl Sum<i64> for i64 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = i64>>(source: I) -> Self;
+}
+
+impl Product<i64> for i64 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = i64>>(source: I) -> Self;
+}
+
+impl Sum<isize> for isize {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = isize>>(source: I) -> Self;
+}
+
+impl Product<isize> for isize {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = isize>>(source: I) -> Self;
+}
+
+impl Sum<u8> for u8 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = u8>>(source: I) -> Self;
+}
+
+impl Product<u8> for u8 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = u8>>(source: I) -> Self;
+}
+
+impl Sum<u16> for u16 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = u16>>(source: I) -> Self;
+}
+
+impl Product<u16> for u16 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = u16>>(source: I) -> Self;
+}
+
+impl Sum<u32> for u32 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = u32>>(source: I) -> Self;
+}
+
+impl Product<u32> for u32 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = u32>>(source: I) -> Self;
+}
+
+impl Sum<u64> for u64 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = u64>>(source: I) -> Self;
+}
+
+impl Product<u64> for u64 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = u64>>(source: I) -> Self;
+}
+
+impl Sum<usize> for usize {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = usize>>(source: I) -> Self;
+}
+
+impl Product<usize> for usize {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = usize>>(source: I) -> Self;
+}
+
+impl Sum<f32> for f32 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = f32>>(source: I) -> Self;
+}
+
+impl Product<f32> for f32 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = f32>>(source: I) -> Self;
+}
+
+impl Sum<f64> for f64 {
+    /// Sum this scalar type from an iterable, using checked arithmetic. Empty input returns 0.
+    #[intrinsic(NumericSum)]
+    fn sum<I: Iterable<Item = f64>>(source: I) -> Self;
+}
+
+impl Product<f64> for f64 {
+    /// Multiply this scalar type from an iterable, using checked arithmetic. Empty input returns 1.
+    #[intrinsic(NumericProduct)]
+    fn product<I: Iterable<Item = f64>>(source: I) -> Self;
+}

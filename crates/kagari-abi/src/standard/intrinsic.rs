@@ -75,12 +75,6 @@ pub fn requirements(
         };
         return Ok((identity || numeric).then(Vec::new));
     }
-    if kind.aggregation() {
-        return Ok((interface.associated_types.is_empty()
-            && interface.arguments.as_slice() == [receiver.clone()]
-            && matches!(receiver, AbiType::Builtin(ty) if ty.number_type().is_some()))
-        .then(Vec::new));
-    }
     // Iterator supplies identity Iterable; the linked solver proves Iterator,
     // including any requested Item output, rather than assuming it is available.
     Ok(identity_iterator(interface, receiver).map(|required| {

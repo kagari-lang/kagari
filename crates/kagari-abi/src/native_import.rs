@@ -4,7 +4,10 @@ use crate::{
     callable::EngineNativeBinding,
     effects::{EffectSet, standard_intrinsic_effects},
     native_import::signature::validate,
-    standard::{StandardIntrinsic, bindings::NativeDefaultMethod},
+    standard::{
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+    },
     types::{
         AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, NominalAbiType,
         substitution::MAX_TYPE_NODES, verify::concrete_type_valid,
@@ -62,7 +65,7 @@ pub struct NativeWitness {
     pub receiver: AbiType,
     pub interface: NominalAbiType,
     pub implementation: NativeWitnessImplementation,
-    /// Concrete required-method applications selected by the source producer.
+    /// Concrete script required-method applications selected by the source producer.
     /// Signatures and obligations remain in the carried trait declarations.
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub methods: Vec<ConcreteFunctionIdentity>,
@@ -139,6 +142,21 @@ impl EngineNativeImport {
         }
         if let Some(operation) = validate(self.binding, &self.signature) {
             return Some(EngineNativeOperation::Direct(operation));
+        }
+        if matches!(
+            self.binding,
+            EngineNativeBinding::Protocol(
+                NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
+            )
+        ) {
+            let mut bounds = self.requirements.clone();
+            bounds.extend(self.witnesses.iter().map(|witness| GenericBoundAbi {
+                ty: witness.receiver.clone(),
+                constraints: vec![ConstraintAbi::Trait(witness.interface.clone())],
+            }));
+            if contract::binding_signature_valid(self.binding, &self.signature, &bounds) {
+                return Some(EngineNativeOperation::Resumable(self.binding));
+            }
         }
         if matches!(
             self.binding,

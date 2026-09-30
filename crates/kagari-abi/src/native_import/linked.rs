@@ -2,7 +2,7 @@
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
-    standard::{intrinsic, traits::StandardTrait},
+    standard::{bindings::NativeProtocolMethod, intrinsic, traits::StandardTrait},
     types::{
         AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi,
         NativeDeclaration, matching,
@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind},
+    identity::{DefinitionId, DefinitionKind, associated_type_id},
 };
 use std::{collections::HashSet, iter};
 
@@ -121,6 +121,50 @@ impl EngineNativeImport {
             obligations.push(GenericBoundAbi {
                 ty: receiver.clone(),
                 constraints: vec![ConstraintAbi::Trait(witness.interface.clone())],
+            });
+        }
+        if matches!(
+            self.binding,
+            EngineNativeBinding::Protocol(
+                NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
+            )
+        ) {
+            let Some(source) = self.signature.params.first() else {
+                return Ok(false);
+            };
+            let Some(interface) = obligations
+                .iter()
+                .filter(|bound| &bound.ty == source)
+                .flat_map(|bound| &bound.constraints)
+                .find_map(|constraint| match constraint {
+                    ConstraintAbi::Trait(interface)
+                        if StandardTrait::from_id(&interface.declaration)
+                            == Some(StandardTrait::Iterable) =>
+                    {
+                        Some(interface)
+                    }
+                    _ => None,
+                })
+            else {
+                return Ok(false);
+            };
+            let iterator = catalog.normalize(
+                &AbiType::Projection {
+                    receiver: Box::new(source.clone()),
+                    interface: Box::new(interface.clone()),
+                    member: associated_type_id(&interface.declaration, "Iter"),
+                    arguments: vec![],
+                },
+                cancel,
+            )?;
+            let mut interface = intrinsic::applied(StandardTrait::Iterator, vec![]);
+            interface.associated_types.insert(
+                associated_type_id(&interface.declaration, "Item"),
+                self.signature.result.clone(),
+            );
+            obligations.push(GenericBoundAbi {
+                ty: iterator,
+                constraints: vec![ConstraintAbi::Trait(interface)],
             });
         }
         let mut consumed = HashSet::new();

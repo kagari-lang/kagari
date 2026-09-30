@@ -10,12 +10,15 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::{
+    callable::EngineNativeBinding,
     native_import::{EngineNativeImport, NativeWitness},
     operations::IterOp,
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        surface::StandardEnum,
         traits::StandardTrait,
     },
     types::AbiType,
@@ -30,6 +33,7 @@ const COUNTER: usize = 4;
 const PREVIOUS: usize = 5;
 const KEY_STATE: usize = 6;
 const CURRENT_KEY: usize = 7;
+const SOURCE: usize = 8;
 
 #[derive(Clone, Copy)]
 enum DecisionPhase {
@@ -71,6 +75,8 @@ enum RangeCheck {
 }
 
 enum Phase {
+    IntoIterator,
+    WaitingIterator,
     DecisionStep(DecisionPhase),
     Begin,
     EntryJump,
@@ -105,6 +111,7 @@ pub(super) struct IteratorInvocation {
     phase: Phase,
     scratch: usize,
     guarded: bool,
+    iterator_witness: usize,
     guard: Option<CollectionIteration>,
     pub(super) initial: Option<Vec<Value>>,
     present: bool,
@@ -161,10 +168,29 @@ impl IteratorInvocation {
             }
             _ => return Err(invalid()),
         };
-        let guarded = matches!(contract.signature.params.first(), Some(AbiType::Iter(_)));
+        let numeric = matches!(
+            contract.binding,
+            EngineNativeBinding::Protocol(
+                NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
+            )
+        );
+        let iterator_witness = contract
+            .witnesses
+            .iter()
+            .position(|witness| {
+                StandardTrait::from_id(&witness.interface.declaration)
+                    == Some(StandardTrait::Iterator)
+                    && (numeric || Some(&witness.receiver) == contract.signature.params.first())
+            })
+            .ok_or_else(invalid)?;
+        let iterator_type = &contract.witnesses[iterator_witness].receiver;
+        let convert = numeric && iterator_type != &contract.signature.params[0];
+        let guarded = matches!(iterator_type, AbiType::Iter(_));
         Ok(Self {
             operation,
-            phase: if matches!(
+            phase: if convert {
+                Phase::IntoIterator
+            } else if matches!(
                 operation,
                 NativeDefaultMethod::MinByKey | NativeDefaultMethod::MaxByKey
             ) {
@@ -180,6 +206,7 @@ impl IteratorInvocation {
             },
             scratch: arguments.len(),
             guarded,
+            iterator_witness,
             guard: None,
             initial: Some(vec![
                 initial,
@@ -194,6 +221,11 @@ impl IteratorInvocation {
                 Value::Unit,
                 Value::Unit,
                 Value::Unit,
+                if convert {
+                    Value::Unit
+                } else {
+                    arguments[0].clone()
+                },
             ]),
             present: false,
         })
@@ -307,14 +339,10 @@ impl IteratorInvocation {
     ) -> Result<&'a NativeWitness, RuntimeError> {
         contract
             .witnesses
-            .iter()
-            .find(|witness| {
-                witness.receiver == contract.signature.params[0]
-                    && StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::Iterator)
-            })
+            .get(self.iterator_witness)
             .ok_or_else(invalid)
     }
+
     fn optional(&self, contract: &EngineNativeImport) -> Result<AbiType, RuntimeError> {
         let witness = self.witness(contract)?;
         let item = witness
@@ -541,11 +569,37 @@ impl IteratorInvocation {
             Phase::DecisionStep(phase) => {
                 return self.advance_decision(phase, runtime, owner, contract, roots);
             }
+            Phase::IntoIterator => {
+                let witness = contract
+                    .witnesses
+                    .iter()
+                    .find(|witness| {
+                        witness.receiver == contract.signature.params[0]
+                            && StandardTrait::from_id(&witness.interface.declaration)
+                                == Some(StandardTrait::Iterable)
+                    })
+                    .ok_or_else(invalid)?;
+                match protocols::iter(
+                    runtime,
+                    owner,
+                    witness,
+                    roots.get(0).ok_or_else(invalid)?,
+                    &self.witness(contract)?.receiver,
+                )? {
+                    ProtocolStep::Value(value) => {
+                        self.receive_iterator(runtime, owner, contract, roots, value)?
+                    }
+                    ProtocolStep::Call(request) => {
+                        self.phase = Phase::WaitingIterator;
+                        return Ok(NativeAction::Callback(request));
+                    }
+                }
+            }
             Phase::Begin => {
                 self.guard = Some(
                     runtime
                         .gc()
-                        .begin_collection_iteration(&roots.get(0).ok_or_else(invalid)?)?,
+                        .begin_collection_iteration(&self.get(roots, SOURCE)?)?,
                 );
                 self.phase = Phase::EntryJump;
             }
@@ -556,7 +610,7 @@ impl IteratorInvocation {
                     runtime,
                     owner,
                     self.witness(contract)?,
-                    roots.get(0).ok_or_else(invalid)?,
+                    self.get(roots, SOURCE)?,
                     &optional,
                 )? {
                     ProtocolStep::Value(value) => {
@@ -728,8 +782,8 @@ impl IteratorInvocation {
             Phase::Close => {
                 runtime.iter_operation(
                     owner,
-                    &roots.get(0).ok_or_else(invalid)?,
-                    &contract.signature.params[0],
+                    &self.get(roots, SOURCE)?,
+                    &self.witness(contract)?.receiver,
                     IterOp::Close,
                 )?;
                 self.phase = Phase::End;
@@ -816,7 +870,8 @@ impl IteratorInvocation {
                 self.set(runtime, roots, RESULT, value)?;
                 return self.complete(runtime, owner, contract, roots);
             }
-            Phase::WaitingNext
+            Phase::WaitingIterator
+            | Phase::WaitingNext
             | Phase::WaitingCallback
             | Phase::WaitingKey
             | Phase::WaitingComparison => return Err(invalid()),
@@ -833,13 +888,37 @@ impl IteratorInvocation {
             _ => None,
         }
     }
+    fn receive_iterator(
+        &mut self,
+        runtime: &Runtime,
+        owner: &LoadedModule,
+        contract: &EngineNativeImport,
+        roots: &RootSet,
+        value: Value,
+    ) -> Result<(), RuntimeError> {
+        if !runtime.matches_interface_method_abi(&value, &self.witness(contract)?.receiver, owner) {
+            return Err(invalid());
+        }
+        self.set(runtime, roots, SOURCE, value)?;
+        self.phase = if self.guarded {
+            Phase::Begin
+        } else {
+            Phase::EntryJump
+        };
+        Ok(())
+    }
     pub(super) fn receive(
         &mut self,
         runtime: &Runtime,
+        owner: &LoadedModule,
+        contract: &EngineNativeImport,
         roots: &RootSet,
         value: Value,
     ) -> Result<(), RuntimeError> {
         match self.phase {
+            Phase::WaitingIterator => {
+                self.receive_iterator(runtime, owner, contract, roots, value)?
+            }
             Phase::WaitingNext => {
                 self.set(runtime, roots, NEXT, value)?;
                 self.phase = Phase::Test;

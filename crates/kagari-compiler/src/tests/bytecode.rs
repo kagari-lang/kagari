@@ -71,4 +71,5 @@ mod host_contracts;
 mod identities;
 mod interfaces;
 mod lowering;
+mod native_numeric;
 mod validation;

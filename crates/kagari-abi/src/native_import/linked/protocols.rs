@@ -1,8 +1,12 @@
 //! Validate selected required-method applications against carried declarations.
 use crate::{
-    callable::EngineNativeBinding,
+    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
-    standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
+    standard::{
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        surface::StandardEnum,
+        traits::StandardTrait,
+    },
     types::{
         AbiType, ConcreteFunctionIdentity, InterfaceTableAbi,
         proofs::ProofCatalog,
@@ -30,14 +34,31 @@ pub(super) fn valid<'a>(
                 NativeDefaultMethod::Sum | NativeDefaultMethod::Product
             )
         ) && protocol.is_some_and(StandardTrait::aggregation);
-        let invoked = matches!(import.binding, EngineNativeBinding::TraitDefault(_))
-            && (matches!(protocol, Some(StandardTrait::Iterator | StandardTrait::Ord))
-                || aggregate);
+        let numeric = matches!(
+            import.binding,
+            EngineNativeBinding::Protocol(
+                NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
+            )
+        );
+        let invoked = (numeric
+            && matches!(
+                protocol,
+                Some(StandardTrait::Iterable | StandardTrait::Iterator)
+            ))
+            || matches!(import.binding, EngineNativeBinding::TraitDefault(_))
+                && (matches!(protocol, Some(StandardTrait::Iterator | StandardTrait::Ord))
+                    || aggregate);
         if !invoked
             || (protocol == Some(StandardTrait::Iterator)
                 && matches!(witness.receiver, AbiType::Iter(_)))
             || ((protocol == Some(StandardTrait::Ord) || aggregate)
                 && witness.implementation == NativeWitnessImplementation::Primitive)
+            || (numeric
+                && protocol == Some(StandardTrait::Iterable)
+                && matches!(
+                    witness.implementation,
+                    NativeWitnessImplementation::Primitive | NativeWitnessImplementation::Interface
+                ))
         {
             if !witness.methods.is_empty() {
                 return Ok(false);
@@ -55,12 +76,32 @@ pub(super) fn valid<'a>(
         else {
             return Ok(false);
         };
-        if !table
+        let Some(method) = table
             .methods
             .iter()
-            .any(|method| method.name == declared.name)
-        {
+            .find(|method| method.name == declared.name)
+        else {
             return Ok(false);
+        };
+        let native = match method.implementation {
+            CallableImplementation::Native(NativeBinding::Engine(
+                EngineNativeBinding::Protocol(binding),
+            )) => Some(binding),
+            _ => None,
+        };
+        let consumed_native = match (protocol, native) {
+            (Some(StandardTrait::Iterable), Some(NativeProtocolMethod::CollectionIter)) => numeric,
+            (Some(StandardTrait::Sum), Some(NativeProtocolMethod::NumericSum))
+            | (Some(StandardTrait::Product), Some(NativeProtocolMethod::NumericProduct)) => {
+                aggregate
+            }
+            _ => false,
+        };
+        if consumed_native {
+            if !witness.methods.is_empty() {
+                return Ok(false);
+            }
+            continue;
         }
         let mut target = instance.clone();
         target.declaration.path.push(DefinitionPathSegment {
@@ -122,6 +163,19 @@ pub(super) fn valid<'a>(
                             kind: StandardEnum::Option, args
                         } if args.as_slice() == slice::from_ref(item))
                         })
+            }
+            Some(StandardTrait::Iterable) if numeric => {
+                let iterator = catalog.normalize(
+                    &AbiType::Projection {
+                        receiver: Box::new(witness.receiver.clone()),
+                        interface: Box::new(witness.interface.clone()),
+                        member: associated_type_id(&witness.interface.declaration, "Iter"),
+                        arguments: vec![],
+                    },
+                    cancel,
+                )?;
+                expected.params.as_slice() == slice::from_ref(&witness.receiver)
+                    && expected.result == iterator
             }
             Some(StandardTrait::Ord) => {
                 expected.params.as_slice() == [witness.receiver.clone(), witness.receiver.clone()]

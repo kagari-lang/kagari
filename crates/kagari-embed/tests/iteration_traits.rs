@@ -70,6 +70,32 @@ fn main()->i32 {val a=Range{start:0,end:7};val b=Counter{value:0,end:7};sum(a)+s
 }
 
 #[test]
+fn numeric_aggregation_uses_checked_native_and_user_iterable_conversion() {
+    execute(
+        r#"
+struct Counter {val items:ArrayList<i32>,var index:usize}
+impl Iterator for Counter {type Item=i32;fn next(self)->Option<i32>{if self.index>=self.items.len(){None}else{val item=self.items[self.index];self.index+=1;Some(item)}}}
+struct Wrap {val items:ArrayList<i32>}
+impl Iterable for Wrap {type Item=i32;type Iter=Counter;fn iter(self)->Counter{Counter{items:self.items,index:0}}}
+fn aggregate<I:Iterable<Item=i32>,T:Sum<i32>>(source:I)->T {T::sum(source)}
+fn main()->i32 {
+    std::debug::assert_eq(i8::sum([20i8,22i8]),42i8,"narrow aggregate");
+    val empty:ArrayList<i64> = [];
+    std::debug::assert_eq(i64::product(empty),1i64,"empty identity");
+    val total:i32 = aggregate(Wrap{items:[20,22]});
+    val dynamic:Iterable<Item=i32,Iter=Counter> = Wrap{items:[2,3,7]};
+    std::debug::assert_eq(i32::product(dynamic),42,"dynamic conversion");
+    val list:List<i32> = [20,22];
+    std::debug::assert_eq(i32::sum(list),42,"dynamic list");
+    val storage=[20,22];val view:[i32] = storage;
+    std::debug::assert_eq(i32::sum(view),42,"readonly source");storage.push(99);
+    total
+}
+"#,
+    );
+}
+
+#[test]
 fn collect_uses_from_iterator_for_native_and_user_defined_destinations() {
     execute(
         r#"

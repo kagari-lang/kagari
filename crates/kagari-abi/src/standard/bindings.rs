@@ -12,6 +12,8 @@ pub enum NativeProtocolMethod {
     RangeEndBound,
     RangeStartBound,
     ResultFromIterator,
+    NumericSum,
+    NumericProduct,
 }
 
 /// Native defaults retain ordinary trait identities and checked generic signatures.

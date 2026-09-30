@@ -110,6 +110,57 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
 }
 
 #[test]
+fn numeric_aggregation_requires_checked_installed_scalar_implementations() {
+    let (snapshot, root) = snapshot("fn main() {}");
+    let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
+    for kind in [StandardTrait::Sum, StandardTrait::Product] {
+        for scalar in [BuiltinType::I8, BuiltinType::I32, BuiltinType::F64] {
+            let receiver = TypeId::Builtin(scalar);
+            let mut interface = kind.nominal();
+            interface.arguments.push(receiver.clone());
+            assert!(!traits::intrinsic_applies(
+                &interface,
+                &receiver,
+                None,
+                &Default::default()
+            ));
+            assert!(
+                AggregateCatalog::default()
+                    .engine_implementation(&interface, &receiver, &Default::default())
+                    .is_none()
+            );
+            assert!(
+                catalog
+                    .engine_implementation(&interface, &receiver, &Default::default())
+                    .is_some()
+            );
+            assert!(traits::intrinsic_applies(
+                &interface,
+                &receiver,
+                Some(catalog),
+                &Default::default()
+            ));
+            interface.arguments[0] = TypeId::Builtin(BuiltinType::Bool);
+            assert!(!traits::intrinsic_applies(
+                &interface,
+                &receiver,
+                Some(catalog),
+                &Default::default()
+            ));
+        }
+        let receiver = TypeId::Builtin(BuiltinType::Bool);
+        let mut interface = kind.nominal();
+        interface.arguments.push(receiver.clone());
+        assert!(!traits::intrinsic_applies(
+            &interface,
+            &receiver,
+            Some(catalog),
+            &Default::default()
+        ));
+    }
+}
+
+#[test]
 fn source_iterator_implementation_is_not_native_dispatch() {
     let (snapshot, root) = snapshot(
         r#"

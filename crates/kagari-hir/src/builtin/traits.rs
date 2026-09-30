@@ -166,28 +166,6 @@ pub fn intrinsic_output(interface: &NominalType, receiver: &TypeId) -> Option<Ty
     }
 }
 
-/// Native numeric aggregation consumes exactly its destination scalar type.
-pub fn numeric_aggregation_item(receiver: &TypeId) -> Option<TypeId> {
-    (matches!(
-        receiver,
-        TypeId::Builtin(
-            BuiltinType::I8
-                | BuiltinType::I16
-                | BuiltinType::I32
-                | BuiltinType::I64
-                | BuiltinType::ISize
-                | BuiltinType::U8
-                | BuiltinType::U16
-                | BuiltinType::U32
-                | BuiltinType::U64
-                | BuiltinType::USize
-                | BuiltinType::F32
-                | BuiltinType::F64
-        )
-    ))
-    .then(|| receiver.clone())
-}
-
 pub fn intrinsic_applies(
     interface: &NominalType,
     receiver: &TypeId,
@@ -208,7 +186,10 @@ pub fn intrinsic_applies(
     if kind.collection()
         || matches!(
             kind,
-            StandardTrait::RangeBounds | StandardTrait::FromIterator
+            StandardTrait::RangeBounds
+                | StandardTrait::FromIterator
+                | StandardTrait::Sum
+                | StandardTrait::Product
         )
     {
         return catalog.is_some_and(|catalog| {
@@ -216,11 +197,6 @@ pub fn intrinsic_applies(
                 .engine_implementation(interface, receiver, bounds)
                 .is_some()
         });
-    }
-    if kind.aggregation() {
-        return interface.arguments.as_slice() == [receiver.clone()]
-            && interface.associated_types.is_empty()
-            && numeric_aggregation_item(receiver).is_some();
     }
     if kind.iteration() {
         return iteration_outputs(kind, receiver, catalog, bounds).is_some_and(|outputs| {

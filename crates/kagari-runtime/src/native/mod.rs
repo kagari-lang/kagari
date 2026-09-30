@@ -3,7 +3,7 @@ mod enums;
 mod iterators;
 mod protocols;
 use crate::{
-    LoadedModule, Runtime, RuntimeError,
+    LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
     builtin::BuiltinError,
     gc::{ClosureValueSnapshot, RootSet},
     native::{
@@ -15,8 +15,11 @@ use crate::{
 use kagari_abi::{
     callable::EngineNativeBinding,
     ids::FunctionRef,
-    native_import::{EngineNativeOperation, NativeWitnessImplementation},
-    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
+    native_import::EngineNativeOperation,
+    standard::{
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        traits::StandardTrait,
+    },
     types::AbiType,
 };
 use kagari_bytecode::{EngineImportId, Register};
@@ -30,6 +33,7 @@ pub struct NativeCallback {
 
 pub(crate) enum NativeCallbackTarget {
     Closure(ClosureValueSnapshot),
+    Interface(Box<RootedInterfaceMethod>),
     Function {
         implementation: LoadedModule,
         function: FunctionRef,
@@ -125,7 +129,7 @@ impl NativeInvocation {
                     None
                 };
                 if let Some(witness) = target.filter(|witness| {
-                    witness.implementation != NativeWitnessImplementation::Primitive
+                    !protocols::numeric_destination(&implementation, witness, operation)
                 }) {
                     entry = Some(protocols::aggregate(
                         runtime,
@@ -141,6 +145,19 @@ impl NativeInvocation {
                     )?)
                 }
             }
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Protocol(
+                operation @ (NativeProtocolMethod::NumericSum
+                | NativeProtocolMethod::NumericProduct),
+            ))) => NativeState::Iterator(IteratorInvocation::start(
+                runtime,
+                if operation == NativeProtocolMethod::NumericSum {
+                    NativeDefaultMethod::Sum
+                } else {
+                    NativeDefaultMethod::Product
+                },
+                contract,
+                arguments,
+            )?),
             _ => {
                 return Err(RuntimeError::module_validation(
                     "invalid native continuation binding",
@@ -209,7 +226,13 @@ impl NativeInvocation {
                 .receive(runtime, &self.roots, value)
                 .map(|()| NativeAction::Continue),
             NativeState::Iterator(state) => state
-                .receive(runtime, &self.roots, value)
+                .receive(
+                    runtime,
+                    &self.implementation,
+                    &self.implementation.bytecode.engine_imports[self.import.index()],
+                    &self.roots,
+                    value,
+                )
                 .map(|()| NativeAction::Continue),
             NativeState::Forward => {
                 let contract = &self.implementation.bytecode.engine_imports[self.import.index()];

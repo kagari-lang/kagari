@@ -431,18 +431,6 @@ impl FunctionLowerer<'_, '_> {
             }
             return self.lower_collect(&ty, &method_arguments[0], args[0]);
         }
-        if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
-            && protocol.aggregation()
-            && traits::intrinsic_applies(
-                &interface,
-                &ty,
-                Some(self.planner.catalog),
-                &Default::default(),
-            )
-        {
-            return self.lower_numeric_aggregate(protocol, &ty, &method_arguments[0], args[0]);
-        }
-
         if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
             let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");
             return self.lower_applied_operator(
@@ -585,6 +573,9 @@ impl FunctionLowerer<'_, '_> {
             .implementation_method(method, &interface, &ty)
         {
             arguments.extend(method_arguments);
+            if self.planner.native_function(&declaration).is_some() {
+                return self.lower_native_implementation(&declaration, &arguments, &result, args);
+            }
             if declaration.module == *self.planner.owner().lowered.source.module_identity() {
                 CallTarget::Function(self.planner.enqueue_declaration(
                     &declaration,

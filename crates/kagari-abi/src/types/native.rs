@@ -73,12 +73,30 @@ pub fn engine_implementation_shape(table: &InterfaceTableAbi) -> bool {
     if table.host_bridge
         || table.methods.is_empty()
         || !table.methods.iter().all(|method| {
-            let CallableImplementation::Native(NativeBinding::Engine(binding)) = method.implementation else { return false; };
-            engine_signature_valid(method, &table.bounds) && match binding {
-                EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator | NativeProtocolMethod::OptionFromIterator | NativeProtocolMethod::ResultFromIterator) => method.return_type == table.for_type,
-                EngineNativeBinding::Protocol(NativeProtocolMethod::NumericFromStr) => matches!(&method.return_type, AbiType::StandardEnum {kind: StandardEnum::Result,args} if args.first() == Some(&table.for_type)),
-                _ => method.params.first().is_some_and(|param| param.ty == table.for_type),
-            }
+            let CallableImplementation::Native(NativeBinding::Engine(binding)) =
+                method.implementation
+            else {
+                return false;
+            };
+            engine_signature_valid(method, &table.bounds)
+                && match binding {
+                    EngineNativeBinding::Protocol(
+                        NativeProtocolMethod::CollectionFromIterator
+                        | NativeProtocolMethod::OptionFromIterator
+                        | NativeProtocolMethod::ResultFromIterator
+                        | NativeProtocolMethod::NumericSum
+                        | NativeProtocolMethod::NumericProduct,
+                    ) => method.return_type == table.for_type,
+                    EngineNativeBinding::Protocol(NativeProtocolMethod::NumericFromStr) => {
+                        matches!(&method.return_type, AbiType::StandardEnum {
+                        kind: StandardEnum::Result, args
+                    } if args.first() == Some(&table.for_type))
+                    }
+                    _ => method
+                        .params
+                        .first()
+                        .is_some_and(|param| param.ty == table.for_type),
+                }
         })
     {
         return false;
@@ -118,6 +136,19 @@ pub fn engine_implementation_shape(table: &InterfaceTableAbi) -> bool {
         (StandardTrait::Iterator, AbiType::Iter(_), []) => true,
         (StandardTrait::RangeBounds, AbiType::Range(item, kind), [input]) => {
             *kind == RangeKind::Full || item.as_ref() == input
+        }
+        (StandardTrait::Sum | StandardTrait::Product, AbiType::Builtin(scalar), [input]) => {
+            scalar.number_type().is_some()
+                && input == &table.for_type
+                && table.methods.len() == 1
+                && table.methods[0].implementation
+                    == CallableImplementation::Native(NativeBinding::Engine(
+                        EngineNativeBinding::Protocol(if kind == StandardTrait::Sum {
+                            NativeProtocolMethod::NumericSum
+                        } else {
+                            NativeProtocolMethod::NumericProduct
+                        }),
+                    ))
         }
         (StandardTrait::FromStr, AbiType::Builtin(scalar), []) => {
             numeric::parsing_error(*scalar).is_some()

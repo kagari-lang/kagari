@@ -20,6 +20,10 @@ use std::{
 
 mod baseline;
 mod cases;
+mod numeric;
+mod numeric_baseline;
+mod numeric_boundaries;
+mod numeric_cases;
 use baseline::BASELINE;
 use cases::cases;
 
@@ -367,6 +371,16 @@ fn ready()->i32 {{7}}
                 panic!("expected overflow")
             };
             assert_eq!(trap(&original).0, RuntimeErrorKind::ScriptTrap);
+            let narrow = matches!(scalar, "i8" | "i16" | "u8" | "u16" | "u32");
+            assert_eq!(trap(&original).2, narrow);
+            assert_eq!(
+                trap(&original).1,
+                if narrow {
+                    "std::debug::assert: debug.assert failed: integer overflow"
+                } else {
+                    "integer overflow"
+                }
+            );
             let steps = vm.runtime().resources().counters().instruction_steps - base.get();
             let baseline = effects.borrow().clone();
             assert_eq!(baseline.len(), 2);

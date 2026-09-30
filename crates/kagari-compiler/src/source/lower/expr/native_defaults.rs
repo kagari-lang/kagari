@@ -182,7 +182,7 @@ impl FunctionLowerer<'_, '_> {
         });
         Ok(dst)
     }
-    fn lower_native_witness(
+    pub(super) fn lower_native_witness(
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
@@ -220,6 +220,9 @@ impl FunctionLowerer<'_, '_> {
                             .catalog
                             .implementation_method(&required.id, interface, receiver)
                             .ok_or_else(invalid)?;
+                        if self.planner.native_function(&target).is_some() {
+                            continue;
+                        }
                         arguments.extend_from_slice(method_arguments);
                         methods.push(ConcreteFunctionIdentity {
                             declaration: target.clone(),
@@ -239,7 +242,8 @@ impl FunctionLowerer<'_, '_> {
             })
         } else {
             match receiver {
-                TypeId::Trait(_) | TypeId::Host(_) => return Err(invalid()),
+                TypeId::Trait(_) => NativeWitnessImplementation::Interface,
+                TypeId::Host(_) => return Err(invalid()),
                 _ => NativeWitnessImplementation::Primitive,
             }
         };

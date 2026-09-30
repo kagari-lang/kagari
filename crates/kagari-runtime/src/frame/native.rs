@@ -92,6 +92,9 @@ impl ExecutionStack {
     ) -> Result<(), RuntimeError> {
         self.validate_native_runtime(runtime)?;
         match request.target {
+            NativeCallbackTarget::Interface(method) => {
+                self.push_interface_method(runtime, *method, &request.arguments, None)?;
+            }
             NativeCallbackTarget::Closure(closure) => {
                 self.push_closure(runtime, closure, &request.arguments, None)?
             }

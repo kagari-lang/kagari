@@ -8,7 +8,8 @@ execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
 Twenty iterator terminals also execute natively with selected static protocol
 witnesses, including search, reduction, callback comparisons, Ord extrema, join
-and numeric/user-defined aggregation.
+and numeric/user-defined aggregation. Checked scalar implementations also own
+direct Iterable-based Sum/Product entrypoints through the same native traversal.
 Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final
 acceptance remain pending.
 
@@ -504,6 +505,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   dynamic List joining, with selected `next`, rooted accumulation and exact charges.
 - [x] Migrate Iterator `sum`/`product` defaults with checked numeric behavior and
   concrete generic/user destination methods on shared frames.
+- [x] Migrate direct numeric Sum/Product providers for all scalar types, including
+  static/dynamic Iterable conversion, generic sources and checked error categories.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -799,6 +802,65 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 direct numeric aggregation checkpoint (2026-09-30): completes the numeric
+  provider checklist for all 12 scalar types and both Sum/Product constructors.
+  Installed stdlib declarations now select ordinary checked native impls; HIR and
+  ABI no longer synthesize numeric aggregation eligibility or its item equality.
+  HIR infers those facts from implementation signatures and bounds. Removed
+  `numeric_aggregation_item`, its inference shortcut, `lower_numeric_aggregate`
+  and the corresponding compiler delegation route. This resolves the direct
+  numeric-provider scope retained by the previous aggregation checkpoint.
+- Native implementation calls encode their checked function applications and
+  Iterable obligations. The producer selects the associated iterator's witness;
+  the linker independently derives that exact Iterator/Item obligation from the
+  carried Iterable contract, rejecting extra or mismatched witnesses. User iter
+  and next applications remain materialized in their defining modules. Engine
+  providers consume their validated table bindings directly, without synthesizing
+  script methods or queuing native bodies. Public Iterator sum/product use the
+  same selected scalar providers and existing Rust aggregation state machine.
+- Runtime conversion supports storage-backed and readonly sources, identity
+  Iterator sources, user Iterable methods and declared dynamic Iterable/List
+  views. Conversion invokes iter once, roots the resulting iterator separately
+  from the source and preserves the original begin/next/arithmetic/close sequence.
+  Dynamic callbacks use the ordinary rooted interface method entry, retaining
+  its generation and argument/result validation. The generic driver gains only
+  that callback target, without library policy, synthetic frames or extra charges.
+  Callback state boxes the large rooted interface metadata; traversal retains a
+  checked witness index instead of copying an ABI type into every continuation.
+- Recorded 120 direct-provider cases at `136ec59`: all numeric scalar types,
+  empty/singleton/multiple inputs, native/custom/lazy Iterator identity, native
+  storage, readonly views, custom native/user iterator outputs and dynamic
+  Iterable/List conversion. All 12,308 source/decoded budget cuts preserve exact
+  totals and iter/next/lazy/done effect positions. The previous 108 cases and
+  11,396 public-default cuts also pass, together with every cut of 18 overflow
+  cases and explicit builtin/arithmetic error category/message assertions.
+  Foreign generic conversion/next, successful/failed host reentry during dynamic
+  conversion, cancellation, conversion failure traces and readonly-source mutable
+  alias rejection pass at GC threshold 1 with cleanup and subsequent execution.
+- Seventy-two numeric import corruptions reject deleted/duplicate conversion or
+  traversal witnesses, altered iterator/item/result types, forged implementation
+  kinds and method applications, removed obligations/arguments and substituted
+  provider bindings, in memory and decoded artifacts. New HIR/ABI tests prove
+  that numeric aggregation requires installed/carried impls and rejects bool or
+  mismatched input types. Initial test assumptions about host error category,
+  innermost-first trace order and mutation error category were corrected to their
+  existing contracts; the native behavior and assertions remain intact. Native
+  method documentation now covers every newly declared scalar impl.
+- Runtime ABI is v114 for the newly selected numeric providers and removal of
+  implicit primitive proofs. Binding v1, KBC v108, KMIR v6 and helper ABI v6 retain
+  their schemas. ABI 45, bytecode 27, compiler 170, HIR 414, MIR 1, runtime 71,
+  stdlib 7 and VM 154 library tests pass (889). Embedding `iteration_traits`,
+  `collection_interfaces`, `lazy_iterators`, `default_methods`, `error_traces` and
+  `numeric_operations` pass 89 tests (978 total), including a new constructor
+  test across source, decoded and supported JIT/fallback routes. Workspace
+  all-target Clippy with warnings denied, formatting, structure and diff checks
+  pass. Structure covers 583 Rust files with zero violations/exceptions. Native
+  table ownership, scoped applications, callback pinning, imports, effective LOC
+  and cleanup were manually reviewed; no new structural debt or carried
+  integration errors remain.
+  ST05 still owns remaining destinations, adapters and collection families;
+  ST06 owns fixture regeneration and final workspace/matrix acceptance.
 
 - ST05 iterator aggregation checkpoint (2026-09-30): completes the Iterator
   `sum`/`product` checklist. Public defaults now enter runtime-owned native

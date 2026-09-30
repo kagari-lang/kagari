@@ -17,7 +17,7 @@ use kagari_hir::{
     declarations::DeclarationId,
     hir,
     resolver::ResolvedName,
-    typeck::{FunctionImplementation, ScalarValue},
+    typeck::{FunctionImplementation, ScalarValue, TypedFunction},
     types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -310,6 +310,17 @@ impl<'a> InstancePlanner<'a> {
         self.record_layout_root(ty, &Default::default(), span)?;
         Ok(id)
     }
+    pub fn native_function(&self, declaration: &DefinitionId) -> Option<&TypedFunction> {
+        let module = self.modules.get(&declaration.module)?;
+        let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
+            return None;
+        };
+        module.typed.functions.iter().find(|function| {
+            function.id == id
+                && matches!(function.implementation, FunctionImplementation::Native(_))
+        })
+    }
+
     pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
         let module = self.modules.get(&declaration.module)?;
         let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {

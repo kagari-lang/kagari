@@ -1,5 +1,4 @@
 use crate::{
-    builtin::traits,
     hir::{BlockId, ExprId, ExprKind, TypeKind, TypeRefId},
     typeck::{
         BodyTypeEnv,
@@ -9,7 +8,6 @@ use crate::{
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
@@ -144,12 +142,6 @@ impl BodyChecker<'_> {
     pub(super) fn constrain_declared_bound(&mut self, actual: &TypeId, interface: &NominalType) {
         if !self.solving {
             return;
-        }
-        if StandardTrait::from_id(&interface.declaration).is_some_and(|kind| kind.aggregation())
-            && let Some(item) = traits::numeric_aggregation_item(actual)
-            && let [argument] = interface.arguments.as_slice()
-        {
-            let _ = self.solver.constrain(&item, argument, self.cancel);
         }
         let mut candidates = Vec::new();
         for implementation in self.aggregates.implementations() {

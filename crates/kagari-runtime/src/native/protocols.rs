@@ -5,12 +5,17 @@ use crate::{
     value::Value,
 };
 use kagari_abi::{
+    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{NativeWitness, NativeWitnessImplementation},
     operations::IterOp,
-    standard::{StandardIntrinsic, surface::StandardEnum},
+    standard::{
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        surface::StandardEnum,
+    },
     types::{self as abi, AbiType, PublicAbiItem},
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment, associated_type_id};
 use std::slice;
 
 pub(super) enum ProtocolStep {
@@ -20,6 +25,95 @@ pub(super) enum ProtocolStep {
 
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("native iterator witness mismatch")
+}
+
+fn provider(owner: &LoadedModule, witness: &NativeWitness) -> Option<NativeProtocolMethod> {
+    let NativeWitnessImplementation::Table(instance) = &witness.implementation else {
+        return None;
+    };
+    let owner = owner
+        .members()
+        .find(|module| module.bytecode.identity == instance.declaration.module)?;
+    let table = owner
+        .bytecode
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) if table.declaration == instance.declaration => {
+                Some(table)
+            }
+            _ => None,
+        })?;
+    let [method] = table.methods.as_slice() else {
+        return None;
+    };
+    match method.implementation {
+        CallableImplementation::Native(NativeBinding::Engine(EngineNativeBinding::Protocol(
+            binding,
+        ))) => Some(binding),
+        _ => None,
+    }
+}
+
+pub(super) fn numeric_destination(
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    operation: NativeDefaultMethod,
+) -> bool {
+    provider(owner, witness)
+        == Some(if operation == NativeDefaultMethod::Sum {
+            NativeProtocolMethod::NumericSum
+        } else {
+            NativeProtocolMethod::NumericProduct
+        })
+}
+
+pub(super) fn iter(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    source: Value,
+    output: &AbiType,
+) -> Result<ProtocolStep, RuntimeError> {
+    if !runtime.matches_interface_method_abi(&source, &witness.receiver, owner) {
+        return Err(invalid());
+    }
+    if witness.implementation == NativeWitnessImplementation::Primitive
+        && &witness.receiver == output
+    {
+        return Ok(ProtocolStep::Value(source));
+    }
+    if provider(owner, witness) == Some(NativeProtocolMethod::CollectionIter) {
+        return runtime
+            .iter_operation(owner, &source, &witness.receiver, IterOp::New)
+            .map(ProtocolStep::Value);
+    }
+    if witness.implementation == NativeWitnessImplementation::Interface {
+        let mut interface = witness.interface.clone();
+        interface.associated_types.insert(
+            associated_type_id(&interface.declaration, "Iter"),
+            output.clone(),
+        );
+        let method = runtime.resolve_interface_method_slot(&source, &interface, 0)?;
+        if method.return_type() != output
+            || method.parameter_types() != slice::from_ref(method.concrete_type())
+        {
+            return Err(invalid());
+        }
+        let arguments = vec![method.receiver().clone()];
+        return Ok(ProtocolStep::Call(NativeCallback {
+            target: NativeCallbackTarget::Interface(Box::new(method)),
+            arguments,
+        }));
+    }
+    table_call(
+        runtime,
+        owner,
+        witness,
+        vec![source],
+        slice::from_ref(&witness.receiver),
+        output,
+    )
 }
 
 pub(super) fn next(
