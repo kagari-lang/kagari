@@ -11,7 +11,10 @@ use crate::{
 use kagari_abi::{
     native_import::{EngineNativeImport, NativeWitness},
     operations::IterOp,
-    standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
+    standard::{
+        StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
+        traits::StandardTrait,
+    },
     types::AbiType,
 };
 use kagari_common::identity::associated_type_id;
@@ -76,6 +79,8 @@ enum Phase {
     BodyJump,
     Close,
     End,
+    Append,
+    Join,
 }
 
 pub(super) struct IteratorInvocation {
@@ -100,6 +105,9 @@ impl IteratorInvocation {
         arguments: &[Value],
     ) -> Result<Self, RuntimeError> {
         let initial = match operation {
+            NativeDefaultMethod::Join => runtime
+                .invoke_standard_builtin(StandardIntrinsic::ArrayListNew, &[])
+                .map_err(|error| error.into_runtime_error())?,
             NativeDefaultMethod::Count => Value::U64(0),
             NativeDefaultMethod::Fold => arguments[1].clone(),
             NativeDefaultMethod::ForEach => Value::Unit,
@@ -254,6 +262,9 @@ impl IteratorInvocation {
     ) -> Result<NativeAction, RuntimeError> {
         if self.guarded {
             self.phase = Phase::Close;
+            Ok(NativeAction::Continue)
+        } else if self.operation == NativeDefaultMethod::Join {
+            self.phase = Phase::Join;
             Ok(NativeAction::Continue)
         } else {
             self.complete(runtime, owner, contract, roots)
@@ -550,6 +561,7 @@ impl IteratorInvocation {
                 self.phase = match self.operation {
                     NativeDefaultMethod::Count => Phase::One,
                     NativeDefaultMethod::Last => Phase::Move,
+                    NativeDefaultMethod::Join => Phase::Append,
                     NativeDefaultMethod::Nth => Phase::DecisionStep(DecisionPhase::CounterZero),
                     NativeDefaultMethod::Reduce
                     | NativeDefaultMethod::MinBy
@@ -687,6 +699,29 @@ impl IteratorInvocation {
             }
             Phase::End => {
                 self.guard.take();
+                if self.operation == NativeDefaultMethod::Join {
+                    self.phase = Phase::Join;
+                    return Ok(NativeAction::Continue);
+                }
+                return self.complete(runtime, owner, contract, roots);
+            }
+            Phase::Append => {
+                runtime
+                    .invoke_standard_builtin(
+                        StandardIntrinsic::ArrayPush,
+                        &[self.get(roots, RESULT)?, self.get(roots, ITEM)?],
+                    )
+                    .map_err(|error| error.into_runtime_error())?;
+                self.phase = Phase::BodyJump;
+            }
+            Phase::Join => {
+                let value = runtime
+                    .invoke_standard_builtin(
+                        StandardIntrinsic::ArrayJoin,
+                        &[self.get(roots, RESULT)?, roots.get(1).ok_or_else(invalid)?],
+                    )
+                    .map_err(|error| error.into_runtime_error())?;
+                self.set(runtime, roots, RESULT, value)?;
                 return self.complete(runtime, owner, contract, roots);
             }
             Phase::WaitingNext

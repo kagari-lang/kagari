@@ -6,8 +6,8 @@ and engine/host integration. The workspace builds; compiler and VM library suite
 and selected embedding integration suites pass. Runtime-owned native continuations
 execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
-Seventeen iterator terminals also execute natively with selected static protocol
-witnesses, including search, reduction, callback comparisons and Ord extrema.
+Eighteen iterator terminals also execute natively with selected static protocol
+witnesses, including search, reduction, callback comparisons, Ord extrema and join.
 Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final
 acceptance remain pending.
 
@@ -499,6 +499,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   and callback comparisons (`min_by`, `max_by`) with typed outputs and static `next`.
 - [x] Migrate Ord extrema (`min`, `max`, `min_by_key`, `max_by_key`) with selected
   item/key witnesses, concrete comparison targets and once-only key callbacks.
+- [x] Migrate iterator string joining, including the traversal used by custom and
+  dynamic List joining, with selected `next`, rooted accumulation and exact charges.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -794,6 +796,51 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 iterator string joining checkpoint (2026-09-30): completes the joining
+  checklist and removes join's array construction, traversal, insertion, close
+  and final concatenation expansion from `expr/terminals.rs`. The checked native
+  import consumes the existing Iterator declaration and selected Self witness.
+  Custom and dynamic List joining still obtains its checked Iterable output,
+  then calls that native Iterator implementation; its full List default dispatch
+  migration remains part of the collection checklist. Native array List joining
+  continues to use its existing Rust concatenation helper. No public signatures,
+  adapters or compatibility entrypoints were introduced.
+- Runtime traversal roots the temporary array, current item and pending callback
+  output, appends through the existing Rust array helper and concatenates through
+  the existing string helper. Construction, next calls, Option tests/reads,
+  branches, appends, jumps, iterator close, guard release and concatenation retain
+  their original logical charges. The terminal stops at the first None and starts
+  from the receiver's current progress. Selected generic user next methods enter
+  the shared frame stack, including providers in retained dependency modules.
+- Recorded 15 cases at `b9a33ed` before the replacement: native/custom/lazy
+  iterators, custom/dynamic Lists, empty/singleton/multiple strings, Unicode and
+  empty string elements. All 1,834 source/decoded budget cuts match exact totals
+  and separator/next/lazy callback/Iterable/done effect positions. GC threshold 1
+  checks release every retained root and heap object after each owning session.
+  Additional tests cover first-None behavior, partially consumed iterators,
+  successful and failed synchronous host reentry, cancellation after a completed
+  callback effect, and a foreign generic Iterator provider. The lazy callback
+  depth assertion accounts for both the generated step frame and map callback;
+  the initially incorrect test expectation was corrected to the existing stack.
+  Eight join contract corruptions reject missing/forged/duplicate receiver
+  witnesses, substituted implementation arguments, wrong Item/separator types
+  and missing compiled next targets in memory and encoded artifacts. Existing
+  joining tests cover callback traps, mutation guards and infinite-source budgets.
+- Runtime ABI is v112 for the additional linked native family; binding v1, KBC
+  v107, KMIR v5 and helper ABI v6 retain their schemas. Validation: ABI 43,
+  bytecode 27, compiler 168, HIR 413, MIR 1, runtime 71 and VM 146 library tests
+  pass (869). Embedding `collection_interfaces`, `string_extensions`,
+  `string_interpolation`, `iteration_traits`, `lazy_iterators`, `default_methods`
+  and `error_traces` pass 83 tests (952 total), including decoded and supported
+  JIT/fallback routes. Workspace all-target Clippy with warnings denied, formatting,
+  structure and diff checks pass. Structure covers 574 Rust files with zero
+  violations/exceptions. Changed ownership, imports, callback dispatch and cleanup
+  were manually reviewed; no new structural debt or carried integration errors.
+  GroupBy remains coupled to custom-key execution: explicit and nested composite
+  PartialEq/Hash must preserve collision callbacks and key-lookup guards together.
+  ST05 owns that migration and remaining destinations/adapters/collection defaults;
+  ST06 still owns fixture regeneration and full workspace/matrix acceptance.
 
 - ST05 Ord extrema checkpoint (2026-09-30): completes one checklist with `min`,
   `max`, `min_by_key` and `max_by_key`. Their four compiler algorithms, separate

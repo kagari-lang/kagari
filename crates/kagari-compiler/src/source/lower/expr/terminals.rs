@@ -29,9 +29,7 @@ impl FunctionLowerer<'_, '_> {
         let array_type = TypeId::Array(Box::new(item_type.clone()), Mutable);
         let bool_type = TypeId::Builtin(BuiltinType::Bool);
         let result = match operation {
-            NativeDefaultMethod::Join | NativeDefaultMethod::Partition => {
-                self.collection_new(&array_type)?
-            }
+            NativeDefaultMethod::Partition => self.collection_new(&array_type)?,
             NativeDefaultMethod::GroupBy => self.collection_new(&TypeId::Map {
                 key: Box::new(arguments[0].clone()),
                 value: Box::new(array_type.clone()),
@@ -65,10 +63,6 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(body);
         let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
         match operation {
-            NativeDefaultMethod::Join => {
-                self.collection_insert(&array_type, result, item)?;
-                self.ensure_jump(head);
-            }
             NativeDefaultMethod::Partition => {
                 let predicate = self.call_function_value(values[1], &bool_type, &[item])?;
                 let yes = self.new_block();
@@ -140,13 +134,6 @@ impl FunctionLowerer<'_, '_> {
         if guarded {
             self.iterator_close(source, values[0]);
             self.emit(Instruction::EndIteration);
-        }
-        if operation == NativeDefaultMethod::Join {
-            return Ok(self.emit_intrinsic(
-                StandardIntrinsic::ArrayJoin,
-                &[result, values[1]],
-                ValueType::Str,
-            ));
         }
         if let Some(rejected) = rejected {
             let mut contract = StandardTrait::FromIterator.nominal();

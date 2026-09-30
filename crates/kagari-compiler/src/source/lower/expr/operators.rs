@@ -309,6 +309,7 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::Max
                     | NativeDefaultMethod::MinByKey
                     | NativeDefaultMethod::MaxByKey
+                    | NativeDefaultMethod::Join
             ) {
                 return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
@@ -364,9 +365,28 @@ impl FunctionLowerer<'_, '_> {
                     &self.protocol_method(StandardTrait::Iterable, 0)?,
                     &[args[0]],
                 )?;
-                return self.lower_iterator_terminal(
-                    NativeDefaultMethod::Join,
+                let interface = StandardTrait::Iterator.nominal();
+                let method = self
+                    .planner
+                    .catalog
+                    .trait_(&interface.declaration)
+                    .and_then(|owner| {
+                        owner.methods.iter().find(|method| {
+                            matches!(
+                                method.default,
+                                Some(MethodDefault::Native {
+                                    binding: NativeDefaultMethod::Join,
+                                    ..
+                                })
+                            )
+                        })
+                    })
+                    .map(|method| method.id.clone())
+                    .ok_or(MirLoweringError::MissingBinding("checked iterator join"))?;
+                return self.lower_native_default(
                     &iterator_type,
+                    &interface,
+                    &method,
                     &[],
                     &[iterator, args[1]],
                 );
@@ -393,9 +413,7 @@ impl FunctionLowerer<'_, '_> {
             }
             if matches!(
                 operation,
-                NativeDefaultMethod::Join
-                    | NativeDefaultMethod::Partition
-                    | NativeDefaultMethod::GroupBy
+                NativeDefaultMethod::Partition | NativeDefaultMethod::GroupBy
             ) {
                 return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
             }
