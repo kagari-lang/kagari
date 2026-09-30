@@ -3,7 +3,7 @@ mod operands;
 use kagari_abi::{
     callable::NativeCall,
     effects::{EffectSet, standard_intrinsic_effects},
-    native_import::EngineNativeImport,
+    native_import::{EngineNativeImport, EngineNativeOperation},
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
@@ -408,8 +408,8 @@ impl CallTarget {
             }
             Self::InterfaceMethod(_) => EffectSet::runtime_call(),
             Self::Native(NativeCall::Engine(contract)) => contract
-                .direct_operation()
-                .map(standard_intrinsic_effects)
+                .resolve()
+                .map(EngineNativeOperation::effects)
                 .unwrap_or_else(EffectSet::runtime_call),
             Self::Native(NativeCall::Host(declaration)) => EffectSet {
                 allocates: declaration.effects.may_allocate,

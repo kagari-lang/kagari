@@ -2,6 +2,7 @@
 //! names or parameter catalogs participate in executable validation.
 use crate::{
     callable::EngineNativeBinding,
+    effects::{EffectSet, standard_intrinsic_effects},
     native_import::signature::validate,
     standard::StandardIntrinsic,
     types::{
@@ -17,6 +18,26 @@ mod linked;
 mod signature;
 
 pub const ENGINE_NATIVE_BINDING_VERSION: u32 = 1;
+
+/// A trusted linked engine entry. Resumable implementations are driven by the
+/// execution session instead of recursively invoking script from a Rust helper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineNativeOperation {
+    Direct(StandardIntrinsic),
+    Resumable(EngineNativeBinding),
+}
+
+impl EngineNativeOperation {
+    pub fn effects(self) -> EffectSet {
+        match self {
+            Self::Direct(operation) => standard_intrinsic_effects(operation),
+            Self::Resumable(_) => EffectSet {
+                allocates: true,
+                ..EffectSet::runtime_call()
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeSignature {
@@ -56,10 +77,10 @@ pub struct EngineNativeImport {
 }
 
 impl EngineNativeImport {
-    /// Resolve only a concrete operation whose consumed storage and result shape
+    /// Resolve a concrete operation whose consumed storage and result shape
     /// agree with the carried application. Effects and work charges come from
     /// this operation's trusted implementation, never from artifact assertions.
-    pub fn direct_operation(&self) -> Option<StandardIntrinsic> {
+    pub fn resolve(&self) -> Option<EngineNativeOperation> {
         let valid =
             |ty: &AbiType| ty.within_wire_limits() && concrete_type_valid(ty, &Default::default());
         let nominal = |ty: &NominalAbiType| {
@@ -106,6 +127,16 @@ impl EngineNativeImport {
         {
             return None;
         }
-        validate(self.binding, &self.signature)
+        if let Some(operation) = validate(self.binding, &self.signature) {
+            return Some(EngineNativeOperation::Direct(operation));
+        }
+        if matches!(
+            self.binding,
+            EngineNativeBinding::Intrinsic(StandardIntrinsic::OptionUnwrapOrElse)
+        ) && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
+        {
+            return Some(EngineNativeOperation::Resumable(self.binding));
+        }
+        None
     }
 }

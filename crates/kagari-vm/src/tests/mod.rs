@@ -6,6 +6,7 @@ mod gc;
 mod helpers;
 mod jit;
 mod mutation_resources;
+mod native_continuations;
 mod reentry_debug;
 mod security;
 mod sessions;

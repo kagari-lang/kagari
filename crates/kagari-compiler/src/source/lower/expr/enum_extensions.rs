@@ -121,7 +121,7 @@ impl FunctionLowerer<'_, '_> {
         };
         let callback_args: Vec<_> = payload.into_iter().collect();
         match operation {
-            StandardIntrinsic::OptionUnwrapOrElse | StandardIntrinsic::ResultUnwrapOrElse => {
+            StandardIntrinsic::ResultUnwrapOrElse => {
                 if variant == 0 {
                     Ok(payload.unwrap())
                 } else {

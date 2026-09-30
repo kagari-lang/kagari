@@ -1,7 +1,9 @@
+mod native;
 use crate::{
     ExecutionSession, LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, RuntimeError,
     RuntimeErrorKind,
     gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, RootSet},
+    native::NativeInvocation,
     value::Value,
 };
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
@@ -279,6 +281,12 @@ impl Drop for ExecutionStack {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ReturnDestination {
+    Register(Option<Register>),
+    Native,
+}
+
 pub struct ExecutionFrame {
     loaded: LoadedModule,
     function: FunctionRef,
@@ -288,7 +296,8 @@ pub struct ExecutionFrame {
     resources: Rc<ResourceState>,
     slots: RootSet,
     register_count: usize,
-    return_dst: Option<Register>,
+    return_to: ReturnDestination,
+    native: Option<NativeInvocation>,
     interface_method: Option<RootedInterfaceMethod>,
     iterations: Vec<CollectionIteration>,
     mutations: Vec<(Value, CollectionIteration)>,
@@ -343,7 +352,8 @@ impl ExecutionFrame {
                 .root_execution_values(slots)
                 .ok_or_else(|| RuntimeError::module_validation("invalid heap argument"))?,
             register_count,
-            return_dst,
+            return_to: ReturnDestination::Register(return_dst),
+            native: None,
             interface_method,
             iterations: Vec::new(),
             mutations: Vec::new(),
@@ -493,10 +503,6 @@ impl ExecutionFrame {
         self.slots
             .set(&self.heap, self.register_count + local.index(), value)
             .ok_or_else(|| self.resources.quarantine("invalid frame local"))
-    }
-
-    pub fn return_dst(&self) -> Option<Register> {
-        self.return_dst
     }
 }
 

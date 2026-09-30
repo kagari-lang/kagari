@@ -1,10 +1,11 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00-ST03 implementation scope complete. Whole checked programs
+Status: active; ST00-ST04 implementation scope complete. Whole checked programs
 now retain their dependency closure through portable validation, artifact loading
 and engine/host integration. The workspace builds; compiler and VM library suites
-and selected embedding integration suites pass. ST04-ST06 remain pending, including
-native continuations, algorithm migration, encoded fixtures and final acceptance.
+and selected embedding integration suites pass. Runtime-owned native continuations
+execute the representative Option fallback through the shared frame/session driver.
+ST05-ST06 remain pending: remaining algorithm migration, encoded fixtures and final acceptance.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -476,10 +477,10 @@ requires no source catalog. Callback-heavy families remain owned by ST04/ST05.
 
 ### ST04 — Resumable native invocation
 
-- [ ] Add runtime-owned native continuation state and generic driver integration.
-- [ ] Integrate GC roots, frame/session cleanup, budgets, debugger origins,
+- [x] Add runtime-owned native continuation state and generic driver integration.
+- [x] Integrate GC roots, frame/session cleanup, budgets, debugger origins,
   synchronous host reentry and generation-pinned callable witnesses.
-- [ ] Migrate a representative callback method through success, nested calls,
+- [x] Migrate a representative callback method through success, nested calls,
   ordinary trap, cancellation and budget failure before expanding coverage.
 
 Exit: a native method can call Script or Native targets and resume without
@@ -783,6 +784,58 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST04 native continuation checkpoint (2026-09-30): completes all three phase
+  checklists with `Option::unwrap_or_else` as the representative method. Checked
+  applied signatures now select a linked Direct or Resumable engine entry.
+  Unsupported operations still reject; no compatibility resolver or duplicate
+  compiler algorithm remains for the migrated method. Portable declaration,
+  signature, binder, witness and version validation remain mandatory.
+- Runtime owns native state in the calling execution frame, with explicit roots
+  for arguments, captured callable and result. A checked callback request enters
+  the shared script stack; its return destination resumes that native state.
+  Native requests validate the carried function signature and callable generation.
+  Focused native modules own library policy; the VM driver only advances one
+  logical operation or enters the requested call. Script callbacks can themselves
+  call direct or resumable native bindings without recursively constructing a VM.
+  Frame borrows end before callbacks, observers and synchronous host reentry.
+- Scope validation prevents a host reentry return from consuming an outer
+  suspended native callback. Existing suffix cleanup releases roots, call depth
+  and guards on ordinary traps, cancellation and budget/depth exhaustion without
+  further charges or user callbacks. Rooted closures retain their exact old
+  implementation/dependency graph after compatible replacement; the new caller
+  invokes that retained generation through the native continuation.
+- Recorded the old expansion's schedule before replacing its producer: a
+  `Some(7)` fallback program executes 11 logical steps with no callback effect;
+  `None` executes 14 with its `host.log` effect at step 9. The native call charges
+  the former Test on entry and advances Branch, Read-or-Call, Move and Jump
+  separately. Both source and decoded artifacts preserve these observations at
+  every budget cut from 0 through 14. Native invocation adds no synthetic script
+  call-depth frame. The original public call offset remains the caller's debugger
+  and error origin while suspended; ordinary operation failures still emit Trap
+  observer events. Diagnostic pause snapshots retain their own roots until dropped.
+- Ten focused VM tests cover lazy success, nested native/script/native calls,
+  captured mutable cells and heap results under collection threshold 1, direct
+  native storage construction from a callback, divergent callbacks, ordinary
+  trap/debugger frames, sticky cancellation, all budget cuts, callback-depth
+  rejection before effects, synchronous reentry success/trap and old callable
+  generation execution. A compiler rejection test additionally corrupts binding
+  version, result/callback contracts, declaration arguments and call arity in
+  in-memory programs and directly encoded untrusted bytes.
+- Runtime ABI is now v107 for resumable invocation/return contracts. KBC v107,
+  KMIR v5 and helper ABI v6 retain their schemas. Native binding version remains
+  v1 because the method signature and observable contract are preserved. No old
+  reader is accepted; ST06 still owns artifact fixture regeneration and audits.
+- Validation: ABI 43, bytecode 27, MIR 1, runtime 71, compiler 166 and VM 129
+  library tests pass; embedding `enum_combinators`, `result_option` and
+  `host_interfaces` pass 24 integration tests, including decoded artifacts and
+  supported JIT/fallback paths (461 tests total). Workspace all-target check and
+  Clippy with warnings denied, formatting, structure and diff checks pass.
+  Structure covers 566 Rust files with zero violations or documented exceptions;
+  changed production imports, module boundaries and the explicit driver facade
+  were manually reviewed. No new structural debt or carried integration errors.
+  This is ST04 acceptance, not the ST06 workspace/matrix exit. ST05 owns remaining
+  Option/Result families, generic protocol witnesses, iterators and collections.
 
 - ST03 complete-program validation/integration checkpoint (2026-09-30): closes
   the remaining portable-validation and script/closure/interface/host integration

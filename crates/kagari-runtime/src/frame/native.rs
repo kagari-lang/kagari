@@ -1,0 +1,118 @@
+use crate::{
+    NativeCallback, NativeProgress, Runtime, RuntimeError,
+    frame::{ExecutionStack, ReturnDestination},
+    native::{NativeAction, NativeInvocation},
+    value::Value,
+};
+use kagari_bytecode::{EngineImportId, Register};
+use std::rc::Rc;
+
+impl ExecutionStack {
+    fn validate_native_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        self.validate_top()?;
+        if !Rc::ptr_eq(&runtime.resources, &self.session.resources) {
+            return Err(self
+                .session
+                .resources
+                .quarantine("native invocation used another runtime"));
+        }
+        Ok(())
+    }
+
+    /// Entry performs the already charged first logical operation. Further work
+    /// is advanced by the driver between safepoints, outside any callback borrow.
+    pub fn begin_native(
+        &self,
+        runtime: &Runtime,
+        import: EngineImportId,
+        arguments: &[Value],
+        destination: Option<Register>,
+    ) -> Result<(), RuntimeError> {
+        self.validate_native_runtime(runtime)?;
+        let implementation = self.current()?.loaded().clone();
+        let invocation =
+            NativeInvocation::start(runtime, implementation, import, arguments, destination)?;
+        let mut frame = self.current_mut()?;
+        if frame.native.is_some() {
+            return Err(self
+                .session
+                .resources
+                .quarantine("native invocation replaced its continuation"));
+        }
+        frame.native = Some(invocation);
+        Ok(())
+    }
+
+    pub fn has_native_continuation(&self) -> Result<bool, RuntimeError> {
+        Ok(self.current()?.native.is_some())
+    }
+
+    pub fn advance_native(&self, runtime: &Runtime) -> Result<NativeProgress, RuntimeError> {
+        self.validate_native_runtime(runtime)?;
+        let mut frame = self.current_mut()?;
+        let invocation = frame
+            .native
+            .as_mut()
+            .ok_or_else(|| RuntimeError::module_validation("missing native continuation"))?;
+        let destination = invocation.destination;
+        match invocation.advance(runtime)? {
+            NativeAction::Continue => Ok(NativeProgress::Continue),
+            NativeAction::Callback(request) => Ok(NativeProgress::Callback(request)),
+            NativeAction::Publish(value) => {
+                if let Some(destination) = destination {
+                    frame.write_register(destination, value)?;
+                }
+                Ok(NativeProgress::Continue)
+            }
+            NativeAction::Finish => {
+                frame.native = None;
+                Ok(NativeProgress::Finished)
+            }
+        }
+    }
+
+    pub fn push_native_callback(
+        &self,
+        runtime: &Runtime,
+        request: NativeCallback,
+    ) -> Result<(), RuntimeError> {
+        self.validate_native_runtime(runtime)?;
+        self.push_closure(runtime, request.closure, &request.arguments, None)?;
+        self.current_mut()?.return_to = ReturnDestination::Native;
+        Ok(())
+    }
+
+    /// Complete a script return within this scope. A reentrant scope returns to
+    /// its host caller instead of consuming a suspended outer native callback.
+    pub fn finish_return(
+        &self,
+        runtime: &Runtime,
+        value: Value,
+    ) -> Result<Option<Value>, RuntimeError> {
+        self.validate_native_runtime(runtime)?;
+        let destination = {
+            let frame = self.current()?;
+            if let Some(method) = frame.interface_method() {
+                runtime.validate_interface_method_result(method, &value)?;
+            }
+            frame.return_to
+        };
+        self.pop()?;
+        if self.is_empty()? {
+            return Ok(Some(value));
+        }
+        let mut frame = self.current_mut()?;
+        match destination {
+            ReturnDestination::Register(Some(destination)) => {
+                frame.write_register(destination, value)?
+            }
+            ReturnDestination::Register(None) => {}
+            ReturnDestination::Native => frame
+                .native
+                .as_mut()
+                .ok_or_else(|| RuntimeError::module_validation("native callback lost its caller"))?
+                .receive(runtime, value)?,
+        }
+        Ok(None)
+    }
+}

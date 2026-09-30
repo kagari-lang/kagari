@@ -1,7 +1,7 @@
 mod intrinsics;
 
 use crate::{
-    native_import::EngineNativeImport,
+    native_import::{EngineNativeImport, EngineNativeOperation},
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
     standard::StandardIntrinsic,
@@ -87,11 +87,9 @@ pub fn verify_engine_call(
     import: &EngineNativeImport,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
-    let operation = import
-        .direct_operation()
-        .ok_or(ContractError::InvalidOperation {
-            reason: "invalid engine native import",
-        })?;
+    let operation = import.resolve().ok_or(ContractError::InvalidOperation {
+        reason: "invalid engine native import",
+    })?;
     if args.len() != import.signature.params.len() {
         return Err(ContractError::InvalidOperation {
             reason: "native call arity mismatch",
@@ -100,7 +98,9 @@ pub fn verify_engine_call(
     for (actual, expected) in args.iter().zip(&import.signature.params) {
         expect_type(*actual, expected.representation(), "native call argument")?;
     }
-    verify_intrinsic(dst, operation, args)?;
+    if let EngineNativeOperation::Direct(operation) = operation {
+        verify_intrinsic(dst, operation, args)?;
+    }
     verify_call_dst(dst, import.signature.result.representation())
 }
 

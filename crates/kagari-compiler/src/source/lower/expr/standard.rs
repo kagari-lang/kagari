@@ -41,8 +41,7 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<MirValue, MirLoweringError> {
         if matches!(
             intrinsic,
-            StandardIntrinsic::OptionUnwrapOrElse
-                | StandardIntrinsic::OptionOrElse
+            StandardIntrinsic::OptionOrElse
                 | StandardIntrinsic::OptionMapOr
                 | StandardIntrinsic::OptionMapOrElse
                 | StandardIntrinsic::OptionFilter

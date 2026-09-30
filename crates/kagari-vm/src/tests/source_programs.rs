@@ -1,4 +1,5 @@
 use crate::{DebugSession, JitExecutionStatus, SourceBreakpoint, Vm, tests::native_fixtures};
+use kagari_abi::native_import::EngineNativeOperation;
 use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
@@ -176,7 +177,7 @@ fn direct_engine_imports_run_from_source_and_decoded_artifacts() {
     assert!(
         imports
             .iter()
-            .all(|import| import.direct_operation().is_some())
+            .all(|import| matches!(import.resolve(), Some(EngineNativeOperation::Direct(_))))
     );
     assert!(imports.iter().any(|import| !import.requirements.is_empty()));
     let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
@@ -359,10 +360,10 @@ fn low_level_storage_writes_reject_element_type_forgery() {
         .modules
         .iter()
         .position(|module| {
-            module
-                .engine_imports
-                .iter()
-                .any(|import| import.direct_operation() == Some(StandardIntrinsic::ArrayPush))
+            module.engine_imports.iter().any(|import| {
+                import.resolve()
+                    == Some(EngineNativeOperation::Direct(StandardIntrinsic::ArrayPush))
+            })
         })
         .unwrap();
     let imports = program.modules[member].engine_imports.clone();
@@ -372,7 +373,7 @@ fn low_level_storage_writes_reject_element_type_forgery() {
         .find(|function| function.name == "answer")
         .unwrap();
     let wrong = function.metadata.semantic.registers.iter().find_map(|(index,ty)| matches!(ty,AbiType::Array(item,_) if item.as_ref() == &AbiType::Builtin(BuiltinType::String)).then_some(Register::new(*index))).unwrap();
-    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction,BytecodeInstruction::Call {callee:CallTarget::Native(NativeCall::Engine(id)),..} if imports[id.index()].direct_operation()==Some(StandardIntrinsic::ArrayPush) && matches!(&imports[id.index()].signature.params[0],AbiType::Array(item,_) if matches!(item.as_ref(),AbiType::Array(_, _))))).unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction,BytecodeInstruction::Call {callee:CallTarget::Native(NativeCall::Engine(id)),..} if imports[id.index()].resolve()==Some(EngineNativeOperation::Direct(StandardIntrinsic::ArrayPush)) && matches!(&imports[id.index()].signature.params[0],AbiType::Array(item,_) if matches!(item.as_ref(),AbiType::Array(_, _))))).unwrap();
     let BytecodeInstruction::Call { callee, .. } = instruction else {
         unreachable!()
     };

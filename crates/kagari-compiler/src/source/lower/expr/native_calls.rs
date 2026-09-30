@@ -395,8 +395,7 @@ impl FunctionLowerer<'_, '_> {
         }
         if matches!(
             intrinsic,
-            StandardIntrinsic::OptionUnwrapOrElse
-                | StandardIntrinsic::OptionOrElse
+            StandardIntrinsic::OptionOrElse
                 | StandardIntrinsic::OptionMapOr
                 | StandardIntrinsic::OptionMapOrElse
                 | StandardIntrinsic::OptionFilter

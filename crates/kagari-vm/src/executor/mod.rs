@@ -1,15 +1,14 @@
-use kagari_bytecode::Register;
-use kagari_runtime::ExecutionEvent;
-use std::cell::{Ref, RefMut};
 mod aggregate_ops;
 mod dispatch;
 mod value_ops;
 
-use kagari_abi::ids::FunctionRef;
-use kagari_bytecode::{BytecodeInstruction, ModuleRef};
+use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
+use kagari_bytecode::{BytecodeInstruction, ModuleRef, Register};
 use kagari_runtime::{
-    ExecutionFrame, ExecutionStack, LoadedModule, RootedInterfaceMethod, Runtime, value::Value,
+    ExecutionEvent, ExecutionFrame, ExecutionStack, LoadedModule, NativeProgress,
+    RootedInterfaceMethod, Runtime, value::Value,
 };
+use std::cell::{Ref, RefMut};
 
 use crate::error::VmError;
 
@@ -56,6 +55,24 @@ impl<'a> Executor<'a> {
     }
     fn run_inner(&mut self) -> Result<Value, VmError> {
         loop {
+            if self.stack.has_native_continuation()? {
+                self.runtime.gc_safepoint()?;
+                self.runtime
+                    .observe_execution(ExecutionEvent::BeforeInstruction)?;
+                self.runtime
+                    .consume_logical_charge(LogicalBudgetCharge::Step)?;
+                let result = self
+                    .stack
+                    .advance_native(self.runtime)
+                    .and_then(|progress| match progress {
+                        NativeProgress::Continue | NativeProgress::Finished => Ok(()),
+                        NativeProgress::Callback(request) => {
+                            self.stack.push_native_callback(self.runtime, request)
+                        }
+                    });
+                self.report_operation(result.map_err(VmError::RuntimeError))?;
+                continue;
+            }
             self.current_frame_mut()?.prepare_instruction();
             self.runtime.gc_safepoint().map_err(VmError::RuntimeError)?;
             self.runtime
@@ -83,38 +100,31 @@ impl<'a> Executor<'a> {
                         Some(register) => self.current_frame()?.read_register(register)?,
                         None => Value::Unit,
                     };
-                    if let Some(method) = self.current_frame()?.interface_method()
-                        && let Err(error) = self
-                            .runtime
-                            .validate_interface_method_result(method, &value)
+                    let result = self.stack.finish_return(self.runtime, value);
+                    if let Some(value) =
+                        self.report_operation(result.map_err(VmError::RuntimeError))?
                     {
-                        self.runtime.observe_execution(ExecutionEvent::Trap)?;
-                        return Err(VmError::RuntimeError(error));
-                    }
-                    let return_dst = self.current_frame()?.return_dst();
-                    self.pop_frame()?;
-                    if !self.stack.is_empty()? {
-                        let mut frame = self.current_frame_mut()?;
-                        if let Some(dst) = return_dst {
-                            frame.write_register(dst, value)?;
-                        }
-                    } else {
                         return Ok(value);
                     }
                 }
                 instruction => {
-                    if let Err(error) = self.dispatch_instruction(instruction) {
-                        if let Some(reason) = error.invariant_reason() {
-                            return Err(VmError::RuntimeError(
-                                self.runtime.quarantine_execution_invariant(reason),
-                            ));
-                        }
-                        self.runtime.observe_execution(ExecutionEvent::Trap)?;
-                        return Err(error);
-                    }
+                    let result = self.dispatch_instruction(instruction);
+                    self.report_operation(result)?;
                 }
             }
         }
+    }
+
+    fn report_operation<T>(&self, result: Result<T, VmError>) -> Result<T, VmError> {
+        result.map_err(|error| {
+            if let Some(reason) = error.invariant_reason() {
+                return VmError::RuntimeError(self.runtime.quarantine_execution_invariant(reason));
+            }
+            match self.runtime.observe_execution(ExecutionEvent::Trap) {
+                Ok(()) => error,
+                Err(observer_error) => VmError::RuntimeError(observer_error),
+            }
+        })
     }
 
     pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
@@ -136,9 +146,5 @@ impl<'a> Executor<'a> {
         return_dst: Option<Register>,
     ) -> Result<(), VmError> {
         Ok(self.stack.push(module, function, args, return_dst)?)
-    }
-
-    fn pop_frame(&mut self) -> Result<(), VmError> {
-        Ok(self.stack.pop()?)
     }
 }

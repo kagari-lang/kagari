@@ -38,6 +38,7 @@ pub mod jit_abi;
 mod layout_fixtures;
 pub mod metadata;
 pub mod module;
+mod native;
 pub mod numeric;
 mod parsing;
 pub mod range;
@@ -64,6 +65,7 @@ pub use module::{
     LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId, ModuleInstance,
     ModuleKey, ModuleStore, VerifiedProgram,
 };
+pub use native::{NativeCallback, NativeProgress};
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
 pub use session::{

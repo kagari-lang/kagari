@@ -28,7 +28,7 @@ impl EngineNativeImport {
             || function.implementation
                 != CallableImplementation::Native(NativeBinding::Engine(self.binding))
             || self.instance.arguments.len() != function.generic_params.len()
-            || self.direct_operation().is_none()
+            || self.resolve().is_none()
         {
             return Ok(false);
         }

@@ -1,4 +1,5 @@
 use crate::tests::bytecode::*;
+use kagari_abi::native_import::EngineNativeOperation;
 use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet};
 use kagari_bytecode as bytecode;
 use kagari_bytecode::verify_program;
@@ -699,7 +700,7 @@ fn main() -> usize {
         let imports = &bytecode.modules[bytecode.root.index()].engine_imports;
         assert_eq!(function.instructions.iter().filter(|instruction| matches!(instruction,
             BytecodeInstruction::Call { callee: CallTarget::Native(kagari_abi::callable::NativeCall::Engine(import)), .. }
-                if imports[import.index()].direct_operation() == Some(expected)
+                if imports[import.index()].resolve() == Some(EngineNativeOperation::Direct(expected))
         )).count(), 1, "{expected:?}");
     }
 }

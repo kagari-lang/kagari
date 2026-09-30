@@ -1,4 +1,5 @@
 use crate::{lower_to_mir, tests::common};
+use kagari_abi::native_import::EngineNativeOperation;
 use kagari_abi::{
     callable::NativeCall,
     operations::{BinaryOp, StandardEnumOp},
@@ -45,7 +46,7 @@ fn main() -> i32 {
         StandardIntrinsic::ParseRadix(kagari_abi::scalar::BuiltinType::I32),
         StandardIntrinsic::MathClamp,
     ] {
-        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::Native(NativeCall::Engine(import)) if import.direct_operation() == Some(expected))).count(), 1, "{expected:?}");
+        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::Native(NativeCall::Engine(import)) if import.resolve() == Some(EngineNativeOperation::Direct(expected)))).count(), 1, "{expected:?}");
     }
     assert!(
         !calls
@@ -891,7 +892,7 @@ fn main() -> usize {
                 .flat_map(|block| &block.instructions)
                 .filter(|instruction| matches!(instruction,
                     Instruction::Call { callee: CallTarget::Native(NativeCall::Engine(import)), .. }
-                        if import.direct_operation() == Some(expected)
+                        if import.resolve() == Some(EngineNativeOperation::Direct(expected))
                 ))
                 .count(),
             1,

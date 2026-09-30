@@ -264,7 +264,7 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     module
         .engine_imports
         .iter()
-        .all(|import| import.direct_operation().is_some())
+        .all(|import| import.resolve().is_some())
         && module.native_declarations.iter().all(|declaration| {
             let function = &declaration.function;
             declaration.declaration.within_path_limit()

@@ -154,7 +154,7 @@ impl FunctionLowerer<'_, '_> {
             requirements,
             witnesses,
         };
-        if contract.direct_operation().is_none() {
+        if contract.resolve().is_none() {
             return Err(invalid());
         }
         Ok(contract)

@@ -1,7 +1,79 @@
 use crate::tests::bytecode::*;
-use kagari_abi::{budget::LogicalBudgetCharge, callable::NativeCall, effects::EffectSet};
+use bincode::{DefaultOptions, Options};
+use kagari_abi::{
+    budget::LogicalBudgetCharge,
+    callable::{EngineNativeBinding, NativeCall},
+    effects::EffectSet,
+    native_import::EngineNativeOperation,
+    scalar::BuiltinType,
+    types::AbiType,
+};
 use kagari_bytecode as bytecode;
 use kagari_bytecode::verify_program;
+
+#[test]
+fn resumable_native_calls_reject_forged_callback_contracts_and_arity() {
+    let program = common::bytecode_ok(
+        "fn main() -> i32 { val value: Option<i32> = None; value.unwrap_or_else(|| 42) }",
+    );
+    let root = program.root.index();
+    let import = program.modules[root]
+        .engine_imports
+        .iter()
+        .position(|import| {
+            matches!(
+                import.resolve(),
+                Some(EngineNativeOperation::Resumable(
+                    EngineNativeBinding::Intrinsic(StandardIntrinsic::OptionUnwrapOrElse)
+                ))
+            )
+        })
+        .unwrap();
+    verify_program(&program).unwrap();
+    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
+    for mutation in 0..6 {
+        let mut forged = artifact.clone();
+        let module = &mut forged.program.modules[root];
+        let contract = &mut module.engine_imports[import];
+        match mutation {
+            0 => contract.binding_version += 1,
+            1 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
+            2 => {
+                let AbiType::Function { params, .. } = &mut contract.signature.params[1] else {
+                    unreachable!()
+                };
+                params.push(AbiType::Builtin(BuiltinType::Bool));
+            }
+            3 => {
+                let AbiType::Function { result, .. } = &mut contract.signature.params[1] else {
+                    unreachable!()
+                };
+                **result = AbiType::Builtin(BuiltinType::Bool);
+            }
+            4 => contract.instance.arguments.clear(),
+            _ => {
+                let instruction = module.functions.iter_mut().flat_map(|function| &mut function.instructions).find(|instruction| matches!(instruction, BytecodeInstruction::Call { callee: CallTarget::Native(NativeCall::Engine(id)), .. } if id.index() == import)).unwrap();
+                let BytecodeInstruction::Call { args, .. } = instruction else {
+                    unreachable!()
+                };
+                args.pop();
+            }
+        }
+        assert!(
+            verify_program(&forged.program).is_err(),
+            "mutation {mutation}"
+        );
+        // Encode untrusted bytes directly; the trusted writer also rejects these contracts.
+        let bytes = DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(&forged)
+            .unwrap();
+        let accepted = KbcArtifact::from_bytes(&bytes)
+            .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok());
+        assert!(!accepted, "decoded mutation {mutation}");
+    }
+}
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {
@@ -35,7 +107,9 @@ fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
         module.modules[module.root.index()]
             .engine_imports
             .iter()
-            .position(|import| import.direct_operation() == Some(StandardIntrinsic::ArrayGet))
+            .position(|import| {
+                import.resolve() == Some(EngineNativeOperation::Direct(StandardIntrinsic::ArrayGet))
+            })
             .unwrap(),
     );
     let mut scalar_result = module.clone();

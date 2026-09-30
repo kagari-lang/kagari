@@ -5,7 +5,7 @@ use crate::{
 };
 use kagari_abi::{
     layout::{EnumLayout, EnumVariantLayout, StructLayout},
-    standard::StandardIntrinsic,
+    native_import::EngineNativeOperation,
 };
 use kagari_bytecode as bytecode;
 use kagari_bytecode::{
@@ -162,7 +162,7 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
-    engine_bindings: Vec<StandardIntrinsic>,
+    engine_bindings: Vec<EngineNativeOperation>,
     pub(crate) host_bindings: LinkedHostBindings,
 }
 
@@ -237,7 +237,7 @@ impl LoadedModule {
         })
     }
     /// Registry entries are resolved once for this immutable program generation.
-    pub fn engine_binding(&self, import: EngineImportId) -> Option<StandardIntrinsic> {
+    pub fn engine_binding(&self, import: EngineImportId) -> Option<EngineNativeOperation> {
         self.engine_bindings.get(import.index()).copied()
     }
 
@@ -492,11 +492,7 @@ impl ModuleStore {
                 let engine_bindings = bytecode
                     .engine_imports
                     .iter()
-                    .map(|import| {
-                        import
-                            .direct_operation()
-                            .expect("sealed engine native binding")
-                    })
+                    .map(|import| import.resolve().expect("sealed engine native binding"))
                     .collect();
                 LinkedModule {
                     engine_bindings,
