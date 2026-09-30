@@ -255,9 +255,6 @@ impl FunctionLowerer<'_, '_> {
             );
         }
 
-        if intrinsic == StandardIntrinsic::ArrayListFromFn {
-            return self.lower_array_from_fn(expr, lowered[0], lowered[1]);
-        }
         if matches!(
             intrinsic,
             StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange

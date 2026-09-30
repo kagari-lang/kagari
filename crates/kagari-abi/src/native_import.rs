@@ -149,7 +149,8 @@ impl EngineNativeImport {
         if matches!(
             self.binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::MapKeys
+                StandardIntrinsic::ArrayListFromFn
+                    | StandardIntrinsic::MapKeys
                     | StandardIntrinsic::MapValues
                     | StandardIntrinsic::MapEntries
             )

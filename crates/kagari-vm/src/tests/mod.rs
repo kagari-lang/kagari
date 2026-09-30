@@ -18,6 +18,7 @@ mod security;
 mod sessions;
 mod source_programs;
 
+mod native_array_initialization;
 mod native_fixtures;
 mod native_list_equality;
 mod native_list_queries;

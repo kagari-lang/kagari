@@ -1,4 +1,5 @@
 //! Bounded native method state retained by the caller's execution frame.
+mod array_initialization;
 mod enums;
 mod iterators;
 mod list_equality;
@@ -10,6 +11,7 @@ use crate::{
     builtin::BuiltinError,
     gc::{ClosureValueSnapshot, RootSet},
     native::{
+        array_initialization::ArrayInitialization,
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
         list_equality::EqualityInvocation,
@@ -68,6 +70,7 @@ pub(crate) enum NativeAction {
 }
 
 enum NativeState {
+    ArrayInitialization(ArrayInitialization),
     Enum(EnumInvocation),
     Iterator(IteratorInvocation),
     List(ListInvocation),
@@ -105,6 +108,9 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::ArrayListFromFn,
+            ))) => NativeState::ArrayInitialization(ArrayInitialization::start(arguments)?),
             Some(EngineNativeOperation::Resumable(
                 EngineNativeBinding::Intrinsic(
                     StandardIntrinsic::MapKeys
@@ -226,6 +232,9 @@ impl NativeInvocation {
                             })?
                         }
                         NativeState::Forward => vec![],
+                        NativeState::ArrayInitialization(_) => {
+                            vec![Value::Unit; array_initialization::SCRATCH_ROOTS]
+                        }
                         NativeState::MapSnapshot(state) => {
                             state.initial.take().ok_or_else(|| {
                                 RuntimeError::module_validation(
@@ -242,6 +251,11 @@ impl NativeInvocation {
         if let NativeState::MapSnapshot(state) = &state {
             entry = state
                 .initialize(runtime, arguments, &roots)?
+                .map(NativeProgress::BuiltinFailure);
+        }
+        if let NativeState::ArrayInitialization(state) = &state {
+            entry = state
+                .initialize(runtime, &roots)?
                 .map(NativeProgress::BuiltinFailure);
         }
         Ok(Self {
@@ -261,6 +275,9 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::ArrayInitialization(state) => {
+                state.advance(runtime, &contract.signature, &self.roots)
+            }
             NativeState::Enum(state) => state.advance(
                 runtime,
                 &self.implementation,
@@ -291,6 +308,13 @@ impl NativeInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            NativeState::ArrayInitialization(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()].signature,
+                &self.roots,
+                value,
+            ),
             NativeState::Enum(state) => state
                 .receive(runtime, &self.roots, value)
                 .map(|()| NativeAction::Continue),

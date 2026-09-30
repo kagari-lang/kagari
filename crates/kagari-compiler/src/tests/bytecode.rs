@@ -72,6 +72,7 @@ mod identities;
 mod interfaces;
 mod lowering;
 mod native_equality;
+mod native_initialization;
 mod native_lists;
 mod native_numeric;
 mod native_snapshots;

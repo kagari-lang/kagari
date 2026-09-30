@@ -14,8 +14,9 @@ All six List queries execute natively across storage, selected script
 implementations and declared dynamic views with checked multi-method witnesses
 and selected primitive, nominal or core composed equality. Native storage and
 static/dynamic Map snapshots execute through checked runtime traversal and result
-construction. Remaining ST05 iterator/collection migration and ST06 encoded fixtures/
-final acceptance remain pending.
+construction. ArrayList per-index initialization executes through rooted native
+callbacks and checked append operations. Remaining ST05 iterator/collection
+migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -517,6 +518,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   selected equality composition, dual guards and storage/script/dynamic traversal.
 - [x] Migrate Map keys/values/entries snapshots across native storage, generic/user
   traversal and dynamic views, with checked readonly result construction.
+- [x] Migrate ArrayList `from_fn` per-index initialization with typed callbacks,
+  once-only construction, exact logical charges and failure cleanup.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -812,6 +815,47 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 per-index ArrayList initialization checkpoint (2026-09-30): removes the
+  complete `ArrayList::from_fn` compiler loop and its intrinsic routing branch.
+  The checked declaration now selects a resumable runtime construction binding.
+  The runtime owns initial empty-array allocation, index comparison/branch,
+  typed callback invocation, append and increment/jump. It reuses the existing
+  Rust storage helpers and generic callback frame driver, without a Kagari
+  algorithm copy, forwarding function or alternate static execution path.
+- Initializer signatures require exactly one usize parameter and an output
+  matching the mutable ArrayList element type. Portable linking checks the
+  selected declaration/application; runtime callback resolution validates the
+  actual callable and results before append. Arguments, partially constructed
+  storage, captures and returned heap payloads stay rooted. Root registration
+  precedes the already charged entry allocation, preserving resource failures.
+  Zero length invokes no callbacks, ordinary arguments evaluate once in order,
+  and later failure preserves completed initializer effects without publishing
+  the incomplete result. Even usize::MAX performs bounded, charged iteration
+  rather than eagerly allocating the requested length.
+- Recorded 20 cases at ee8fddc: counts 0/1/3/5, scalar indices, independent heap
+  objects, explicitly shared objects, nested tuple/array payloads, generic helpers
+  and closures calling named functions. All 4,408 source/decoded budget cuts
+  preserve totals, argument/initializer/created/done positions, output values,
+  call depth, GC roots and session cleanup at allocation threshold one. Additional
+  tests cover successful/failed synchronous host reentry, cancellation at each
+  callback occurrence, original overflow frames, maximum-count budget failure,
+  every allocation limit through complete publication, subsequent clean execution
+  and foreign generic trait implementations returning/capturing typed closures.
+  All 30 signature/callback/storage/bare-call corruptions reject both in memory
+  and encoded loading. Existing embedding array_operations/prepared_collections/
+  collection_interfaces/error_traces tests pass 43 cases across their supported
+  source, encoded and JIT/fallback routes.
+- Runtime ABI is v118 for the newly executable initializer binding; binding v2,
+  KBC v109, KMIR v7 and helper ABI v6 retain their schemas. ABI 46, bytecode 27,
+  compiler 175, HIR 414, MIR 1, runtime 71, stdlib 7 and VM 177 library tests pass
+  (918 cumulative; 961 with the embedding suites). Workspace all-target Clippy
+  with warnings denied, formatting, structure and diff checks pass. Structure
+  covers 619 Rust files with zero violations/exceptions. Manual review covered
+  imports, module ownership, logical charges, callback typing, root registration,
+  publication and failure cleanup. No build or test error is carried. Other collection
+  construction, lazy adapters, mutations and custom-key families remain in ST05;
+  ST06 retains encoded fixtures, current documentation and final acceptance.
 
 - ST05 Map snapshot checkpoint (2026-09-30): completes one checklist covering
   keys, values and entries on concrete native maps and on generic/static/dynamic
