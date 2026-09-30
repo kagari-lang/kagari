@@ -1,4 +1,4 @@
-use crate::{MirLoweringOptions, bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use crate::{MirLoweringOptions, lower_to_mir, tests::common};
 use kagari_abi::{effects::EffectSet, operations::BinaryOp};
 use kagari_common::cancellation::CancellationToken;
 use kagari_mir::{
@@ -16,8 +16,9 @@ fn optimized(module: VerifiedMirModule) -> PassResult {
 
 #[test]
 fn scalar_folding_and_branch_selection_preserve_every_logical_point() {
-    let original = checked("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }");
-    let before = lower_to_bytecode(&original).unwrap();
+    let input = common::program_ok("fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }");
+    let original = lower_to_mir(input.root(), &Default::default()).unwrap();
+    let before = common::bytecode_with_edited_root(&input, &original);
     let result = optimized(original.clone());
     assert!(result.statistics.constants_folded >= 2);
     assert_eq!(result.statistics.branches_simplified, 1);
@@ -39,22 +40,42 @@ fn scalar_folding_and_branch_selection_preserve_every_logical_point() {
         before_facts.block(BlockId::new(index)).unwrap().reachable()
             && !after_facts.block(BlockId::new(index)).unwrap().reachable()
     }));
-    let after = lower_to_bytecode(&result.module).unwrap();
+    let after = common::bytecode_with_edited_root(&input, &result.module);
     assert_eq!(
-        before.functions[0].metadata.instruction_budgets,
-        after.functions[0].metadata.instruction_budgets
+        before.modules[before.root.index()].functions[0]
+            .metadata
+            .instruction_budgets,
+        after.modules[after.root.index()].functions[0]
+            .metadata
+            .instruction_budgets
     );
     assert_eq!(
-        before.functions[0].metadata.debug.source_spans,
-        after.functions[0].metadata.debug.source_spans
+        before.modules[before.root.index()].functions[0]
+            .metadata
+            .debug
+            .source_spans,
+        after.modules[after.root.index()].functions[0]
+            .metadata
+            .debug
+            .source_spans
     );
     assert_eq!(
-        before.functions[0].metadata.debug.line_table,
-        after.functions[0].metadata.debug.line_table
+        before.modules[before.root.index()].functions[0]
+            .metadata
+            .debug
+            .line_table,
+        after.modules[after.root.index()].functions[0]
+            .metadata
+            .debug
+            .line_table
     );
     assert_eq!(
-        before.functions[0].instructions.len(),
-        after.functions[0].instructions.len()
+        before.modules[before.root.index()].functions[0]
+            .instructions
+            .len(),
+        after.modules[after.root.index()].functions[0]
+            .instructions
+            .len()
     );
     assert_eq!(function.debug.source, original.functions[0].debug.source);
 }
@@ -68,16 +89,19 @@ fn checked_traps_calls_and_allocations_are_not_discarded() {
         "fn main() { 127i8 + 1i8; }",
         "fn main() { 18446744073709551615u64 + 1u64; }",
     ] {
-        let original = checked(source);
+        let input = common::program_ok(source);
+        let original = lower_to_mir(input.root(), &Default::default()).unwrap();
         let result = optimized(original.clone());
-        let before = lower_to_bytecode(&original).unwrap();
-        let after = lower_to_bytecode(&result.module).unwrap();
+        let before = common::bytecode_with_edited_root(&input, &original);
+        let after = common::bytecode_with_edited_root(&input, &result.module);
         assert_eq!(
-            before.functions[0].instructions, after.functions[0].instructions,
+            before.modules[before.root.index()].functions[0].instructions,
+            after.modules[after.root.index()].functions[0].instructions,
             "{source}"
         );
     }
-    let original = checked("fn touch() {} fn main() { touch(); [1, 2]; }");
+    let input = common::program_ok("fn touch() {} fn main() { touch(); [1, 2]; }");
+    let original = lower_to_mir(input.root(), &Default::default()).unwrap();
     let result = optimized(original.clone());
     for (before, after) in original.functions.iter().zip(&result.module.functions) {
         for (before, after) in before.blocks.iter().zip(&after.blocks) {
@@ -201,9 +225,9 @@ fn pass_limits_and_cancellation_do_not_publish_partial_modules() {
 
 #[test]
 fn compiler_options_apply_the_public_frontend_free_pass_pipeline() {
-    let source = common::analyze_ok("fn main() -> i32 { 6 * 7 }");
+    let source = common::program_ok("fn main() -> i32 { 6 * 7 }");
     let module = lower_to_mir(
-        &source,
+        source.root(),
         &MirLoweringOptions {
             optimization: Some(PassOptions::default()),
             ..Default::default()
@@ -230,7 +254,7 @@ fn compiler_options_apply_the_public_frontend_free_pass_pipeline() {
             .count()
             >= 2
     );
-    lower_to_bytecode(&module).unwrap();
+    common::bytecode_with_edited_root(&source, &module);
 }
 
 #[test]
@@ -244,7 +268,8 @@ fn folded_integers_respect_width_signedness_and_shift_rules() {
             Constant::U64(u64::MAX),
         ),
     ] {
-        let result = optimized(checked(source));
+        let input = common::program_ok(source);
+        let result = optimized(lower_to_mir(input.root(), &Default::default()).unwrap());
         let block = &result.module.functions[0].blocks[0];
         let Some(Terminator::Return(Some(value))) = block.terminator else {
             panic!("return: {source}")
@@ -256,7 +281,7 @@ fn folded_integers_respect_width_signedness_and_shift_rules() {
             )),
             "{source}"
         );
-        lower_to_bytecode(&result.module).unwrap();
+        common::bytecode_with_edited_root(&input, &result.module);
     }
 }
 
@@ -288,11 +313,14 @@ fn live_float_arithmetic_and_potentially_trapping_casts_are_preserved() {
         "fn main() -> f64 { 1.25 + 2.5 }",
         "fn main(value: i8) { value as i32; }",
     ] {
-        let original = checked(source);
+        let input = common::program_ok(source);
+        let original = lower_to_mir(input.root(), &Default::default()).unwrap();
         let result = optimized(original.clone());
+        let before = common::bytecode_with_edited_root(&input, &original);
+        let after = common::bytecode_with_edited_root(&input, &result.module);
         assert_eq!(
-            lower_to_bytecode(&original).unwrap().functions[0].instructions,
-            lower_to_bytecode(&result.module).unwrap().functions[0].instructions,
+            before.modules[before.root.index()].functions[0].instructions,
+            after.modules[after.root.index()].functions[0].instructions,
             "{source}"
         );
     }

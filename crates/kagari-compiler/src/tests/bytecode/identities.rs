@@ -1,17 +1,23 @@
 use crate::tests::bytecode::*;
 use kagari_abi::types as abi;
-use kagari_bytecode as bytecode;
 
 #[test]
 fn executable_function_identities_survive_lowering_and_reject_mismatched_records() {
     let module = common::bytecode_ok(
         "fn id<T>(value: T) -> T { value } fn other() -> i32 { 2 } fn main() -> i32 { id(1) + other() }",
     );
-    assert!(module.functions.iter().all(|function| {
-        function.identity.is_some()
-            && module.function_table[function.id.index()].identity == function.identity
-    }));
-    let generic = module
+    assert!(
+        module.modules[module.root.index()]
+            .functions
+            .iter()
+            .all(|function| {
+                function.identity.is_some()
+                    && module.modules[module.root.index()].function_table[function.id.index()]
+                        .identity
+                        == function.identity
+            })
+    );
+    let generic = module.modules[module.root.index()]
         .functions
         .iter()
         .position(|function| {
@@ -25,7 +31,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         })
         .expect("reachable generic instance");
     assert_eq!(
-        module.functions[generic]
+        module.modules[module.root.index()].functions[generic]
             .identity
             .as_ref()
             .unwrap()
@@ -33,13 +39,14 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         [abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32)]
     );
     let mut mismatched_record = module.clone();
-    mismatched_record.function_table[generic].identity = None;
+    mismatched_record.modules[mismatched_record.root.index()].function_table[generic].identity =
+        None;
     assert!(matches!(
-        verify_module(&mismatched_record),
+        verify_program(&mismatched_record),
         Err(BytecodeVerificationError::FunctionRecordMismatch { .. })
     ));
     let mut duplicate = module.clone();
-    let other = duplicate
+    let other = duplicate.modules[duplicate.root.index()]
         .functions
         .iter()
         .position(|function| {
@@ -52,14 +59,20 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             })
         })
         .unwrap();
-    duplicate.functions[other].identity = duplicate.functions[generic].identity.clone();
-    duplicate.function_table[other].identity = duplicate.functions[other].identity.clone();
+    duplicate.modules[duplicate.root.index()].functions[other].identity =
+        duplicate.modules[duplicate.root.index()].functions[generic]
+            .identity
+            .clone();
+    duplicate.modules[duplicate.root.index()].function_table[other].identity =
+        duplicate.modules[duplicate.root.index()].functions[other]
+            .identity
+            .clone();
     assert!(matches!(
-        verify_module(&duplicate),
+        verify_program(&duplicate),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
     let mut foreign = module.clone();
-    foreign.functions[generic]
+    foreign.modules[foreign.root.index()].functions[generic]
         .identity
         .as_mut()
         .unwrap()
@@ -67,13 +80,16 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .module
         .package
         .0 = "foreign".into();
-    foreign.function_table[generic].identity = foreign.functions[generic].identity.clone();
+    foreign.modules[foreign.root.index()].function_table[generic].identity =
+        foreign.modules[foreign.root.index()].functions[generic]
+            .identity
+            .clone();
     assert!(matches!(
-        verify_module(&foreign),
+        verify_program(&foreign),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
     let mut wrong_kind = module.clone();
-    wrong_kind.functions[generic]
+    wrong_kind.modules[wrong_kind.root.index()].functions[generic]
         .identity
         .as_mut()
         .unwrap()
@@ -82,13 +98,16 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         .last_mut()
         .unwrap()
         .kind = kagari_common::identity::DefinitionKind::Struct;
-    wrong_kind.function_table[generic].identity = wrong_kind.functions[generic].identity.clone();
+    wrong_kind.modules[wrong_kind.root.index()].function_table[generic].identity =
+        wrong_kind.modules[wrong_kind.root.index()].functions[generic]
+            .identity
+            .clone();
     assert!(matches!(
-        verify_module(&wrong_kind),
+        verify_program(&wrong_kind),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
     let mut oversized = module.clone();
-    oversized.functions[generic]
+    oversized.modules[oversized.root.index()].functions[generic]
         .identity
         .as_mut()
         .unwrap()
@@ -96,26 +115,23 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
         abi::AbiType::Builtin(kagari_abi::scalar::BuiltinType::I32);
         kagari_abi::decode_limits::MAX_NESTED_RECORDS + 1
     ];
-    oversized.function_table[generic].identity = oversized.functions[generic].identity.clone();
+    oversized.modules[oversized.root.index()].function_table[generic].identity =
+        oversized.modules[oversized.root.index()].functions[generic]
+            .identity
+            .clone();
     assert!(matches!(
-        KbcArtifact::from_program(
-            bytecode::BytecodeProgram {
-                root: bytecode::ModuleRef::new(0),
-                modules: vec![oversized],
-            },
-            Default::default(),
-        ),
+        KbcArtifact::from_program(oversized, Default::default(),),
         Err(ArtifactValidationError::ResourceLimit(
             "nested module record limit exceeded"
         ))
     ));
     let mut unresolved = module;
-    unresolved.functions[generic]
+    unresolved.modules[unresolved.root.index()].functions[generic]
         .identity
         .as_mut()
         .unwrap()
         .arguments[0] = kagari_abi::types::AbiType::Parameter {
-        owner: unresolved.function_table[generic]
+        owner: unresolved.modules[unresolved.root.index()].function_table[generic]
             .identity
             .as_ref()
             .unwrap()
@@ -123,9 +139,12 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .clone(),
         position: 0,
     };
-    unresolved.function_table[generic].identity = unresolved.functions[generic].identity.clone();
+    unresolved.modules[unresolved.root.index()].function_table[generic].identity =
+        unresolved.modules[unresolved.root.index()].functions[generic]
+            .identity
+            .clone();
     assert!(matches!(
-        verify_module(&unresolved),
+        verify_program(&unresolved),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
 }
@@ -135,26 +154,22 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
     let original = common::bytecode_ok(
         "struct P { var x: i32, val fixed: bool } fn main() -> i32 { val p = P { fixed: true, x: 1 }; p.x = 2; p.x }",
     );
-    let valid = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![original.clone()],
-        },
-        Default::default(),
-    )
-    .unwrap();
+    let valid = KbcArtifact::from_program(original.clone(), Default::default()).unwrap();
     for corruption in 0..7 {
         let mut module = original.clone();
         match corruption {
-            0 => module.structures.push(module.structures[0].clone()),
-            1 => module.structures[0].fields[0]
+            0 => {
+                let member = &mut module.modules[module.root.index()];
+                member.structures.push(member.structures[0].clone());
+            }
+            1 => module.modules[module.root.index()].structures[0].fields[0]
                 .declaration
                 .module
                 .path
                 .push("foreign".into()),
-            2 => module.structures[0].fields[0].mutable = false,
+            2 => module.modules[module.root.index()].structures[0].fields[0].mutable = false,
             _ => {
-                for instruction in module
+                for instruction in module.modules[module.root.index()]
                     .functions
                     .iter_mut()
                     .flat_map(|function| &mut function.instructions)
@@ -181,17 +196,10 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
             }
         }
         assert!(
-            KbcArtifact::from_program(
-                bytecode::BytecodeProgram {
-                    root: bytecode::ModuleRef::new(0),
-                    modules: vec![module.clone()],
-                },
-                ArtifactBuildOptions::default(),
-            )
-            .is_err()
+            KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default(),).is_err()
         );
         let mut corrupted = valid.clone();
-        corrupted.program.modules[0] = module;
+        corrupted.program = module;
         let bytes = corrupted.to_bytes().unwrap();
         let artifact = KbcArtifact::from_bytes(&bytes).unwrap();
         assert!(
@@ -213,7 +221,9 @@ fn executable_struct_fields_require_concrete_resolved_types() {
     let module = common::bytecode_ok(
         "struct Box<T> { val value: T } fn main() -> i32 { Box<i32> { value: 42 }.value }",
     );
-    let declaration = module.structures[0].declaration.clone();
+    let declaration = module.modules[module.root.index()].structures[0]
+        .declaration
+        .clone();
     for ty in [
         AbiType::Parameter {
             owner: declaration.clone(),
@@ -227,8 +237,8 @@ fn executable_struct_fields_require_concrete_resolved_types() {
         AbiType::Builtin(BuiltinType::Bool),
     ] {
         let mut invalid = module.clone();
-        invalid.structures[0].fields[0].ty = ty;
-        assert!(verify_module(&invalid).is_err());
+        invalid.modules[invalid.root.index()].structures[0].fields[0].ty = ty;
+        assert!(verify_program(&invalid).is_err());
     }
 }
 
@@ -241,14 +251,14 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
     );
     let mut importer = BytecodeModule {
         identity: ModuleIdentity::single_file("importer.kgr"),
-        structures: owner.structures.clone(),
+        structures: owner.modules[owner.root.index()].structures.clone(),
         dependencies: vec![ModuleRef::new(0)],
         ..Default::default()
     };
     let program = |importer| {
         let declaration_owner = BytecodeModule {
-            identity: owner.identity.clone(),
-            public_items: owner.public_items.clone(),
+            identity: owner.modules[owner.root.index()].identity.clone(),
+            public_items: owner.modules[owner.root.index()].public_items.clone(),
             ..Default::default()
         };
         BytecodeProgram {
@@ -261,28 +271,30 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
         let mut invalid = owner.clone();
         match mutation {
             0 => {
-                invalid.structures[0].fields[0].ty = AbiType::Array(
+                invalid.modules[invalid.root.index()].structures[0].fields[0].ty = AbiType::Array(
                     Box::new(AbiType::Builtin(BuiltinType::Bool)),
                     CollectionAccess::Mutable,
                 )
             }
-            1 => invalid.structures[0].fields[0].mutable = false,
+            1 => invalid.modules[invalid.root.index()].structures[0].fields[0].mutable = false,
             2 => {
-                invalid.structures[0].fields[0].name = "other".into();
-                invalid.structures[0].fields[0]
+                invalid.modules[invalid.root.index()].structures[0].fields[0].name = "other".into();
+                invalid.modules[invalid.root.index()].structures[0].fields[0]
                     .declaration
                     .path
                     .last_mut()
                     .unwrap()
                     .name = "other".into();
             }
-            _ => invalid.structures[0].fields.clear(),
+            _ => invalid.modules[invalid.root.index()].structures[0]
+                .fields
+                .clear(),
         }
         assert_eq!(
-            verify_module(&invalid),
+            verify_program(&invalid),
             Err(BytecodeVerificationError::InvalidStructLayout)
         );
-        importer.structures = invalid.structures;
+        importer.structures = invalid.modules[invalid.root.index()].structures.clone();
         // An imported layout can be internally valid without matching its owner.
         let mut standalone = importer.clone();
         standalone.dependencies.clear();
@@ -299,44 +311,79 @@ fn executable_layouts_reject_noncanonical_declaration_and_member_identities() {
     let module = common::bytecode_ok(
         "pub struct Item { val value: i32 } pub enum Token { Data(i32) } fn main() -> i32 { val token = Token::Data(1); Item { value: 42 }.value }",
     );
+    let enumeration = module.modules[module.root.index()]
+        .enumerations
+        .iter()
+        .position(|layout| {
+            layout.declaration.module == module.modules[module.root.index()].identity
+        })
+        .unwrap();
     for mutation in 0..6 {
         let mut invalid = module.clone();
         match mutation {
             0 => {
-                invalid.structures[0].declaration.path[0].occurrence = 1;
-                invalid.structures[0].fields[0].declaration.path[0].occurrence = 1;
+                invalid.modules[invalid.root.index()].structures[0]
+                    .declaration
+                    .path[0]
+                    .occurrence = 1;
+                invalid.modules[invalid.root.index()].structures[0].fields[0]
+                    .declaration
+                    .path[0]
+                    .occurrence = 1;
             }
-            1 => invalid.structures[0].fields[0].declaration.path[1].occurrence = 1,
+            1 => {
+                invalid.modules[invalid.root.index()].structures[0].fields[0]
+                    .declaration
+                    .path[1]
+                    .occurrence = 1
+            }
             2 => {
-                let parent = invalid.structures[0].declaration.path[0].clone();
-                invalid.structures[0]
+                let parent = invalid.modules[invalid.root.index()].structures[0]
+                    .declaration
+                    .path[0]
+                    .clone();
+                invalid.modules[invalid.root.index()].structures[0]
                     .declaration
                     .path
                     .insert(0, parent.clone());
-                invalid.structures[0].fields[0]
+                invalid.modules[invalid.root.index()].structures[0].fields[0]
                     .declaration
                     .path
                     .insert(0, parent);
             }
             3 => {
-                invalid.enumerations[0].declaration.path[0].occurrence = 1;
-                invalid.enumerations[0].variants[0].declaration.path[0].occurrence = 1;
+                invalid.modules[invalid.root.index()].enumerations[enumeration]
+                    .declaration
+                    .path[0]
+                    .occurrence = 1;
+                invalid.modules[invalid.root.index()].enumerations[enumeration].variants[0]
+                    .declaration
+                    .path[0]
+                    .occurrence = 1;
             }
-            4 => invalid.enumerations[0].variants[0].declaration.path[1].occurrence = 1,
+            4 => {
+                invalid.modules[invalid.root.index()].enumerations[enumeration].variants[0]
+                    .declaration
+                    .path[1]
+                    .occurrence = 1
+            }
             _ => {
-                let parent = invalid.enumerations[0].declaration.path[0].clone();
-                invalid.enumerations[0]
+                let parent = invalid.modules[invalid.root.index()].enumerations[enumeration]
+                    .declaration
+                    .path[0]
+                    .clone();
+                invalid.modules[invalid.root.index()].enumerations[enumeration]
                     .declaration
                     .path
                     .insert(0, parent.clone());
-                invalid.enumerations[0].variants[0]
+                invalid.modules[invalid.root.index()].enumerations[enumeration].variants[0]
                     .declaration
                     .path
                     .insert(0, parent);
             }
         }
         assert_eq!(
-            verify_module(&invalid),
+            verify_program(&invalid),
             Err(if mutation < 3 {
                 BytecodeVerificationError::InvalidStructLayout
             } else {

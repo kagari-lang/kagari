@@ -96,6 +96,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             .program
             .modules
             .iter()
+            .filter(|module| module.identity.package.0 == "pkg")
             .map(|m| m.identity.path[0].as_str())
             .collect::<Vec<_>>(),
         ["facade", "relay", "root"]

@@ -1,4 +1,4 @@
-use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use crate::{lower_to_mir, tests::common};
 use kagari_mir::{
     BlockId, Instruction, LocalId, MirModule, TempId, VerifiedMirModule, analysis::SafepointKind,
     verify_mir,
@@ -107,7 +107,10 @@ fn loops_keep_heap_values_live_and_do_not_root_scalar_slots() {
 
 #[test]
 fn debugger_availability_requires_initialization_on_every_incoming_edge() {
-    let mut module = checked("fn main(flag: bool) { if flag { val branch_only = \"value\"; } }")
+    let input =
+        common::program_ok("fn main(flag: bool) { if flag { val branch_only = \"value\"; } }");
+    let mut module = lower_to_mir(input.root(), &Default::default())
+        .unwrap()
         .into_unverified();
     let function = &mut module.functions[0];
     let local = function
@@ -141,14 +144,14 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
             .debug_available()
             .contains_local(local)
     );
-    let bytecode = lower_to_bytecode(&module).unwrap();
+    let bytecode = common::bytecode_with_edited_root(&input, &module);
     let offset = module.functions[0].blocks[..join]
         .iter()
         .map(|block| block.instructions.len() + 1)
         .sum::<usize>()
         + module.functions[0].blocks[join].instructions.len();
     assert!(
-        bytecode.functions[0]
+        bytecode.modules[bytecode.root.index()].functions[0]
             .metadata
             .debug
             .local_live_ranges

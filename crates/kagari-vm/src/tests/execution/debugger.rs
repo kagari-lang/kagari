@@ -10,13 +10,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug.kgr");
     let loaded = runtime
-        .load_program(
-            "debug.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("debug.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let before_store = session
@@ -101,13 +95,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("lexical.kgr");
     let loaded = runtime
-        .load_program(
-            "lexical.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("lexical.kgr", compile_test_bytecode(source))
         .unwrap();
     let mut session = DebugSession::new(&runtime).unwrap();
     let inside = session
@@ -307,12 +295,7 @@ fn debugger_pause_control_is_separate_from_breakpoint_capability() {
     let loaded = runtime
         .load_program(
             "debug_step_only.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(
-                    "fn main() -> i32 { val value = 1; value }",
-                )],
-            },
+            compile_test_bytecode("fn main() -> i32 { val value = 1; value }"),
         )
         .expect("debug module should load");
     let mut session = DebugSession::new(&runtime).expect("attach should be allowed");
@@ -362,13 +345,7 @@ fn main() -> i32 {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_program(
-            "debug_watch.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("debug_watch.kgr", compile_test_bytecode(source))
         .expect("debug module should load");
     let mut session = DebugSession::new(&runtime).expect("debug attach should be allowed");
     let breakpoint = session

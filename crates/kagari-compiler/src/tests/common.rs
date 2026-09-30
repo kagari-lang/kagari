@@ -1,7 +1,16 @@
-use crate::{bytecode::lower_to_bytecode, lower_to_mir};
-use kagari_bytecode::BytecodeModule;
-use kagari_common::SourceFile;
-use kagari_hir::{CheckedAnalysis, analyze_source};
+use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_bytecode::BytecodeProgram;
+use kagari_common::{
+    SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_hir::{
+    CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
+};
+use kagari_mir::{
+    VerifiedMirModule,
+    program::{VerifiedMirProgram, verify_program},
+};
 
 pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     let source = SourceFile::new("test.kg", text);
@@ -21,8 +30,54 @@ pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     )
 }
 
-pub fn bytecode_ok(text: &str) -> BytecodeModule {
-    let analyzed = analyze_ok(text);
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
-    lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
+pub fn program_ok(text: &str) -> CheckedProgram {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("test.kg", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(
+            sources.snapshot(),
+            kagari_hir::LanguageFeatureProfile {
+                allow_host_calls: true,
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .expect("analysis snapshot should succeed");
+    snapshot
+        .check_program(root, &Default::default())
+        .expect("program analysis should succeed")
+}
+
+pub fn mir_ok(text: &str) -> VerifiedMirProgram {
+    let checked = program_ok(text);
+    lower_program_to_mir(&checked, &Default::default()).expect("program IR lowering should succeed")
+}
+
+pub fn bytecode_ok(text: &str) -> BytecodeProgram {
+    lower_program_to_bytecode(&mir_ok(text)).expect("program bytecode lowering should succeed")
+}
+
+/// Module transformation tests revalidate the edited root within its original
+/// checked dependency closure, including cross-module contracts and native proofs.
+pub fn bytecode_with_edited_root(
+    checked: &CheckedProgram,
+    edited: &VerifiedMirModule,
+) -> BytecodeProgram {
+    let original = lower_program_to_mir(checked, &Default::default())
+        .expect("program MIR lowering should succeed");
+    assert_eq!(original.root(), &edited.identity);
+    let root = original.root().clone();
+    let mut members = original.into_unverified();
+    let slot = members
+        .iter()
+        .position(|member| member.identity == root)
+        .unwrap();
+    members[slot] = edited.clone().into_unverified();
+    let verified =
+        verify_program(root, members, &Default::default()).expect("edited program should verify");
+    lower_program_to_bytecode(&verified).expect("edited program bytecode lowering should succeed")
 }

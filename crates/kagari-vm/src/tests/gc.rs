@@ -3,7 +3,6 @@ use crate::{
     tests::{common::compile_test_bytecode, native_fixtures},
 };
 use kagari_abi::ids::FunctionRef;
-use kagari_bytecode::{BytecodeProgram, ModuleRef};
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, SecurityContext,
     gc::GcHeapConfig, value::Value,
@@ -40,10 +39,7 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
     for encoded in [false, true] {
         for jit in [false, true] {
             let mut runtime = runtime(None);
-            let program = BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module.clone()],
-            };
+            let program = module.clone();
             let program = if encoded {
                 let artifact =
                     kagari_bytecode::KbcArtifact::from_program(program, Default::default())
@@ -106,15 +102,7 @@ fn main() -> i32 {
 "#,
     );
     let mut runtime = runtime(None);
-    let loaded = runtime
-        .load_program(
-            "closure_gc.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("closure_gc.kgr", module).unwrap();
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").unwrap();
     assert_eq!(report.return_value, Value::I32(43));
@@ -128,13 +116,7 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
     let foreign_runtime = runtime(None);
     let mut owner_runtime = runtime(None);
     let loaded = owner_runtime
-        .load_program(
-            "closure_handles.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
+        .load_program("closure_handles.kgr", module)
         .unwrap();
     let mut vm = Vm::new(owner_runtime);
     let value = vm.execute(&loaded, "make").unwrap().return_value;
@@ -153,7 +135,7 @@ fn closure_handles_reject_other_runtimes_and_reclaimed_slots() {
 #[test]
 fn malformed_closure_function_is_rejected_before_execution() {
     let mut module = compile_test_bytecode("fn main() -> i32 { val call = || 42; call() }");
-    let instruction = module
+    let instruction = module.modules[module.root.index()]
         .functions
         .iter_mut()
         .flat_map(|function| &mut function.instructions)
@@ -170,13 +152,7 @@ fn malformed_closure_function_is_rejected_before_execution() {
     let mut runtime = runtime(None);
     assert!(
         runtime
-            .load_program(
-                "malformed_closure.kgr",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![module],
-                }
-            )
+            .load_program("malformed_closure.kgr", module)
             .is_err()
     );
 }
@@ -186,27 +162,13 @@ fn rooted_closure_retains_its_old_program_after_new_publish() {
     let old = compile_test_bytecode("fn make() -> fn() -> i32 { || 41 }");
     let new = compile_test_bytecode("fn make() -> fn() -> i32 { || 42 }");
     let mut runtime = runtime(None);
-    let loaded = runtime
-        .load_program(
-            "closure_epoch.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![old],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("closure_epoch.kgr", old).unwrap();
     let mut vm = Vm::new(runtime);
     let closure = vm.execute(&loaded, "make").unwrap().return_value;
     let rooted = vm.runtime().root_value(closure.clone()).unwrap();
     let replacement = vm
         .runtime_mut()
-        .load_program(
-            "closure_epoch.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![new],
-            },
-        )
+        .load_program("closure_epoch.kgr", new)
         .unwrap();
     drop(loaded);
     vm.runtime().collect_garbage().unwrap();
@@ -223,15 +185,7 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
     let mut runtime = runtime(None);
     let dead = runtime.alloc_array(vec![Value::I32(7)]).unwrap();
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
-    let loaded = runtime
-        .load_program(
-            "gc.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("gc.kgr", module).unwrap();
     let native =
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
     let mut vm = Vm::new(runtime);
@@ -250,15 +204,7 @@ fn trap_and_budget_exhaustion_release_frame_roots_and_call_depth() {
     let module = compile_test_bytecode("fn main() -> i32 { val temporary = [1, 2]; 1 / 0 }");
     for max_steps in [None, Some(4)] {
         let mut runtime = runtime(max_steps);
-        let loaded = runtime
-            .load_program(
-                "gc.kgr",
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![module.clone()],
-                },
-            )
-            .unwrap();
+        let loaded = runtime.load_program("gc.kgr", module.clone()).unwrap();
         let mut vm = Vm::new(runtime);
         assert!(vm.execute(&loaded, "main").is_err());
         assert_eq!(vm.runtime().gc().active_roots(), 0);
@@ -273,7 +219,7 @@ fn trap_and_budget_exhaustion_release_frame_roots_and_call_depth() {
 fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let mut module =
         compile_test_bytecode("fn init() -> ArrayList<i32> { [7] } fn main() -> i32 { 42 }");
-    module
+    module.modules[module.root.index()]
         .module_slots
         .push(kagari_bytecode::BytecodeModuleSlot {
             name: "state".into(),
@@ -281,10 +227,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
             mutable: true,
         });
     let mut runtime = runtime(None);
-    let program = BytecodeProgram {
-        root: ModuleRef::new(0),
-        modules: vec![module],
-    };
+    let program = module;
     let old = runtime.load_program("gc.kgr", program.clone()).unwrap();
     let mut vm = Vm::new(runtime);
     let array = vm.runtime().alloc_array(vec![Value::I32(7)]).unwrap();
@@ -297,7 +240,14 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
     let other = vm.runtime().alloc_array(vec![Value::I32(9)]).unwrap();
     vm.runtime().module_instance_mut(&new).unwrap().module_slots[0] = Value::Array(other);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
-    assert_eq!(vm.runtime().modules().collect_unreachable_epochs().len(), 1);
+    let expected: std::collections::HashSet<_> = old.members().map(|member| member.key()).collect();
+    let reclaimed: std::collections::HashSet<_> = vm
+        .runtime()
+        .modules()
+        .collect_unreachable_epochs()
+        .into_iter()
+        .collect();
+    assert_eq!(reclaimed, expected);
     assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 1);
 }
 
@@ -326,15 +276,7 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         },
         ..Default::default()
     });
-    let loaded = runtime
-        .load_program(
-            "gc.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("gc.kgr", module).unwrap();
     let mut session = crate::DebugSession::new(&runtime).unwrap();
     session
         .add_breakpoint(crate::SourceBreakpoint::at_source_offset(

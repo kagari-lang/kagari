@@ -5,24 +5,8 @@ fn foreign_loaded_module_is_rejected_before_execution() {
     let bytecode = compile_test_bytecode("fn main() -> i32 { 7 }");
     let mut first = Runtime::default();
     let mut second = Runtime::default();
-    let foreign = first
-        .load_program(
-            "same",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode.clone()],
-            },
-        )
-        .unwrap();
-    let local = second
-        .load_program(
-            "same",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
-        .unwrap();
+    let foreign = first.load_program("same", bytecode.clone()).unwrap();
+    let local = second.load_program("same", bytecode).unwrap();
     assert_eq!(foreign.key(), local.key());
     let mut vm = Vm::new(second);
     assert!(
@@ -61,13 +45,7 @@ fn reports_runtime_instruction_step_limit() {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_program(
-            "limited.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
+        .load_program("limited.kgr", bytecode)
         .expect("limited module should load");
 
     let mut vm = Vm::new(runtime);
@@ -93,13 +71,7 @@ fn reports_runtime_allocation_unit_limit() {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_program(
-            "allocation_limited.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
+        .load_program("allocation_limited.kgr", bytecode)
         .expect("module should load");
 
     let mut vm = Vm::new(runtime);
@@ -313,13 +285,7 @@ fn main() -> i32 { middle() }
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_program(
-            "call_depth.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
+        .load_program("call_depth.kgr", bytecode)
         .expect("module should load");
 
     let mut vm = Vm::new(runtime);
@@ -546,13 +512,13 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
             "struct P { var x: i32 } struct Q { var x: i32 } fn main() -> i32 { val p = P { x: 1 }; p.x = 42; p.x }",
         );
         let wrong = kagari_bytecode::StructId::new(
-            bytecode
+            bytecode.modules[bytecode.root.index()]
                 .structures
                 .iter()
                 .position(|layout| layout.name() == "Q")
                 .unwrap(),
         );
-        for instruction in bytecode
+        for instruction in bytecode.modules[bytecode.root.index()]
             .functions
             .iter_mut()
             .flat_map(|function| &mut function.instructions)
@@ -567,6 +533,6 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 _ => {}
             }
         }
-        assert!(kagari_bytecode::verify_module(&bytecode).is_err());
+        assert!(kagari_bytecode::verify_program(&bytecode).is_err());
     }
 }

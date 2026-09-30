@@ -14,21 +14,15 @@ use std::sync::Arc;
 
 use crate::{
     bytecode::lower_program_to_bytecode,
-    lower_to_mir,
     native_input::{NativeInputError, verify_native_input},
+    source::program::lower_program_to_mir,
     tests::common,
 };
 
 fn program(source: &str) -> VerifiedMirProgram {
-    let checked = common::analyze_ok(source);
-    let module = lower_to_mir(&checked, &Default::default()).unwrap();
-    verify_program(
-        module.identity.clone(),
-        vec![module.into_unverified()],
-        &Default::default(),
-    )
-    .unwrap()
+    common::mir_ok(source)
 }
+
 fn forged(root: &ModuleIdentity, modules: &[MirModule]) -> Vec<u8> {
     DefaultOptions::new()
         .with_fixint_encoding()
@@ -82,15 +76,9 @@ fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
 
 #[test]
 fn codec_retains_unicode_origins_without_retaining_source_objects() {
-    let checked = common::analyze_ok("fn main() -> i32 {\r\n val text = \"雪😀\"; 7\r\n }");
-    let weak = Arc::downgrade(&checked.lowered.source);
-    let module = lower_to_mir(&checked, &Default::default()).unwrap();
-    let original = verify_program(
-        module.identity.clone(),
-        vec![module.into_unverified()],
-        &Default::default(),
-    )
-    .unwrap();
+    let checked = common::program_ok("fn main() -> i32 {\r\n val text = \"雪😀\"; 7\r\n }");
+    let weak = Arc::downgrade(&checked.root().lowered.source);
+    let original = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let bytes = encode_program(&original, &Default::default()).unwrap();
     drop(checked);
     assert!(weak.upgrade().is_none());
@@ -103,7 +91,11 @@ fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
     let original = program("fn main() {}");
     let root = original.root().clone();
     let mut raw = original.into_unverified();
-    raw[0].functions[0].blocks[0].terminator = Some(Terminator::Jump(BlockId::new(999)));
+    let slot = raw
+        .iter()
+        .position(|module| module.identity == root)
+        .unwrap();
+    raw[slot].functions[0].blocks[0].terminator = Some(Terminator::Jump(BlockId::new(999)));
     assert!(matches!(
         decode_program(&forged(&root, &raw), &Default::default()),
         Err(MirCodecError::Verification(_))
@@ -112,7 +104,31 @@ fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
 
 #[test]
 fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
-    let original = program("fn main() {}");
+    // Exhaust every truncation offset of a small, source-free dependency graph.
+    // The compiled stdlib closure is exercised by the semantic roundtrip tests.
+    let root = ModuleIdentity::single_file("wire-root");
+    let dependency = ModuleIdentity::single_file("wire-dependency");
+    let empty = |identity, dependencies| MirModule {
+        identity,
+        dependencies,
+        interface_instances: vec![],
+        host_types: vec![],
+        structures: vec![],
+        enumerations: vec![],
+        source_name: String::new(),
+        module_slots: vec![],
+        abi: Default::default(),
+        functions: vec![],
+    };
+    let original = verify_program(
+        root.clone(),
+        vec![
+            empty(root, vec![dependency.clone()]),
+            empty(dependency, vec![]),
+        ],
+        &Default::default(),
+    )
+    .unwrap();
     let bytes = encode_program(&original, &Default::default()).unwrap();
     let mut previous = bytes.clone();
     previous[4..6].copy_from_slice(&0u16.to_le_bytes());
@@ -178,7 +194,14 @@ fn codec_rejects_impossible_module_counts_before_element_decoding() {
 
 #[test]
 fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
-    let mut template = program("fn main() {}").into_unverified().remove(0);
+    let original = program("fn main() {}");
+    let root = original.root().clone();
+    let mut dependencies = original.into_unverified();
+    let slot = dependencies
+        .iter()
+        .position(|module| module.identity == root)
+        .unwrap();
+    let mut template = dependencies.remove(slot);
     let function = &mut template.functions[0];
     function.temps = vec![
         MirTemp {
@@ -200,13 +223,15 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
             module
         })
         .collect::<Vec<_>>();
-    modules[0].dependencies = modules
+    let linked: Vec<_> = modules
         .iter()
         .skip(1)
         .map(|module| module.identity.clone())
         .collect();
-    let error =
-        decode_program(&forged(&modules[0].identity, &modules), &Default::default()).unwrap_err();
+    modules[0].dependencies.extend(linked);
+    let root = modules[0].identity.clone();
+    modules.extend(dependencies);
+    let error = decode_program(&forged(&root, &modules), &Default::default()).unwrap_err();
     assert!(
         matches!(error, MirCodecError::Verification(error) if matches!(error.kind,
             ProgramErrorKind::Verification(ref error) if matches!(error.kind,
@@ -231,7 +256,9 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         Err(NativeInputError::Mismatch)
     ));
     let mut forged = bytecode.clone();
-    forged.modules[0].functions[0].instructions.clear();
+    forged.modules[forged.root.index()].functions[0]
+        .instructions
+        .clear();
     assert!(matches!(
         verify_native_input(&wire, &forged, &Default::default()),
         Err(NativeInputError::Bytecode(_))
@@ -271,7 +298,11 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             let root = original.root().clone();
             let mut modules = original.into_unverified();
             let mut bits = [first, second].into_iter();
-            for instruction in &mut modules[0].functions[0].blocks[0].instructions {
+            let slot = modules
+                .iter()
+                .position(|module| module.identity == root)
+                .unwrap();
+            for instruction in &mut modules[slot].functions[0].blocks[0].instructions {
                 match instruction {
                     Instruction::LoadConst {
                         constant: Constant::F32(value),
@@ -293,7 +324,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             let wire = encode_program(&original, &Default::default()).unwrap();
             let bytecode = lower_program_to_bytecode(&original).unwrap();
             assert_eq!(
-                bytecode.modules[0].constants.len(),
+                bytecode.modules[bytecode.root.index()].constants.len(),
                 if first == second { 1 } else { 2 }
             );
             let decoded = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();

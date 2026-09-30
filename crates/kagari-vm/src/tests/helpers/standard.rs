@@ -22,13 +22,7 @@ fn executes_source_lowered_print_builtin() {
         .expect("host function should register");
     let bytecode = compile_test_bytecode(r#"fn main() { print("hello"); }"#);
     let loaded = runtime
-        .load_program(
-            "print.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
+        .load_program("print.kgr", bytecode)
         .expect("print module should load");
 
     let mut vm = Vm::new(runtime);
@@ -274,7 +268,12 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
         .expect_err("float map key should reject before publication");
 
     assert!(matches!(error.kind(), RuntimeErrorKind::ModuleValidation));
-    assert!(error.message().contains("hash-key"));
+    assert!(
+        error
+            .message()
+            .contains("invalid or unsupported native operand shape")
+    );
+    assert_eq!(runtime.resources().counters().loaded_modules, 0);
 }
 
 #[test]
@@ -296,13 +295,7 @@ fn main() -> usize {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_program(
-            "standard_resource_limit.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
+        .load_program("standard_resource_limit.kgr", bytecode)
         .expect("module should load");
     let mut vm = Vm::new(runtime);
     let error = vm

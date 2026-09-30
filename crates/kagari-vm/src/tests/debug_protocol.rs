@@ -43,13 +43,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("adapter.kgr");
     let loaded = runtime
-        .load_program(
-            "adapter.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("adapter.kgr", compile_test_bytecode(source))
         .expect("module should load");
     let mut vm = Vm::new(runtime);
     let mut adapter = DebugProtocolAdapter::recording();
@@ -130,13 +124,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("adapter_step.kgr");
     let loaded = runtime
-        .load_program(
-            "adapter_step.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("adapter_step.kgr", compile_test_bytecode(source))
         .expect("module should load");
     let mut vm = Vm::new(runtime);
     let mut adapter = DebugProtocolAdapter::recording();

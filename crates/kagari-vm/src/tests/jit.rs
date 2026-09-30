@@ -28,21 +28,16 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
     for artifact in [false, true] {
         for jit in [false, true] {
             let module = if artifact {
-                let encoded = KbcArtifact::from_program(
-                    kagari_bytecode::BytecodeProgram {
-                        root: kagari_bytecode::ModuleRef::new(0),
-                        modules: vec![bytecode.clone()],
-                    },
-                    ArtifactBuildOptions::default(),
-                )
-                .unwrap()
-                .to_bytes()
-                .unwrap();
+                let encoded =
+                    KbcArtifact::from_program(bytecode.clone(), ArtifactBuildOptions::default())
+                        .unwrap()
+                        .to_bytes()
+                        .unwrap();
                 let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
                 decoded
                     .validate_for_loader(&ArtifactCompatibility::default())
                     .unwrap();
-                decoded.program.modules[decoded.program.root.index()].clone()
+                decoded.program
             } else {
                 bytecode.clone()
             };
@@ -79,15 +74,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                     Ok(Value::Unit)
                 }))
                 .unwrap();
-            let loaded = runtime
-                .load_program(
-                    "linked",
-                    kagari_bytecode::BytecodeProgram {
-                        root: kagari_bytecode::ModuleRef::new(0),
-                        modules: vec![module],
-                    },
-                )
-                .unwrap();
+            let loaded = runtime.load_program("linked", module).unwrap();
             assert_eq!(loaded.host_binding(HostImportId::new(0)), Some(binding));
             assert_eq!(binding.index(), 1);
             let mut vm = Vm::new(runtime);
@@ -152,7 +139,7 @@ fn main() -> (usize, usize, i32) {
 "#,
     );
     let (runtime, loaded) =
-        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_stdlib_fallback", module);
+        common::load_bytecode_program_with_runtime(jit_runtime(), "jit_stdlib_fallback", module);
     let mut vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
 
@@ -173,11 +160,11 @@ fn main() -> (usize, usize, i32) {
 #[test]
 fn remainder_uses_interpreter_fallback_with_identical_result() {
     let module = common::compile_test_bytecode("fn main() -> i32 { 42 % 5 }");
-    let (runtime, loaded) = common::load_bytecode_module("jit_remainder", module.clone());
+    let (runtime, loaded) = common::load_bytecode_program("jit_remainder", module.clone());
     let mut vm = Vm::new(runtime);
     let interpreted = vm.execute(&loaded, "main").unwrap().return_value;
     let (runtime, loaded) =
-        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_remainder", module);
+        common::load_bytecode_program_with_runtime(jit_runtime(), "jit_remainder", module);
     let mut vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
     let report = vm.execute_prepared(&loaded, "main", &prepared).unwrap();
@@ -201,11 +188,11 @@ fn main() -> i32 {
 }
 "#,
     );
-    let (runtime, loaded) = common::load_bytecode_module("jit_closure", module.clone());
+    let (runtime, loaded) = common::load_bytecode_program("jit_closure", module.clone());
     let mut vm = Vm::new(runtime);
     let interpreted = vm.execute(&loaded, "main").unwrap().return_value;
     let (runtime, loaded) =
-        common::load_bytecode_module_with_runtime(jit_runtime(), "jit_closure", module);
+        common::load_bytecode_program_with_runtime(jit_runtime(), "jit_closure", module);
     let mut vm = Vm::new(runtime);
     let prepared = native_fixtures::unsupported();
     let report = vm.execute_prepared(&loaded, "main", &prepared).unwrap();

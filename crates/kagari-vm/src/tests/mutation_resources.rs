@@ -2,7 +2,7 @@ use crate::{
     Vm, VmError,
     tests::{common::compile_test_bytecode, native_fixtures},
 };
-use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+use kagari_bytecode::KbcArtifact;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
     SecurityContext,
@@ -39,10 +39,7 @@ fn standard_mutation_resource_failures_match_across_execution_routes() {
                         },
                         ..Default::default()
                     });
-                    let program = BytecodeProgram {
-                        root: ModuleRef::new(0),
-                        modules: vec![module.clone()],
-                    };
+                    let program = module.clone();
                     let program = if encoded {
                         let artifact =
                             KbcArtifact::from_program(program, Default::default()).unwrap();

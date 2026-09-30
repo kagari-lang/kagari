@@ -1,11 +1,12 @@
 use crate::tests::bytecode::*;
 use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet};
 use kagari_bytecode as bytecode;
+use kagari_bytecode::verify_program;
 
 #[test]
 fn lowers_function_metadata_into_bytecode() {
     let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert_eq!(function.id, FunctionRef::new(0));
     assert_eq!(function.name, "add");
@@ -38,7 +39,7 @@ fn main(value: i32) -> i32 {
 }
 "#,
     );
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
     let debug = &function.metadata.debug;
 
     assert_eq!(debug.source_spans.len(), function.instructions.len());
@@ -97,9 +98,12 @@ fn main(value: i32) -> i32 {
     assert!(next.end > next.start);
     assert!(next.end <= function.instructions.len());
 
-    let artifact_debug = DebugMetadata::from_module(&bytecode);
+    let artifact_debug = DebugMetadata::from_module(&bytecode.modules[bytecode.root.index()]);
     assert!(!artifact_debug.stripped);
-    assert_eq!(artifact_debug.functions.len(), bytecode.functions.len());
+    assert_eq!(
+        artifact_debug.functions.len(),
+        bytecode.modules[bytecode.root.index()].functions.len()
+    );
     assert!(artifact_debug.debug_names.iter().any(|name| name == "main"));
 }
 
@@ -118,7 +122,7 @@ fn main() -> i32 {
 }
 "#;
     let bytecode = common::bytecode_ok(source);
-    let function = bytecode
+    let function = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
         .find(|f| f.name == "main")
@@ -159,34 +163,56 @@ fn main() -> i32 {
 }
 "#,
     );
-    let main = bytecode
+    let main = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
 
-    assert!(bytecode.constants.iter().any(|constant| matches!(
-        constant,
-        bytecode::ConstantOperand::Str(text) if text == "ok"
-    )));
-    assert!(bytecode.types.contains(&ValueType::I32));
-    assert!(bytecode.types.contains(&ValueType::Str));
-    assert_eq!(bytecode.function_table.len(), bytecode.functions.len());
-    assert_eq!(bytecode.function_table[0].name, "add");
+    assert!(
+        bytecode.modules[bytecode.root.index()]
+            .constants
+            .iter()
+            .any(|constant| matches!(
+                constant,
+                bytecode::ConstantOperand::Str(text) if text == "ok"
+            ))
+    );
+    assert!(
+        bytecode.modules[bytecode.root.index()]
+            .types
+            .contains(&ValueType::I32)
+    );
+    assert!(
+        bytecode.modules[bytecode.root.index()]
+            .types
+            .contains(&ValueType::Str)
+    );
     assert_eq!(
-        bytecode.function_table[0].params,
+        bytecode.modules[bytecode.root.index()].function_table.len(),
+        bytecode.modules[bytecode.root.index()].functions.len()
+    );
+    assert_eq!(
+        bytecode.modules[bytecode.root.index()].function_table[0].name,
+        "add"
+    );
+    assert_eq!(
+        bytecode.modules[bytecode.root.index()].function_table[0].params,
         vec![ValueType::I32, ValueType::I32]
     );
-    assert_eq!(bytecode.function_table[0].return_type, ValueType::I32);
+    assert_eq!(
+        bytecode.modules[bytecode.root.index()].function_table[0].return_type,
+        ValueType::I32
+    );
     assert!(main.metadata.effects.calls);
     assert!(main.metadata.effects.touches_runtime);
-    assert!(verify_module(&bytecode).is_ok());
+    assert!(verify_program(&bytecode).is_ok());
 }
 
 #[test]
 fn lowers_arithmetic_into_real_bytecode_instructions() {
     let bytecode = common::bytecode_ok("fn add(a: i32, b: i32) -> i32 { val c = a + b; c }");
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
@@ -200,7 +226,7 @@ fn lowers_arithmetic_into_real_bytecode_instructions() {
 #[test]
 fn flattens_branch_targets_to_instruction_offsets() {
     let bytecode = common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     let targets = function
         .instructions
@@ -233,7 +259,7 @@ fn callee() -> i32 { 1 }
 fn caller() -> i32 { callee() }
 "#,
     );
-    let function = &bytecode.functions[1];
+    let function = &bytecode.modules[bytecode.root.index()].functions[1];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
@@ -247,7 +273,7 @@ fn caller() -> i32 { callee() }
 #[test]
 fn lowers_unary_and_short_circuit_expressions() {
     let bytecode = common::bytecode_ok("fn main() -> bool { !false && true }");
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
@@ -275,7 +301,7 @@ fn main() -> () {
 }
 "#,
     );
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     let jump_count = function
         .instructions
@@ -308,7 +334,7 @@ fn main() -> () {
 }
 "#,
     );
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(
         function
@@ -341,7 +367,7 @@ fn main() -> () {
         ))
     );
     assert!(
-        bytecode
+        bytecode.modules[bytecode.root.index()]
             .structures
             .iter()
             .flat_map(|layout| &layout.fields)
@@ -350,7 +376,7 @@ fn main() -> () {
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::ReadAggregateField { field, .. }
-            if bytecode.structures.get(field.structure.index()).and_then(|layout| layout.fields.get(field.slot as usize)).is_some_and(|record| record.name == "x")
+            if bytecode.modules[bytecode.root.index()].structures.get(field.structure.index()).and_then(|layout| layout.fields.get(field.slot as usize)).is_some_and(|record| record.name == "x")
     )));
 }
 
@@ -415,7 +441,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
 fn lowers_named_match_pattern_to_local_traffic() {
     let bytecode =
         common::bytecode_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(
         function
@@ -434,7 +460,7 @@ fn lowers_named_match_pattern_to_local_traffic() {
 #[test]
 fn lowers_type_of_builtin_to_runtime_helper_call() {
     let bytecode = common::bytecode_ok("fn main() -> String { type_of(7) }");
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
@@ -449,7 +475,7 @@ fn lowers_type_of_builtin_to_runtime_helper_call() {
 fn reflection_helper_operands_are_checked_before_loading() {
     let valid = common::bytecode_ok("fn main() -> String { type_of(7) }");
     let mut wrong_arity = valid.clone();
-    let call = wrong_arity.functions[0]
+    let call = wrong_arity.modules[wrong_arity.root.index()].functions[0]
         .instructions
         .iter_mut()
         .find(|instruction| matches!(instruction, BytecodeInstruction::Call { .. }))
@@ -459,12 +485,12 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     args.clear();
     assert!(matches!(
-        verify_module(&wrong_arity),
+        verify_program(&wrong_arity),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 
     let mut wrong_result = valid.clone();
-    let call = wrong_result.functions[0]
+    let call = wrong_result.modules[wrong_result.root.index()].functions[0]
         .instructions
         .iter_mut()
         .find(|instruction| matches!(instruction, BytecodeInstruction::Call { .. }))
@@ -474,12 +500,12 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     *dst = Some(args[0]);
     assert!(matches!(
-        verify_module(&wrong_result),
+        verify_program(&wrong_result),
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
     let mut wrong_field_base = valid;
-    let call = wrong_field_base.functions[0]
+    let call = wrong_field_base.modules[wrong_field_base.root.index()].functions[0]
         .instructions
         .iter_mut()
         .find(|instruction| matches!(instruction, BytecodeInstruction::Call { .. }))
@@ -489,13 +515,13 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     *callee = CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField("x".into()));
     assert!(matches!(
-        verify_module(&wrong_field_base),
+        verify_program(&wrong_field_base),
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
     let mut wrong_index =
         common::bytecode_ok("fn main() -> ArrayList<i32> { set_index([1], 0, 2) }");
-    let call = wrong_index.functions[0]
+    let call = wrong_index.modules[wrong_index.root.index()].functions[0]
         .instructions
         .iter_mut()
         .find(|instruction| {
@@ -513,7 +539,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     args[1] = args[0];
     assert!(matches!(
-        verify_module(&wrong_index),
+        verify_program(&wrong_index),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 }
@@ -532,7 +558,7 @@ fn main() -> Point {
 }
 "#,
     );
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
@@ -559,7 +585,7 @@ fn main(values: ArrayList<i32>) -> ArrayList<i32> {
 }
 "#,
     );
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
@@ -586,12 +612,12 @@ fn main() -> i32 {
 }
 "#,
     );
-    let function = &bytecode.functions[0];
+    let function = &bytecode.modules[bytecode.root.index()].functions[0];
 
     assert!(function.instructions.iter().any(|instruction| matches!(
         instruction,
         BytecodeInstruction::WriteAggregateField { field, .. }
-            if bytecode.structures.get(field.structure.index()).and_then(|layout| layout.fields.get(field.slot as usize)).is_some_and(|record| record.name == "x")
+            if bytecode.modules[bytecode.root.index()].structures.get(field.structure.index()).and_then(|layout| layout.fields.get(field.slot as usize)).is_some_and(|record| record.name == "x")
     )));
     assert!(
         function.instructions.iter().any(|instruction| matches!(
@@ -622,13 +648,17 @@ const VALUE: i32 = BASE + 2;
 fn main() -> i32 { VALUE }
 "#,
     );
-    let function = bytecode
+    let function = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
 
-    assert!(bytecode.module_slots.is_empty());
+    assert!(
+        bytecode.modules[bytecode.root.index()]
+            .module_slots
+            .is_empty()
+    );
     assert!(
         function
             .instructions
@@ -644,7 +674,7 @@ fn main() -> i32 { VALUE }
 }
 
 #[test]
-fn stdlib_lowers_standard_library_calls_to_bytecode_intrinsic_ids() {
+fn stdlib_calls_lower_to_provider_qualified_engine_imports() {
     let bytecode = common::bytecode_ok(
         r#"
 fn main() -> usize {
@@ -655,31 +685,21 @@ fn main() -> usize {
 }
 "#,
     );
-    let function = bytecode
+    let function = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
 
-    assert!(function.instructions.iter().any(|instruction| matches!(
-        instruction,
-        BytecodeInstruction::Call {
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
-            ..
-        }
-    )));
-    assert!(function.instructions.iter().any(|instruction| matches!(
-        instruction,
-        BytecodeInstruction::Call {
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPop),
-            ..
-        }
-    )));
-    assert!(function.instructions.iter().any(|instruction| matches!(
-        instruction,
-        BytecodeInstruction::Call {
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
-            ..
-        }
-    )));
+    for expected in [
+        StandardIntrinsic::ArrayPush,
+        StandardIntrinsic::ArrayPop,
+        StandardIntrinsic::ArrayLen,
+    ] {
+        let imports = &bytecode.modules[bytecode.root.index()].engine_imports;
+        assert_eq!(function.instructions.iter().filter(|instruction| matches!(instruction,
+            BytecodeInstruction::Call { callee: CallTarget::Native(kagari_abi::callable::NativeCall::Engine(import)), .. }
+                if imports[import.index()].direct_operation() == Some(expected)
+        )).count(), 1, "{expected:?}");
+    }
 }

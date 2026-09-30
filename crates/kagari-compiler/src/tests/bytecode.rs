@@ -10,16 +10,17 @@ use kagari_bytecode::{
     ArtifactValidationError, BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule,
     BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldRef,
     FunctionMetadata, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register,
-    RuntimeHelper, SafeDebugPointKind, StructId, UnaryOp, verify_module,
+    RuntimeHelper, SafeDebugPointKind, StructId, UnaryOp, verify_module, verify_program,
 };
 use kagari_common::{
     collection::CollectionAccess,
     identity::{ModuleIdentity, PackageId},
 };
 
-fn host_trait_test_module(source: &str) -> BytecodeModule {
+fn host_trait_test_program(source: &str) -> kagari_bytecode::BytecodeProgram {
     let mut module = common::bytecode_ok(source);
-    add_readable_host(&mut module);
+    let root = module.root.index();
+    add_readable_host(&mut module.modules[root]);
     module
 }
 

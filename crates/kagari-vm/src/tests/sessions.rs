@@ -2,7 +2,7 @@ use crate::{
     Vm, VmError,
     tests::{common::compile_test_bytecode, native_fixtures},
 };
-use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
 use kagari_runtime::{
     BackendInvocationError, CapabilitySet, HostExposurePolicy, LanguageProfile,
@@ -55,7 +55,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let module = compile_test_bytecode(
                 "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> ArrayList<i32> { print(\"inner\"); [n, 8] }",
             );
-            let make = module
+            let make = module.modules[module.root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "make")
@@ -117,16 +117,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                 }))
                 .unwrap();
             let loaded = runtime
-                .load_program(
-                    "reentry.kgr",
-                    route(
-                        BytecodeProgram {
-                            root: ModuleRef::new(0),
-                            modules: vec![module],
-                        },
-                        encoded,
-                    ),
-                )
+                .load_program("reentry.kgr", route(module, encoded))
                 .unwrap();
             let mut vm = Vm::new(runtime);
             let prepared = native_fixtures::unsupported();
@@ -172,7 +163,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                 let module = compile_test_bytecode(
                     "fn main() -> i32 { print(\"outer\"); 42 } fn nested() -> i32 { print(\"inner\"); 7 }",
                 );
-                let nested = module
+                let nested = module.modules[module.root.index()]
                     .functions
                     .iter()
                     .find(|f| f.name == "nested")
@@ -197,16 +188,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     Ok(Value::Unit)
                 })).unwrap();
                 let loaded = runtime
-                    .load_program(
-                        "termination.kgr",
-                        route(
-                            BytecodeProgram {
-                                root: ModuleRef::new(0),
-                                modules: vec![module],
-                            },
-                            encoded,
-                        ),
-                    )
+                    .load_program("termination.kgr", route(module, encoded))
                     .unwrap();
                 let mut options = runtime.execution_options();
                 options.cancellation = token;
@@ -261,13 +243,13 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let module = compile_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: ArrayList<i32>) -> ArrayList<i32> { value }",
     );
-    let main = module
+    let main = module.modules[module.root.index()]
         .functions
         .iter()
         .find(|f| f.name == "main")
         .unwrap()
         .id;
-    let echo = module
+    let echo = module.modules[module.root.index()]
         .functions
         .iter()
         .find(|f| f.name == "echo")
@@ -279,10 +261,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let foreign_module = foreign
         .load_program(
             "foreign.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![compile_test_bytecode("fn main() -> i32 { 7 }")],
-            },
+            compile_test_bytecode("fn main() -> i32 { 7 }"),
         )
         .unwrap();
     let foreign_value = Value::Array(foreign.alloc_array(vec![]).unwrap());
@@ -304,15 +283,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     runtime
         .invoke_host("host.log", &[Value::Str("enter".into())])
         .unwrap();
-    let loaded = runtime
-        .load_program(
-            "inputs.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("inputs.kgr", module).unwrap();
     let mut vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
@@ -329,17 +300,14 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
     for encoded in [false, true] {
         let program = |number| {
             route(
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![compile_test_bytecode(&format!(
-                        "fn main() -> i32 {{ print(\"enter\"); 0 }} fn value() -> i32 {{ {number} }}"
-                    ))],
-                },
+                compile_test_bytecode(&format!(
+                    "fn main() -> i32 {{ print(\"enter\"); 0 }} fn value() -> i32 {{ {number} }}"
+                )),
                 encoded,
             )
         };
         let first = program(7);
-        let function = first.modules[0]
+        let function = first.modules[first.root.index()]
             .functions
             .iter()
             .find(|f| f.name == "value")
@@ -382,7 +350,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let module = compile_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn fail(n: i32) -> i32 { val kept = [n]; n + 1 }",
     );
-    let fail = module
+    let fail = module.modules[module.root.index()]
         .functions
         .iter()
         .find(|f| f.name == "fail")
@@ -398,15 +366,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         assert_eq!(context.runtime().gc().allocated_objects(), 0);
         Ok(Value::Unit)
     })).unwrap();
-    let loaded = runtime
-        .load_program(
-            "trap.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("trap.kgr", module).unwrap();
     let mut vm = Vm::new(runtime);
     assert_eq!(
         vm.execute(&loaded, "main").unwrap().return_value,
@@ -420,15 +380,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
 fn native_safepoint_reports_cancellation_before_charging_the_instruction() {
     let mut runtime = runtime(None);
     let module = compile_test_bytecode("fn main() -> i32 { 42 }");
-    let loaded = runtime
-        .load_program(
-            "native-cancel.kgr",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("native-cancel.kgr", module).unwrap();
     let native = native_fixtures::install_i32::<42>(&runtime, &loaded, false);
     let token = CancellationToken::default();
     let mut options = runtime.execution_options();
@@ -466,16 +418,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
                 "fn main() -> i32 { val kept = [1]; print(\"cancel\"); 42 } fn ready() -> i32 { 7 }",
             );
             let loaded = runtime
-                .load_program(
-                    "cancel.kgr",
-                    route(
-                        BytecodeProgram {
-                            root: ModuleRef::new(0),
-                            modules: vec![module],
-                        },
-                        encoded,
-                    ),
-                )
+                .load_program("cancel.kgr", route(module, encoded))
                 .unwrap();
             let mut options = runtime.execution_options();
             options.cancellation = token;
@@ -512,10 +455,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
     for encoded in [false, true] {
         let program = || {
             route(
-                BytecodeProgram {
-                    root: ModuleRef::new(0),
-                    modules: vec![compile_test_bytecode("fn main() { print(\"forbidden\"); }")],
-                },
+                compile_test_bytecode("fn main() { print(\"forbidden\"); }"),
                 encoded,
             )
         };
@@ -555,7 +495,10 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         assert_eq!(calls.get(), 0);
         drop(session);
         drop(candidate);
-        assert_eq!(vm.runtime().resources().counters().loaded_modules, 1);
+        assert_eq!(
+            vm.runtime().resources().counters().loaded_modules,
+            old.members().count()
+        );
         assert!(vm.runtime().execution_root().is_none());
         assert!(!vm.runtime().is_quarantined());
     }
@@ -568,7 +511,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
     for encoded in [false, true] {
         let module =
             compile_test_bytecode("fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}");
-        let fail = module
+        let fail = module.modules[module.root.index()]
             .functions
             .iter()
             .find(|f| f.name == "fail")
@@ -592,16 +535,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
             }))
             .unwrap();
         let loaded = runtime
-            .load_program(
-                "host-origin.kgr",
-                route(
-                    BytecodeProgram {
-                        root: ModuleRef::new(0),
-                        modules: vec![module],
-                    },
-                    encoded,
-                ),
-            )
+            .load_program("host-origin.kgr", route(module, encoded))
             .unwrap();
         let mut vm = Vm::new(runtime);
         let error = vm.execute(&loaded, "main").unwrap_err();

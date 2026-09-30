@@ -1,4 +1,4 @@
-use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use crate::{lower_to_mir, tests::common};
 use kagari_common::{Span, line_index::PositionEncoding};
 use kagari_mir::{MirVerificationErrorKind, debug::SourcePosition, verify_mir};
 use std::sync::Arc;
@@ -9,9 +9,10 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
         "fn main() -> i32 {\n    val text = \"雪😀\"; 7\n}\n",
         "fn main() -> i32 {\r\n    val text = \"雪😀\"; 7\r\n}\r\n",
     ] {
-        let checked = common::analyze_ok(text);
-        let weak_source = Arc::downgrade(&checked.lowered.source);
-        let verified = lower_to_mir(&checked, &Default::default()).unwrap();
+        let checked = common::program_ok(text);
+        let weak_source = Arc::downgrade(&checked.root().lowered.source);
+        let expected_uri = checked.root().lowered.source.name().to_owned();
+        let verified = lower_to_mir(checked.root(), &Default::default()).unwrap();
         let expected = verified.functions[0]
             .blocks
             .iter()
@@ -24,6 +25,7 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
             })
             .map(|span| {
                 let position = checked
+                    .root()
                     .lowered
                     .source
                     .position(span.start, PositionEncoding::Utf8)
@@ -40,15 +42,17 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
             let encoded = bincode::serialize(function.debug.source.as_ref().unwrap()).unwrap();
             function.debug.source = Some(bincode::deserialize(&encoded).unwrap());
         }
+        let verified = verify_mir(raw, &Default::default()).unwrap();
+        let bytecode = common::bytecode_with_edited_root(&checked, &verified);
         drop(checked);
         assert!(
             weak_source.upgrade().is_none(),
-            "MIR must not retain source text"
+            "MIR and bytecode must not retain source text"
         );
-        let verified = verify_mir(raw, &Default::default()).unwrap();
-        let bytecode = lower_to_bytecode(&verified).unwrap();
-        let debug = &bytecode.functions[0].metadata.debug;
-        assert_eq!(debug.source_uri.as_deref(), Some("test.kg"));
+        let debug = &bytecode.modules[bytecode.root.index()].functions[0]
+            .metadata
+            .debug;
+        assert_eq!(debug.source_uri.as_deref(), Some(expected_uri.as_str()));
         assert_eq!(
             debug
                 .line_table
@@ -62,8 +66,8 @@ fn portable_origins_preserve_utf8_positions_after_source_and_codec_handoff() {
 
 #[test]
 fn malformed_origins_and_unmapped_ranges_are_rejected_before_lowering() {
-    let checked = common::analyze_ok("fn main() -> i32 { val x = 1; x + 2 }");
-    let original = lower_to_mir(&checked, &Default::default())
+    let checked = common::program_ok("fn main() -> i32 { val x = 1; x + 2 }");
+    let original = lower_to_mir(checked.root(), &Default::default())
         .unwrap()
         .into_unverified();
     for mutation in 0..9 {
@@ -119,16 +123,18 @@ fn malformed_origins_and_unmapped_ranges_are_rejected_before_lowering() {
 
 #[test]
 fn origin_free_mir_keeps_spans_but_does_not_invent_source_coordinates() {
-    let checked = common::analyze_ok("fn main() -> i32 { 7 }");
-    let mut raw = lower_to_mir(&checked, &Default::default())
+    let checked = common::program_ok("fn main() -> i32 { 7 }");
+    let mut raw = lower_to_mir(checked.root(), &Default::default())
         .unwrap()
         .into_unverified();
     for function in &mut raw.functions {
         function.debug.source = None;
     }
     let verified = verify_mir(raw, &Default::default()).unwrap();
-    let bytecode = lower_to_bytecode(&verified).unwrap();
-    let debug = &bytecode.functions[0].metadata.debug;
+    let bytecode = common::bytecode_with_edited_root(&checked, &verified);
+    let debug = &bytecode.modules[bytecode.root.index()].functions[0]
+        .metadata
+        .debug;
     assert!(debug.source_uri.is_none());
     assert!(
         debug

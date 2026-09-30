@@ -5,14 +5,7 @@ use kagari_bytecode as bytecode;
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
     let artifact = |source: &str| {
-        KbcArtifact::from_program(
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![common::bytecode_ok(source)],
-            },
-            Default::default(),
-        )
-        .unwrap()
+        KbcArtifact::from_program(common::bytecode_ok(source), Default::default()).unwrap()
     };
     let expression = artifact("pub const VALUE: i32 = 6 * 7;");
     let literal = artifact("pub const VALUE: i32 = 42;");
@@ -52,11 +45,11 @@ fn main() -> i32 { add(1, 2) }
         package: PackageId("pkg".into()),
         path: vec!["main".into()],
     };
-    module.identity = identity.clone();
-    for function in &mut module.functions {
+    module.modules[module.root.index()].identity = identity.clone();
+    for function in &mut module.modules[module.root.index()].functions {
         function.identity.as_mut().unwrap().declaration.module = identity.clone();
     }
-    for record in &mut module.function_table {
+    for record in &mut module.modules[module.root.index()].function_table {
         record.identity.as_mut().unwrap().declaration.module = identity.clone();
     }
     let dependency_module = BytecodeModule {
@@ -70,12 +63,25 @@ fn main() -> i32 { add(1, 2) }
         module_id: dependency_module.identity.clone(),
         fingerprint: ArtifactFingerprint::of_serialized(&dependency_module),
     };
-    module.dependencies = vec![bytecode::ModuleRef::new(0)];
+    let dependency_slot = bytecode::ModuleRef::new(module.modules.len());
+    module.modules[module.root.index()]
+        .dependencies
+        .push(dependency_slot);
+    module.modules.push(dependency_module);
+    let mut dependencies: Vec<_> = module
+        .modules
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != module.root.index())
+        .map(|(_, member)| DependencyFingerprint {
+            module_id: member.identity.clone(),
+            fingerprint: ArtifactFingerprint::of_serialized(member),
+        })
+        .collect();
+    dependencies.sort_by(|a, b| a.module_id.cmp(&b.module_id));
+    assert!(dependencies.contains(&dependency));
     let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(1),
-            modules: vec![dependency_module, module],
-        },
+        module,
         ArtifactBuildOptions {
             security_profile: Some("dev".into()),
             ..Default::default()
@@ -100,7 +106,7 @@ fn main() -> i32 { add(1, 2) }
     assert_eq!(artifact.verification.function_layouts.len(), 2);
     assert_eq!(
         artifact.verification.loader.dependency_fingerprints,
-        vec![dependency]
+        dependencies
     );
     assert_eq!(
         artifact.verification.loader.security_profile.as_deref(),
@@ -119,14 +125,7 @@ fn main() -> i32 { add(1, 2) }
 #[test]
 fn serializes_kbc_artifact_bytes_for_loader_execution() {
     let module = common::bytecode_ok("fn main() -> i32 { 1 }");
-    let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![module],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
+    let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
 
     let bytes = artifact.to_bytes().expect("artifact should encode");
     let decoded = KbcArtifact::from_bytes(&bytes).expect("artifact should decode");
@@ -183,7 +182,7 @@ pub fn greet(player: Player) -> String {
 
     let player = AbiType::Struct(NominalAbiType {
         associated_types: Default::default(),
-        declaration: module
+        declaration: module.modules[module.root.index()]
             .structures
             .iter()
             .find(|layout| layout.name() == "Player")
@@ -192,12 +191,12 @@ pub fn greet(player: Player) -> String {
             .clone(),
         arguments: vec![],
     });
-    assert!(module.public_items.iter().any(|item| matches!(
+    assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::Const(item)
             if item.name == "VERSION" && item.ty == AbiType::Builtin(BuiltinType::I32) && item.value == "const-v1:i32:1"
     )));
-    assert!(module.public_items.iter().any(|item| matches!(
+    assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::Type(item)
             if item.name == "Player"
@@ -206,14 +205,19 @@ pub fn greet(player: Player) -> String {
                     field.name == "score" && field.ty == AbiType::Builtin(BuiltinType::I32) && field.mutable
                 })
     )));
-    assert!(module.public_items.iter().any(|item| matches!(
-        item,
-        PublicAbiItem::Type(item)
-            if item.name == "Status"
-                && item.kind == TypeAbiKind::Enum
-                && item.variants.iter().any(|variant| variant.name == "Ready")
-    )));
-    assert!(module.public_items.iter().any(|item| matches!(
+    assert!(
+        module.modules[module.root.index()]
+            .public_items
+            .iter()
+            .any(|item| matches!(
+                item,
+                PublicAbiItem::Type(item)
+                    if item.name == "Status"
+                        && item.kind == TypeAbiKind::Enum
+                        && item.variants.iter().any(|variant| variant.name == "Ready")
+            ))
+    );
+    assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::Trait(item)
             if item.name == "Display"
@@ -221,14 +225,14 @@ pub fn greet(player: Player) -> String {
                     method.name == "show" && method.return_type == AbiType::Builtin(BuiltinType::String)
                 })
     )));
-    assert!(module.public_items.iter().any(|item| matches!(
+    assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(
         item,
         PublicAbiItem::InterfaceTable(item)
-            if matches!(&item.trait_type, AbiType::Trait(ty) if ty.declaration.module == module.identity && ty.declaration.path.last().unwrap().name == "Display")
+            if matches!(&item.trait_type, AbiType::Trait(ty) if ty.declaration.module == module.modules[module.root.index()].identity && ty.declaration.path.last().unwrap().name == "Display")
                 && item.for_type == player
                 && item.methods.iter().any(|method| method.name == "show")
     )));
-    let table = module
+    let table = module.modules[module.root.index()]
         .public_items
         .iter()
         .find(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
@@ -240,23 +244,21 @@ pub fn greet(player: Player) -> String {
     other.declaration.module.package.0 = "other-package".into();
     assert_eq!(table.name(), same_label.name());
     assert_ne!(table.fingerprint_name(), same_label.fingerprint_name());
-    assert!(module.public_items.iter().any(|item| matches!(
-        item,
-        PublicAbiItem::Function(item)
-            if item.name == "greet"
-                && item.params.len() == 1
-                && item.params[0].ty == player
-                && item.return_type == AbiType::Builtin(BuiltinType::String)
-    )));
+    assert!(
+        module.modules[module.root.index()]
+            .public_items
+            .iter()
+            .any(|item| matches!(
+                item,
+                PublicAbiItem::Function(item)
+                    if item.name == "greet"
+                        && item.params.len() == 1
+                        && item.params[0].ty == player
+                        && item.return_type == AbiType::Builtin(BuiltinType::String)
+            ))
+    );
 
-    let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![module],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
+    let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
     let names = artifact
         .verification
         .public_abi_fingerprints
@@ -281,20 +283,12 @@ pub fn greet(player: Player) -> String {
 #[test]
 fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
     let first = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![common::bytecode_ok("pub fn main() -> i32 { 1 }")],
-        },
+        common::bytecode_ok("pub fn main() -> i32 { 1 }"),
         ArtifactBuildOptions::default(),
     )
     .unwrap();
     let second = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![common::bytecode_ok(
-                "pub fn main(value: i32) -> i32 { value }",
-            )],
-        },
+        common::bytecode_ok("pub fn main(value: i32) -> i32 { value }"),
         ArtifactBuildOptions::default(),
     )
     .unwrap();
@@ -361,10 +355,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
     for version in 5..33 {
         let previous = format!("kagari-runtime-abi-v{version}");
         let artifact = KbcArtifact::from_program(
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
-            },
+            common::bytecode_ok("fn main() -> i32 { 1 }"),
             ArtifactBuildOptions {
                 runtime_abi_version: previous.clone(),
                 ..Default::default()
@@ -392,10 +383,7 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
         "kagari-runtime-helper-abi-v4",
     ] {
         let artifact = KbcArtifact::from_program(
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
-            },
+            common::bytecode_ok("fn main() -> i32 { 1 }"),
             ArtifactBuildOptions {
                 runtime_helper_abi_version: previous.into(),
                 ..Default::default()
@@ -419,14 +407,7 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
 #[test]
 fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
     let module = common::bytecode_ok("fn main() -> i32 { 1 }");
-    let mut artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![module],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
+    let mut artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
     let requirements = ArtifactCompatibility {
         runtime_abi_version: "other-runtime".to_owned(),
         ..Default::default()
@@ -461,10 +442,7 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
     );
 
     let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![common::bytecode_ok("fn main() -> i32 { 1 }")],
-        },
+        common::bytecode_ok("fn main() -> i32 { 1 }"),
         Default::default(),
     )
     .unwrap();

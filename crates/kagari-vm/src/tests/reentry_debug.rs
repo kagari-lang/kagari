@@ -3,7 +3,7 @@ use crate::{
     tests::{common::compile_test_bytecode, native_fixtures},
 };
 use kagari_abi::callable::NativeCall;
-use kagari_bytecode::{BytecodeInstruction, BytecodeProgram, CallTarget, KbcArtifact, ModuleRef};
+use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact};
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
     CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, Runtime,
@@ -16,13 +16,13 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
         for jit in [false, true] {
             let source = "fn main() -> i32 { val kept = [42]; print(\"enter\"); kept[0] } fn nested(n: i32) -> i32 { val doubled = n + n; doubled + 2147483647 }";
             let module = compile_test_bytecode(source);
-            let nested = module
+            let nested = module.modules[module.root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "nested")
                 .unwrap()
                 .id;
-            let caller_offset = module
+            let caller_offset = module.modules[module.root.index()]
                 .functions
                 .iter()
                 .find(|f| f.name == "main")
@@ -39,10 +39,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                     )
                 })
                 .unwrap();
-            let mut program = BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![module],
-            };
+            let mut program = module;
             if encoded {
                 program = KbcArtifact::from_bytes(
                     &KbcArtifact::from_program(program, Default::default())

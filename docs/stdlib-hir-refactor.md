@@ -1,10 +1,10 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00, ST01 and ST02 implementation scope complete. ST03's native
-call representation, versions and direct-call vertical are checked. Portable
-validation integration and source test consumer migration remain incomplete.
-The workspace builds; legacy single-module source tests and stale artifact
-fixtures still prevent final acceptance. ST04-ST06 remain pending.
+Status: active; ST00-ST03 implementation scope complete. Whole checked programs
+now retain their dependency closure through portable validation, artifact loading
+and engine/host integration. The workspace builds; compiler and VM library suites
+and selected embedding integration suites pass. ST04-ST06 remain pending, including
+native continuations, algorithm migration, encoded fixtures and final acceptance.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -463,9 +463,9 @@ checked HIR. There is no fallback standard signature or trait solver.
 
 - [x] Introduce the checked provider-qualified native call/import representation
   in ABI, MIR and bytecode; lower it from HIR and link it against runtime bindings.
-- [ ] Replace source-catalog queries in executable validators with carried type,
+- [x] Replace source-catalog queries in executable validators with carried type,
   layout and witness facts plus trusted native contract validation.
-- [ ] Preserve ordinary script, closure, interface and host-call integration;
+- [x] Preserve ordinary script, closure, interface and host-call integration;
   reject provider substitution and missing/mismatched host contracts.
 - [x] Version affected bytecode/artifact, portable MIR, runtime and helper contracts
   as required; reject superseded products without compatibility readers.
@@ -783,6 +783,44 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST03 complete-program validation/integration checkpoint (2026-09-30): closes
+  the remaining portable-validation and script/closure/interface/host integration
+  checklists. Executable validators use carried declaration, type, layout and
+  selected witness facts with the closed native storage contracts introduced in
+  the preceding handoff. No SDK source catalog, replacement signature table or
+  compatibility model is queried by MIR, bytecode or runtime validation.
+- Compiler and VM source test producers now check and lower complete programs.
+  Artifact creation, decoding, corruption tests and runtime loading retain every
+  checked dependency. Root assertions use the actual root identity/index; nominal
+  layout assertions select their declaration owner. Module transformation tests
+  replace the edited root in its original checked closure and revalidate the whole
+  program before emitting bytecode, preserving optimization, budget and origin
+  assertions. MIR-only rejection fixtures remain independent module tests.
+- Existing host contract, private/imported trait, provider substitution, malformed
+  signature, initializer, invariant storage, GC, cancellation, synchronous reentry
+  and JIT-fallback assertions pass through the new consumer path. Reload checks
+  compare the exact reclaimed dependency member set and preserve old callable
+  generations. Offline facade tests distinguish their own source members within
+  the complete installed closure, without discarding standard dependencies.
+- Portable MIR version/truncation checks exhaust every prefix of a small explicit
+  source-free two-member graph. Full compiled closures retain canonical codec,
+  native correspondence, float-bit, origin and forged-control-flow coverage. This
+  keeps exhaustive wire truncation coverage bounded as installed metadata grows.
+- Validation: `cargo test -p kagari-compiler --lib --no-fail-fast` passes 165 tests;
+  `cargo test -p kagari-vm --lib --no-fail-fast` passes 119. Embedding's library
+  language-contract test passes; `host_interfaces`, `offline_composite`,
+  `offline_functions` and `source_snapshots` pass 27 tests, including source,
+  decoded-artifact and supported JIT/fallback routes (312 tests total). The former
+  `UnlinkedSourceModules` source-consumer error is resolved, rather than cleared
+  or bypassed. These are actual subsystem results, not final workspace acceptance.
+- `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets
+  -- -D warnings`, formatting, whole-repository structure and diff checks pass.
+  The structure check covers 562 Rust files with zero violations or documented
+  exceptions. No new structural debt or production public surface was introduced.
+  ST04 owns runtime continuations; ST05 owns the remaining compiler algorithm
+  expansions. ST06 still owns encoded fixture regeneration, feature/dependency
+  audits, measurements and the complete acceptance matrix/commands.
 
 - Coupled ST02/ST03 native handoff checkpoint (2026-09-30): completes ST02's
   execution-fact checklist and ST03's representation, version and direct-call

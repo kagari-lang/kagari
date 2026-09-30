@@ -2,6 +2,7 @@ use crate::source::program::lower_program_to_mir;
 use crate::tests::bytecode::*;
 use kagari_abi::types as abi;
 use kagari_bytecode as bytecode;
+use kagari_bytecode::verify_program;
 use kagari_mir::program as mir_program;
 
 #[test]
@@ -10,7 +11,7 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
         let module = common::bytecode_ok(&format!(
             "pub trait Echo<T> {{}} pub struct Bag<T: Echo<{argument}>> {{ val value: T }} fn main() {{}}"
         ));
-        let bag = module
+        let bag = module.modules[module.root.index()]
             .public_items
             .iter()
             .find_map(|item| match item {
@@ -20,14 +21,7 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
             .unwrap();
         assert!(matches!(&bag.bounds[0].constraints[0],
             abi::ConstraintAbi::Trait(ty) if ty.arguments.len() == 1));
-        let artifact = KbcArtifact::from_program(
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![module],
-            },
-            ArtifactBuildOptions::default(),
-        )
-        .unwrap();
+        let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
         artifact
             .verification
             .public_abi_fingerprints
@@ -44,7 +38,7 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
     let mut module = common::bytecode_ok(
         "pub trait Echo<T> {} pub struct Bag<T: Echo<T>> { val value: T } fn main() {}",
     );
-    let bag = module
+    let bag = module.modules[module.root.index()]
         .public_items
         .iter_mut()
         .find_map(|item| match item {
@@ -60,17 +54,11 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
     };
     *owner = ty.declaration.clone();
     assert!(matches!(
-        verify_module(&module),
+        verify_program(&module),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     assert!(matches!(
-        KbcArtifact::from_program(
-            bytecode::BytecodeProgram {
-                root: bytecode::ModuleRef::new(0),
-                modules: vec![module],
-            },
-            ArtifactBuildOptions::default(),
-        ),
+        KbcArtifact::from_program(module, ArtifactBuildOptions::default(),),
         Err(ArtifactValidationError::Bytecode(_))
     ));
 }
@@ -80,17 +68,18 @@ fn applied_trait_interface_table_preserves_method_contract() {
     let module = common::bytecode_ok(
         "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn main() {}",
     );
-    assert_eq!(module.interface_tables.len(), 1);
-    assert_eq!(module.interface_tables[0].methods.len(), 1);
-    verify_module(&module).unwrap();
-    let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![module],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables.len(),
+        1
+    );
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables[0]
+            .methods
+            .len(),
+        1
+    );
+    verify_program(&module).unwrap();
+    let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
     KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
         .unwrap()
         .validate_for_loader(&ArtifactCompatibility::default())
@@ -102,7 +91,7 @@ fn applied_trait_method_bounds_match_across_binder_owners() {
     let module = common::bytecode_ok(
         "pub trait Marker<T> {} pub struct Holder {} impl Marker<i32> for Holder {} pub trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } } fn main() {}",
     );
-    verify_module(&module).unwrap();
+    verify_program(&module).unwrap();
 }
 
 #[test]
@@ -110,9 +99,16 @@ fn applied_trait_template_keeps_impl_and_trait_arguments() {
     let module = common::bytecode_ok(
         "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn main() {}",
     );
-    assert_eq!(module.interface_tables.len(), 1);
-    assert!(module.interface_tables[0].methods.is_empty());
-    assert!(module.public_items.iter().any(|item| matches!(item,
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables.len(),
+        1
+    );
+    assert!(
+        module.modules[module.root.index()].interface_tables[0]
+            .methods
+            .is_empty()
+    );
+    assert!(module.modules[module.root.index()].public_items.iter().any(|item| matches!(item,
         PublicAbiItem::InterfaceTable(table)
             if table.generic_params.len() == 1
                 && matches!(&table.trait_type, abi::AbiType::Trait(instance) if instance.arguments.len() == 1)
@@ -124,9 +120,17 @@ fn generic_interface_implementation_specializes_reachable_method() {
     let module = common::bytecode_ok(
         "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read<U: Get>(x: U) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
     );
-    assert_eq!(module.interface_tables.len(), 1);
-    assert_eq!(module.interface_tables[0].methods.len(), 2);
-    let abi = module
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables.len(),
+        1
+    );
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables[0]
+            .methods
+            .len(),
+        2
+    );
+    let abi = module.modules[module.root.index()]
         .public_items
         .iter()
         .find_map(|item| match item {
@@ -136,11 +140,11 @@ fn generic_interface_implementation_specializes_reachable_method() {
         .unwrap();
     assert_eq!(abi.generic_params.len(), 1);
     assert!(abi.methods[0].generic_params.is_empty());
-    let arguments = module.interface_tables[0]
+    let arguments = module.modules[module.root.index()].interface_tables[0]
         .methods
         .iter()
         .map(|slot| {
-            module.functions[slot.function.index()]
+            module.modules[module.root.index()].functions[slot.function.index()]
                 .identity
                 .as_ref()
                 .unwrap()
@@ -155,16 +159,21 @@ fn generic_interface_implementation_specializes_reachable_method() {
         kagari_abi::scalar::BuiltinType::String
     )]));
     let mut wrong_arity = module.clone();
-    let method = wrong_arity.interface_tables[0].methods[0].function.index();
-    wrong_arity.functions[method]
+    let method = wrong_arity.modules[wrong_arity.root.index()].interface_tables[0].methods[0]
+        .function
+        .index();
+    wrong_arity.modules[wrong_arity.root.index()].functions[method]
         .identity
         .as_mut()
         .unwrap()
         .arguments
         .clear();
-    wrong_arity.function_table[method].identity = wrong_arity.functions[method].identity.clone();
+    wrong_arity.modules[wrong_arity.root.index()].function_table[method].identity =
+        wrong_arity.modules[wrong_arity.root.index()].functions[method]
+            .identity
+            .clone();
     assert!(matches!(
-        verify_module(&wrong_arity),
+        verify_program(&wrong_arity),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -174,21 +183,28 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
     let module = common::bytecode_ok(
         "pub trait Echo<T> { fn get(self) -> T; } pub struct Holder<T> { val value: T } impl<T> Echo<T> for Holder<T> { fn get(self) -> T { self.value } } fn read<U: Echo<i32>>(x: U) -> i32 { x.get() } fn main() -> i32 { read(Holder { value: 7 }) }",
     );
-    assert_eq!(module.interface_tables[0].methods.len(), 1);
-    verify_module(&module).unwrap();
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables[0]
+            .methods
+            .len(),
+        1
+    );
+    verify_program(&module).unwrap();
     let mut wrong_instance = module;
-    let method = wrong_instance.interface_tables[0].methods[0]
+    let method = wrong_instance.modules[wrong_instance.root.index()].interface_tables[0].methods[0]
         .function
         .index();
-    wrong_instance.functions[method]
+    wrong_instance.modules[wrong_instance.root.index()].functions[method]
         .identity
         .as_mut()
         .unwrap()
         .arguments[0] = kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
-    wrong_instance.function_table[method].identity =
-        wrong_instance.functions[method].identity.clone();
+    wrong_instance.modules[wrong_instance.root.index()].function_table[method].identity =
+        wrong_instance.modules[wrong_instance.root.index()].functions[method]
+            .identity
+            .clone();
     assert!(matches!(
-        verify_module(&wrong_instance),
+        verify_program(&wrong_instance),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -198,12 +214,15 @@ fn concrete_interface_methods_have_verified_executable_slots() {
     let module = common::bytecode_ok(
         "pub struct Pair { val number: i32 } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } fn main() -> i32 { 1 }",
     );
-    assert_eq!(module.interface_tables.len(), 1);
-    let table = &module.interface_tables[0];
+    assert_eq!(
+        module.modules[module.root.index()].interface_tables.len(),
+        1
+    );
+    let table = &module.modules[module.root.index()].interface_tables[0];
     assert_eq!(table.methods.len(), 1);
     let slot = &table.methods[0];
     assert_eq!(slot.method.path.last().unwrap().name, "get");
-    let function = &module.functions[slot.function.index()];
+    let function = &module.modules[module.root.index()].functions[slot.function.index()];
     let identity = function.identity.as_ref().unwrap();
     assert_eq!(identity.declaration.path.last().unwrap().name, "get");
     assert_eq!(
@@ -211,57 +230,57 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         kagari_common::identity::DefinitionKind::Impl
     );
     assert!(identity.arguments.is_empty());
-    verify_module(&module).unwrap();
+    verify_program(&module).unwrap();
 
-    let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![module.clone()],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
+    let artifact =
+        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default()).unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     decoded
         .validate_for_loader(&ArtifactCompatibility::default())
         .unwrap();
     assert_eq!(
-        decoded.program.modules[0].interface_tables[0].methods[0].function,
+        decoded.program.modules[decoded.program.root.index()].interface_tables[0].methods[0]
+            .function,
         slot.function
     );
 
     let mut missing = module.clone();
-    missing.interface_tables[0].methods.clear();
+    missing.modules[missing.root.index()].interface_tables[0]
+        .methods
+        .clear();
     assert!(matches!(
-        verify_module(&missing),
+        verify_program(&missing),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_target = module.clone();
-    wrong_target.interface_tables[0].methods[0].function = wrong_target
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
-        .unwrap()
-        .id;
+    wrong_target.modules[wrong_target.root.index()].interface_tables[0].methods[0].function =
+        wrong_target.modules[wrong_target.root.index()]
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .unwrap()
+            .id;
     assert!(matches!(
-        verify_module(&wrong_target),
+        verify_program(&wrong_target),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_method = module.clone();
-    wrong_method.interface_tables[0].methods[0]
+    wrong_method.modules[wrong_method.root.index()].interface_tables[0].methods[0]
         .method
         .path
         .last_mut()
         .unwrap()
         .name = "other".into();
     assert!(matches!(
-        verify_module(&wrong_method),
+        verify_program(&wrong_method),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut missing_table = module;
-    missing_table.interface_tables.clear();
+    missing_table.modules[missing_table.root.index()]
+        .interface_tables
+        .clear();
     assert!(matches!(
-        verify_module(&missing_table),
+        verify_program(&missing_table),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -401,10 +420,10 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
     let original = common::bytecode_ok(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self } } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }",
     );
-    kagari_bytecode::verify_module(&original).unwrap();
+    kagari_bytecode::verify_program(&original).unwrap();
     for corruption in ["slot", "owner", "argument"] {
         let mut forged = original.clone();
-        let function = forged
+        let function = forged.modules[forged.root.index()]
             .functions
             .iter_mut()
             .find(|function| function.name == "read")
@@ -440,7 +459,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            bytecode::verify_module(&forged).is_err(),
+            bytecode::verify_program(&forged).is_err(),
             "accepted {corruption}"
         );
     }
@@ -453,34 +472,43 @@ fn private_interface_tables_must_match_their_trait_contract() {
     let original = common::bytecode_ok(
         "trait Readable { fn get(self) -> i32; } struct Counter { val value: i32 } impl Readable for Counter { fn get(self) -> i32 { self.value } } fn main() {}",
     );
-    let index = original
+    let index = original.modules[original.root.index()]
         .public_items
         .iter()
         .position(|item| matches!(item, PublicAbiItem::InterfaceTable(_)))
         .unwrap();
-    assert_eq!(original.trait_contracts.len(), 1);
-    verify_module(&original).unwrap();
+    assert_eq!(
+        original.modules[original.root.index()]
+            .trait_contracts
+            .len(),
+        1
+    );
+    verify_program(&original).unwrap();
     for corruption in ["result", "roster", "missing trait"] {
         let mut forged = original.clone();
         match corruption {
             "result" => {
-                let PublicAbiItem::InterfaceTable(table) = &mut forged.public_items[index] else {
+                let PublicAbiItem::InterfaceTable(table) =
+                    &mut forged.modules[forged.root.index()].public_items[index]
+                else {
                     unreachable!()
                 };
                 table.methods[0].return_type = AbiType::Builtin(BuiltinType::Bool);
             }
             "roster" => {
-                let PublicAbiItem::InterfaceTable(table) = &mut forged.public_items[index] else {
+                let PublicAbiItem::InterfaceTable(table) =
+                    &mut forged.modules[forged.root.index()].public_items[index]
+                else {
                     unreachable!()
                 };
                 table.methods.clear();
             }
-            "missing trait" => forged.trait_contracts.clear(),
+            "missing trait" => forged.modules[forged.root.index()].trait_contracts.clear(),
             _ => unreachable!(),
         }
         assert!(
             matches!(
-                verify_module(&forged),
+                verify_program(&forged),
                 Err(BytecodeVerificationError::InvalidPublicAbi)
             ),
             "{corruption}"

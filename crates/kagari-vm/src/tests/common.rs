@@ -1,11 +1,11 @@
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, ConstantOperand, FunctionMetadata,
-    FunctionRecord,
+    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, ConstantOperand,
+    FunctionMetadata, FunctionRecord,
 };
-use kagari_common::SourceFile;
-use kagari_compiler::{bytecode::lower_to_bytecode, lower_to_mir};
-use kagari_hir::analyze_source;
+use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{LoadedModule, Runtime};
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
@@ -29,27 +29,48 @@ pub fn load_bytecode_module_with_runtime(
     (runtime, loaded)
 }
 
-pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
-    let bytecode = compile_test_bytecode(source_text);
-    load_bytecode_module("test.kgr", bytecode)
+pub fn load_bytecode_program(name: &str, program: BytecodeProgram) -> (Runtime, LoadedModule) {
+    load_bytecode_program_with_runtime(Runtime::default(), name, program)
 }
 
-pub fn compile_test_bytecode(source_text: &str) -> BytecodeModule {
-    let source = SourceFile::new("test.kgr", source_text);
+pub fn load_bytecode_program_with_runtime(
+    mut runtime: Runtime,
+    name: &str,
+    program: BytecodeProgram,
+) -> (Runtime, LoadedModule) {
+    let loaded = runtime
+        .load_program(name, program)
+        .expect("test program should load");
+    (runtime, loaded)
+}
 
-    let analyzed = analyze_source(
-        &source,
-        kagari_hir::LanguageFeatureProfile {
-            allow_host_calls: true,
-            allow_reflection: true,
-            allow_reflection_write: true,
-            ..Default::default()
-        },
-    )
-    .into_codegen()
-    .expect("analysis should succeed");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
-    lower_to_bytecode(&ir).expect("bytecode lowering should succeed")
+pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
+    load_bytecode_program("test.kgr", compile_test_bytecode(source_text))
+}
+
+pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("test.kgr", source_text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(
+            sources.snapshot(),
+            kagari_hir::LanguageFeatureProfile {
+                allow_host_calls: true,
+                allow_reflection: true,
+                allow_reflection_write: true,
+                ..Default::default()
+            },
+            &Default::default(),
+        )
+        .expect("analysis snapshot should succeed");
+    let checked = snapshot
+        .check_program(root, &Default::default())
+        .expect("program analysis should succeed");
+    let ir = lower_program_to_mir(&checked, &Default::default())
+        .expect("program MIR lowering should succeed");
+    lower_program_to_bytecode(&ir).expect("program bytecode lowering should succeed")
 }
 
 pub fn test_function_module(
@@ -136,6 +157,7 @@ pub fn point_function_module(
     registers: Vec<ValueType>,
 ) -> BytecodeModule {
     let mut module = test_function_module(name, instructions, return_type, registers);
-    module.structures = compile_test_bytecode("struct Point { var x: i32 }").structures;
+    let program = compile_test_bytecode("struct Point { var x: i32 }");
+    module.structures = program.modules[program.root.index()].structures.clone();
     module
 }

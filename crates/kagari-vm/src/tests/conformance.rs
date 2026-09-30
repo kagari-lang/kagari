@@ -63,13 +63,10 @@ fn main() -> i32 {
 
 #[test]
 fn missing_entry_is_rejected_before_execution() {
-    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::KbcArtifact;
     let bytecode = compile_test_bytecode("fn main() -> i32 { 42 }");
     for encoded in [false, true] {
-        let program = BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![bytecode.clone()],
-        };
+        let program = bytecode.clone();
         let program = if encoded {
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
             let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -101,20 +98,17 @@ fn missing_entry_is_rejected_before_execution() {
 
 #[test]
 fn ambiguous_entry_is_rejected_on_all_load_routes() {
-    use kagari_bytecode::{BytecodeProgram, KbcArtifact, ModuleRef};
+    use kagari_bytecode::KbcArtifact;
     let mut bytecode = compile_test_bytecode("fn first() -> i32 { 1 } fn second() -> i32 { 2 }");
-    let second = bytecode
+    let second = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
         .position(|function| function.name == "second")
         .unwrap();
-    bytecode.functions[second].name = "first".into();
-    bytecode.function_table[second].name = "first".into();
+    bytecode.modules[bytecode.root.index()].functions[second].name = "first".into();
+    bytecode.modules[bytecode.root.index()].function_table[second].name = "first".into();
     for encoded in [false, true] {
-        let program = BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![bytecode.clone()],
-        };
+        let program = bytecode.clone();
         let program = if encoded {
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
             let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -169,13 +163,7 @@ fn interpreter_conformance_classifies_failure_paths() {
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_program(
-            "resource_limit.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
+        .load_program("resource_limit.kgr", bytecode)
         .expect("module should load");
     let mut vm = Vm::new(runtime);
     let error = vm
@@ -207,13 +195,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug_conformance.kgr");
     let loaded = runtime
-        .load_program(
-            "debug_conformance.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("debug_conformance.kgr", compile_test_bytecode(source))
         .expect("module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let breakpoint = session
@@ -322,13 +304,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug_steps.kgr");
     let loaded = runtime
-        .load_program(
-            "debug_steps.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(source)],
-            },
-        )
+        .load_program("debug_steps.kgr", compile_test_bytecode(source))
         .expect("module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let cursor = session

@@ -21,7 +21,7 @@ use crate::{
     Vm,
     tests::common::{
         compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
-        load_test_module, test_function_module,
+        load_bytecode_program_with_runtime, load_test_module, test_function_module,
     },
 };
 
@@ -81,7 +81,11 @@ fn load_reflection_bytecode_module(
 }
 
 fn load_reflection_test_module(source_text: &str) -> (Runtime, kagari_runtime::LoadedModule) {
-    load_reflection_bytecode_module("test.kgr", compile_test_bytecode(source_text))
+    load_bytecode_program_with_runtime(
+        reflection_runtime(),
+        "test.kgr",
+        compile_test_bytecode(source_text),
+    )
 }
 
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {

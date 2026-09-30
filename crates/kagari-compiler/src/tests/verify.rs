@@ -2,7 +2,7 @@ use kagari_bytecode as bytecode;
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
 use kagari_hir::types::abi::lower_type;
 
-use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
+use crate::{lower_to_mir, tests::common};
 use kagari_abi::{
     callable::NativeCall, contracts::ContractError, effects::EffectSet, operations::BinaryOp,
     representation::ValueType,
@@ -30,7 +30,7 @@ fn integer_constants_must_match_semantic_range_and_representation() {
     ] {
         let mut bytecode = common::bytecode_ok(source);
         let mut replaced = false;
-        for function in &mut bytecode.functions {
+        for function in &mut bytecode.modules[bytecode.root.index()].functions {
             for instruction in &mut function.instructions {
                 if let BytecodeInstruction::LoadConst { constant, .. } = instruction {
                     *constant = invalid.clone();
@@ -39,17 +39,25 @@ fn integer_constants_must_match_semantic_range_and_representation() {
             }
         }
         assert!(replaced, "{source}");
-        assert!(bytecode::verify_module(&bytecode).is_err(), "{source}");
+        assert!(bytecode::verify_program(&bytecode).is_err(), "{source}");
     }
 }
 
 #[test]
 fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
     let original = common::bytecode_ok("pub enum Packet<T> { Data(T) } fn main() {}");
-    assert!(original.enumerations.is_empty());
+    assert!(
+        original.modules[original.root.index()]
+            .enumerations
+            .iter()
+            .all(|layout| layout.declaration.module
+                != original.modules[original.root.index()].identity)
+    );
     for foreign_owner in [false, true] {
         let mut bytecode = original.clone();
-        let kagari_abi::types::PublicAbiItem::Type(template) = &mut bytecode.public_items[0] else {
+        let kagari_abi::types::PublicAbiItem::Type(template) =
+            &mut bytecode.modules[bytecode.root.index()].public_items[0]
+        else {
             unreachable!()
         };
         let kagari_abi::types::AbiType::Parameter { owner, position } =
@@ -62,7 +70,7 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
         } else {
             *position = 1;
         }
-        assert!(bytecode::verify_module(&bytecode).is_err());
+        assert!(bytecode::verify_program(&bytecode).is_err());
     }
 }
 
@@ -73,20 +81,28 @@ fn template_parameters_cannot_enter_executable_layout_arguments() {
         "enum Packet<T> { Data(T) } fn main() { val p = Packet::Data(1); }",
     ] {
         let mut bytecode = common::bytecode_ok(source);
-        if let Some(layout) = bytecode.structures.first_mut() {
+        if let Some(layout) = bytecode.modules[bytecode.root.index()]
+            .structures
+            .first_mut()
+        {
             layout.arguments[0] = kagari_abi::types::AbiType::Parameter {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
         } else {
-            let layout = &mut bytecode.enumerations[0];
+            let member = &mut bytecode.modules[bytecode.root.index()];
+            let layout = member
+                .enumerations
+                .iter_mut()
+                .find(|layout| layout.declaration.module == member.identity)
+                .unwrap();
             layout.arguments[0] = kagari_abi::types::AbiType::Parameter {
                 owner: layout.declaration.clone(),
                 position: 0,
             };
             layout.variants.clear();
         }
-        assert!(bytecode::verify_module(&bytecode).is_err());
+        assert!(bytecode::verify_program(&bytecode).is_err());
     }
 }
 
@@ -100,6 +116,11 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     let source =
         "struct Point {} enum Event { Data(Point) } fn main() -> Event { Event::Data(Point {}) }";
     let mut module = raw(source);
+    let enumeration = module
+        .enumerations
+        .iter()
+        .position(|layout| layout.declaration.module == module.identity)
+        .unwrap();
     let declaration = module.structures[0].declaration.clone();
     let nominal = NominalType {
         associated_types: Default::default(),
@@ -121,17 +142,24 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     assert_eq!(encoded, expected);
     let bytes = bincode::serialize(&encoded).unwrap();
     assert_eq!(bincode::deserialize::<AbiType>(&bytes).unwrap(), encoded);
-    let bare = &module.enumerations[0].variants[0].payload[0];
+    let bare = &module.enumerations[enumeration].variants[0].payload[0];
     assert_ne!(
         bytecode::ArtifactFingerprint::of_serialized(&encoded),
         bytecode::ArtifactFingerprint::of_serialized(bare)
     );
-    module.enumerations[0].variants[0].payload[0] = encoded.clone();
+    module.enumerations[enumeration].variants[0].payload[0] = encoded.clone();
     assert_eq!(reject(module), Error::InvalidEnumLayout);
     let mut bytecode = crate::tests::common::bytecode_ok(source);
-    bytecode.enumerations[0].variants[0].payload[0] = encoded;
+    let member = &mut bytecode.modules[bytecode.root.index()];
+    member
+        .enumerations
+        .iter_mut()
+        .find(|layout| layout.declaration.module == member.identity)
+        .unwrap()
+        .variants[0]
+        .payload[0] = encoded;
     assert_eq!(
-        bytecode::verify_module(&bytecode).unwrap_err(),
+        bytecode::verify_program(&bytecode).unwrap_err(),
         bytecode::BytecodeVerificationError::InvalidEnumLayout
     );
 }
@@ -140,21 +168,31 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
 fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let source = "enum Event { Data(i32) } fn main() -> Event { Event::Data(7) }";
     let mut public = crate::tests::common::bytecode_ok(&format!("pub {source}"));
-    let kagari_abi::types::PublicAbiItem::Type(ty) = &mut public.public_items[0] else {
+    let kagari_abi::types::PublicAbiItem::Type(ty) =
+        &mut public.modules[public.root.index()].public_items[0]
+    else {
         panic!("enum ABI")
     };
     ty.variants[0].payload.clear();
     assert_eq!(
-        bytecode::verify_module(&public).unwrap_err(),
+        bytecode::verify_program(&public).unwrap_err(),
         bytecode::BytecodeVerificationError::InvalidEnumLayout
     );
     let mut module = raw(source);
-    module.enumerations[0].variants[0].declaration.path[0].name = "Other".into();
+    let enumeration = module
+        .enumerations
+        .iter()
+        .position(|layout| layout.declaration.module == module.identity)
+        .unwrap();
+    module.enumerations[enumeration].variants[0]
+        .declaration
+        .path[0]
+        .name = "Other".into();
     assert_eq!(reject(module), Error::InvalidEnumLayout);
     let mut module = raw(source);
-    let mut absent = module.enumerations[0].declaration.clone();
+    let mut absent = module.enumerations[enumeration].declaration.clone();
     absent.path[0].name = "Absent".into();
-    module.enumerations[0].variants[0].payload[0] =
+    module.enumerations[enumeration].variants[0].payload[0] =
         kagari_abi::types::AbiType::Enum(kagari_abi::types::NominalAbiType {
             associated_types: Default::default(),
             declaration: absent,
@@ -176,7 +214,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let good = crate::tests::common::bytecode_ok(source);
     for mode in 0..3 {
         let mut bad = good.clone();
-        for instruction in &mut bad.functions[0].instructions {
+        for instruction in &mut bad.modules[bad.root.index()].functions[0].instructions {
             if let BytecodeInstruction::MakeEnum {
                 enumeration,
                 variant,
@@ -191,9 +229,9 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
                 }
             }
         }
-        assert!(bytecode::verify_module(&bad).is_err());
+        assert!(bytecode::verify_program(&bad).is_err());
     }
-    let mut second = good.clone();
+    let mut second = good.modules[good.root.index()].clone();
     second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
     for function in &mut second.functions {
         function.identity.as_mut().unwrap().declaration.module = second.identity.clone();
@@ -201,13 +239,12 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     for record in &mut second.function_table {
         record.identity.as_mut().unwrap().declaration.module = second.identity.clone();
     }
-    second.dependencies = vec![bytecode::ModuleRef::new(0)];
-    let mut program = kagari_bytecode::BytecodeProgram {
-        root: kagari_bytecode::ModuleRef::new(1),
-        modules: vec![good, second],
-    };
+    second.dependencies.push(good.root);
+    let mut program = good;
+    program.root = bytecode::ModuleRef::new(program.modules.len());
+    program.modules.push(second);
     kagari_bytecode::verify_program(&program).unwrap();
-    program.modules[1].enumerations[0].variants[0]
+    program.modules[program.root.index()].enumerations[enumeration].variants[0]
         .payload
         .clear();
     assert_eq!(
@@ -360,11 +397,12 @@ fn field_operands_require_an_existing_owner_slot_type_and_write_permission() {
 
 #[test]
 fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
-    let module = raw(
+    let input = common::program_ok(
         "struct P { val first: i32, val second: bool } fn main() -> P { P { second: true, first: 42 } }",
     );
-    let bytecode = lower_to_bytecode(&verify_mir(module, &Default::default()).unwrap()).unwrap();
-    let (structure, fields) = bytecode
+    let module = lower_to_mir(input.root(), &Default::default()).unwrap();
+    let bytecode = common::bytecode_with_edited_root(&input, &module);
+    let (structure, fields) = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
         .flat_map(|f| &f.instructions)
@@ -380,14 +418,16 @@ fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
         })
         .unwrap();
     assert_eq!(
-        bytecode.structures[structure.index()]
+        bytecode.modules[bytecode.root.index()].structures[structure.index()]
             .fields
             .iter()
             .map(|field| field.name.as_str())
             .collect::<Vec<_>>(),
         ["first", "second"]
     );
-    let registers = &bytecode.functions[0].metadata.registers;
+    let registers = &bytecode.modules[bytecode.root.index()].functions[0]
+        .metadata
+        .registers;
     assert_eq!(
         fields
             .iter()
@@ -564,7 +604,10 @@ fn validates_effects_parameter_layout_and_encoding_limits() {
 
 #[test]
 fn emits_the_declared_entry_block_first() {
-    let mut module = raw("fn main() -> i32 { 7 }");
+    let input = common::program_ok("fn main() -> i32 { 7 }");
+    let mut module = lower_to_mir(input.root(), &Default::default())
+        .unwrap()
+        .into_unverified();
     let mut entry = module.functions[0].blocks[0].clone();
     if let Instruction::LoadConst { constant, .. } = &mut entry.instructions[0] {
         *constant = Constant::I32(42);
@@ -572,9 +615,9 @@ fn emits_the_declared_entry_block_first() {
     module.functions[0].blocks.push(entry);
     module.functions[0].entry = BlockId::new(1);
     let checked = verify_mir(module, &Default::default()).unwrap();
-    let bytecode = lower_to_bytecode(&checked).unwrap();
+    let bytecode = common::bytecode_with_edited_root(&input, &checked);
     assert!(matches!(
-        bytecode.functions[0].instructions[0],
+        bytecode.modules[bytecode.root.index()].functions[0].instructions[0],
         BytecodeInstruction::LoadConst {
             constant: ConstantOperand::I32(42),
             ..
@@ -595,13 +638,13 @@ fn ir_and_bytecode_share_numeric_operation_contracts() {
         Error::Contract(ContractError::InvalidOperation { .. })
     ));
     let mut bytecode = common::bytecode_ok("fn main() -> bool { true == false }");
-    for instruction in &mut bytecode.functions[0].instructions {
+    for instruction in &mut bytecode.modules[bytecode.root.index()].functions[0].instructions {
         if let BytecodeInstruction::Binary { op, .. } = instruction {
             *op = kagari_bytecode::BinaryOp::Add;
         }
     }
     assert!(matches!(
-        bytecode::verify_module(&bytecode),
+        bytecode::verify_program(&bytecode),
         Err(bytecode::BytecodeVerificationError::InvalidOperation { .. })
     ));
 }
@@ -616,9 +659,8 @@ fn standard_intrinsic_contracts_apply_before_bytecode_emission() {
     }
     assert!(matches!(
         reject(module),
-        Error::Contract(ContractError::Intrinsic {
-            reason: "arity mismatch",
-            ..
+        Error::Contract(ContractError::InvalidOperation {
+            reason: "native call arity mismatch",
         })
     ));
 }
@@ -696,7 +738,16 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
         "pub enum Box<T> { Value(T) } fn main() {}",
     ] {
         let original = raw(source);
-        assert!(original.structures.is_empty() && original.enumerations.is_empty());
+        assert!(
+            original
+                .structures
+                .iter()
+                .all(|layout| layout.declaration.module != original.identity)
+                && original
+                    .enumerations
+                    .iter()
+                    .all(|layout| layout.declaration.module != original.identity)
+        );
         let bytecode = common::bytecode_ok(source);
         for mutation in 0..5 {
             let mut invalid = original.clone();
@@ -726,13 +777,14 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                 }
             }
             let mut invalid_bytecode = bytecode.clone();
-            invalid_bytecode.public_items = invalid.abi.public_items.clone();
+            invalid_bytecode.modules[invalid_bytecode.root.index()].public_items =
+                invalid.abi.public_items.clone();
             assert_eq!(
                 verify_mir(invalid, &Default::default()).unwrap_err().kind,
                 Error::InvalidPublicAbi
             );
             assert_eq!(
-                bytecode::verify_module(&invalid_bytecode),
+                bytecode::verify_program(&invalid_bytecode),
                 Err(bytecode::BytecodeVerificationError::InvalidPublicAbi)
             );
         }

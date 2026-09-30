@@ -1,5 +1,6 @@
 use crate::{lower_to_mir, tests::common};
 use kagari_abi::{
+    callable::NativeCall,
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
     standard::StandardIntrinsic,
@@ -12,7 +13,7 @@ use kagari_mir::{
 
 #[test]
 fn source_native_bindings_select_engine_calls_through_aliases_and_primitive_impls() {
-    let checked = common::analyze_ok(
+    let checked = common::program_ok(
         r#"
 use std::math::clamp as limit;
 fn main() -> i32 {
@@ -22,7 +23,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let ir = lower_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_to_mir(checked.root(), &Default::default()).unwrap();
     let calls = ir
         .functions
         .iter()
@@ -44,7 +45,7 @@ fn main() -> i32 {
         StandardIntrinsic::ParseRadix(kagari_abi::scalar::BuiltinType::I32),
         StandardIntrinsic::MathClamp,
     ] {
-        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::StandardIntrinsic(actual) if *actual == expected)).count(), 1, "{expected:?}");
+        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::Native(NativeCall::Engine(import)) if import.direct_operation() == Some(expected))).count(), 1, "{expected:?}");
     }
     assert!(
         !calls
@@ -55,20 +56,20 @@ fn main() -> i32 {
 
 #[test]
 fn generic_interface_instances_share_the_instantiation_budget() {
-    let checked = common::analyze_ok(
+    let checked = common::program_ok(
         "trait Read {} struct Holder<T> { val value: T } impl<T> Read for Holder<T> {} fn main() -> i32 { val first: Read = Holder { value: 20 }; val second: Read = Holder { value: 22 }; 42 }",
     );
     let ir = lower_to_mir(
-        &checked,
+        checked.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 2,
             ..Default::default()
         },
     )
     .unwrap();
-    let bytecode = crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    let bytecode = common::bytecode_with_edited_root(&checked, &ir);
     assert_eq!(
-        bytecode
+        bytecode.modules[bytecode.root.index()]
             .interface_tables
             .iter()
             .filter(|table| !table.arguments.is_empty())
@@ -76,7 +77,7 @@ fn generic_interface_instances_share_the_instantiation_budget() {
         1
     );
     let Err(crate::MirLoweringError::Diagnostic(d)) = lower_to_mir(
-        &checked,
+        checked.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 1,
             ..Default::default()
@@ -95,11 +96,11 @@ fn generic_interface_instances_share_the_instantiation_budget() {
 
 #[test]
 fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
-    let checked = common::analyze_ok(
+    let checked = common::program_ok(
         "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool) { val a = Cell { value: 1 }; val b = Cell { value: 2 }; val c = Cell { value: true }; val p = Packet::Data(a); (get(b), c.value) }",
     );
     let ir = lower_to_mir(
-        &checked,
+        checked.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 4,
             ..Default::default()
@@ -107,11 +108,17 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     )
     .unwrap();
     assert_eq!(ir.structures.len(), 2);
-    assert_eq!(ir.enumerations.len(), 1);
+    assert_eq!(
+        ir.enumerations
+            .iter()
+            .filter(|layout| layout.declaration.module == ir.identity)
+            .count(),
+        1
+    );
     assert_eq!(ir.functions.len(), 2);
-    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    common::bytecode_with_edited_root(&checked, &ir);
     let Err(crate::MirLoweringError::Diagnostic(d)) = lower_to_mir(
-        &checked,
+        checked.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 3,
             ..Default::default()
@@ -130,11 +137,11 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
 
 #[test]
 fn growing_recursive_aggregate_layouts_are_bounded() {
-    let checked = common::analyze_ok(
+    let checked = common::program_ok(
         "struct Grow<T> { val next: [Grow<[T]>] } fn accept(x: Grow<i32>) {} fn main() {}",
     );
     let Err(crate::MirLoweringError::Diagnostic(d)) = lower_to_mir(
-        &checked,
+        checked.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 3,
             ..Default::default()
@@ -153,11 +160,11 @@ fn growing_recursive_aggregate_layouts_are_bounded() {
 
 #[test]
 fn unreachable_aggregate_constructors_do_not_consume_instance_budget() {
-    let checked = common::analyze_ok(
+    let checked = common::program_ok(
         "struct Cell<T> { val value: T } fn main() { return; val c = Cell { value: 1 }; }",
     );
     let ir = lower_to_mir(
-        &checked,
+        checked.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 0,
             ..Default::default()
@@ -172,9 +179,20 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
     for expression in ["Event::Empty", "Event::Data(7)"] {
         let source =
             format!("enum Event {{ Empty, Data(i32) }} fn main() -> Event {{ {expression} }}");
-        let checked = common::analyze_ok(&source);
-        let ir = lower_to_mir(&checked, &Default::default()).unwrap();
-        assert_eq!(ir.enumerations.len(), 1);
+        let checked = common::program_ok(&source);
+        let ir = lower_to_mir(checked.root(), &Default::default()).unwrap();
+        assert_eq!(
+            ir.enumerations
+                .iter()
+                .filter(|layout| layout.declaration.module == ir.identity)
+                .count(),
+            1
+        );
+        let layout = ir
+            .enumerations
+            .iter()
+            .find(|layout| layout.declaration.module == ir.identity)
+            .unwrap();
         let instruction = ir.functions[0]
             .blocks
             .iter()
@@ -190,18 +208,15 @@ fn checked_enum_constructors_lower_to_nominal_layout_operands() {
         else {
             unreachable!()
         };
-        assert_eq!(enumeration.declaration, ir.enumerations[0].declaration);
-        assert_eq!(enumeration.arguments, ir.enumerations[0].arguments);
-        assert_eq!(
-            fields.len(),
-            ir.enumerations[0].variants[*variant].payload.len()
-        );
+        assert_eq!(enumeration.declaration, layout.declaration);
+        assert_eq!(enumeration.arguments, layout.arguments);
+        assert_eq!(fields.len(), layout.variants[*variant].payload.len());
     }
 }
 
 #[test]
 fn native_and_script_enum_aliases_keep_distinct_layouts_and_refutable_unit_patterns() {
-    let checked = common::analyze_ok(
+    let checked = common::program_ok(
         r#"
 use std::option::Option::{Some as Present, None as Absent};
 enum Local<T> { Some(T), None }
@@ -215,7 +230,7 @@ fn main() -> i32 {
 }
 "#,
     );
-    let ir = lower_to_mir(&checked, &Default::default()).unwrap();
+    let ir = lower_to_mir(checked.root(), &Default::default()).unwrap();
     let instructions = ir
         .functions
         .iter()
@@ -263,10 +278,10 @@ fn main() -> i32 {
 
 #[test]
 fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         "fn unused<T>(x: T) -> T { x } fn echo<T>(x: T) -> T { x } fn wrap<U>(x: U) -> U { echo(x) } fn main() -> (i32, i32, String) { (wrap(7), echo(8), echo(\"ok\")) }",
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).unwrap();
+    let ir = lower_to_mir(analyzed.root(), &Default::default()).unwrap();
     assert_eq!(ir.functions.len(), 4);
     assert!(
         !ir.functions.iter().any(|function| function
@@ -293,15 +308,15 @@ fn monomorphizes_reachable_arguments_and_deduplicates_instances() {
         .collect::<Vec<_>>();
     assert!(representations.contains(&ValueType::I32));
     assert!(representations.contains(&ValueType::Str));
-    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    common::bytecode_with_edited_root(&analyzed, &ir);
 }
 
 #[test]
 fn unreachable_calls_after_return_do_not_create_instances() {
     let analyzed =
-        common::analyze_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { return; grow(1); }");
+        common::program_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { return; grow(1); }");
     let ir = lower_to_mir(
-        &analyzed,
+        analyzed.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 0,
             ..Default::default()
@@ -309,17 +324,17 @@ fn unreachable_calls_after_return_do_not_create_instances() {
     )
     .unwrap();
     assert_eq!(ir.functions.len(), 1);
-    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    common::bytecode_with_edited_root(&analyzed, &ir);
 }
 
 #[test]
 fn irrefutable_match_arms_stop_unreachable_instantiation() {
     for pattern in ["_", "value"] {
-        let analyzed = common::analyze_ok(&format!(
+        let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn main() -> i32 {{ match 42 {{ {pattern} => 42, _ => grow(1) }} }}"
         ));
         let ir = lower_to_mir(
-            &analyzed,
+            analyzed.root(),
             &crate::MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
@@ -327,17 +342,17 @@ fn irrefutable_match_arms_stop_unreachable_instantiation() {
         )
         .unwrap();
         assert_eq!(ir.functions.len(), 1);
-        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+        common::bytecode_with_edited_root(&analyzed, &ir);
     }
 }
 
 #[test]
 fn returning_call_argument_stops_later_arguments_and_instantiation() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         "fn grow<T>(x: T) { grow((x, x)); } fn take<T>(first: (), second: T) {} fn main() -> i32 { take(if true { return 42; } else { return 7; }, grow(1)); }",
     );
     let ir = lower_to_mir(
-        &analyzed,
+        analyzed.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 0,
             ..Default::default()
@@ -345,7 +360,7 @@ fn returning_call_argument_stops_later_arguments_and_instantiation() {
     )
     .unwrap();
     assert_eq!(ir.functions.len(), 1);
-    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    common::bytecode_with_edited_root(&analyzed, &ir);
 }
 
 #[test]
@@ -356,11 +371,11 @@ fn returning_aggregate_member_stops_later_members() {
         "Pair::Data(if true { return 42; } else { return 7; }, grow(1))",
         "PairStruct { first: if true { return 42; } else { return 7; }, second: grow(1) }",
     ] {
-        let analyzed = common::analyze_ok(&format!(
+        let analyzed = common::program_ok(&format!(
             "enum Pair {{ Data((), ()) }} struct PairStruct {{ val first: (), val second: () }} fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ val unused = {expression}; }}"
         ));
         let ir = lower_to_mir(
-            &analyzed,
+            analyzed.root(),
             &crate::MirLoweringOptions {
                 max_generic_instances: 2,
                 ..Default::default()
@@ -376,7 +391,7 @@ fn returning_aggregate_member_stops_later_members() {
                 .all(|block| block.instructions.is_empty()),
             "{expression}"
         );
-        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+        common::bytecode_with_edited_root(&analyzed, &ir);
     }
 }
 
@@ -386,11 +401,11 @@ fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
         "(if true { return 42; } else { return 7; }) == grow(1)",
         "type_of(if true { return 42; } else { return 7; })",
     ] {
-        let analyzed = common::analyze_ok(&format!(
+        let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ {expression}; }}"
         ));
         let ir = lower_to_mir(
-            &analyzed,
+            analyzed.root(),
             &crate::MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
@@ -406,7 +421,7 @@ fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
                 .all(|block| block.instructions.is_empty()),
             "{expression}"
         );
-        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+        common::bytecode_with_edited_root(&analyzed, &ir);
     }
 }
 
@@ -416,11 +431,11 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         "grid[index(if true { return 42; } else { return 7; })][grow(1)]",
         "matrix(if true { return 42; } else { return 7; })[grow(1)][0]",
     ] {
-        let analyzed = common::analyze_ok(&format!(
+        let analyzed = common::program_ok(&format!(
             "fn grow<T>(x: T) -> i32 {{ grow((x, x)) }} fn index(value: ()) -> i32 {{ 0 }} fn matrix(value: ()) -> ArrayList<ArrayList<i32>> {{ [[0]] }} fn main() -> i32 {{ val grid = [[0]]; {target} = grow(2); 9 }}"
         ));
         let ir = lower_to_mir(
-            &analyzed,
+            analyzed.root(),
             &crate::MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
@@ -444,17 +459,17 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
                 .all(|block| block.instructions.is_empty()),
             "{target}"
         );
-        crate::bytecode::lower_to_bytecode(&ir).unwrap();
+        common::bytecode_with_edited_root(&analyzed, &ir);
     }
 }
 
 #[test]
 fn recursive_instantiation_reuses_the_current_instance() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         "fn repeat<T>(x: T, n: i32) -> T { if n == 0 { x } else { repeat(x, n - 1) } } fn main() -> i32 { repeat(7, 3) }",
     );
     let ir = lower_to_mir(
-        &analyzed,
+        analyzed.root(),
         &crate::MirLoweringOptions {
             max_generic_instances: 1,
             ..Default::default()
@@ -462,12 +477,12 @@ fn recursive_instantiation_reuses_the_current_instance() {
     )
     .unwrap();
     assert_eq!(ir.functions.len(), 2);
-    crate::bytecode::lower_to_bytecode(&ir).unwrap();
+    common::bytecode_with_edited_root(&analyzed, &ir);
 }
 
 #[test]
 fn recursive_type_growth_is_bounded_before_execution() {
-    let analyzed = common::analyze_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { grow(1); }");
+    let analyzed = common::program_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { grow(1); }");
     for (options, resource, limit) in [
         (
             crate::MirLoweringOptions {
@@ -495,7 +510,7 @@ fn recursive_type_growth_is_bounded_before_execution() {
         ),
     ] {
         let Err(crate::MirLoweringError::Diagnostic(diagnostic)) =
-            lower_to_mir(&analyzed, &options)
+            lower_to_mir(analyzed.root(), &options)
         else {
             panic!("growth must be rejected");
         };
@@ -509,10 +524,10 @@ fn recursive_type_growth_is_bounded_before_execution() {
 
 #[test]
 fn lowering_honors_instruction_limits_and_cancellation() {
-    let analyzed = common::analyze_ok("fn main() -> i32 { 7 }");
+    let analyzed = common::program_ok("fn main() -> i32 { 7 }");
     assert!(matches!(
         lower_to_mir(
-            &analyzed,
+            analyzed.root(),
             &crate::MirLoweringOptions {
                 max_instructions: 1,
                 ..Default::default()
@@ -521,7 +536,7 @@ fn lowering_honors_instruction_limits_and_cancellation() {
         Err(crate::MirLoweringError::Diagnostic(_))
     ));
     lower_to_mir(
-        &analyzed,
+        analyzed.root(),
         &crate::MirLoweringOptions {
             max_instructions: 2,
             max_generic_instances: 0,
@@ -532,20 +547,21 @@ fn lowering_honors_instruction_limits_and_cancellation() {
     let options = crate::MirLoweringOptions::default();
     options.cancel.cancel();
     assert!(matches!(
-        lower_to_mir(&analyzed, &options),
+        lower_to_mir(analyzed.root(), &options),
         Err(crate::MirLoweringError::Cancelled)
     ));
-    let empty = common::analyze_ok("");
+    let empty = common::program_ok("");
     assert!(matches!(
-        lower_to_mir(&empty, &options),
+        lower_to_mir(empty.root(), &options),
         Err(crate::MirLoweringError::Cancelled)
     ));
 }
 
 #[test]
 fn lowers_function_into_cfg_shaped_ir() {
-    let analyzed = common::analyze_ok("fn main() -> i32 { 0 }");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let analyzed = common::program_ok("fn main() -> i32 { 0 }");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
 
     assert_eq!(ir.functions.len(), 1);
     let function = &ir.functions[0];
@@ -559,8 +575,9 @@ fn lowers_function_into_cfg_shaped_ir() {
 
 #[test]
 fn normalizes_ir_operands_as_typed_values() {
-    let analyzed = common::analyze_ok("fn main(value: i32) -> i32 { val next = value + 1; next }");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let analyzed = common::program_ok("fn main(value: i32) -> i32 { val next = value + 1; next }");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert_eq!(
@@ -585,12 +602,15 @@ fn normalizes_ir_operands_as_typed_values() {
 fn integer_operations_expose_traps_to_downstream_backends() {
     for expression in ["value + 1", "value - 1", "value * 2", "value / 2", "-value"] {
         let analyzed =
-            common::analyze_ok(&format!("fn main(value: i32) -> i32 {{ {expression} }}"));
-        let ir = lower_to_mir(&analyzed, &Default::default()).unwrap();
+            common::program_ok(&format!("fn main(value: i32) -> i32 {{ {expression} }}"));
+        let ir = lower_to_mir(analyzed.root(), &Default::default()).unwrap();
         assert!(ir.functions[0].effects.may_trap, "{expression}");
-        let bytecode = crate::bytecode::lower_to_bytecode(&ir).unwrap();
+        let bytecode = common::bytecode_with_edited_root(&analyzed, &ir);
         assert!(
-            bytecode.functions[0].metadata.effects.may_trap,
+            bytecode.modules[bytecode.root.index()].functions[0]
+                .metadata
+                .effects
+                .may_trap,
             "{expression}"
         );
     }
@@ -598,7 +618,7 @@ fn integer_operations_expose_traps_to_downstream_backends() {
 
 #[test]
 fn records_ir_function_effect_summary() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         r#"
 fn main() -> usize {
     val values = [1, 2];
@@ -608,7 +628,8 @@ fn main() -> usize {
 }
 "#,
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let effects = ir.functions[0].effects;
 
     assert!(effects.reads_local);
@@ -623,7 +644,7 @@ fn main() -> usize {
 
 #[test]
 fn records_ir_source_span_and_local_debug_metadata() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         r#"
 fn main(value: i32) -> i32 {
     val next = value + 1;
@@ -631,7 +652,8 @@ fn main(value: i32) -> i32 {
 }
 "#,
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(function.debug.source_span.end > function.debug.source_span.start);
@@ -663,8 +685,9 @@ fn main(value: i32) -> i32 {
 
 #[test]
 fn lowers_if_expression_into_branching_blocks() {
-    let analyzed = common::analyze_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let analyzed = common::program_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(function.blocks.len() >= 4);
@@ -683,8 +706,9 @@ fn lowers_if_expression_into_branching_blocks() {
 
 #[test]
 fn lowers_short_circuit_boolean_operators_into_branches() {
-    let analyzed = common::analyze_ok("fn main() -> bool { true && false || true }");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let analyzed = common::program_ok("fn main() -> bool { true && false || true }");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     let branch_count = function
@@ -713,8 +737,9 @@ fn lowers_short_circuit_boolean_operators_into_branches() {
 
 #[test]
 fn lowers_match_expression_into_decision_chain() {
-    let analyzed = common::analyze_ok("fn main() -> i32 { match 1 { 0 => 10, _ => 20 } }");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let analyzed = common::program_ok("fn main() -> i32 { match 1 { 0 => 10, _ => 20 } }");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(function.blocks.len() >= 5);
@@ -736,8 +761,9 @@ fn lowers_match_expression_into_decision_chain() {
 #[test]
 fn lowers_named_match_pattern_binding() {
     let analyzed =
-        common::analyze_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+        common::program_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(
@@ -758,7 +784,7 @@ fn lowers_named_match_pattern_binding() {
 
 #[test]
 fn lowers_const_references_as_plain_constants_without_module_slots() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         r#"
 const BASE: i32 = 1;
 const VALUE: i32 = BASE + 2;
@@ -766,7 +792,8 @@ const VALUE: i32 = BASE + 2;
 fn main() -> i32 { VALUE }
 "#,
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = ir
         .functions
         .iter()
@@ -792,7 +819,7 @@ fn main() -> i32 { VALUE }
 
 #[test]
 fn lowers_field_and_index_assignments_to_aggregate_writes() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         r#"
 struct Point { var x: i32 }
 struct Holder { var inner: Point }
@@ -806,7 +833,8 @@ fn main() -> i32 {
 }
 "#,
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     let instructions = function
@@ -836,8 +864,8 @@ fn main() -> i32 {
 }
 
 #[test]
-fn stdlib_lowers_standard_library_calls_to_intrinsic_ids() {
-    let analyzed = common::analyze_ok(
+fn stdlib_calls_lower_to_checked_engine_applications() {
+    let analyzed = common::program_ok(
         r#"
 fn main() -> usize {
     val values = [1, 2];
@@ -847,53 +875,34 @@ fn main() -> usize {
 }
 "#,
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
-    assert!(
-        function
-            .blocks
-            .iter()
-            .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(
-                instruction,
-                Instruction::Call {
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
-                    ..
-                }
-            ))
-    );
-    assert!(
-        function
-            .blocks
-            .iter()
-            .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(
-                instruction,
-                Instruction::Call {
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPop),
-                    ..
-                }
-            ))
-    );
-    assert!(
-        function
-            .blocks
-            .iter()
-            .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(
-                instruction,
-                Instruction::Call {
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
-                    ..
-                }
-            ))
-    );
+    for expected in [
+        StandardIntrinsic::ArrayPush,
+        StandardIntrinsic::ArrayPop,
+        StandardIntrinsic::ArrayLen,
+    ] {
+        assert_eq!(
+            function
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .filter(|instruction| matches!(instruction,
+                    Instruction::Call { callee: CallTarget::Native(NativeCall::Engine(import)), .. }
+                        if import.direct_operation() == Some(expected)
+                ))
+                .count(),
+            1,
+            "{expected:?}"
+        );
+    }
 }
 
 #[test]
 fn lowers_tuple_array_struct_and_access_expressions() {
-    let analyzed = common::analyze_ok(
+    let analyzed = common::program_ok(
         r#"
 struct Point { var x: i32 }
 
@@ -907,7 +916,8 @@ fn main() -> () {
 }
 "#,
     );
-    let ir = lower_to_mir(&analyzed, &Default::default()).expect("ir lowering should succeed");
+    let ir =
+        lower_to_mir(analyzed.root(), &Default::default()).expect("ir lowering should succeed");
     let function = &ir.functions[0];
 
     assert!(
@@ -973,8 +983,8 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
     use kagari_common::cancellation::CancellationToken;
     use kagari_mir::{MirVerificationErrorKind, verify_mir};
 
-    let checked = common::analyze_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
-    let original = lower_to_mir(&checked, &Default::default()).unwrap();
+    let checked = common::program_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
+    let original = lower_to_mir(checked.root(), &Default::default()).unwrap();
     let mut module = original.into_unverified();
     let declaration = module
         .abi
@@ -1019,8 +1029,8 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         .push(block.terminator_scope.unwrap());
 
     let verified = verify_mir(module.clone(), &CancellationToken::default()).unwrap();
-    let bytecode = crate::bytecode::lower_to_bytecode(&verified).unwrap();
-    assert!(bytecode.functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, bytecode::BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
+    let bytecode = common::bytecode_with_edited_root(&checked, &verified);
+    assert!(bytecode.modules[bytecode.root.index()].functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, bytecode::BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
 
     let function = module
         .functions

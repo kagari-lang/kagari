@@ -243,10 +243,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let instruction_module = instruction_limited
         .load_program(
             "security_instruction_limit.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode("fn main() -> i32 { 1 + 2 }")],
-            },
+            compile_test_bytecode("fn main() -> i32 { 1 + 2 }"),
         )
         .expect("module should load");
     let mut instruction_vm = Vm::new(instruction_limited);
@@ -267,12 +264,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let allocation_module = allocation_limited
         .load_program(
             "security_allocation_limit.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
-                modules: vec![compile_test_bytecode(
-                    "fn main() -> i32 { val values = [1, 2]; 0 }",
-                )],
-            },
+            compile_test_bytecode("fn main() -> i32 { val values = [1, 2]; 0 }"),
         )
         .expect("module should load");
     let mut allocation_vm = Vm::new(allocation_limited);

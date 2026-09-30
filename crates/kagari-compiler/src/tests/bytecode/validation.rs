@@ -1,12 +1,13 @@
 use crate::tests::bytecode::*;
-use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet};
+use kagari_abi::{budget::LogicalBudgetCharge, callable::NativeCall, effects::EffectSet};
 use kagari_bytecode as bytecode;
+use kagari_bytecode::verify_program;
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {
     for source in ["fn main() {}", "fn main() -> i32 { 42 }"] {
         let mut module = common::bytecode_ok(source);
-        let function = module
+        let function = module.modules[module.root.index()]
             .functions
             .iter_mut()
             .find(|function| function.name == "main")
@@ -17,40 +18,41 @@ fn rejects_function_fallthrough_before_loading() {
         ));
         function.instructions.pop();
         assert!(matches!(
-            verify_module(&module),
+            verify_program(&module),
             Err(BytecodeVerificationError::InvalidOperation {
                 reason: "function falls through without a terminator",
                 ..
             })
         ));
-        assert!(
-            KbcArtifact::from_program(
-                bytecode::BytecodeProgram {
-                    root: bytecode::ModuleRef::new(0),
-                    modules: vec![module],
-                },
-                ArtifactBuildOptions::default(),
-            )
-            .is_err()
-        );
+        assert!(KbcArtifact::from_program(module, ArtifactBuildOptions::default(),).is_err());
     }
 }
 
 #[test]
 fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok("fn main() -> bool { val a = [7]; a.get(a.len()).is_none() }");
+    let get = kagari_bytecode::EngineImportId::new(
+        module.modules[module.root.index()]
+            .engine_imports
+            .iter()
+            .position(|import| import.direct_operation() == Some(StandardIntrinsic::ArrayGet))
+            .unwrap(),
+    );
     let mut scalar_result = module.clone();
-    let function = &mut scalar_result.functions[0];
+    let function = &mut scalar_result.modules[scalar_result.root.index()].functions[0];
     let dst = function
         .instructions
         .iter()
         .find_map(|instruction| {
             if let BytecodeInstruction::Call {
                 dst,
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayGet),
+                callee: CallTarget::Native(NativeCall::Engine(import)),
                 ..
             } = instruction
             {
+                if *import != get {
+                    return None;
+                }
                 *dst
             } else {
                 None
@@ -64,7 +66,7 @@ fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
         .registers
         .retain(|register| *register != dst);
     assert!(matches!(
-        verify_module(&scalar_result),
+        verify_program(&scalar_result),
         Err(BytecodeVerificationError::TypeMismatch {
             expected: ValueType::HeapObject,
             found: ValueType::I32,
@@ -73,46 +75,41 @@ fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
     ));
 
     let mut wrong_arity = module;
-    for instruction in &mut wrong_arity.functions[0].instructions {
+    for instruction in &mut wrong_arity.modules[wrong_arity.root.index()].functions[0].instructions
+    {
         if let BytecodeInstruction::Call {
-            callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayGet),
+            callee: CallTarget::Native(NativeCall::Engine(import)),
             args,
             ..
         } = instruction
+            && *import == get
         {
             args.pop();
         }
     }
     assert!(matches!(
-        verify_module(&wrong_arity),
-        Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                intrinsic: StandardIntrinsic::ArrayGet,
-                ..
-            }
-        )
+        verify_program(&wrong_arity),
+        Err(BytecodeVerificationError::InvalidOperation {
+            reason: "native call arity mismatch",
+            ..
+        })
     ));
 }
 
 #[test]
 fn encoded_root_layout_must_cover_exact_heap_slots() {
     let module = common::bytecode_ok("fn main() -> i32 { val values = [7]; values[0] }");
-    let function = &module.functions[0];
+    let function = &module.modules[module.root.index()].functions[0];
     assert!(
         !function.metadata.roots.locals.is_empty() || !function.metadata.roots.registers.is_empty()
     );
-    verify_module(&module).unwrap();
-    let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![module],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .unwrap();
+    verify_program(&module).unwrap();
+    let artifact = KbcArtifact::from_program(module, ArtifactBuildOptions::default()).unwrap();
     for corruption in ["missing", "extra"] {
         let mut forged = artifact.clone();
-        let roots = &mut forged.program.modules[0].functions[0].metadata.roots;
+        let roots = &mut forged.program.modules[forged.program.root.index()].functions[0]
+            .metadata
+            .roots;
         if corruption == "missing" {
             if !roots.registers.is_empty() {
                 roots.registers.pop();
@@ -123,7 +120,7 @@ fn encoded_root_layout_must_cover_exact_heap_slots() {
             roots.registers.push(Register::new(0));
         }
         assert!(matches!(
-            verify_module(&forged.program.modules[0]),
+            verify_program(&forged.program),
             Err(BytecodeVerificationError::InvalidRootLayout { .. })
         ));
         let decoded = KbcArtifact::from_bytes(&forged.to_bytes().unwrap()).unwrap();
@@ -139,44 +136,46 @@ fn encoded_root_layout_must_cover_exact_heap_slots() {
 #[test]
 fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
     let mut invalid_register = common::bytecode_ok("fn main() -> i32 { 1 }");
-    invalid_register.functions[0].instructions[0] = BytecodeInstruction::LoadConst {
-        dst: Register::new(999),
-        constant: kagari_bytecode::ConstantOperand::I32(1),
-    };
+    invalid_register.modules[invalid_register.root.index()].functions[0].instructions[0] =
+        BytecodeInstruction::LoadConst {
+            dst: Register::new(999),
+            constant: kagari_bytecode::ConstantOperand::I32(1),
+        };
     assert!(matches!(
-        verify_module(&invalid_register),
+        verify_program(&invalid_register),
         Err(BytecodeVerificationError::InvalidRegister { .. })
     ));
     assert_eq!(
-        verify_module(&invalid_register).unwrap_err().code(),
+        verify_program(&invalid_register).unwrap_err().code(),
         "KG_BYTECODE_INVALID_REGISTER"
     );
 
     let mut invalid_local = common::bytecode_ok("fn main() -> i32 { val value = 1; value }");
-    invalid_local.functions[0].instructions[1] = BytecodeInstruction::StoreLocal {
-        local: LocalSlot::new(999),
-        src: Register::new(0),
-    };
+    invalid_local.modules[invalid_local.root.index()].functions[0].instructions[1] =
+        BytecodeInstruction::StoreLocal {
+            local: LocalSlot::new(999),
+            src: Register::new(0),
+        };
     assert!(matches!(
-        verify_module(&invalid_local),
+        verify_program(&invalid_local),
         Err(BytecodeVerificationError::InvalidLocal { .. })
     ));
     assert_eq!(
-        verify_module(&invalid_local).unwrap_err().code(),
+        verify_program(&invalid_local).unwrap_err().code(),
         "KG_BYTECODE_INVALID_LOCAL"
     );
 
     let mut invalid_jump = common::bytecode_ok("fn main() -> i32 { if true { 1 } else { 2 } }");
-    invalid_jump.functions[0]
+    invalid_jump.modules[invalid_jump.root.index()].functions[0]
         .metadata
         .control_flow_targets
         .push(JumpTarget::new(usize::MAX));
     assert!(matches!(
-        verify_module(&invalid_jump),
+        verify_program(&invalid_jump),
         Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
     assert_eq!(
-        verify_module(&invalid_jump).unwrap_err().code(),
+        verify_program(&invalid_jump).unwrap_err().code(),
         "KG_BYTECODE_INVALID_JUMP_TARGET"
     );
 }
@@ -184,12 +183,16 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
 #[test]
 fn verifier_rejects_type_inconsistent_bytecode() {
     let mut bytecode = common::bytecode_ok("fn main() -> i32 { 1 }");
-    bytecode.functions[0].metadata.return_type = ValueType::Bool;
-    bytecode.function_table[0].return_type = ValueType::Bool;
-    bytecode.types.push(ValueType::Bool);
+    bytecode.modules[bytecode.root.index()].functions[0]
+        .metadata
+        .return_type = ValueType::Bool;
+    bytecode.modules[bytecode.root.index()].function_table[0].return_type = ValueType::Bool;
+    bytecode.modules[bytecode.root.index()]
+        .types
+        .push(ValueType::Bool);
 
     assert!(matches!(
-        verify_module(&bytecode),
+        verify_program(&bytecode),
         Err(BytecodeVerificationError::TypeMismatch {
             context: "return value",
             expected: ValueType::Bool,
@@ -208,7 +211,7 @@ fn main(value: String) -> usize {
 }
 "#,
     );
-    let call = bytecode.functions[0]
+    let call = bytecode.modules[bytecode.root.index()].functions[0]
         .instructions
         .iter_mut()
         .find_map(|instruction| {
@@ -221,27 +224,23 @@ fn main(value: String) -> usize {
     *call = CallTarget::StandardIntrinsic(StandardIntrinsic::MathSqrt);
 
     assert!(matches!(
-        verify_module(&bytecode),
-        Err(BytecodeVerificationError::TypeMismatch {
-            context: "standard intrinsic argument",
-            expected: ValueType::F64,
-            found: ValueType::Str,
-            ..
-        })
+        verify_program(&bytecode),
+        Err(
+            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
+                intrinsic: StandardIntrinsic::MathSqrt,
+                reason: "invalid or unsupported native operand shape",
+                ..
+            }
+        )
     ));
 
-    let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
-            modules: vec![bytecode],
-        },
-        ArtifactBuildOptions::default(),
-    );
+    let artifact = KbcArtifact::from_program(bytecode, ArtifactBuildOptions::default());
     assert!(matches!(
         artifact,
         Err(ArtifactValidationError::Bytecode(
-            BytecodeVerificationError::TypeMismatch {
-                context: "standard intrinsic argument",
+            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
+                intrinsic: StandardIntrinsic::MathSqrt,
+                reason: "invalid or unsupported native operand shape",
                 ..
             }
         ))
@@ -257,7 +256,10 @@ fn verifier_rejects_invalid_aggregate_writes() {
             ValueType::I32,
             ValueType::HeapObject,
         ],
-        structures: common::bytecode_ok("struct Point { var x: i32 }").structures,
+        structures: {
+            let program = common::bytecode_ok("struct Point { var x: i32 }");
+            program.modules[program.root.index()].structures.clone()
+        },
         function_table: vec![bytecode::FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
@@ -418,13 +420,13 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
 #[test]
 fn verifier_rejects_malformed_debug_metadata() {
     let mut bytecode = common::bytecode_ok("fn main() -> i32 { 1 }");
-    let function = &mut bytecode.functions[0];
+    let function = &mut bytecode.modules[bytecode.root.index()].functions[0];
     let mut point = function.metadata.debug.safe_debug_points[0].clone();
     point.instruction_offset = function.instructions.len();
     function.metadata.debug.safe_debug_points.push(point);
 
     assert!(matches!(
-        verify_module(&bytecode),
+        verify_program(&bytecode),
         Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
 }
@@ -437,10 +439,10 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
     let module = common::bytecode_ok(
         "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");r.map_err(|e|e)}",
     );
-    verify_module(&module).unwrap();
+    verify_program(&module).unwrap();
     for mutation in 0..4 {
         let mut invalid = module.clone();
-        let instruction = invalid
+        let instruction = invalid.modules[invalid.root.index()]
             .functions
             .iter_mut()
             .flat_map(|f| &mut f.instructions)
@@ -466,7 +468,7 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
             2 => *original = Register::new(usize::MAX),
             _ => *error = Register::new(usize::MAX),
         }
-        assert!(verify_module(&invalid).is_err());
+        assert!(verify_program(&invalid).is_err());
     }
 }
 
@@ -477,10 +479,10 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
     };
     use kagari_common::range::RangeKind;
     let module = common::bytecode_ok("fn main() { val a = [1, 2, 3]; a.copy_within(0..2, 1); }");
-    verify_module(&module).unwrap();
+    verify_program(&module).unwrap();
     for mutation in 0..6 {
         let mut invalid = module.clone();
-        let instruction = invalid
+        let instruction = invalid.modules[invalid.root.index()]
             .functions
             .iter_mut()
             .flat_map(|f| &mut f.instructions)
@@ -513,13 +515,13 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             }
         }
         assert!(
-            verify_module(&invalid).is_err(),
+            verify_program(&invalid).is_err(),
             "range mutation {mutation}"
         );
     }
     for mutation in 0..4 {
         let mut invalid = module.clone();
-        let instruction = invalid
+        let instruction = invalid.modules[invalid.root.index()]
             .functions
             .iter_mut()
             .flat_map(|f| &mut f.instructions)
@@ -551,7 +553,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             _ => *value = Register::new(usize::MAX),
         }
         assert!(
-            verify_module(&invalid).is_err(),
+            verify_program(&invalid).is_err(),
             "bound mutation {mutation}"
         );
     }
@@ -569,8 +571,8 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
             "struct Cell {{ var value: i32 }} fn main() {{ val count = 2usize; val value = {value}; val array = [value, value]; }}"
         );
         let mut module = common::bytecode_ok(&source);
-        verify_module(&module).unwrap();
-        let function = module
+        verify_program(&module).unwrap();
+        let function = module.modules[module.root.index()]
             .functions
             .iter_mut()
             .find(|f| {
@@ -604,7 +606,7 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
             value: elements[0],
             count,
         };
-        assert!(verify_module(&module).is_err(), "{value}");
+        assert!(verify_program(&module).is_err(), "{value}");
     }
 }
 
@@ -617,10 +619,10 @@ fn string_iterator_rejects_forged_constructor_contracts() {
     };
     let module =
         common::bytecode_ok("fn main() { val parts = \"a,b\".split(\",\"); parts.next(); }");
-    verify_module(&module).unwrap();
+    verify_program(&module).unwrap();
     for mutation in 0..3 {
         let mut invalid = module.clone();
-        let instruction = invalid
+        let instruction = invalid.modules[invalid.root.index()]
             .functions
             .iter_mut()
             .flat_map(|f| &mut f.instructions)
@@ -642,6 +644,6 @@ fn string_iterator_rejects_forged_constructor_contracts() {
             1 => *op = IterOp::String(StringIterKind::SplitN),
             _ => *value = None,
         }
-        assert!(verify_module(&invalid).is_err(), "mutation {mutation}");
+        assert!(verify_program(&invalid).is_err(), "mutation {mutation}");
     }
 }

@@ -161,18 +161,12 @@ fn interface_method_keeps_its_implementation_across_reload() {
     let first = compile_test_bytecode(source);
     let second = compile_test_bytecode(&source.replace("self + 1", "self + 2"));
     let mut runtime = Runtime::default();
-    let program = |module| kagari_bytecode::BytecodeProgram {
-        root: kagari_bytecode::ModuleRef::new(0),
-        modules: vec![module],
-    };
-    let old = runtime
-        .load_program("interface-reload", program(first))
-        .unwrap();
+    let old = runtime.load_program("interface-reload", first).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method.clone();
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let old_root = runtime.root_value(old_value.clone()).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "interface-reload", program(second))
+        .stage_reload_program(&old, "interface-reload", second)
         .unwrap();
     let new = runtime.publish_staged_reload(candidate).unwrap();
     let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
@@ -199,19 +193,13 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let program = |module| kagari_bytecode::BytecodeProgram {
-        root: kagari_bytecode::ModuleRef::new(0),
-        modules: vec![module],
-    };
     let mut runtime = Runtime::default();
-    let old = runtime
-        .load_program("interface-frames", program(old_code))
-        .unwrap();
+    let old = runtime.load_program("interface-frames", old_code).unwrap();
     let method = old.bytecode.interface_tables[0].methods[0].method.clone();
     let boxed = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let _root = runtime.root_value(boxed.clone()).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "interface-frames", program(new_code))
+        .stage_reload_program(&old, "interface-frames", new_code)
         .unwrap();
     let new = runtime.publish_staged_reload(candidate).unwrap();
     let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
@@ -258,18 +246,14 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     let new_code = compile_test_bytecode(
         &source.replace("fn helper() -> i32 { 1 }", "fn helper() -> i32 { 2 }"),
     );
-    let program = |module| kagari_bytecode::BytecodeProgram {
-        root: kagari_bytecode::ModuleRef::new(0),
-        modules: vec![module],
-    };
     let mut runtime = Runtime::default();
     let old = runtime
-        .load_program("interface-dispatch-reload", program(old_code))
+        .load_program("interface-dispatch-reload", old_code)
         .unwrap();
     let old_value = runtime.make_interface(&old, 0, Value::I32(7)).unwrap();
     let old_root = runtime.root_value(old_value.clone()).unwrap();
     let candidate = runtime
-        .stage_reload_program(&old, "interface-dispatch-reload", program(new_code))
+        .stage_reload_program(&old, "interface-dispatch-reload", new_code)
         .unwrap();
     let new = runtime.publish_staged_reload(candidate).unwrap();
     let new_value = runtime.make_interface(&new, 0, Value::I32(7)).unwrap();
@@ -290,10 +274,13 @@ fn source_interface_dispatch_keeps_old_method_and_descendant_after_reload() {
     drop(new_call);
     drop(old_root);
     runtime.collect_garbage().unwrap();
-    assert_eq!(
-        runtime.modules().collect_unreachable_epochs(),
-        vec![old.key()]
-    );
+    let expected: std::collections::HashSet<_> = old.members().map(|member| member.key()).collect();
+    let reclaimed: std::collections::HashSet<_> = runtime
+        .modules()
+        .collect_unreachable_epochs()
+        .into_iter()
+        .collect();
+    assert_eq!(reclaimed, expected);
 }
 
 #[test]
