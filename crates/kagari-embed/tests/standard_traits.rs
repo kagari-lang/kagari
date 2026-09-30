@@ -707,8 +707,12 @@ fn main()->i64 {Key{id:1}.hash()}
 }
 
 #[test]
-fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
-    use kagari_abi::standard::StandardIntrinsic;
+fn key_calls_carry_checked_storage_and_selected_protocols() {
+    use kagari_abi::{
+        callable::EngineNativeBinding,
+        native_import::{EngineNativeOperation, NativeWitnessImplementation},
+        standard::StandardIntrinsic,
+    };
     use kagari_bytecode::{BytecodeInstruction, CallTarget};
     for custom in [false, true] {
         let implementation = if custom {
@@ -721,7 +725,7 @@ fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
         );
         let artifact = KagariEngine::default()
             .compile_to_artifact(
-                SourceFile::new("fast-key.kgr", source),
+                SourceFile::new("fast-key.kgr", source.clone()),
                 Default::default(),
                 Default::default(),
             )
@@ -740,8 +744,50 @@ fn builtin_keys_keep_native_lookup_and_custom_keys_emit_guarded_calls() {
                 _ => None,
             })
             .collect();
-        assert_eq!(calls.contains(&StandardIntrinsic::KeyLookupBegin), custom);
-        assert_eq!(calls.contains(&StandardIntrinsic::MapInsert), !custom);
+        for operation in [
+            StandardIntrinsic::KeyLookupBegin,
+            StandardIntrinsic::KeyCandidates,
+            StandardIntrinsic::KeyMapInsert,
+            StandardIntrinsic::MapInsert,
+            StandardIntrinsic::MapGet,
+        ] {
+            assert!(
+                !calls.contains(&operation),
+                "retired compiler key expansion: {operation:?}"
+            );
+        }
+        for operation in [StandardIntrinsic::MapInsert, StandardIntrinsic::MapGet] {
+            let binding = EngineNativeBinding::Intrinsic(operation);
+            let contract = artifact
+                .program
+                .modules
+                .iter()
+                .flat_map(|module| &module.engine_imports)
+                .find(|import| import.binding == binding)
+                .unwrap();
+            assert_eq!(
+                contract.resolve(),
+                Some(EngineNativeOperation::Resumable(binding))
+            );
+            for protocol in [StandardTrait::Hash, StandardTrait::PartialEq] {
+                let witness = contract
+                    .witnesses
+                    .iter()
+                    .find(|witness| {
+                        StandardTrait::from_id(&witness.interface.declaration) == Some(protocol)
+                    })
+                    .unwrap();
+                assert_eq!(
+                    matches!(
+                        witness.implementation,
+                        NativeWitnessImplementation::Table(_)
+                    ),
+                    custom
+                );
+                assert_eq!(witness.methods.len(), usize::from(custom));
+            }
+        }
+        execute(&source);
     }
 }
 

@@ -155,7 +155,9 @@ impl EngineNativeImport {
         if matches!(
             self.binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::ArrayListFromFn
+                StandardIntrinsic::LinkedHashMapFrom
+                    | StandardIntrinsic::LinkedHashSetFrom
+                    | StandardIntrinsic::ArrayListFromFn
                     | StandardIntrinsic::ArraySort
                     | StandardIntrinsic::ArraySortBy
                     | StandardIntrinsic::ArraySortByKey
@@ -181,6 +183,11 @@ impl EngineNativeImport {
             && matches!(
                 self.signature.result,
                 AbiType::Array(_, CollectionAccess::Mutable)
+                    | AbiType::Set(_, CollectionAccess::Mutable)
+                    | AbiType::Map {
+                        access: CollectionAccess::Mutable,
+                        ..
+                    }
             )
             && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
         {

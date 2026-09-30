@@ -108,8 +108,8 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
-        self.native_array_source(binding, &params, &mut witnesses)?;
-        self.native_key_witnesses(binding, &params, &mut witnesses)?;
+        self.native_collection_source(binding, &params, &mut witnesses)?;
+        self.native_key_witnesses(binding, &params, &result[0], &mut witnesses)?;
         if matches!(
             binding,
             EngineNativeBinding::Intrinsic(
@@ -148,7 +148,9 @@ impl FunctionLowerer<'_, '_> {
         let invoked_protocols = matches!(
             binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::ArrayCopyWithin
+                StandardIntrinsic::LinkedHashMapFrom
+                    | StandardIntrinsic::LinkedHashSetFrom
+                    | StandardIntrinsic::ArrayCopyWithin
                     | StandardIntrinsic::ArrayRemoveRange
                     | StandardIntrinsic::ArraySort
                     | StandardIntrinsic::ArraySortByKey
@@ -277,8 +279,8 @@ impl FunctionLowerer<'_, '_> {
             )
             .map_err(|_| invalid())?;
         let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
-        self.native_array_source(binding, &params, &mut witnesses)?;
-        self.native_key_witnesses(binding, &params, &mut witnesses)?;
+        self.native_collection_source(binding, &params, &mut witnesses)?;
+        self.native_key_witnesses(binding, &params, result, &mut witnesses)?;
         if matches!(
             binding,
             EngineNativeBinding::Intrinsic(

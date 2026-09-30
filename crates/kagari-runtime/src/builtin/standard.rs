@@ -152,7 +152,7 @@ pub fn invoke(
         | StandardIntrinsic::ArrayListFrom
         | StandardIntrinsic::LinkedHashMapFrom
         | StandardIntrinsic::LinkedHashSetFrom => Err(BuiltinError::new(
-            "collection factories must be lowered to checked construction",
+            "collection operation requires a checked native invocation",
         )),
         StandardIntrinsic::ArrayLen => array_len(gc, args),
         StandardIntrinsic::ArrayIsEmpty => array_is_empty(gc, args),

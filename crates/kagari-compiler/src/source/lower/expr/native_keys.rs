@@ -3,7 +3,7 @@ use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::NativeWitness,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
 };
 use kagari_hir::{
     builtin::traits::StandardTraitSemantics,
@@ -34,14 +34,24 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         binding: EngineNativeBinding,
         params: &[TypeId],
+        result: &TypeId,
         witnesses: &mut Vec<NativeWitness>,
     ) -> Result<(), MirLoweringError> {
-        if !self.key_binding(binding) {
-            return Ok(());
-        }
-        let key = match params.first() {
+        let storage = if self.key_binding(binding) {
+            params.first()
+        } else if matches!(
+            binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
+            ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
+        ) {
+            Some(result)
+        } else {
+            None
+        };
+        let key = match storage {
             Some(TypeId::Map { key, .. } | TypeId::Set(key, _)) => key,
-            _ => return Err(MirLoweringError::MissingBinding("native key storage")),
+            _ => return Ok(()),
         };
         for protocol in [
             StandardTrait::Eq,

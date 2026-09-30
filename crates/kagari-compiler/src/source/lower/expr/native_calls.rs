@@ -154,12 +154,6 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
 
-        if matches!(
-            intrinsic,
-            StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
-        ) {
-            return self.lower_collection_factory(expr, lowered[0]);
-        }
         let base = receiver.or_else(|| args.first().copied());
         if let Some(base) = base {
             let ty = self

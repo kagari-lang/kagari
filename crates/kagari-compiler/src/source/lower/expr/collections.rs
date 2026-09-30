@@ -6,11 +6,7 @@ use kagari_abi::{
 };
 use kagari_common::collection::CollectionAccess;
 use kagari_hir::types::abi::lower_type;
-use kagari_hir::{
-    builtin::traits::{self, StandardTraitSemantics},
-    hir,
-    types::TypeId,
-};
+use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
 use kagari_mir::instruction::{Instruction, MirValue};
 
 impl FunctionLowerer<'_, '_> {
@@ -34,31 +30,6 @@ impl FunctionLowerer<'_, '_> {
             arguments: vec![],
         });
         Ok(dst)
-    }
-
-    pub(super) fn lower_collection_factory(
-        &mut self,
-        site: hir::ExprId,
-        input: MirValue,
-    ) -> Result<MirValue, MirLoweringError> {
-        let ty = self
-            .analyzed
-            .typed
-            .type_table
-            .expr_type(site)
-            .ok_or(MirLoweringError::MissingExprType(site))?;
-        let span = self.analyzed.lowered.source_map.expr_span(site);
-        let ty = self
-            .planner
-            .arguments(&[ty], &self.instance.substitution, span)?
-            .remove(0);
-        let item = traits::collection_item(&ty).ok_or(MirLoweringError::MissingBinding(
-            "collection factory result",
-        ))?;
-        let mut interface = StandardTrait::List.nominal();
-        interface.arguments.push(item);
-        let source = TypeId::Trait(interface);
-        self.lower_collect(&ty, &source, input)
     }
 }
 

@@ -424,13 +424,10 @@ impl FunctionLowerer<'_, '_> {
                 Some(self.planner.catalog),
                 &Default::default(),
             )
-        {
-            if traits::lifted_collection_requirement(&interface, &ty, self.planner.catalog)
+            && traits::lifted_collection_requirement(&interface, &ty, self.planner.catalog)
                 .is_some()
-            {
-                return self.lower_fallible_collect(&ty, &method_arguments[0], args[0]);
-            }
-            return self.lower_collect(&ty, &method_arguments[0], args[0]);
+        {
+            return self.lower_fallible_collect(&ty, &method_arguments[0], args[0]);
         }
         if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
             let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");

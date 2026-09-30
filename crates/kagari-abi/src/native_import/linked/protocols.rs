@@ -1,5 +1,5 @@
 //! Validate selected required-method applications against carried declarations.
-use super::arrays;
+use super::sources;
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys},
@@ -67,7 +67,7 @@ pub(super) fn valid<'a>(
             }
             continue;
         }
-        if (list_query || snapshot || arrays::selected(import))
+        if (list_query || snapshot || sources::selected(import))
             && collection == Some(StandardTrait::List)
             || snapshot && collection == Some(StandardTrait::Map)
         {
@@ -90,7 +90,7 @@ pub(super) fn valid<'a>(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
         );
-        let conversion = numeric || list_query || snapshot || arrays::selected(import);
+        let conversion = numeric || list_query || snapshot || sources::selected(import);
         let prepared_order = matches!(
             import.binding,
             EngineNativeBinding::Intrinsic(
@@ -98,10 +98,10 @@ pub(super) fn valid<'a>(
             )
         );
         let equality = (list_query
-            || keys::selected(import.binding)
+            || keys::key(import).is_some()
             || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup))
             && protocol == Some(StandardTrait::PartialEq);
-        let hashing = keys::selected(import.binding) && protocol == Some(StandardTrait::Hash);
+        let hashing = keys::key(import).is_some() && protocol == Some(StandardTrait::Hash);
         if (equality || hashing)
             && witness.implementation == NativeWitnessImplementation::Interface
             && matches!(&witness.receiver,AbiType::Trait(interface) if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection))

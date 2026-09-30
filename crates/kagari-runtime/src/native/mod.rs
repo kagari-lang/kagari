@@ -124,6 +124,20 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(binding))
+                if matches!(
+                    binding,
+                    EngineNativeBinding::Intrinsic(
+                        StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
+                    ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
+                ) && matches!(
+                    contract.signature.result,
+                    AbiType::Map { .. } | AbiType::Set(..)
+                ) =>
+            {
+                NativeState::Key(KeyInvocation::construct(contract, arguments)?)
+            }
+
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
                 operation @ (StandardIntrinsic::MapGet
                 | StandardIntrinsic::MapContainsKey
@@ -268,7 +282,7 @@ impl NativeInvocation {
                     .iter()
                     .cloned()
                     .chain(match &mut state {
-                        NativeState::Key(_) => vec![Value::Unit; keys::SCRATCH_ROOTS],
+                        NativeState::Key(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
                         NativeState::PreparedArray(_) => {
                             vec![Value::Unit; prepared_arrays::SCRATCH_ROOTS]
@@ -325,7 +339,9 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
-            NativeState::Key(state) => Some(state.initialize(runtime, &roots)?),
+            NativeState::Key(state) => {
+                Some(state.initialize(runtime, &implementation, contract, &roots)?)
+            }
             NativeState::ArrayRange(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }

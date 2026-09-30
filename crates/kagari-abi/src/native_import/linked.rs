@@ -20,9 +20,9 @@ use kagari_common::{
 };
 use std::{collections::HashSet, iter};
 
-mod arrays;
 mod protocols;
 mod snapshots;
+mod sources;
 
 impl EngineNativeImport {
     pub fn matches_declaration<'a>(
@@ -164,7 +164,7 @@ impl EngineNativeImport {
             return Ok(false);
         };
         obligations.extend(snapshot_obligations);
-        let Some(array_obligations) = arrays::obligations(self, catalog, cancel)? else {
+        let Some(array_obligations) = sources::obligations(self, catalog, cancel)? else {
             return Ok(false);
         };
         obligations.extend(array_obligations);

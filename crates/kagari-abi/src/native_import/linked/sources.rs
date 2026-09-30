@@ -1,4 +1,4 @@
-//! Selected source traversal for array construction and atomic snapshot copying.
+//! Selected source traversal for native collection construction and snapshot copying.
 use crate::{
     callable::EngineNativeBinding,
     native_import::EngineNativeImport,
@@ -19,6 +19,8 @@ pub(super) fn selected(import: &EngineNativeImport) -> bool {
         import.binding,
         EngineNativeBinding::Intrinsic(
             StandardIntrinsic::ArrayListFrom
+                | StandardIntrinsic::LinkedHashMapFrom
+                | StandardIntrinsic::LinkedHashSetFrom
                 | StandardIntrinsic::ArrayCopyFrom
                 | StandardIntrinsic::ArrayExtend
         )
@@ -27,6 +29,11 @@ pub(super) fn selected(import: &EngineNativeImport) -> bool {
         && matches!(
             import.signature.result,
             AbiType::Array(_, CollectionAccess::Mutable)
+                | AbiType::Set(_, CollectionAccess::Mutable)
+                | AbiType::Map {
+                    access: CollectionAccess::Mutable,
+                    ..
+                }
         )
 }
 
@@ -47,16 +54,17 @@ pub(super) fn obligations(
     let Some(source) = import.signature.params.get(index) else {
         return Ok(None);
     };
-    let item = if index == 1 {
-        match &import.signature.params[0] {
-            AbiType::Array(item, _) => item.as_ref(),
-            _ => return Ok(None),
-        }
+    let storage = if index == 1 {
+        &import.signature.params[0]
     } else {
-        match &import.signature.result {
-            AbiType::Array(item, _) => item.as_ref(),
-            _ => return Ok(None),
+        &import.signature.result
+    };
+    let item = match storage {
+        AbiType::Array(item, _) | AbiType::Set(item, _) => item.as_ref().clone(),
+        AbiType::Map { key, value, .. } => {
+            AbiType::Tuple(vec![key.as_ref().clone(), value.as_ref().clone()])
         }
+        _ => return Ok(None),
     };
     let mut out = Vec::new();
     let iterable = if matches!(import.binding, EngineNativeBinding::Intrinsic(_)) {

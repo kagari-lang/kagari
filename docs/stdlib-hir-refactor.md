@@ -24,7 +24,9 @@ storage commit. ArrayList sorting and adjacent deduplication execute native
 preparation with selected Ord/PartialEq witnesses, stable merging, once-only key
 extraction and atomic final storage commit. Native Map/Set key queries and
 mutations also own selected Hash/Eq bucket traversal; Map factories/transforms
-execute under their callback guard before checked insertion. Remaining ST05
+execute under their callback guard before checked insertion. LinkedHashMap/Set
+source and FromIterator construction use selected native traversal and the same
+key lookup implementation. Remaining ST05
 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -541,9 +543,11 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   witnesses, stable bucket candidates, identity keys and guarded storage commits.
 - [x] Migrate Map `get_or_insert_with` and `update` with once-only typed callbacks,
   both selected lookups, failure effects and atomic checked insertion.
+- [x] Migrate LinkedHashMap/LinkedHashSet source construction and FromIterator with
+  checked traversal, shared key lookup, duplicate policy and rooted final publication.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
-- [ ] Migrate remaining collection/set operations and construction, plus lazy
+- [ ] Migrate remaining collection/set operations, plus lazy
   windows/chunks with their existing observable contracts.
 - [ ] Remove corresponding compiler algorithm expansions and standard source
   lookups from MIR, bytecode, VM and runtime.
@@ -836,6 +840,53 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native Map/Set construction checkpoint (2026-10-01): completes the source
+  and FromIterator construction family for LinkedHashMap/LinkedHashSet. Removed
+  compiler collection factory handling and the entire native collection-building
+  loop. Selected native FromIterator implementations now consume their checked
+  declarations directly; fallible collection composition remains owned by its
+  pending iterator family. Generalized the existing checked source-witness handoff
+  to collection sources, with no forwarding module or source-derived runtime facts.
+- The rooted key family owns construction, ordinary lookup and Map callback states
+  behind its private enum. Construction uses selected Iterable/Iterator conversions
+  and the existing key lookup/token insertion implementation for every element;
+  it does not duplicate Hash/Eq bucket traversal. Native Iter sources retain their
+  iteration guard and close before publication; custom iterator implementations
+  retain their own protocol behavior. Map pair extraction preserves both index
+  constants and reads. Equal map keys replace only the payload, equal set members
+  are discarded, and first insertion identities/order remain stable. Fresh storage,
+  current items, iterator results and collision candidates stay rooted while shared
+  frames execute selected source/key methods. Completed payload effects survive
+  traps; unpublished partial construction is discarded with all guards and roots.
+- Recorded 200 cases at 9c09890 before editing production: Map/Set, `from` and
+  FromIterator, scalar/nominal/tuple/Option/identity keys, empty/duplicate inputs,
+  generic/dynamic List sources, identity Iterable, native Iter and private custom
+  iterator sources. Each of 48,040 instruction limits passes source and decoded
+  KBC with exact counters/effect positions and no bulk-charge holes. Boundary
+  tests cover forced GC, cancellation at every callback, successful/failed host
+  reentry, every allocation limit, source alias writes and Hash/Eq overflow;
+  original source slots and completed key effects are verified after failure,
+  subsequent source mutation succeeds and cleanup collects all objects.
+- Foreign generic builders pin caller-private traversal, key methods and heap
+  payloads; removed private executable dependencies reject verification/loading.
+  All 960 source/storage/authority/binding/witness/instantiation corruptions reject
+  both in-memory and encoded loading, including forged composed Hash/equality.
+  Runtime ABI is v124; binding v2, KBC v109, KMIR v7 and helper ABI v6 retain
+  their schemas. Updated the old embedding assertion about compiler-expanded key
+  loops to check retired bare operations, native import resolution and selected
+  Hash/PartialEq witnesses; its source/decoded/JIT-fallback execution passes.
+- Checkpoint validation passes all eight library suites: ABI 46, bytecode 27,
+  compiler 183, HIR 414, MIR 1, runtime 71, stdlib 7 and VM 209 (958 total).
+  Ten affected embedding suites pass 113 tests, including the corrected full
+  standard-trait suite, for 1,071 checkpoint tests. Workspace/all-target Clippy
+  with denied warnings, formatting, structure (716 Rust files, zero violations/
+  exceptions) and diff checks pass. Manual review confirms private key-family
+  state ownership, explicit imports, normal modules, no widened lookup visibility,
+  bounded traversal charges, rooted pair/candidate storage, selected protocol
+  signatures and guard/session cleanup. No carried build or test errors.
+  Remaining ST05 families and all ST06 integration/measurement/final acceptance
+  work remain pending.
 
 - ST05 native key lookup and Map callbacks checkpoint (2026-09-30): completes
   two family checklists covering Map `get`, `contains_key`, `insert`, `remove`,

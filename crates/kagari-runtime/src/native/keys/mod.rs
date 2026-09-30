@@ -1,4 +1,5 @@
 //! Selected key lookups and atomic mutations on existing Map/Set storage.
+mod construction;
 mod lookup;
 mod updates;
 use crate::{
@@ -7,6 +8,7 @@ use crate::{
     native::{
         NativeAction,
         keys::{
+            construction::Construction,
             lookup::{KeyStep, Lookup},
             updates::MapUpdate,
         },
@@ -14,9 +16,10 @@ use crate::{
     value::Value,
 };
 use kagari_abi::{
+    callable::EngineNativeBinding,
     native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
     types::AbiType,
 };
 const CANDIDATES: usize = 0;
@@ -30,6 +33,8 @@ fn invalid() -> RuntimeError {
 #[derive(Clone, Copy)]
 struct Buffers {
     scratch: usize,
+    receiver: usize,
+    query: usize,
 }
 impl Buffers {
     fn get(self, roots: &RootSet, slot: usize) -> Result<Value, RuntimeError> {
@@ -47,17 +52,27 @@ impl Buffers {
             .ok_or_else(invalid)
     }
     fn receiver(self, roots: &RootSet) -> Result<Value, RuntimeError> {
-        roots.get(0).ok_or_else(invalid)
+        roots.get(self.receiver).ok_or_else(invalid)
     }
     fn query(self, roots: &RootSet) -> Result<Value, RuntimeError> {
-        roots.get(1).ok_or_else(invalid)
+        roots.get(self.query).ok_or_else(invalid)
     }
 }
 fn witness(
     contract: &EngineNativeImport,
     protocol: StandardTrait,
 ) -> Result<&NativeWitness, RuntimeError> {
-    let key = match &contract.signature.params[0] {
+    let storage = if matches!(
+        contract.binding,
+        EngineNativeBinding::Intrinsic(
+            StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
+        ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
+    ) {
+        &contract.signature.result
+    } else {
+        &contract.signature.params[0]
+    };
+    let key = match storage {
         AbiType::Map { key, .. } | AbiType::Set(key, _) => key,
         _ => return Err(invalid()),
     };
@@ -70,13 +85,34 @@ fn witness(
         })
         .ok_or_else(invalid)
 }
+enum State {
+    Lookup {
+        lookup: Lookup,
+        discard: bool,
+        unit: bool,
+    },
+    Update(MapUpdate),
+    Construction(Construction),
+}
 pub(super) struct KeyInvocation {
-    lookup: Lookup,
-    update: Option<MapUpdate>,
-    discard: bool,
-    unit: bool,
+    state: State,
 }
 impl KeyInvocation {
+    pub(super) fn construct(
+        contract: &EngineNativeImport,
+        arguments: &[Value],
+    ) -> Result<Self, RuntimeError> {
+        Construction::start(contract, arguments).map(|state| Self {
+            state: State::Construction(state),
+        })
+    }
+    pub(super) fn scratch_roots(&self) -> usize {
+        if matches!(self.state, State::Construction(_)) {
+            construction::SCRATCH_ROOTS
+        } else {
+            SCRATCH_ROOTS
+        }
+    }
     pub(super) fn start(
         operation: StandardIntrinsic,
         contract: &EngineNativeImport,
@@ -85,33 +121,35 @@ impl KeyInvocation {
         let equality = witness(contract, StandardTrait::PartialEq)?;
         let custom = matches!(
             equality.implementation,
-            NativeWitnessImplementation::Derived
-        ) || matches!(
-            equality.implementation,
-            NativeWitnessImplementation::Table(_)
+            NativeWitnessImplementation::Derived | NativeWitnessImplementation::Table(_)
         );
         let buffers = Buffers {
             scratch: arguments.len(),
+            receiver: 0,
+            query: 1,
         };
-        let update = matches!(
+        if matches!(
             operation,
             StandardIntrinsic::MapGetOrInsertWith | StandardIntrinsic::MapUpdate
-        )
-        .then(|| MapUpdate::start(operation, custom, buffers));
-        let lookup = Lookup::start(operation, custom, buffers, Some(2));
+        ) {
+            return Ok(Self {
+                state: State::Update(MapUpdate::start(operation, custom, buffers)),
+            });
+        }
         Ok(Self {
-            lookup,
-            update,
-            discard: contract.signature.result == AbiType::Builtin(BuiltinType::Unit),
-            unit: false,
+            state: State::Lookup {
+                lookup: Lookup::start(operation, custom, buffers, Some(2)),
+                discard: contract.signature.result == AbiType::Builtin(BuiltinType::Unit),
+                unit: false,
+            },
         })
     }
-    fn finish(&mut self, step: KeyStep) -> NativeAction {
+    fn finish(step: KeyStep, discard: bool, unit: &mut bool) -> NativeAction {
         match step {
             KeyStep::Action(action) => action,
             KeyStep::Ready(value) => {
-                if self.discard {
-                    self.unit = true;
+                if discard {
+                    *unit = true;
                     NativeAction::Continue
                 } else {
                     NativeAction::Complete(value)
@@ -122,13 +160,19 @@ impl KeyInvocation {
     pub(super) fn initialize(
         &mut self,
         runtime: &Runtime,
+        owner: &LoadedModule,
+        contract: &EngineNativeImport,
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
-        if let Some(update) = &mut self.update {
-            return update.initialize(runtime, roots);
+        match &mut self.state {
+            State::Construction(state) => state.initialize(runtime, owner, contract, roots),
+            State::Update(state) => state.initialize(runtime, roots),
+            State::Lookup {
+                lookup,
+                discard,
+                unit,
+            } => Ok(Self::finish(lookup.begin(runtime, roots)?, *discard, unit)),
         }
-        let step = self.lookup.begin(runtime, roots)?;
-        Ok(self.finish(step))
     }
     pub(super) fn advance(
         &mut self,
@@ -137,14 +181,25 @@ impl KeyInvocation {
         contract: &EngineNativeImport,
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
-        if let Some(update) = &mut self.update {
-            return update.advance(runtime, owner, contract, roots);
+        match &mut self.state {
+            State::Construction(state) => state.advance(runtime, owner, contract, roots),
+            State::Update(state) => state.advance(runtime, owner, contract, roots),
+            State::Lookup {
+                lookup,
+                discard,
+                unit,
+            } => {
+                if *unit {
+                    Ok(NativeAction::Complete(Value::Unit))
+                } else {
+                    Ok(Self::finish(
+                        lookup.advance(runtime, owner, contract, roots)?,
+                        *discard,
+                        unit,
+                    ))
+                }
+            }
         }
-        if self.unit {
-            return Ok(NativeAction::Complete(Value::Unit));
-        }
-        let step = self.lookup.advance(runtime, owner, contract, roots)?;
-        Ok(self.finish(step))
     }
     pub(super) fn receive(
         &mut self,
@@ -154,9 +209,10 @@ impl KeyInvocation {
         roots: &RootSet,
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
-        if let Some(update) = &mut self.update {
-            return update.receive(runtime, owner, contract, roots, value);
+        match &mut self.state {
+            State::Construction(state) => state.receive(runtime, owner, contract, roots, value),
+            State::Update(state) => state.receive(runtime, owner, contract, roots, value),
+            State::Lookup { lookup, .. } => lookup.receive(runtime, owner, value),
         }
-        self.lookup.receive(runtime, owner, value)
     }
 }

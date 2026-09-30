@@ -1,6 +1,6 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
-    operations::{IterOp, StandardEnumOp},
+    operations::StandardEnumOp,
     representation::ValueType,
     standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
 };
@@ -14,7 +14,6 @@ use kagari_hir::{
     types::TypeId,
 };
 use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};
-use std::slice;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_fallible_collect(
@@ -233,85 +232,5 @@ impl FunctionLowerer<'_, '_> {
             _ => return Err(MirLoweringError::MissingBinding("collection insertion")),
         }
         Ok(())
-    }
-
-    pub(super) fn lower_collect(
-        &mut self,
-        target: &TypeId,
-        source: &TypeId,
-        value: MirValue,
-    ) -> Result<MirValue, MirLoweringError> {
-        if let TypeId::Array(item, _) = target {
-            let mut interface = StandardTrait::FromIterator.nominal();
-            interface.arguments.push(item.as_ref().clone());
-            return self.lower_applied_method(
-                interface,
-                target.clone(),
-                &self.protocol_method(StandardTrait::FromIterator, 0)?,
-                slice::from_ref(source),
-                &[value],
-            );
-        }
-        let iterator_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
-        let iterator = self.lower_applied_operator(
-            StandardTrait::Iterable.nominal(),
-            source.clone(),
-            &self.protocol_method(StandardTrait::Iterable, 0)?,
-            &[value],
-        )?;
-        let item_type = self.iterator_item(&iterator_type)?;
-        let output = self.collection_new(target)?;
-        let guarded = matches!(iterator_type, TypeId::Iter(_));
-        if guarded {
-            self.emit(Instruction::BeginIteration {
-                collection: iterator,
-            });
-        }
-        let head = self.new_block();
-        let body = self.new_block();
-        let done = self.new_block();
-        self.ensure_jump(head);
-        self.switch_to_block(head);
-        let next = self.lower_applied_operator(
-            StandardTrait::Iterator.nominal(),
-            iterator_type.clone(),
-            &self.protocol_method(StandardTrait::Iterator, 0)?,
-            &[iterator],
-        )?;
-        let optional = TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item_type],
-        };
-        let present = self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(next))?;
-        self.set_terminator(Terminator::Branch {
-            cond: present,
-            then_block: body,
-            else_block: done,
-        });
-        self.switch_to_block(body);
-        let item = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(next))?;
-        self.collection_insert(target, output, item)?;
-        self.ensure_jump(head);
-        self.switch_to_block(done);
-        if guarded {
-            let dst = self.alloc_temp(ValueType::Unit);
-            self.emit(Instruction::Iter {
-                dst,
-                value: Some(iterator),
-                ty: lower_type(&iterator_type),
-                op: IterOp::Close,
-            });
-            self.emit(Instruction::EndIteration);
-        }
-        let destination = self.alloc_temp(ValueType::HeapObject);
-        self.emit(Instruction::Move {
-            dst: destination,
-            src: output,
-        });
-        self.function
-            .semantic
-            .registers
-            .insert(destination.temp.index(), lower_type(target));
-        Ok(destination)
     }
 }
