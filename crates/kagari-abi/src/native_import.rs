@@ -150,6 +150,9 @@ impl EngineNativeImport {
             self.binding,
             EngineNativeBinding::Intrinsic(
                 StandardIntrinsic::ArrayListFromFn
+                    | StandardIntrinsic::ArrayRetain
+                    | StandardIntrinsic::MapRetain
+                    | StandardIntrinsic::SetRetain
                     | StandardIntrinsic::ArrayCopyWithin
                     | StandardIntrinsic::ArrayRemoveRange
                     | StandardIntrinsic::ArrayListFrom

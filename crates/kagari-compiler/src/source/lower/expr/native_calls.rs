@@ -109,10 +109,7 @@ impl FunctionLowerer<'_, '_> {
         let span = self.analyzed.lowered.source_map.expr_span(expr);
         if matches!(
             intrinsic,
-            StandardIntrinsic::ArrayRetain
-                | StandardIntrinsic::MapRetain
-                | StandardIntrinsic::SetRetain
-                | StandardIntrinsic::ArraySort
+            StandardIntrinsic::ArraySort
                 | StandardIntrinsic::ArraySortBy
                 | StandardIntrinsic::ArraySortByKey
                 | StandardIntrinsic::ArrayDedup
@@ -148,7 +145,7 @@ impl FunctionLowerer<'_, '_> {
             } else {
                 None
             };
-            return self.lower_prepared_collection(
+            return self.lower_prepared_array(
                 intrinsic,
                 &receiver,
                 &lowered,

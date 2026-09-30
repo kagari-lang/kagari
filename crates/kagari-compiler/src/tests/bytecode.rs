@@ -80,3 +80,5 @@ mod native_snapshots;
 mod validation;
 
 mod native_array_ranges;
+
+mod native_retention;

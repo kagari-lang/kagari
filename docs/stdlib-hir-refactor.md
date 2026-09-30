@@ -18,7 +18,9 @@ construction. ArrayList per-index initialization executes through rooted native
 callbacks and checked append operations. ArrayList source construction, FromIterator,
 copy and extension execute through selected native source traversal and atomic
 final storage helpers. Array interval copying/removal also execute through checked
-static RangeBounds witnesses and prepared native storage updates. Remaining ST05 iterator/collection
+static RangeBounds witnesses and prepared native storage updates. ArrayList, Map
+and Set retention execute rooted native predicate traversal with one token-preserving
+storage commit. Remaining ST05 iterator/collection
 migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -527,9 +529,11 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   with checked traversal witnesses, rooted snapshots and atomic final storage updates.
 - [x] Migrate ArrayList interval copying/removal with selected RangeBounds methods,
   rooted prepared storage and checked readonly result construction before commit.
+- [x] Migrate ArrayList/LinkedHashMap/LinkedHashSet retention with typed predicates,
+  rooted native traversal, callback guards and token-preserving atomic storage commit.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
-- [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
+- [ ] Migrate remaining collection queries, custom keys, prepared mutation, sort/dedup,
   map updates and lazy windows/chunks with their existing observable contracts.
 - [ ] Remove corresponding compiler algorithm expansions and standard source
   lookups from MIR, bytecode, VM and runtime.
@@ -822,6 +826,53 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 prepared retention checkpoint (2026-09-30): completes one family checklist
+  covering ArrayList, LinkedHashMap and LinkedHashSet `retain`. Removed their
+  entire compiler predicate/mask expansion and routing branch; the remaining
+  compiler prepared-array handler owns only sort/dedup. Native execution roots
+  arguments before acquiring the callback mutation guard, traverses physical
+  storage in original order, invokes the checked predicate once per element and
+  prepares a rooted boolean mask. Array/Set predicates receive one argument even
+  for Tuple elements; Map predicates receive the separate key and value.
+- The final storage update reuses the existing Rust `CollectionRetainStorage`
+  helper after releasing the preparation guards. Existing Map/Set key tokens,
+  insertion order and shared payload identities survive without Hash/Eq replay.
+  Written key bounds remain checked; retention introduces no selected equality,
+  hashing or user traversal execution. Structural aliases cannot mutate during
+  callbacks, and an independently active iterator rejects structural commit.
+  Already-completed payload/external effects survive traps, cancellation and
+  resource exhaustion while original slots/order remain uncommitted. All
+  callbacks use shared frames and pinned modules; no synthetic execution path,
+  source algorithm copy or public-operation static fallback remains.
+- Recorded 189 cases at df30702 across seven scalar/heap/collision-key shapes,
+  empty/single/three-element storage, all/none/even masks and direct, generic and
+  named-function predicate calls. Each of 27,423 distinct instruction limits
+  passes for both source and decoded KBC, including 252 existing bulk-charge
+  rejection cutpoints. Exact counters, receiver/predicate/Hash/Eq/commit event
+  positions, result order and GC/session cleanup match the original implementation.
+  Boundary tests cover nested successful/failed host reentry, cancellation at
+  each predicate occurrence, all allocation limits, callback overflow, alias
+  insertion/replacement/removal/clear, recursive retention, independently active iteration,
+  nested Tuple payloads/captures and foreign generic predicate wrappers invoking
+  caller-private implementations. Collection threshold one forces root coverage;
+  subsequent calls remain usable after failure. All 192 predicate/storage/bound/
+  instantiation/bare-call corruptions reject in memory and encoded loading.
+- Runtime ABI is v121 for the newly executable retention bindings; binding v2,
+  KBC v109, KMIR v7 and helper ABI v6 retain their schemas. Array and Set imports
+  now require their exact mutable physical receiver instead of accepting each
+  other's storage kind. ABI 46, bytecode 27, compiler 178, HIR 414, MIR 1,
+  runtime 71, stdlib 7 and VM 193 library tests pass (937 cumulative).
+  Embedding array_operations, collection_interfaces, error_traces,
+  iteration_traits, lazy_iterators, list_mutations, list_windows and
+  prepared_collections pass 84 tests (1,021 combined), across their supported
+  source, decoded and JIT/fallback routes. Workspace all-target Clippy with
+  warnings denied, formatting, structure and diff checks pass. Structure covers
+  656 Rust files with zero violations/exceptions. Manual review covered imports,
+  module ownership, exact callback arity/receiver permissions, guard lifetime,
+  roots, each logical charge, key tokens and final commit/cleanup. No build/test
+  error is carried; remaining ST05 families and ST06 fixture regeneration,
+  documentation, measurements and final acceptance remain pending.
 
 - ST05 ArrayList interval checkpoint (2026-09-30): completes one family checklist
   covering `copy_within` and `remove_range`, including six native range forms and

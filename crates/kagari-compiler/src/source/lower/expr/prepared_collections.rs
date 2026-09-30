@@ -83,7 +83,7 @@ impl FunctionLowerer<'_, '_> {
         )
     }
 
-    pub(super) fn lower_prepared_collection(
+    pub(super) fn lower_prepared_array(
         &mut self,
         operation: StandardIntrinsic,
         source: &TypeId,
@@ -96,17 +96,18 @@ impl FunctionLowerer<'_, '_> {
             ValueType::Unit,
         );
         let item = self.iteration_output(StandardTrait::Iterable, source, "Item")?;
-        let prepared = if matches!(
-            operation,
+        let prepared = match operation {
             StandardIntrinsic::ArraySort
-                | StandardIntrinsic::ArraySortBy
-                | StandardIntrinsic::ArraySortByKey
-        ) {
-            self.prepare_sort(operation, source, &item, args, callback)?
-        } else if operation == StandardIntrinsic::ArrayDedup {
-            self.prepare_dedup(&item, args[0])?
-        } else {
-            self.prepare_retain(source, &item, args)?
+            | StandardIntrinsic::ArraySortBy
+            | StandardIntrinsic::ArraySortByKey => {
+                self.prepare_sort(operation, source, &item, args, callback)?
+            }
+            StandardIntrinsic::ArrayDedup => self.prepare_dedup(&item, args[0])?,
+            _ => {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked prepared array operation",
+                ));
+            }
         };
         self.emit_intrinsic(
             StandardIntrinsic::CollectionMutationEnd,
@@ -127,48 +128,6 @@ impl FunctionLowerer<'_, '_> {
             &[args[0], prepared],
             ValueType::Unit,
         ))
-    }
-
-    fn prepare_retain(
-        &mut self,
-        source: &TypeId,
-        item: &TypeId,
-        args: &[MirValue],
-    ) -> Result<MirValue, MirLoweringError> {
-        let boolean = TypeId::Builtin(BuiltinType::Bool);
-        let mask_type = array(boolean.clone());
-        let mask = self.collection_new(&mask_type)?;
-        let guard = self.query_guard(source, args[0])?;
-        let optional = TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item.clone()],
-        };
-        let next = self.alloc_temp(ValueType::HeapObject);
-        self.prepared_while(
-            |this| {
-                let step = this.iterator_next(&guard.0, guard.1)?;
-                this.emit(Instruction::Move {
-                    dst: next,
-                    src: step,
-                });
-                this.standard_enum_op(&optional, Op::Test(0), Some(next))
-            },
-            |this| {
-                let value = this.standard_enum_op(&optional, Op::Read(0), Some(next))?;
-                let arguments = if let TypeId::Map { key, value: ty, .. } = source {
-                    vec![
-                        this.prepared_field(value, 0, key)?,
-                        this.prepared_field(value, 1, ty)?,
-                    ]
-                } else {
-                    vec![value]
-                };
-                let keep = this.call_function_value(args[1], &boolean, &arguments)?;
-                this.collection_insert(&mask_type, mask, keep)
-            },
-        )?;
-        self.end_query_guard(guard);
-        Ok(mask)
     }
 
     fn prepare_dedup(
