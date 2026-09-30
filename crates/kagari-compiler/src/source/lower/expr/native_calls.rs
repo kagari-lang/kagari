@@ -1,12 +1,10 @@
-//! Existing engine operation lowering, selected from checked callable bindings.
-//! Callback algorithm expansion remains here until the runtime continuation migration.
+//! Engine calls consume checked applications; remaining parse/assert helpers await migration.
 
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
-    operations::{IterOp, StringIterKind},
     representation::ValueType,
     standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
 };
@@ -127,31 +125,6 @@ impl FunctionLowerer<'_, '_> {
                 &self.protocol_method(StandardTrait::FromStr, 0)?,
                 &lowered,
             );
-        }
-
-        let string_iteration = match intrinsic {
-            StandardIntrinsic::StringBytes => Some(StringIterKind::Bytes),
-            StandardIntrinsic::StringCharIndices => Some(StringIterKind::CharIndices),
-            StandardIntrinsic::StringSplit => Some(StringIterKind::Split),
-            StandardIntrinsic::StringSplitN => Some(StringIterKind::SplitN),
-            StandardIntrinsic::StringSplitWhitespace => Some(StringIterKind::Whitespace),
-            StandardIntrinsic::StringLines => Some(StringIterKind::Lines),
-            _ => None,
-        };
-        if let Some(kind) = string_iteration {
-            let source = self.alloc_temp(ValueType::HeapObject);
-            self.emit(Instruction::MakeTuple {
-                dst: source,
-                elements: lowered,
-            });
-            let dst = self.alloc_temp(ValueType::HeapObject);
-            self.emit(Instruction::Iter {
-                dst,
-                value: Some(source),
-                ty: kind.source_type(),
-                op: IterOp::String(kind),
-            });
-            return Ok(dst);
         }
 
         let base = receiver.or_else(|| args.first().copied());

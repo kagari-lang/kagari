@@ -90,3 +90,5 @@ mod native_key_construction;
 mod native_keys;
 
 mod native_grouping;
+
+mod native_string_iterators;

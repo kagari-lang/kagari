@@ -12,6 +12,7 @@ mod prepared_arrays;
 mod protocols;
 mod results;
 mod retention;
+mod string_iterators;
 use crate::{
     LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
     builtin::BuiltinError,
@@ -28,6 +29,7 @@ use crate::{
         map_snapshots::SnapshotInvocation,
         prepared_arrays::PreparedArray,
         retention::Retention,
+        string_iterators::StringIterator,
     },
     value::Value,
 };
@@ -92,6 +94,7 @@ enum NativeState {
     List(ListInvocation),
     ListEquality(EqualityInvocation),
     MapSnapshot(SnapshotInvocation),
+    StringIterator(StringIterator),
     Forward,
 }
 
@@ -138,6 +141,14 @@ impl NativeInvocation {
                 NativeState::Key(KeyInvocation::construct(contract, arguments)?)
             }
 
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
+                operation @ (StandardIntrinsic::StringBytes
+                | StandardIntrinsic::StringCharIndices
+                | StandardIntrinsic::StringSplit
+                | StandardIntrinsic::StringSplitN
+                | StandardIntrinsic::StringSplitWhitespace
+                | StandardIntrinsic::StringLines),
+            ))) => NativeState::StringIterator(StringIterator::start(operation, arguments)?),
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
                 operation @ (StandardIntrinsic::MapGet
                 | StandardIntrinsic::MapContainsKey
@@ -314,6 +325,9 @@ impl NativeInvocation {
                                 )
                             })?
                         }
+                        NativeState::StringIterator(_) => {
+                            vec![Value::Unit; string_iterators::SCRATCH_ROOTS]
+                        }
                         NativeState::Forward => vec![],
                         NativeState::ArrayInitialization(_) => {
                             vec![Value::Unit; array_initialization::SCRATCH_ROOTS]
@@ -352,6 +366,7 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
+            NativeState::StringIterator(state) => Some(state.initialize(runtime, &roots)?),
             NativeState::Key(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }
@@ -383,6 +398,9 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::StringIterator(state) => {
+                state.advance(runtime, &self.implementation, &self.roots)
+            }
             NativeState::Key(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
@@ -434,6 +452,9 @@ impl NativeInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            NativeState::StringIterator(_) => Err(RuntimeError::module_validation(
+                "string constructor has no callback",
+            )),
             NativeState::Key(state) => state.receive(
                 runtime,
                 &self.implementation,

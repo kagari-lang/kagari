@@ -263,7 +263,7 @@ pub fn invoke(
         | StandardIntrinsic::StringLines
         | StandardIntrinsic::StringBytes
         | StandardIntrinsic::StringCharIndices => Err(BuiltinError::new(
-            "string traversal requires iterator lowering",
+            "string traversal requires a resumable native call",
         )),
         StandardIntrinsic::StringSplitOnce | StandardIntrinsic::StringRsplitOnce => {
             string_split_once(gc, intrinsic, args)

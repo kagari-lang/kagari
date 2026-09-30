@@ -156,7 +156,13 @@ impl EngineNativeImport {
         if matches!(
             self.binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::LinkedHashMapFrom
+                StandardIntrinsic::StringBytes
+                    | StandardIntrinsic::StringCharIndices
+                    | StandardIntrinsic::StringSplit
+                    | StandardIntrinsic::StringSplitN
+                    | StandardIntrinsic::StringSplitWhitespace
+                    | StandardIntrinsic::StringLines
+                    | StandardIntrinsic::LinkedHashMapFrom
                     | StandardIntrinsic::LinkedHashSetFrom
                     | StandardIntrinsic::ArrayListFromFn
                     | StandardIntrinsic::ArraySort

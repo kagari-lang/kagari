@@ -7,6 +7,7 @@ use kagari_abi::{
     native_import::{EngineNativeOperation, NativeWitnessImplementation},
     scalar::BuiltinType,
     standard::{
+        StandardIntrinsic,
         bindings::NativeDefaultMethod,
         traits::{self as standard_traits, StandardTrait},
     },
@@ -983,38 +984,65 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
 
 #[test]
 fn string_iterator_rejects_forged_constructor_contracts() {
-    use kagari_abi::{
-        operations::{IterOp, StringIterKind},
-        scalar::BuiltinType,
-        types::AbiType,
-    };
     let module =
         common::bytecode_ok("fn main() { val parts = \"a,b\".split(\",\"); parts.next(); }");
     verify_program(&module).unwrap();
-    for mutation in 0..3 {
+    let root = module.root.index();
+    let import = module.modules[root]
+        .engine_imports
+        .iter()
+        .position(|import| {
+            import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::StringSplit)
+        })
+        .unwrap();
+    assert_eq!(
+        module.modules[root].engine_imports[import].resolve(),
+        Some(EngineNativeOperation::Resumable(
+            EngineNativeBinding::Intrinsic(StandardIntrinsic::StringSplit)
+        ))
+    );
+    let artifact = bytecode::KbcArtifact::from_program(module.clone(), Default::default()).unwrap();
+    for mutation in 0..6 {
         let mut invalid = module.clone();
-        let instruction = invalid.modules[invalid.root.index()]
-            .functions
-            .iter_mut()
-            .flat_map(|f| &mut f.instructions)
-            .find(|i| {
-                matches!(
-                    i,
-                    BytecodeInstruction::Iter {
-                        op: IterOp::String(_),
-                        ..
-                    }
-                )
-            })
-            .unwrap();
-        let BytecodeInstruction::Iter { ty, op, value, .. } = instruction else {
-            unreachable!()
-        };
+        let owner = &mut invalid.modules[root];
         match mutation {
-            0 => *ty = AbiType::Tuple(vec![AbiType::Builtin(BuiltinType::String)]),
-            1 => *op = IterOp::String(StringIterKind::SplitN),
-            _ => *value = None,
+            0 => {
+                owner.engine_imports[import].signature.params.pop();
+            }
+            1 => {
+                owner.engine_imports[import].binding =
+                    EngineNativeBinding::Intrinsic(StandardIntrinsic::StringSplitN)
+            }
+            5 => {
+                owner.engine_imports[import].signature.result =
+                    AbiType::Iter(Box::new(AbiType::Builtin(BuiltinType::U8)))
+            }
+            _ => {
+                let instruction=owner.functions.iter_mut().flat_map(|function|&mut function.instructions).find(|instruction|matches!(instruction,BytecodeInstruction::Call{callee:CallTarget::Native(NativeCall::Engine(id)),..} if id.index()==import)).unwrap();
+                let BytecodeInstruction::Call { dst, args, .. } = instruction else {
+                    unreachable!()
+                };
+                match mutation {
+                    2 => {
+                        args.pop();
+                    }
+                    3 => args.clear(),
+                    _ => args[0] = dst.unwrap(),
+                }
+            }
         }
         assert!(verify_program(&invalid).is_err(), "mutation {mutation}");
+        let mut forged = artifact.clone();
+        forged.program = invalid;
+        let bytes = DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(&forged)
+            .unwrap();
+        assert!(
+            !bytecode::KbcArtifact::from_bytes(&bytes)
+                .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
+            "encoded mutation {mutation}"
+        );
     }
 }

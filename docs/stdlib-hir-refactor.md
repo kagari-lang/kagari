@@ -29,8 +29,9 @@ source and FromIterator construction use selected native traversal and the same
 key lookup implementation. Set relations and algebra execute native dual guarded
 traversal with selected membership policies and ordered shallow results. Iterator
 grouping uses once-only typed key callbacks and the shared native key lookup for
-ordered shallow groups. Remaining ST05 iterator/collection migration and ST06
-encoded fixtures/final acceptance remain pending.
+ordered shallow groups. String lazy iterator constructors use checked native calls
+and the existing generation-pinned Rust traversal. Remaining ST05 iterator/collection
+migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -552,6 +553,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   membership, unhashed custom relations and ordered shallow result construction.
 - [x] Migrate Iterator `group_by` with once-only key callbacks, selected key/next
   witnesses, shared native Map lookup and ordered shallow groups.
+- [x] Migrate String `bytes`, `char_indices`, `split`, `splitn`, `split_whitespace`
+  and `lines` constructors with checked native calls, exact charges and rooted lazy state.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate remaining collection/set operations, plus lazy
@@ -847,6 +850,42 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native String iterator construction checkpoint (2026-10-01): completes
+  `bytes`, `char_indices`, `split`, `splitn`, `split_whitespace` and `lines` as
+  checked native calls. Removed their compiler tuple/iterator expansion and moved
+  the bounded two-operation construction into a private runtime module. Entry roots
+  the already-evaluated arguments as the original tuple; the next charged operation
+  reuses `Runtime::iter_operation` and the existing generation-pinned StringTraversal.
+  No second Unicode/splitting/line algorithm, compiler-generated callback or new
+  public forwarding surface is introduced. The shared frame driver retains no
+  string traversal policy.
+- Executable contracts validate exact source, separator/count and Iter Item shapes
+  from the carried declarations. Construction does not advance the source. Receiver,
+  count and separator evaluate once in source order; aliases share progress, scalar
+  boundaries/byte offsets, split limits, empty fields and line-ending behavior remain
+  unchanged. The raw builtin helper now identifies its resumable-call requirement
+  without claiming that a public method needs compiler lowering.
+- Recorded 72 cases at 2643293 across method/qualified calls, empty/ASCII/Unicode
+  inputs, empty/missing/overlapping separators, bounded splitting, whitespace and
+  line endings. All 5,970 limits pass source and decoded KBC with exact counters and
+  effect positions, zero bulk-charge holes and full cleanup. All 72 forged native
+  constructor applications reject in memory and encoded loading. The former
+  compiler-expansion test now checks native contracts plus six malformed call/
+  constructor cases, retaining and extending its negative operand coverage.
+- Forced collection, cancellation at each host effect, every allocation limit and
+  successful/failed synchronous host reentry pass for all six constructors. Returned
+  typed iterators stay rooted across collection and independent execution sessions,
+  preserve lazy state and fused exhaustion, and release roots/guards/frames afterward.
+  Eight affected library suites pass 973 tests; eight embedding suites pass 87,
+  including all standard API documentation examples. Structure checking covers 772
+  Rust files with zero violations/exceptions; workspace/all-target clippy with
+  denied warnings, formatting and diff checks pass. Manual review confirms explicit
+  imports, private normal modules, unchanged generation retention, no source lookup,
+  no duplicate traversal algorithm and no policy in the generic frame driver.
+  Runtime ABI is v127; binding v2, KBC v109, KMIR v7 and helper ABI v6 retain their
+  schemas. No build/test errors or structural debt are carried by this checkpoint.
+  Remaining ST05 families and ST06 acceptance remain pending.
 
 - ST05 native iterator grouping checkpoint (2026-10-01): removes the compiler's
   `group_by` loop and routes checked Iterator defaults to the private native key
