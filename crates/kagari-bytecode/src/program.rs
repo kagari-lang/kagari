@@ -227,11 +227,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        if !trait_bounds::trait_bounds_match(module, &closure, Some(program)) {
-            return Err(BytecodeVerificationError::InvalidHostInterface(
-                "trait output or host bound has no unique valid implementation".into(),
-            ));
-        }
+        trait_bounds::verify_trait_bounds(module, &closure, Some(program))?;
         for instruction in module
             .functions
             .iter()

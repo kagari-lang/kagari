@@ -1,29 +1,21 @@
-//! Engine calls consume checked applications; remaining parse/assert helpers await migration.
+//! Engine calls consume checked applications without public-method expansion.
 
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
-use kagari_abi::{
-    callable::{EngineNativeBinding, NativeCall},
-    representation::ValueType,
-    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
-};
+use kagari_abi::callable::{EngineNativeBinding, NativeCall};
 use kagari_hir::{
-    builtin::traits::StandardTraitSemantics,
-    callable::AppliedCallSignature,
     hir,
     native::NativeBinding,
     typeck::{CallTarget, FunctionImplementation},
-    types::TypeId,
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue, ValueBuffer};
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn engine_intrinsic_for_call(
+    pub(super) fn engine_native_for_call(
         &self,
         target: &CallTarget,
-        application: Option<&AppliedCallSignature>,
-    ) -> Result<Option<StandardIntrinsic>, MirLoweringError> {
+    ) -> Result<bool, MirLoweringError> {
         let signature = match target {
             CallTarget::Function(id) => self
                 .analyzed
@@ -40,10 +32,10 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(MirLoweringError::MissingBinding("checked source callable"))?
                     .signature
             }
-            _ => return Ok(None),
+            _ => return Ok(false),
         };
         let binding = match signature.implementation {
-            FunctionImplementation::Script => return Ok(None),
+            FunctionImplementation::Script => return Ok(false),
             FunctionImplementation::Required => {
                 return Err(MirLoweringError::MissingBinding(
                     "unimplemented callable requirement",
@@ -56,98 +48,23 @@ impl FunctionLowerer<'_, '_> {
                 ));
             }
         };
-        let application = application.ok_or(MirLoweringError::MissingBinding(
-            "checked native callable application",
-        ))?;
-        let intrinsic = match binding {
-            EngineNativeBinding::Intrinsic(intrinsic) => intrinsic,
-            EngineNativeBinding::Integer(method) => {
-                let Some(TypeId::Builtin(scalar)) = application.params.first() else {
-                    return Err(MirLoweringError::MissingBinding("checked integer receiver"));
-                };
-                if scalar.integer_layout().is_none() {
-                    return Err(MirLoweringError::MissingBinding("checked integer receiver"));
-                }
-                StandardIntrinsic::Integer(method, *scalar)
-            }
-            EngineNativeBinding::ParseRadix => {
-                let TypeId::StandardEnum {
-                    kind: StandardEnum::Result,
-                    args,
-                } = &application.return_type
-                else {
-                    return Err(MirLoweringError::MissingBinding("checked radix result"));
-                };
-                let Some(TypeId::Builtin(scalar)) = args.first() else {
-                    return Err(MirLoweringError::MissingBinding("checked radix result"));
-                };
-                if scalar.integer_layout().is_none() {
-                    return Err(MirLoweringError::MissingBinding("checked radix result"));
-                }
-                StandardIntrinsic::ParseRadix(*scalar)
-            }
-            EngineNativeBinding::TraitDefault(_) | EngineNativeBinding::Protocol(_) => {
-                return Err(MirLoweringError::MissingBinding(
-                    "native trait callable witness",
-                ));
-            }
-        };
-        Ok(Some(intrinsic))
+        match binding {
+            EngineNativeBinding::Intrinsic(_)
+            | EngineNativeBinding::Integer(_)
+            | EngineNativeBinding::ParseRadix => Ok(true),
+            EngineNativeBinding::TraitDefault(_) | EngineNativeBinding::Protocol(_) => Err(
+                MirLoweringError::MissingBinding("native trait callable witness"),
+            ),
+        }
     }
 
-    pub(super) fn lower_engine_intrinsic(
+    pub(super) fn lower_engine_call(
         &mut self,
         expr: hir::ExprId,
-        intrinsic: StandardIntrinsic,
-        receiver: Option<hir::ExprId>,
-        args: &[hir::ExprId],
         lowered: ValueBuffer,
         application: NativeApplication<'_>,
     ) -> Result<MirValue, MirLoweringError> {
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        if intrinsic == StandardIntrinsic::StringParse {
-            let output = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(expr)
-                .ok_or(MirLoweringError::MissingExprType(expr))?;
-            let output = self
-                .planner
-                .arguments(&[output], &self.instance.substitution, span)?
-                .remove(0);
-            let TypeId::StandardEnum { args: members, .. } = output else {
-                return Err(MirLoweringError::MissingBinding("parse result"));
-            };
-            return self.lower_applied_operator(
-                StandardTrait::FromStr.nominal(),
-                members[0].clone(),
-                &self.protocol_method(StandardTrait::FromStr, 0)?,
-                &lowered,
-            );
-        }
-
-        let base = receiver.or_else(|| args.first().copied());
-        if let Some(base) = base {
-            let ty = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(base)
-                .ok_or(MirLoweringError::MissingExprType(base))?;
-            let ty = self
-                .planner
-                .arguments(&[ty], &self.instance.substitution, span)?
-                .remove(0);
-            if intrinsic == StandardIntrinsic::DebugAssertEq {
-                let equal = self.lower_protocol(StandardTrait::PartialEq, &ty, &lowered[..2], 0)?;
-                return Ok(self.emit_intrinsic(
-                    StandardIntrinsic::DebugAssert,
-                    &[equal, lowered[2]],
-                    ValueType::Unit,
-                ));
-            }
-        }
         let contract = self.engine_native_contract(
             application.target,
             application.signature,

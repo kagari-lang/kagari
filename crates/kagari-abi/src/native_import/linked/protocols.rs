@@ -102,7 +102,11 @@ pub(super) fn valid<'a>(
                 StandardIntrinsic::ArraySort | StandardIntrinsic::ArraySortByKey
             )
         );
+        let parsing = import.binding
+            == EngineNativeBinding::Intrinsic(StandardIntrinsic::StringParse)
+            && protocol == Some(StandardTrait::FromStr);
         let equality = (list_query
+            || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::DebugAssertEq)
             || keys::key(import).is_some()
             || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup))
             && protocol == Some(StandardTrait::PartialEq);
@@ -174,7 +178,8 @@ pub(super) fn valid<'a>(
                     || equality)
             || prepared_order && protocol == Some(StandardTrait::Ord)
             || equality
-            || hashing;
+            || hashing
+            || parsing;
         if !invoked
             || (protocol == Some(StandardTrait::Iterator)
                 && matches!(witness.receiver, AbiType::Iter(_)))
@@ -224,6 +229,7 @@ pub(super) fn valid<'a>(
             | (Some(StandardTrait::Product), Some(NativeProtocolMethod::NumericProduct)) => {
                 aggregate
             }
+            (Some(StandardTrait::FromStr), Some(NativeProtocolMethod::NumericFromStr)) => parsing,
             _ => false,
         };
         if consumed_native {
@@ -280,6 +286,11 @@ pub(super) fn valid<'a>(
         // Declarations supply semantic contracts; consumers guard the physical
         // arguments and results they actually pass across the callback boundary.
         let valid = match protocol {
+            Some(StandardTrait::FromStr) if parsing => {
+                expected.params == [AbiType::Builtin(BuiltinType::String)]
+                    && expected.result == import.signature.result
+                    && matches!(&expected.result,AbiType::StandardEnum {kind:StandardEnum::Result,args} if args.len()==2 && args[0]==witness.receiver)
+            }
             Some(StandardTrait::Iterator) => {
                 let item_id = associated_type_id(&witness.interface.declaration, "Item");
                 expected.params.as_slice() == slice::from_ref(&witness.receiver)

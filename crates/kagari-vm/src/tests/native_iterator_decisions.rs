@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::native_import::EngineNativeOperation;
+use kagari_abi::{callable::EngineNativeBinding, native_import::EngineNativeOperation};
 use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
 use kagari_runtime::{
@@ -588,7 +588,9 @@ fn iterator_terminals_preserve_effects_and_every_budget_cut() {
                 .iter()
                 .filter(|import| matches!(
                     import.resolve(),
-                    Some(EngineNativeOperation::Resumable(_))
+                    Some(EngineNativeOperation::Resumable(
+                        EngineNativeBinding::TraitDefault(_)
+                    ))
                 ))
                 .count(),
             1

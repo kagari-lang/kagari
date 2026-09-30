@@ -32,6 +32,8 @@ grouping uses once-only typed key callbacks and the shared native key lookup for
 ordered shallow groups. String lazy iterator constructors use checked native calls
 and the existing generation-pinned Rust traversal. Public List joining also selects
 native storage or rooted conversion and shared iterator traversal from checked facts.
+Public String parsing and equality assertions delegate through checked native entries
+to selected FromStr/PartialEq implementations on the same execution frames.
 Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -558,6 +560,10 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   witnesses, shared native Map lookup and ordered shallow groups.
 - [x] Migrate String `bytes`, `char_indices`, `split`, `splitn`, `split_whitespace`
   and `lines` constructors with checked native calls, exact charges and rooted lazy state.
+- [x] Migrate public String `parse` with checked FromStr selection, concrete associated
+  errors, existing numeric parsers and rooted script callbacks preserving Result origins.
+- [x] Migrate `debug::assert_eq` with selected primitive/script/composed/interface
+  equality, once-only evaluated arguments and the original final assertion charge/trap.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate remaining collection/set operations, plus lazy
@@ -853,6 +859,59 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native parsing/assertion checkpoint (2026-10-01): completes the public
+  `String::parse` and `debug::assert_eq` entries together. Removed their compiler
+  FromStr/PartialEq algorithm expansions. General engine call lowering now emits
+  the checked binding/application directly, including integer/radix applications;
+  selected required methods are carried from HIR and validated against the exact
+  dependency closure. Parsing uses the existing Rust numeric parser or the selected
+  script FromStr method; assertions reuse selected primitive/script/composed or
+  collection-interface equality and the existing final Rust assertion helper.
+- Both entries use a private rooted runtime continuation on shared frames. Parse
+  returns the original typed Result without rebuilding its error metadata. Equality
+  arguments and message are evaluated once before its callback; the final assertion
+  occurs on the original second charge. Native state introduces no synthetic script
+  frame, nested VM, source lookup, second parsing/equality implementation or policy
+  in the generic execution driver. Unchecked raw parse/assert_eq helpers reject.
+- The generic custom parser exposed two pre-existing associated-output defects:
+  interface-table instantiation rejected substituted projections before linking,
+  and bytecode's local method walker could not normalize a generic associated Err.
+  Table substitution now preserves bounded output projections until linked proof
+  resolution. Exact executable method parameter/result semantic types and physical
+  representations are checked against that canonical catalog; local slot identity,
+  generic arity, native/host bridge and shape checks remain. Malformed method
+  signatures retain the existing `InvalidInterfaceTable` diagnostic. The existing
+  generic-interface negative test keeps its original assertion.
+- Recorded the pre-entry execution schedule at 59cc121 with the canonical table
+  projection correction needed to execute the generic custom parser. All 136 cases
+  and 3,504 distinct budget limits pass source and decoded KBC, with zero bulk-charge
+  holes and exact effects/counters; all 14 final assertion trap cases retain their
+  messages and caller traces. Coverage includes all thirteen numeric/bool parser
+  kinds, success/empty/invalid/whitespace input, generic and qualified custom parsing,
+  primitive/identity/script/Option/tuple/enum/interface equality and generic calls.
+- All 119 forged applications/associated outputs/executable method contracts reject
+  in memory and encoded loading. Forced GC, every allocation limit, cancellation at
+  each host effect and successful/failed synchronous reentry pass five protocol
+  routes. Script parser and equality traps preserve effects/origins and release all
+  roots; custom Result errors retain the same original creation site through parsing
+  and GC. Imported generic defaults pin private generic FromStr/PartialEq and derived
+  equality targets; removing their owning dependency rejects before execution.
+- The first complete VM run exposed five fixture assertions that counted every
+  resumable import in a program containing `assert_eq`. They now check the fixture's
+  enum or iterator operation specifically, retaining all original result, budget
+  and effect snapshots. All five focused reruns and the final complete 230-test VM
+  run pass. The seven other affected library suites pass 755 tests (985 combined).
+- Twelve affected embedding suites pass 134 tests, including all standard API
+  documentation examples, numeric/radix operations, source/decoded/JIT fallback
+  parsing, associated types, inherited traits, collection views and error traces.
+  Workspace/all-target Clippy with warnings denied, formatting, local documentation
+  links and diff checks pass. Structure review covers 789 Rust files with zero
+  violations/exceptions; manual review confirms private normal modules, explicit
+  imports, bounded substitution/proof resolution, pinned callbacks and no new public
+  forwarding surface. Runtime ABI is v129; binding v2, KBC v109, KMIR v7 and helper
+  ABI v6 retain their schemas. No build/test errors or structural debt are carried.
+  Remaining ST05 families and ST06 integration/measurement/acceptance remain pending.
 
 - ST05 public native List joining checkpoint (2026-10-01): removes the compiler's
   ArrayList-versus-Iterable policy for `List::join`. Lowering carries the checked

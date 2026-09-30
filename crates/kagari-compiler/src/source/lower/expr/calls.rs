@@ -425,14 +425,9 @@ impl FunctionLowerer<'_, '_> {
                     ControlFlow::Continue(values) => lowered.extend(values),
                     ControlFlow::Break(value) => return Ok(value),
                 }
-                if let Some(intrinsic) =
-                    self.engine_intrinsic_for_call(&target, call.signature.as_ref())?
-                {
-                    return self.lower_engine_intrinsic(
+                if self.engine_native_for_call(&target)? {
+                    return self.lower_engine_call(
                         expr,
-                        intrinsic,
-                        call.receiver,
-                        args,
                         lowered,
                         NativeApplication {
                             target: &target,

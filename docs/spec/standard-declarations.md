@@ -225,8 +225,14 @@ execute on ordinary VM frames with session budgets, roots and trap cleanup.
 `FromStr` has associated type `Err` and static `from_str(String)` returning
 `Result<Self, Self::Err>`. String.parse selects this protocol from the expected
 type or explicit type argument. Numeric and boolean implementations are declared
-in the SDK; user types provide ordinary implementations with their own errors.
+in the bundled standard package; user types provide ordinary implementations with their own errors.
 All built-in parsers consume the complete input without trimming.
+
+The public parse call carries its checked FromStr witness, exact associated error
+type and selected concrete method into the native runtime entry. Numeric providers
+reuse the Rust parser; user methods execute on ordinary generation-pinned frames.
+Generic associated errors resolve from the carried dependency closure. The entry
+returns the original Result, preserving its error origin and logical charge schedule.
 
 Integers use decimal unless from_str_radix specifies 2..=36; plus is accepted,
 minus only for signed targets. Prefixes, underscores and whitespace are rejected.
@@ -236,3 +242,12 @@ signs return InvalidDigit. Bool accepts exactly true/false. Floating parsing use
 decimal/exponent syntax and case-insensitive NaN/inf/infinity with optional sign;
 overflow produces infinity. Invalid boolean/float syntax returns InvalidSyntax.
 These are business Result errors carrying their creation trace, not VM traps.
+
+## Equality assertions
+
+`std::debug::assert_eq<T: PartialEq>` evaluates both arguments and its message once,
+in order, before comparing them. Its checked native entry delegates to the selected
+primitive, script, composed or declared collection-interface equality. Script and
+composed callbacks use ordinary execution frames, roots and session limits. The
+final assertion uses the existing Rust assertion helper on the original second
+charge; failed assertions and callback traps retain their caller and script origins.

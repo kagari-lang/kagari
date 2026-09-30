@@ -8,7 +8,7 @@ use crate::{
     },
     scalar::BuiltinType,
     standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
-    types::{AbiType, GenericBoundAbi},
+    types::{AbiType, GenericBoundAbi, verify::concrete_type_valid},
 };
 use kagari_common::collection::CollectionAccess;
 use std::slice;
@@ -33,7 +33,9 @@ pub(super) fn valid(
         (StandardIntrinsic::StringSplitN, [receiver, count, separator]) => *receiver == string && *count == index && *separator == string && *out == AbiType::Iter(Box::new(string)),
         (StandardIntrinsic::StringParse, [receiver]) => {
             let AbiType::StandardEnum {kind: StandardEnum::Result, args} = out else {return false;};
-            *receiver == string && args.len() == 2 && bound(bounds,&args[0],StandardTrait::FromStr).is_some() && projection(&args[1], &args[0], StandardTrait::FromStr, "Err")
+            *receiver == string && args.len() == 2 && bound(bounds,&args[0],StandardTrait::FromStr).is_some() && (projection(&args[1], &args[0], StandardTrait::FromStr, "Err")
+                // Linked declaration normalization fixes the associated error of concrete applications.
+                || concrete_type_valid(&args[0], &Default::default()) && concrete_type_valid(&args[1], &Default::default()))
         }
         (StandardIntrinsic::ArrayListFrom, [input]) => mutable_array(out).is_some_and(|item| readonly_collection(input,StandardTrait::List,slice::from_ref(item))),
         (StandardIntrinsic::LinkedHashSetFrom, [input]) => matches!(out, AbiType::Set(output,CollectionAccess::Mutable) if readonly_collection(input,StandardTrait::List,slice::from_ref(output.as_ref()))),

@@ -60,7 +60,9 @@ pub fn invoke(
             )?;
             Ok(Value::Unit)
         }
-        StandardIntrinsic::StringParse => Err(BuiltinError::new("parse requires static dispatch")),
+        StandardIntrinsic::StringParse => {
+            Err(BuiltinError::new("parse requires a checked native call"))
+        }
         StandardIntrinsic::ParseNumber(ty) => {
             parsing::parse(gc, ty, args, false).map_err(Into::into)
         }
@@ -322,7 +324,9 @@ pub fn invoke(
         StandardIntrinsic::MathTan => math_unary_f64(args, "math.tan", f64::tan),
         StandardIntrinsic::DebugPrint => debug_print(args),
         StandardIntrinsic::DebugAssert => debug_assert(args),
-        StandardIntrinsic::DebugAssertEq => debug_assert_eq(gc, args),
+        StandardIntrinsic::DebugAssertEq => Err(BuiltinError::new(
+            "assert_eq requires a checked native call",
+        )),
         StandardIntrinsic::DebugPanic => debug_panic(args),
     }
 }
@@ -791,23 +795,6 @@ fn debug_assert(args: &[Value]) -> Result<Value, BuiltinError> {
         Ok(Value::Unit)
     } else {
         Err(BuiltinError::new(format!("debug.assert failed: {message}")))
-    }
-}
-
-fn debug_assert_eq(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
-    let [lhs, rhs, Value::Str(message)] = args else {
-        return Err(BuiltinError::new(
-            "debug.assert_eq expects two values and string message",
-        ));
-    };
-    if value_semantics::script_equal(gc, lhs, rhs)
-        .map_err(|error| BuiltinError::new(error.to_string()))?
-    {
-        Ok(Value::Unit)
-    } else {
-        Err(BuiltinError::new(format!(
-            "debug.assert_eq failed: {message}"
-        )))
     }
 }
 

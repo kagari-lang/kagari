@@ -65,7 +65,7 @@ fn with_hash_bounds(module: &BytecodeModule) -> bool {
         public_items: vec![PublicAbiItem::Trait(record("Hash"))],
         ..Default::default()
     };
-    trait_bounds_match(module, &[module, &protocol], None)
+    verify_trait_bounds(module, &[module, &protocol], None).is_ok()
 }
 
 #[test]

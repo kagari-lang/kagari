@@ -16,9 +16,9 @@ use kagari_abi::{
     operations::BinaryOp as MirBinaryOp,
     representation::ValueType,
     standard::StandardIntrinsic,
-    types::{AbiType, InterfaceTableAbi, NominalAbiType, PublicAbiItem, verify},
+    types::{AbiType, InterfaceTableAbi, PublicAbiItem, verify},
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind};
+use kagari_common::identity::DefinitionKind;
 use std::{collections::HashSet, iter};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -178,11 +178,7 @@ pub fn verify_module(module: &BytecodeModule) -> Result<(), BytecodeVerification
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
     verify_module_with_program(module, None)?;
-    if !trait_bounds::trait_bounds_match(module, &[module], None) {
-        return Err(BytecodeVerificationError::InvalidHostInterface(
-            "trait output or host bound has no unique valid implementation".into(),
-        ));
-    }
+    trait_bounds::verify_trait_bounds(module, &[module], None)?;
     Ok(())
 }
 
@@ -402,51 +398,6 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             if !table.arguments.is_empty() && identity.arguments != table.arguments {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
-            let method_owner = &identity.declaration;
-            let (impl_arguments, method_arguments) =
-                identity.arguments.split_at(abi.generic_params.len());
-            let expected_params = method
-                .params
-                .iter()
-                .map(|parameter| {
-                    instantiate_method_type(
-                        &parameter.ty,
-                        &abi.declaration,
-                        impl_arguments,
-                        method_owner,
-                        method_arguments,
-                    )
-                })
-                .collect::<Option<Vec<_>>>();
-            let expected_return = instantiate_method_type(
-                &method.return_type,
-                &abi.declaration,
-                impl_arguments,
-                method_owner,
-                method_arguments,
-            );
-            if expected_params
-                .as_ref()
-                .map(|params| {
-                    params
-                        .iter()
-                        .map(AbiType::representation)
-                        .collect::<Vec<_>>()
-                })
-                .as_ref()
-                != Some(&function.metadata.params)
-                || expected_return.as_ref().map(AbiType::representation)
-                    != Some(function.metadata.return_type)
-                || expected_params.as_ref().is_none_or(|params| {
-                    params
-                        .iter()
-                        .enumerate()
-                        .any(|(i, ty)| function.metadata.semantic.params.get(&i) != Some(ty))
-                })
-                || expected_return != function.metadata.semantic.result
-            {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
-            }
         }
         if (abi.generic_params.is_empty() || !table.arguments.is_empty())
             && abi
@@ -526,68 +477,6 @@ fn host_bridge_method_matches(
                 if dst == arg && local.index() == index)
         })
         && matches!(&function.instructions[params + 1], BytecodeInstruction::Return(Some(value)) if value == result)
-}
-
-fn instantiate_method_type(
-    ty: &AbiType,
-    impl_owner: &DefinitionId,
-    impl_arguments: &[AbiType],
-    method_owner: &DefinitionId,
-    method_arguments: &[AbiType],
-) -> Option<AbiType> {
-    let child = |ty: &AbiType| {
-        instantiate_method_type(
-            ty,
-            impl_owner,
-            impl_arguments,
-            method_owner,
-            method_arguments,
-        )
-    };
-    let nominal = |ty: &NominalAbiType| {
-        Some(NominalAbiType {
-            associated_types: ty
-                .associated_types
-                .iter()
-                .map(|(id, ty)| Some((id.clone(), child(ty)?)))
-                .collect::<Option<_>>()?,
-            declaration: ty.declaration.clone(),
-            arguments: ty.arguments.iter().map(&child).collect::<Option<_>>()?,
-        })
-    };
-    Some(match ty {
-        AbiType::Parameter { owner, position } if owner == impl_owner => {
-            impl_arguments.get(*position)?.clone()
-        }
-        AbiType::Parameter { owner, position } if owner == method_owner => {
-            method_arguments.get(*position)?.clone()
-        }
-        AbiType::Projection { .. } | AbiType::Parameter { .. } | AbiType::SelfType(_) => {
-            return None;
-        }
-        AbiType::Builtin(_) | AbiType::Host(_) => ty.clone(),
-        AbiType::Tuple(types) => AbiType::Tuple(types.iter().map(child).collect::<Option<_>>()?),
-        AbiType::Function { params, result } => AbiType::Function {
-            params: params.iter().map(child).collect::<Option<_>>()?,
-            result: Box::new(child(result)?),
-        },
-        AbiType::Range(element, kind) => AbiType::Range(Box::new(child(element)?), *kind),
-        AbiType::Iter(element) => AbiType::Iter(Box::new(child(element)?)),
-        AbiType::Array(element, access) => AbiType::Array(Box::new(child(element)?), *access),
-        AbiType::Set(element, access) => AbiType::Set(Box::new(child(element)?), *access),
-        AbiType::Map { key, value, access } => AbiType::Map {
-            key: Box::new(child(key)?),
-            value: Box::new(child(value)?),
-            access: *access,
-        },
-        AbiType::StandardEnum { kind, args } => AbiType::StandardEnum {
-            kind: *kind,
-            args: args.iter().map(child).collect::<Option<_>>()?,
-        },
-        AbiType::Struct(ty) => AbiType::Struct(nominal(ty)?),
-        AbiType::Enum(ty) => AbiType::Enum(nominal(ty)?),
-        AbiType::Trait(ty) => AbiType::Trait(nominal(ty)?),
-    })
 }
 
 fn verify_function(

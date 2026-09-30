@@ -59,6 +59,31 @@ fn provider(owner: &LoadedModule, witness: &NativeWitness) -> Option<NativeProto
     }
 }
 
+pub(super) fn parse(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    text: Value,
+    output: &AbiType,
+) -> Result<ProtocolStep, RuntimeError> {
+    let string = AbiType::Builtin(BuiltinType::String);
+    if !runtime.matches_interface_method_abi(&text, &string, owner) {
+        return Err(invalid());
+    }
+    if provider(owner, witness) == Some(NativeProtocolMethod::NumericFromStr) {
+        let AbiType::Builtin(scalar) = witness.receiver else {
+            return Err(invalid());
+        };
+        return match runtime
+            .invoke_standard_builtin(StandardIntrinsic::ParseNumber(scalar), &[text])
+        {
+            Ok(value) => Ok(ProtocolStep::Value(value)),
+            Err(error) => Ok(ProtocolStep::BuiltinFailure(error)),
+        };
+    }
+    table_call(runtime, owner, witness, 0, vec![text], &[string], output)
+}
+
 pub(super) fn numeric_destination(
     owner: &LoadedModule,
     witness: &NativeWitness,

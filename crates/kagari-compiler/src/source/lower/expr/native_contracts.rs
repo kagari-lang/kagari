@@ -148,7 +148,9 @@ impl FunctionLowerer<'_, '_> {
         let invoked_protocols = matches!(
             binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::LinkedHashMapFrom
+                StandardIntrinsic::StringParse
+                    | StandardIntrinsic::DebugAssertEq
+                    | StandardIntrinsic::LinkedHashMapFrom
                     | StandardIntrinsic::LinkedHashSetFrom
                     | StandardIntrinsic::ArrayCopyWithin
                     | StandardIntrinsic::ArrayRemoveRange

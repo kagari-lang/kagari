@@ -156,7 +156,9 @@ impl EngineNativeImport {
         if matches!(
             self.binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::StringBytes
+                StandardIntrinsic::StringParse
+                    | StandardIntrinsic::DebugAssertEq
+                    | StandardIntrinsic::StringBytes
                     | StandardIntrinsic::StringCharIndices
                     | StandardIntrinsic::StringSplit
                     | StandardIntrinsic::StringSplitN

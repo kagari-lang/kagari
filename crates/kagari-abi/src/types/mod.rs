@@ -387,19 +387,21 @@ pub struct InterfaceTableAbi {
 impl InterfaceTableAbi {
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// Method-owned generics remain scoped templates until their application is
-    /// selected. The verifier proves template validity, bounds and method slots.
+    /// selected. Associated output projections retain their substituted receivers
+    /// until the linked proof catalog resolves them. The verifier proves template
+    /// validity, bounds and method slots.
     pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
             || !arguments.iter().all(AbiType::is_concrete)
         {
             return None;
         }
-        let apply = |ty: &AbiType| ty.instantiate(&self.declaration, arguments);
         let cancel = CancellationToken::default();
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in self.generic_params.iter().zip(arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
+        let apply = |ty: &AbiType| substitution.apply(ty, &cancel).ok();
         let methods = self
             .methods
             .iter()

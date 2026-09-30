@@ -1,5 +1,8 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::native_import::EngineNativeOperation;
+use kagari_abi::{
+    callable::EngineNativeBinding, native_import::EngineNativeOperation,
+    standard::StandardIntrinsic,
+};
 use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -636,7 +639,8 @@ fn enum_families_preserve_results_effect_positions_and_every_budget_cut() {
                 .iter()
                 .filter(|import| matches!(
                     import.resolve(),
-                    Some(EngineNativeOperation::Resumable(_))
+                    Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation)))
+                        if operation != StandardIntrinsic::DebugAssertEq
                 ))
                 .count(),
             1,

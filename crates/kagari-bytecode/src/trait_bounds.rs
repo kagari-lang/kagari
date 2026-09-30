@@ -1,9 +1,10 @@
 //! Recheck associated outputs and host trait bounds against the dependency closure.
 mod applications;
 mod associated;
+mod methods;
 
 use crate::{
-    BytecodeInstruction, BytecodeModule, BytecodeProgram,
+    BytecodeInstruction, BytecodeModule, BytecodeProgram, BytecodeVerificationError,
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
 };
 use kagari_abi::{
@@ -124,19 +125,37 @@ fn declarations(module: &BytecodeModule) -> impl Iterator<Item = (DefinitionId, 
     )
 }
 
-pub(super) fn trait_bounds_match(
+pub(super) fn verify_trait_bounds(
     module: &BytecodeModule,
     closure: &[&BytecodeModule],
     program: Option<&BytecodeProgram>,
-) -> bool {
-    linked_bounds_match(module, closure, program).unwrap_or(false)
+) -> Result<(), BytecodeVerificationError> {
+    match linked_bounds_match(module, closure, program) {
+        Ok(true) => Ok(()),
+        Err(LinkedValidationError::InterfaceTable) => {
+            Err(BytecodeVerificationError::InvalidInterfaceTable)
+        }
+        _ => Err(BytecodeVerificationError::InvalidHostInterface(
+            "trait output or host bound has no unique valid implementation".into(),
+        )),
+    }
+}
+
+enum LinkedValidationError {
+    InterfaceTable,
+    Contract,
+}
+impl From<TypeTransformError> for LinkedValidationError {
+    fn from(_: TypeTransformError) -> Self {
+        Self::Contract
+    }
 }
 
 fn linked_bounds_match(
     module: &BytecodeModule,
     closure: &[&BytecodeModule],
     program: Option<&BytecodeProgram>,
-) -> Result<bool, TypeTransformError> {
+) -> Result<bool, LinkedValidationError> {
     let cancel = CancellationToken::default();
     applications::validate(module, closure, &cancel)?;
     let tables: Vec<_> = closure
@@ -159,6 +178,11 @@ fn linked_bounds_match(
         closure.iter().flat_map(|module| declarations(module)),
         &cancel,
     )?;
+    if !methods::valid(module, &catalog, &cancel)
+        .map_err(|_| LinkedValidationError::InterfaceTable)?
+    {
+        return Err(LinkedValidationError::InterfaceTable);
+    }
     if !catalog.overrides_valid(&cancel)? || !instruction_contracts_match(module, closure, program)
     {
         return Ok(false);
@@ -319,7 +343,7 @@ fn linked_bounds_match(
             return Ok(false);
         }
     }
-    host_bounds_match(module, closure, &catalog, &cancel)
+    Ok(host_bounds_match(module, closure, &catalog, &cancel)?)
 }
 
 fn parents_proven(

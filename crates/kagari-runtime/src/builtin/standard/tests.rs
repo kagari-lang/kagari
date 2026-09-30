@@ -292,14 +292,13 @@ fn builtin_standard_math_and_debug_helpers_are_deterministic() {
         Value::F64(3.0)
     );
     assert!(call(&gc, StandardIntrinsic::MathSqrt, &[Value::F64(-1.0)]).is_err());
-    assert_eq!(
+    assert!(
         call(
             &gc,
             StandardIntrinsic::DebugAssertEq,
-            &[Value::I32(1), Value::I32(1), Value::Str("same".to_owned())]
+            &[Value::I32(1), Value::I32(1), Value::Str("same".into())]
         )
-        .unwrap(),
-        Value::Unit
+        .is_err()
     );
     assert!(
         call(

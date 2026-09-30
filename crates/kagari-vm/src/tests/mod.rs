@@ -25,6 +25,7 @@ mod native_list_equality;
 mod native_list_join;
 mod native_list_queries;
 mod native_map_snapshots;
+mod native_protocol_entries;
 
 mod native_array_ranges;
 
