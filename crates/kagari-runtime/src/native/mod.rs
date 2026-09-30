@@ -107,17 +107,9 @@ impl NativeInvocation {
                     .cloned()
                     .chain(match &mut state {
                         NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
-                        NativeState::Iterator(state) => {
-                            vec![
-                                state.initial.take().ok_or_else(|| {
-                                    RuntimeError::module_validation(
-                                        "missing terminal initial value",
-                                    )
-                                })?,
-                                Value::Unit,
-                                Value::Unit,
-                            ]
-                        }
+                        NativeState::Iterator(state) => state.initial.take().ok_or_else(|| {
+                            RuntimeError::module_validation("missing terminal initial roots")
+                        })?,
                     })
                     .collect(),
             )

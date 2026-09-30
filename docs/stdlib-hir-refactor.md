@@ -6,9 +6,10 @@ and engine/host integration. The workspace builds; compiler and VM library suite
 and selected embedding integration suites pass. Runtime-owned native continuations
 execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
-Seven basic iterator terminals also execute natively with selected static protocol
-witnesses. Remaining ST05 iterator/collection migration and ST06 encoded
-fixtures/final acceptance remain pending.
+Thirteen iterator terminals also execute natively with selected static protocol
+witnesses, including search, reduction and callback comparisons. Remaining ST05
+iterator/collection migration and ST06 encoded fixtures/final acceptance remain
+pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -494,6 +495,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
 - [x] Migrate Option/Result combinators and preserve original error provenance.
 - [x] Migrate basic iterator terminals (`count`, `fold`, `for_each`, `find`, `any`,
   `all`, `last`) with checked static receiver witnesses and shared frame execution.
+- [x] Migrate iterator search/reduction (`find_map`, `position`, `nth`, `reduce`)
+  and callback comparisons (`min_by`, `max_by`) with typed outputs and static `next`.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -789,6 +792,51 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 iterator search/reduction and callback comparison checkpoint (2026-09-30):
+  completes one family checklist with `find_map`, `position`, `nth`, `reduce`,
+  `min_by` and `max_by`. All six applications consume the checked trait default
+  signature, generic application and static receiver witness through the existing
+  native-import producer. Their compiler algorithms and expansion selectors are
+  removed, including the separate counter/result setup and callback comparator
+  branch. Remaining Ord-based terminals, destinations, collection algorithms and
+  adapters remain explicitly pending; this does not mark ST05 or ST06 complete.
+- Runtime terminal traversal owns the original search, counter, first-item,
+  combine and comparison transitions. A focused decision handler separates their
+  local state from shared traversal, next/callback entry and iterator cleanup.
+  Logical constant, enum, read, move, branch and jump phases retain the pre-migration
+  charges. Position initializes and increments a checked usize counter; nth copies
+  its input once and decrements only after a nonmatching item. Find-map returns the
+  original callback Option. Reduce skips the callback for its first item and
+  wraps subsequent callback results. Min-by keeps the previous item on equality;
+  max-by selects the current item. Returned values retain the original aliases.
+- Arguments, next/item, callback output, counter and previous accumulator use one
+  bounded rooted scratch set. Static script `next` and closure callbacks enter the
+  shared stack on their retained program generation. No public signature catalog,
+  compatibility fallback or secondary library implementation was introduced.
+  Existing enum shape checks, callable validation and native iterator guard/close
+  helpers remain authoritative; the generic VM driver needs no new policy.
+- Recorded 72 native/custom cases at `e232804` before deleting the algorithms,
+  covering empty, singleton, multiple items, hit/miss, zero/nonzero nth and all
+  comparison outcomes. Source and decoded products pass all 8,446 budget cuts,
+  matching total charges and exact completed host-effect positions. Every case
+  asserts a resumable native import and root/depth/heap cleanup with GC threshold
+  1. Additional source/decoded coverage checks generic heap outputs, nested native
+  callbacks, mutable aliases and ties, a user reduce override, callback trap
+  frames, sticky cancellation and successful/failed synchronous host reentry
+  during both selected `next` and the pending reduction. All existing basic
+  terminal, enum continuation and corrupted-artifact coverage also remains green.
+- Runtime ABI is v110 for the additional linked native execution families;
+  binding v1, KBC v107, KMIR v5 and helper ABI v6 keep their schemas. ST06 still
+  owns encoded fixture regeneration and full workspace/matrix acceptance.
+  Validation: ABI 43, bytecode 27, compiler 167, MIR 1, runtime 71 and VM 137
+  library tests pass (446). Embedding `default_methods`, `error_traces`,
+  `iteration_traits`, `lazy_iterators` and `never` pass 66 tests (512 total),
+  including their decoded and supported JIT/fallback routes. Workspace all-target
+  Clippy with warnings denied, formatting, structure and diff checks pass.
+  Structure covers 572 Rust files with zero violations or exceptions. Changed
+  imports, module ownership, initial roots, shared callbacks and cleanup were
+  manually reviewed; no new structural debt or carried integration errors.
 
 - ST05 basic iterator terminal checkpoint (2026-09-30): completes the new basic
   terminal checklist with `count`, `fold`, `for_each`, `find`, `any`, `all` and

@@ -1,13 +1,12 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
-    operations::{BinaryOp, StandardEnumOp},
+    operations::StandardEnumOp,
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
         StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
         traits::StandardTrait,
     },
-    types::AbiType,
 };
 use kagari_common::collection::CollectionAccess::Mutable;
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
@@ -29,48 +28,12 @@ impl FunctionLowerer<'_, '_> {
         };
         let array_type = TypeId::Array(Box::new(item_type.clone()), Mutable);
         let bool_type = TypeId::Builtin(BuiltinType::Bool);
-        let result_optional = TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![match operation {
-                NativeDefaultMethod::FindMap => arguments[0].clone(),
-                NativeDefaultMethod::Position => TypeId::Builtin(BuiltinType::USize),
-                _ => item_type.clone(),
-            }],
-        };
-        let counter = if matches!(
-            operation,
-            NativeDefaultMethod::Position | NativeDefaultMethod::Nth
-        ) {
-            let initial = if operation == NativeDefaultMethod::Nth {
-                values[1]
-            } else {
-                self.usize_constant(0)
-            };
-            let counter = self.alloc_temp(ValueType::U64);
-            self.emit(Instruction::Move {
-                dst: counter,
-                src: initial,
-            });
-            self.function
-                .semantic
-                .registers
-                .insert(counter.temp.index(), AbiType::Builtin(BuiltinType::USize));
-            Some(counter)
-        } else {
-            None
-        };
         let result = match operation {
-            NativeDefaultMethod::FindMap
-            | NativeDefaultMethod::Position
-            | NativeDefaultMethod::Nth
-            | NativeDefaultMethod::Reduce
-            | NativeDefaultMethod::MinBy
-            | NativeDefaultMethod::MaxBy
-            | NativeDefaultMethod::Min
+            NativeDefaultMethod::Min
             | NativeDefaultMethod::Max
             | NativeDefaultMethod::MinByKey
             | NativeDefaultMethod::MaxByKey => {
-                self.standard_enum_op(&result_optional, StandardEnumOp::Make(1), None)?
+                self.standard_enum_op(&optional, StandardEnumOp::Make(1), None)?
             }
             NativeDefaultMethod::Join | NativeDefaultMethod::Partition => {
                 self.collection_new(&array_type)?
@@ -127,76 +90,7 @@ impl FunctionLowerer<'_, '_> {
                 self.collection_insert(&array_type, result, item)?;
                 self.ensure_jump(head);
             }
-            NativeDefaultMethod::FindMap => {
-                let mapped = self.call_function_value(values[1], &result_optional, &[item])?;
-                let present =
-                    self.standard_enum_op(&result_optional, StandardEnumOp::Test(0), Some(mapped))?;
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: mapped,
-                });
-                self.set_terminator(Terminator::Branch {
-                    cond: present,
-                    then_block: done,
-                    else_block: head,
-                });
-            }
-            NativeDefaultMethod::Position | NativeDefaultMethod::Nth => {
-                let counter = counter.unwrap();
-                let matched = if operation == NativeDefaultMethod::Position {
-                    self.call_function_value(values[1], &bool_type, &[item])?
-                } else {
-                    let zero = self.usize_constant(0);
-                    let matched = self.alloc_temp(ValueType::Bool);
-                    self.emit(Instruction::Binary {
-                        dst: matched,
-                        op: BinaryOp::Eq,
-                        lhs: counter,
-                        rhs: zero,
-                    });
-                    matched
-                };
-                let found = self.new_block();
-                let advance = self.new_block();
-                self.set_terminator(Terminator::Branch {
-                    cond: matched,
-                    then_block: found,
-                    else_block: advance,
-                });
-                self.switch_to_block(found);
-                let value = if operation == NativeDefaultMethod::Position {
-                    self.standard_enum_op(&result_optional, StandardEnumOp::Make(0), Some(counter))?
-                } else {
-                    next
-                };
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: value,
-                });
-                self.ensure_jump(done);
-                self.switch_to_block(advance);
-                let one = self.usize_constant(1);
-                let next_counter = self.alloc_temp(ValueType::U64);
-                self.emit(Instruction::Binary {
-                    dst: next_counter,
-                    op: if operation == NativeDefaultMethod::Position {
-                        BinaryOp::Add
-                    } else {
-                        BinaryOp::Sub
-                    },
-                    lhs: counter,
-                    rhs: one,
-                });
-                self.emit(Instruction::Move {
-                    dst: counter,
-                    src: next_counter,
-                });
-                self.ensure_jump(head);
-            }
-            NativeDefaultMethod::Reduce
-            | NativeDefaultMethod::MinBy
-            | NativeDefaultMethod::MaxBy
-            | NativeDefaultMethod::Min
+            NativeDefaultMethod::Min
             | NativeDefaultMethod::Max
             | NativeDefaultMethod::MinByKey
             | NativeDefaultMethod::MaxByKey => {
@@ -217,76 +111,36 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(combine);
                 let previous =
                     self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(result))?;
-                if operation == NativeDefaultMethod::Reduce {
-                    let combined =
-                        self.call_function_value(values[1], &item_type, &[previous, item])?;
-                    let wrapped =
-                        self.standard_enum_op(&optional, StandardEnumOp::Make(0), Some(combined))?;
-                    self.emit(Instruction::Move {
-                        dst: result,
-                        src: wrapped,
-                    });
-                    self.ensure_jump(head);
+                let ordering = TypeId::StandardEnum {
+                    kind: StandardEnum::Ordering,
+                    args: vec![],
+                };
+                let (ty, left, right) = if let Some((state, option)) = &key_state {
+                    (
+                        &arguments[0],
+                        self.standard_enum_op(option, StandardEnumOp::Read(0), Some(*state))?,
+                        current_key.unwrap(),
+                    )
                 } else {
-                    let ordering = TypeId::StandardEnum {
-                        kind: StandardEnum::Ordering,
-                        args: vec![],
-                    };
-                    let comparison = if matches!(
-                        operation,
-                        NativeDefaultMethod::MinBy | NativeDefaultMethod::MaxBy
-                    ) {
-                        self.call_function_value(values[1], &ordering, &[previous, item])?
-                    } else {
-                        let (ty, left, right) = if let Some((state, option)) = &key_state {
-                            (
-                                &arguments[0],
-                                self.standard_enum_op(
-                                    option,
-                                    StandardEnumOp::Read(0),
-                                    Some(*state),
-                                )?,
-                                current_key.unwrap(),
-                            )
-                        } else {
-                            (&item_type, previous, item)
-                        };
-                        self.lower_applied_operator(
-                            StandardTrait::Ord.nominal(),
-                            ty.clone(),
-                            &self.protocol_method(StandardTrait::Ord, 0)?,
-                            &[left, right],
-                        )?
-                    };
-                    let greater = self.standard_enum_op(
-                        &ordering,
-                        StandardEnumOp::Test(2),
-                        Some(comparison),
-                    )?;
-                    self.set_terminator(Terminator::Branch {
-                        cond: greater,
-                        then_block: if matches!(
-                            operation,
-                            NativeDefaultMethod::MinBy
-                                | NativeDefaultMethod::Min
-                                | NativeDefaultMethod::MinByKey
-                        ) {
-                            replace
-                        } else {
-                            head
-                        },
-                        else_block: if matches!(
-                            operation,
-                            NativeDefaultMethod::MinBy
-                                | NativeDefaultMethod::Min
-                                | NativeDefaultMethod::MinByKey
-                        ) {
-                            head
-                        } else {
-                            replace
-                        },
-                    });
-                }
+                    (&item_type, previous, item)
+                };
+                let comparison = self.lower_applied_operator(
+                    StandardTrait::Ord.nominal(),
+                    ty.clone(),
+                    &self.protocol_method(StandardTrait::Ord, 0)?,
+                    &[left, right],
+                )?;
+                let greater =
+                    self.standard_enum_op(&ordering, StandardEnumOp::Test(2), Some(comparison))?;
+                let minimum = matches!(
+                    operation,
+                    NativeDefaultMethod::Min | NativeDefaultMethod::MinByKey
+                );
+                self.set_terminator(Terminator::Branch {
+                    cond: greater,
+                    then_block: if minimum { replace } else { head },
+                    else_block: if minimum { head } else { replace },
+                });
                 self.switch_to_block(replace);
                 if let Some((state, option)) = &key_state {
                     let key =

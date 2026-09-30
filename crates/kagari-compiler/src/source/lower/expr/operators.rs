@@ -299,6 +299,12 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::Any
                     | NativeDefaultMethod::All
                     | NativeDefaultMethod::Last
+                    | NativeDefaultMethod::FindMap
+                    | NativeDefaultMethod::Position
+                    | NativeDefaultMethod::Nth
+                    | NativeDefaultMethod::Reduce
+                    | NativeDefaultMethod::MinBy
+                    | NativeDefaultMethod::MaxBy
             ) {
                 return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
@@ -386,12 +392,6 @@ impl FunctionLowerer<'_, '_> {
                 NativeDefaultMethod::Join
                     | NativeDefaultMethod::Partition
                     | NativeDefaultMethod::GroupBy
-                    | NativeDefaultMethod::FindMap
-                    | NativeDefaultMethod::Position
-                    | NativeDefaultMethod::Nth
-                    | NativeDefaultMethod::Reduce
-                    | NativeDefaultMethod::MinBy
-                    | NativeDefaultMethod::MaxBy
                     | NativeDefaultMethod::Min
                     | NativeDefaultMethod::Max
                     | NativeDefaultMethod::MinByKey

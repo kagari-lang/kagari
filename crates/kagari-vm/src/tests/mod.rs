@@ -8,6 +8,7 @@ mod jit;
 mod mutation_resources;
 mod native_continuations;
 mod native_enum_families;
+mod native_iterator_decisions;
 mod native_iterator_terminals;
 mod reentry_debug;
 mod security;

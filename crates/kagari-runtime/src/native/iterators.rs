@@ -18,8 +18,35 @@ use kagari_common::identity::associated_type_id;
 const RESULT: usize = 0;
 const NEXT: usize = 1;
 const ITEM: usize = 2;
+const CALLBACK: usize = 3;
+const COUNTER: usize = 4;
+const PREVIOUS: usize = 5;
+
+#[derive(Clone, Copy)]
+enum DecisionPhase {
+    CounterInit,
+    ResultNone,
+    CounterZero,
+    CounterEquals,
+    CounterWrap,
+    CounterOne,
+    CounterAdvance,
+    CounterMove,
+    MappedTest,
+    MappedMove,
+    MappedBranch,
+    ResultTest,
+    ResultBranch,
+    ResultRead,
+    CombinedWrap,
+    CombinedMove,
+    GreaterTest,
+    CompareBranch,
+    Replace,
+}
 
 enum Phase {
+    DecisionStep(DecisionPhase),
     Begin,
     EntryJump,
     Next,
@@ -47,7 +74,7 @@ pub(super) struct IteratorInvocation {
     scratch: usize,
     guarded: bool,
     guard: Option<CollectionIteration>,
-    pub(super) initial: Option<Value>,
+    pub(super) initial: Option<Vec<Value>>,
     present: bool,
 }
 
@@ -69,7 +96,14 @@ impl IteratorInvocation {
             NativeDefaultMethod::Any | NativeDefaultMethod::All => {
                 Value::Bool(operation == NativeDefaultMethod::All)
             }
-            NativeDefaultMethod::Find | NativeDefaultMethod::Last => {
+            NativeDefaultMethod::Position => Value::U64(0),
+            NativeDefaultMethod::Nth => Value::Unit,
+            NativeDefaultMethod::Find
+            | NativeDefaultMethod::Last
+            | NativeDefaultMethod::FindMap
+            | NativeDefaultMethod::Reduce
+            | NativeDefaultMethod::MinBy
+            | NativeDefaultMethod::MaxBy => {
                 Value::Enum(runtime.alloc_enum(EnumTag::OptionNone, vec![])?)
             }
             _ => return Err(invalid()),
@@ -77,7 +111,11 @@ impl IteratorInvocation {
         let guarded = matches!(contract.signature.params.first(), Some(AbiType::Iter(_)));
         Ok(Self {
             operation,
-            phase: if guarded {
+            phase: if operation == NativeDefaultMethod::Position {
+                Phase::DecisionStep(DecisionPhase::CounterInit)
+            } else if operation == NativeDefaultMethod::Nth {
+                Phase::DecisionStep(DecisionPhase::ResultNone)
+            } else if guarded {
                 Phase::Begin
             } else {
                 Phase::EntryJump
@@ -85,9 +123,41 @@ impl IteratorInvocation {
             scratch: arguments.len(),
             guarded,
             guard: None,
-            initial: Some(initial),
+            initial: Some(vec![
+                initial,
+                Value::Unit,
+                Value::Unit,
+                Value::Unit,
+                if operation == NativeDefaultMethod::Nth {
+                    arguments[1].clone()
+                } else {
+                    Value::Unit
+                },
+                Value::Unit,
+            ]),
             present: false,
         })
+    }
+    fn is_some(&self, runtime: &Runtime, value: &Value) -> Result<bool, RuntimeError> {
+        let Value::Enum(id) = value else {
+            return Err(invalid());
+        };
+        let snapshot = runtime.gc().enum_snapshot(*id).ok_or_else(invalid)?;
+        match (snapshot.tag, snapshot.fields.len()) {
+            (EnumTag::OptionSome, 1) => Ok(true),
+            (EnumTag::OptionNone, 0) => Ok(false),
+            _ => Err(invalid()),
+        }
+    }
+    fn read_some(&self, runtime: &Runtime, value: &Value) -> Result<Value, RuntimeError> {
+        let Value::Enum(id) = value else {
+            return Err(invalid());
+        };
+        let snapshot = runtime.gc().enum_snapshot(*id).ok_or_else(invalid)?;
+        if snapshot.tag != EnumTag::OptionSome || snapshot.fields.len() != 1 {
+            return Err(invalid());
+        }
+        snapshot.fields.into_iter().next().ok_or_else(invalid)
     }
     fn get(&self, roots: &RootSet, slot: usize) -> Result<Value, RuntimeError> {
         roots.get(self.scratch + slot).ok_or_else(invalid)
@@ -156,6 +226,147 @@ impl IteratorInvocation {
             args: vec![item.clone()],
         })
     }
+    fn advance_decision(
+        &mut self,
+        phase: DecisionPhase,
+        runtime: &Runtime,
+        owner: &LoadedModule,
+        contract: &EngineNativeImport,
+        roots: &RootSet,
+    ) -> Result<NativeAction, RuntimeError> {
+        match phase {
+            DecisionPhase::CounterInit => {
+                self.set(runtime, roots, COUNTER, self.get(roots, RESULT)?)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::ResultNone);
+            }
+            DecisionPhase::ResultNone => {
+                self.set(
+                    runtime,
+                    roots,
+                    RESULT,
+                    Value::Enum(runtime.alloc_enum(EnumTag::OptionNone, vec![])?),
+                )?;
+                self.phase = if self.guarded {
+                    Phase::Begin
+                } else {
+                    Phase::EntryJump
+                };
+            }
+            DecisionPhase::CounterZero => {
+                self.phase = Phase::DecisionStep(DecisionPhase::CounterEquals)
+            }
+            DecisionPhase::CounterEquals => {
+                let Value::U64(counter) = self.get(roots, COUNTER)? else {
+                    return Err(invalid());
+                };
+                self.set(runtime, roots, CALLBACK, Value::Bool(counter == 0))?;
+                self.phase = Phase::PredicateBranch;
+            }
+            DecisionPhase::CounterWrap => {
+                let value = Value::Enum(
+                    runtime.alloc_enum(EnumTag::OptionSome, vec![self.get(roots, COUNTER)?])?,
+                );
+                self.set(runtime, roots, CALLBACK, value)?;
+                self.phase = Phase::DecisionMove;
+            }
+            DecisionPhase::CounterOne => {
+                self.phase = Phase::DecisionStep(DecisionPhase::CounterAdvance)
+            }
+            DecisionPhase::CounterAdvance => {
+                let Value::U64(counter) = self.get(roots, COUNTER)? else {
+                    return Err(invalid());
+                };
+                let next = if self.operation == NativeDefaultMethod::Position {
+                    counter.checked_add(1)
+                } else {
+                    counter.checked_sub(1)
+                }
+                .ok_or_else(|| {
+                    RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow")
+                })?;
+                self.set(runtime, roots, CALLBACK, Value::U64(next))?;
+                self.phase = Phase::DecisionStep(DecisionPhase::CounterMove);
+            }
+            DecisionPhase::CounterMove => {
+                self.set(runtime, roots, COUNTER, self.get(roots, CALLBACK)?)?;
+                self.phase = Phase::BodyJump;
+            }
+            DecisionPhase::MappedTest => {
+                self.present = self.is_some(runtime, &self.get(roots, CALLBACK)?)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::MappedMove);
+            }
+            DecisionPhase::MappedMove => {
+                self.set(runtime, roots, RESULT, self.get(roots, CALLBACK)?)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::MappedBranch);
+            }
+            DecisionPhase::MappedBranch => {
+                if self.present {
+                    return self.exit(runtime, owner, contract, roots);
+                }
+                self.phase = Phase::Next;
+            }
+            DecisionPhase::ResultTest => {
+                self.present = self.is_some(runtime, &self.get(roots, RESULT)?)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::ResultBranch);
+            }
+            DecisionPhase::ResultBranch => {
+                self.phase = if self.present {
+                    Phase::DecisionStep(DecisionPhase::ResultRead)
+                } else {
+                    Phase::DecisionStep(DecisionPhase::Replace)
+                }
+            }
+            DecisionPhase::ResultRead => {
+                let value = self.read_some(runtime, &self.get(roots, RESULT)?)?;
+                self.set(runtime, roots, PREVIOUS, value)?;
+                self.phase = Phase::Callback;
+            }
+            DecisionPhase::CombinedWrap => {
+                let value = Value::Enum(
+                    runtime.alloc_enum(EnumTag::OptionSome, vec![self.get(roots, CALLBACK)?])?,
+                );
+                self.set(runtime, roots, CALLBACK, value)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::CombinedMove);
+            }
+            DecisionPhase::CombinedMove => {
+                self.set(runtime, roots, RESULT, self.get(roots, CALLBACK)?)?;
+                self.phase = Phase::BodyJump;
+            }
+            DecisionPhase::GreaterTest => {
+                let Value::Enum(id) = self.get(roots, CALLBACK)? else {
+                    return Err(invalid());
+                };
+                let snapshot = runtime.gc().enum_snapshot(id).ok_or_else(invalid)?;
+                if !snapshot.fields.is_empty()
+                    || !matches!(
+                        snapshot.tag,
+                        EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater
+                    )
+                {
+                    return Err(invalid());
+                }
+                self.present = snapshot.tag == EnumTag::OrderingGreater;
+                self.phase = Phase::DecisionStep(DecisionPhase::CompareBranch);
+            }
+            DecisionPhase::CompareBranch => {
+                let replace = if self.operation == NativeDefaultMethod::MinBy {
+                    self.present
+                } else {
+                    !self.present
+                };
+                self.phase = if replace {
+                    Phase::DecisionStep(DecisionPhase::Replace)
+                } else {
+                    Phase::Next
+                };
+            }
+            DecisionPhase::Replace => {
+                self.set(runtime, roots, RESULT, self.get(roots, NEXT)?)?;
+                self.phase = Phase::BodyJump;
+            }
+        }
+        Ok(NativeAction::Continue)
+    }
     pub(super) fn advance(
         &mut self,
         runtime: &Runtime,
@@ -164,6 +375,9 @@ impl IteratorInvocation {
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
         match self.phase {
+            Phase::DecisionStep(phase) => {
+                return self.advance_decision(phase, runtime, owner, contract, roots);
+            }
             Phase::Begin => {
                 self.guard = Some(
                     runtime
@@ -193,17 +407,9 @@ impl IteratorInvocation {
                 }
             }
             Phase::Test => {
-                let Value::Enum(id) = self.get(roots, NEXT)? else {
-                    return Err(invalid());
-                };
-                let snapshot = runtime.gc().enum_snapshot(id).ok_or_else(invalid)?;
-                self.present = match (snapshot.tag, snapshot.fields.len()) {
-                    (EnumTag::OptionSome, 1) => true,
-                    (EnumTag::OptionNone, 0) => false,
-                    _ => return Err(invalid()),
-                };
+                self.present = self.is_some(runtime, &self.get(roots, NEXT)?)?;
                 if !runtime.matches_interface_method_abi(
-                    &Value::Enum(id),
+                    &self.get(roots, NEXT)?,
                     &self.optional(contract)?,
                     owner,
                 ) {
@@ -218,18 +424,15 @@ impl IteratorInvocation {
                 self.phase = Phase::Read;
             }
             Phase::Read => {
-                let Value::Enum(id) = self.get(roots, NEXT)? else {
-                    return Err(invalid());
-                };
-                let item = runtime
-                    .gc()
-                    .enum_snapshot(id)
-                    .and_then(|snapshot| snapshot.fields.into_iter().next())
-                    .ok_or_else(invalid)?;
+                let item = self.read_some(runtime, &self.get(roots, NEXT)?)?;
                 self.set(runtime, roots, ITEM, item)?;
                 self.phase = match self.operation {
                     NativeDefaultMethod::Count => Phase::One,
                     NativeDefaultMethod::Last => Phase::Move,
+                    NativeDefaultMethod::Nth => Phase::DecisionStep(DecisionPhase::CounterZero),
+                    NativeDefaultMethod::Reduce
+                    | NativeDefaultMethod::MinBy
+                    | NativeDefaultMethod::MaxBy => Phase::DecisionStep(DecisionPhase::ResultTest),
                     _ => Phase::Callback,
                 };
             }
@@ -243,6 +446,14 @@ impl IteratorInvocation {
                 if self.operation == NativeDefaultMethod::Fold {
                     arguments.push(self.get(roots, RESULT)?);
                 }
+                if matches!(
+                    self.operation,
+                    NativeDefaultMethod::Reduce
+                        | NativeDefaultMethod::MinBy
+                        | NativeDefaultMethod::MaxBy
+                ) {
+                    arguments.push(self.get(roots, PREVIOUS)?);
+                }
                 arguments.push(self.get(roots, ITEM)?);
                 let request = callback(
                     runtime,
@@ -254,7 +465,7 @@ impl IteratorInvocation {
                 return Ok(NativeAction::Callback(request));
             }
             Phase::PredicateBranch => {
-                let Value::Bool(matched) = self.get(roots, ITEM)? else {
+                let Value::Bool(matched) = self.get(roots, CALLBACK)? else {
                     return Err(invalid());
                 };
                 let found = if self.operation == NativeDefaultMethod::All {
@@ -263,11 +474,21 @@ impl IteratorInvocation {
                     matched
                 };
                 self.phase = if found {
-                    if self.operation == NativeDefaultMethod::Find {
+                    if self.operation == NativeDefaultMethod::Position {
+                        Phase::DecisionStep(DecisionPhase::CounterWrap)
+                    } else if matches!(
+                        self.operation,
+                        NativeDefaultMethod::Find | NativeDefaultMethod::Nth
+                    ) {
                         Phase::DecisionMove
                     } else {
                         Phase::Decision
                     }
+                } else if matches!(
+                    self.operation,
+                    NativeDefaultMethod::Position | NativeDefaultMethod::Nth
+                ) {
+                    Phase::DecisionStep(DecisionPhase::CounterOne)
                 } else {
                     Phase::Next
                 };
@@ -276,7 +497,7 @@ impl IteratorInvocation {
                 self.set(
                     runtime,
                     roots,
-                    ITEM,
+                    CALLBACK,
                     Value::Bool(self.operation == NativeDefaultMethod::Any),
                 )?;
                 self.phase = Phase::DecisionMove;
@@ -284,10 +505,13 @@ impl IteratorInvocation {
             Phase::DecisionMove => {
                 let value = self.get(
                     roots,
-                    if self.operation == NativeDefaultMethod::Find {
+                    if matches!(
+                        self.operation,
+                        NativeDefaultMethod::Find | NativeDefaultMethod::Nth
+                    ) {
                         NEXT
                     } else {
-                        ITEM
+                        CALLBACK
                     },
                 )?;
                 self.set(runtime, roots, RESULT, value)?;
@@ -308,6 +532,8 @@ impl IteratorInvocation {
             Phase::Move => {
                 let slot = if self.operation == NativeDefaultMethod::Last {
                     NEXT
+                } else if self.operation == NativeDefaultMethod::Fold {
+                    CALLBACK
                 } else {
                     ITEM
                 };
@@ -343,8 +569,13 @@ impl IteratorInvocation {
                 self.phase = Phase::Test;
             }
             Phase::WaitingCallback => {
-                self.set(runtime, roots, ITEM, value)?;
+                self.set(runtime, roots, CALLBACK, value)?;
                 self.phase = match self.operation {
+                    NativeDefaultMethod::FindMap => Phase::DecisionStep(DecisionPhase::MappedTest),
+                    NativeDefaultMethod::Reduce => Phase::DecisionStep(DecisionPhase::CombinedWrap),
+                    NativeDefaultMethod::MinBy | NativeDefaultMethod::MaxBy => {
+                        Phase::DecisionStep(DecisionPhase::GreaterTest)
+                    }
                     NativeDefaultMethod::Fold => Phase::Move,
                     NativeDefaultMethod::ForEach => Phase::BodyJump,
                     _ => Phase::PredicateBranch,
