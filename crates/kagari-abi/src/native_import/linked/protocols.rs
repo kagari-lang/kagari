@@ -2,7 +2,7 @@
 use super::arrays;
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
-    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys},
     scalar::BuiltinType,
     standard::{
         StandardIntrinsic,
@@ -98,9 +98,11 @@ pub(super) fn valid<'a>(
             )
         );
         let equality = (list_query
+            || keys::selected(import.binding)
             || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup))
             && protocol == Some(StandardTrait::PartialEq);
-        if equality
+        let hashing = keys::selected(import.binding) && protocol == Some(StandardTrait::Hash);
+        if (equality || hashing)
             && witness.implementation == NativeWitnessImplementation::Interface
             && matches!(&witness.receiver,AbiType::Trait(interface) if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection))
         {
@@ -109,7 +111,7 @@ pub(super) fn valid<'a>(
             }
             continue;
         }
-        if equality
+        if (equality || hashing)
             && matches!(
                 witness.implementation,
                 NativeWitnessImplementation::Primitive | NativeWitnessImplementation::Derived
@@ -129,13 +131,26 @@ pub(super) fn valid<'a>(
                     || target.declaration.path.as_slice()
                         != [DefinitionPathSegment {
                             kind: DefinitionKind::Function,
-                            name: "$derived_PartialEq".into(),
+                            name: if hashing {
+                                "$derived_Hash"
+                            } else {
+                                "$derived_PartialEq"
+                            }
+                            .into(),
                             occurrence: 0,
                         }]
                     || callable(target)
                         != Some(NativeSignature {
-                            params: vec![witness.receiver.clone(), witness.receiver.clone()],
-                            result: AbiType::Builtin(BuiltinType::Bool),
+                            params: if hashing {
+                                vec![witness.receiver.clone()]
+                            } else {
+                                vec![witness.receiver.clone(), witness.receiver.clone()]
+                            },
+                            result: AbiType::Builtin(if hashing {
+                                BuiltinType::I64
+                            } else {
+                                BuiltinType::Bool
+                            }),
                         })
                 {
                     return Ok(false);
@@ -153,7 +168,8 @@ pub(super) fn valid<'a>(
                     || aggregate
                     || equality)
             || prepared_order && protocol == Some(StandardTrait::Ord)
-            || equality;
+            || equality
+            || hashing;
         if !invoked
             || (protocol == Some(StandardTrait::Iterator)
                 && matches!(witness.receiver, AbiType::Iter(_)))
@@ -288,6 +304,10 @@ pub(super) fn valid<'a>(
             Some(StandardTrait::PartialEq) if equality => {
                 expected.params.as_slice() == [witness.receiver.clone(), witness.receiver.clone()]
                     && expected.result == AbiType::Builtin(BuiltinType::Bool)
+            }
+            Some(StandardTrait::Hash) if hashing => {
+                expected.params.as_slice() == slice::from_ref(&witness.receiver)
+                    && expected.result == AbiType::Builtin(BuiltinType::I64)
             }
             Some(StandardTrait::Ord) => {
                 expected.params.as_slice() == [witness.receiver.clone(), witness.receiver.clone()]

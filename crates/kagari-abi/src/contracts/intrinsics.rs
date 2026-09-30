@@ -144,17 +144,6 @@ pub(super) fn verify(
             [ValueType::HeapObject | ValueType::Str],
         ) => ValueType::Bool,
         (
-            Intrinsic::MapContainsKey | Intrinsic::SetContains | Intrinsic::SetRemove,
-            [ValueType::HeapObject, key],
-        ) if hash_key(*key) => ValueType::Bool,
-        (
-            Intrinsic::MapGet | Intrinsic::MapRemove | Intrinsic::SetInsert,
-            [ValueType::HeapObject, key],
-        ) if hash_key(*key) => ValueType::HeapObject,
-        (Intrinsic::MapInsert, [ValueType::HeapObject, key, _]) if hash_key(*key) => {
-            ValueType::HeapObject
-        }
-        (
             Intrinsic::MapClear
             | Intrinsic::MapKeysStorage
             | Intrinsic::MapValuesStorage

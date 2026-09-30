@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::common::load_bytecode_program;
 
 #[test]
 fn executes_source_lowered_print_builtin() {
@@ -121,93 +122,24 @@ fn main() -> (usize, bool, usize, usize, usize, usize, usize, usize, bool, bool,
 
 #[test]
 fn executes_bytecode_standard_collection_intrinsics() {
-    let (runtime, loaded) = load_bytecode_module(
-        "standard_collections.kbc",
-        test_function_module(
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::Str("k".to_owned()),
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(1)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashMapNew),
-                    args: vec![],
-                },
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(2),
-                    constant: ConstantOperand::I32(7),
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(3)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapInsert),
-                    args: vec![Register::new(1), Register::new(0), Register::new(2)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(4)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapLen),
-                    args: vec![Register::new(1)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(5)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapContainsKey),
-                    args: vec![Register::new(1), Register::new(0)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(6)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapKeysStorage),
-                    args: vec![Register::new(1)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(7)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayLen),
-                    args: vec![Register::new(6)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(8)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashSetNew),
-                    args: vec![],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(9)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::SetInsert),
-                    args: vec![Register::new(8), Register::new(0)],
-                },
-                BytecodeInstruction::Call {
-                    dst: Some(Register::new(10)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::SetContains),
-                    args: vec![Register::new(8), Register::new(0)],
-                },
-                BytecodeInstruction::MakeTuple {
-                    dst: Register::new(11),
-                    elements: vec![
-                        Register::new(4),
-                        Register::new(5),
-                        Register::new(7),
-                        Register::new(10),
-                    ],
-                },
-                BytecodeInstruction::Return(Some(Register::new(11))),
-            ],
-            ValueType::HeapObject,
-            vec![
-                ValueType::Str,
-                ValueType::HeapObject,
-                ValueType::I32,
-                ValueType::HeapObject,
-                ValueType::U64,
-                ValueType::Bool,
-                ValueType::HeapObject,
-                ValueType::U64,
-                ValueType::HeapObject,
-                ValueType::HeapObject,
-                ValueType::Bool,
-                ValueType::HeapObject,
-            ],
-        ),
+    let program = compile_test_bytecode(
+        r#"
+fn main()->(usize,bool,usize,bool){
+ val map:LinkedHashMap<String,i32> =LinkedHashMap::new();map.insert("k",7);
+ val set:LinkedHashSet<String> =LinkedHashSet::new();set.insert("k");
+ (map.len(),map.contains_key("k"),map.keys().len(),set.contains("k"))
+}
+"#,
     );
-
+    let decoded = kagari_bytecode::KbcArtifact::from_bytes(
+        &kagari_bytecode::KbcArtifact::from_program(program, Default::default())
+            .unwrap()
+            .to_bytes()
+            .unwrap(),
+    )
+    .unwrap()
+    .program;
+    let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
     let mut vm = Vm::new(runtime);
     let report = vm.execute(&loaded, "main").expect("vm should execute");
 

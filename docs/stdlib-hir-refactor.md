@@ -22,8 +22,10 @@ static RangeBounds witnesses and prepared native storage updates. ArrayList, Map
 and Set retention execute rooted native predicate traversal with one token-preserving
 storage commit. ArrayList sorting and adjacent deduplication execute native
 preparation with selected Ord/PartialEq witnesses, stable merging, once-only key
-extraction and atomic final storage commit. Remaining ST05 iterator/collection
-migration and ST06 encoded fixtures/final acceptance remain pending.
+extraction and atomic final storage commit. Native Map/Set key queries and
+mutations also own selected Hash/Eq bucket traversal; Map factories/transforms
+execute under their callback guard before checked insertion. Remaining ST05
+iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -535,10 +537,14 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   rooted native traversal, callback guards and token-preserving atomic storage commit.
 - [x] Migrate ArrayList sorting (`sort`, `sort_by`, `sort_by_key`) and adjacent
   `dedup` with selected comparisons, stable ordering, once-only keys and atomic commit.
+- [x] Migrate native Map/Set key queries and mutations with checked Hash/PartialEq
+  witnesses, stable bucket candidates, identity keys and guarded storage commits.
+- [x] Migrate Map `get_or_insert_with` and `update` with once-only typed callbacks,
+  both selected lookups, failure effects and atomic checked insertion.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
-- [ ] Migrate remaining collection queries, custom keys, prepared mutation,
-  map updates and lazy windows/chunks with their existing observable contracts.
+- [ ] Migrate remaining collection/set operations and construction, plus lazy
+  windows/chunks with their existing observable contracts.
 - [ ] Remove corresponding compiler algorithm expansions and standard source
   lookups from MIR, bytecode, VM and runtime.
 - [ ] Reuse existing Rust helpers; translate compiler-owned behavior into focused
@@ -830,6 +836,62 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native key lookup and Map callbacks checkpoint (2026-09-30): completes
+  two family checklists covering Map `get`, `contains_key`, `insert`, `remove`,
+  Set `contains`, `insert`, `remove`, and Map `get_or_insert_with`/`update`.
+  Removed the entire compiler bucket traversal and Map callback expansion.
+  Generic/dynamic storage adapters use the selected checked native implementation;
+  pending construction/grouping producers call actual checked inherent declarations
+  instead of emitting another key algorithm. Runtime reuses the existing Rust
+  candidate, token lookup, insertion and removal helpers. Primitive/identity keys
+  keep their single helper operation; custom keys hash once per lookup and compare
+  same-hash candidates in stored insertion-token order. Existing-key replacement
+  preserves the original key identity and token.
+- Imports carry the exact physical Map/Set category, key/value/result types and
+  mutation authority, plus selected Eq/Hash/PartialEq witnesses. Eq remains a bound
+  proof; Hash/PartialEq carry concrete methods or validated core composition.
+  Derived Tuple/Option/user-enum Hash uses the existing language primitive helper,
+  alongside derived equality; it is not a second standard-library algorithm.
+  Readonly collection view keys retain their underlying identity equality/hash.
+  Bare public key operations are now rejected, including primitive-key calls;
+  native signatures are validated independently of those retired bare contracts.
+  The existing positive bytecode helper fixture now executes a checked encoded
+  program and preserves its storage/query/snapshot assertions.
+- Rooted native lookup guards reject all target writes during Hash/Eq and release
+  immediately before the existing commit helper. Map callbacks retain the callback
+  mutation guard across the initial lookup and the selected factory/transform.
+  Factories skip present entries; transforms receive Option<V> once. The guard
+  ends before the insertion lookup, preserving the original second Hash/Eq calls,
+  callback effects and failure ordering. Values, key candidates and callbacks stay
+  rooted on shared frames with pinned defining modules. Entry and resumed actions
+  use the same generic frame publication handler, permitting primitive operations
+  to complete on their already charged entry without an extra logical step.
+- Recorded 270 cases at 5f5365f: all nine operations, primitive/custom/tuple/Option/
+  user-enum/identity keys, empty/present/absent collision buckets and direct, generic
+  and dynamic interface routes. Each of 53,187 instruction limits passes source
+  and decoded KBC, with exact receiver/query/payload/callback/Hash/Eq/factory/
+  transform/commit event positions, counters and cleanup at GC threshold one.
+  Boundary tests cover successful/failed nested host reentry, cancellation at every
+  Hash/Eq/factory/transform occurrence, all allocation limits, callback overflow,
+  alias replacement/removal/clear and independent active iteration. Original
+  tokens/slots remain uncommitted on failure while completed payload effects survive,
+  and subsequent calls remain usable. Foreign generic wrappers pin caller-private
+  key methods and heap payload callbacks; removing their executable dependency
+  rejects both verification and loading. All 376 storage/authority/signature/bound/
+  callback/witness/helper/instantiation/bare-call corruptions reject in memory and
+  encoded loading, including bypassed composed hashing and equality.
+- Runtime ABI is v123 for the native key and Map callback bindings; binding v2,
+  KBC v109, KMIR v7 and helper ABI v6 retain their schemas. All eight library suites
+  pass: ABI 46, bytecode 27, compiler 182, HIR 414, MIR 1, runtime 71, stdlib 7 and
+  VM 205 (953 total). Eight affected embedding suites pass 84 tests, for 1,037
+  checkpoint tests. Workspace/all-target Clippy with denied warnings, formatting,
+  structure (689 Rust files, zero violations/exceptions) and diff checks pass.
+  Manual structural review confirms explicit production imports, normal modules,
+  checked physical receiver and selected method ownership, bounded rooted lookup
+  state, once-only callback arguments and shared frame publication/cleanup. No
+  carried build or test errors. Remaining ST05 families and ST06 fixture
+  regeneration, documentation, measurements and final acceptance remain pending.
 
 - ST05 ArrayList sorting/dedup checkpoint (2026-09-30): completes one family
   checklist covering `sort`, `sort_by`, `sort_by_key` and `dedup`. Removed their

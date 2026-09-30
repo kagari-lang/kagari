@@ -4,6 +4,7 @@ mod array_initialization;
 mod array_ranges;
 mod enums;
 mod iterators;
+mod keys;
 mod list_equality;
 mod lists;
 mod map_snapshots;
@@ -21,6 +22,7 @@ use crate::{
         array_ranges::ArrayRange,
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
+        keys::KeyInvocation,
         list_equality::EqualityInvocation,
         lists::ListInvocation,
         map_snapshots::SnapshotInvocation,
@@ -79,6 +81,7 @@ pub(crate) enum NativeAction {
 }
 
 enum NativeState {
+    Key(KeyInvocation),
     PreparedArray(Box<PreparedArray>),
     Retention(Retention),
     ArrayRange(ArrayRange),
@@ -98,7 +101,7 @@ pub(crate) struct NativeInvocation {
     import: EngineImportId,
     roots: RootSet,
     state: NativeState,
-    entry: Option<NativeProgress>,
+    entry: Option<NativeAction>,
 }
 
 impl NativeInvocation {
@@ -121,6 +124,17 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
+                operation @ (StandardIntrinsic::MapGet
+                | StandardIntrinsic::MapContainsKey
+                | StandardIntrinsic::MapInsert
+                | StandardIntrinsic::MapRemove
+                | StandardIntrinsic::SetContains
+                | StandardIntrinsic::SetInsert
+                | StandardIntrinsic::SetRemove
+                | StandardIntrinsic::MapGetOrInsertWith
+                | StandardIntrinsic::MapUpdate),
+            ))) => NativeState::Key(KeyInvocation::start(operation, contract, arguments)?),
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
                 operation @ (StandardIntrinsic::ArraySort
                 | StandardIntrinsic::ArraySortBy
@@ -213,7 +227,7 @@ impl NativeInvocation {
                     if let Some(witness) = target.filter(|witness| {
                         !protocols::numeric_destination(&implementation, witness, operation)
                     }) {
-                        entry = Some(NativeProgress::Callback(protocols::aggregate(
+                        entry = Some(NativeAction::Callback(protocols::aggregate(
                             runtime,
                             &implementation,
                             witness,
@@ -254,6 +268,7 @@ impl NativeInvocation {
                     .iter()
                     .cloned()
                     .chain(match &mut state {
+                        NativeState::Key(_) => vec![Value::Unit; keys::SCRATCH_ROOTS],
                         NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
                         NativeState::PreparedArray(_) => {
                             vec![Value::Unit; prepared_arrays::SCRATCH_ROOTS]
@@ -296,12 +311,12 @@ impl NativeInvocation {
         if let NativeState::MapSnapshot(state) = &state {
             entry = state
                 .initialize(runtime, arguments, &roots)?
-                .map(NativeProgress::BuiltinFailure);
+                .map(NativeAction::BuiltinFailure);
         }
         if let NativeState::ArrayInitialization(state) = &state {
             entry = state
                 .initialize(runtime, &roots)?
-                .map(NativeProgress::BuiltinFailure);
+                .map(NativeAction::BuiltinFailure);
         }
         if let NativeState::PreparedArray(state) = &mut state {
             state.initialize(runtime, &roots)?;
@@ -310,6 +325,7 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
+            NativeState::Key(state) => Some(state.initialize(runtime, &roots)?),
             NativeState::ArrayRange(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }
@@ -319,16 +335,7 @@ impl NativeInvocation {
             _ => None,
         };
         if let Some(action) = initialized {
-            entry = Some(match action {
-                NativeAction::Continue => NativeProgress::Continue,
-                NativeAction::Callback(request) => NativeProgress::Callback(request),
-                NativeAction::BuiltinFailure(error) => NativeProgress::BuiltinFailure(error),
-                _ => {
-                    return Err(RuntimeError::module_validation(
-                        "invalid native construction entry action",
-                    ));
-                }
-            });
+            entry = Some(action);
         }
         Ok(Self {
             implementation,
@@ -340,13 +347,16 @@ impl NativeInvocation {
         })
     }
 
-    pub(crate) fn take_entry(&mut self) -> NativeProgress {
-        self.entry.take().unwrap_or(NativeProgress::Continue)
+    pub(crate) fn take_entry(&mut self) -> NativeAction {
+        self.entry.take().unwrap_or(NativeAction::Continue)
     }
 
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Key(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::PreparedArray(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
@@ -395,6 +405,13 @@ impl NativeInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            NativeState::Key(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()],
+                &self.roots,
+                value,
+            ),
             NativeState::PreparedArray(state) => state.receive(
                 runtime,
                 &self.implementation,

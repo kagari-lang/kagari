@@ -107,26 +107,6 @@ impl FunctionLowerer<'_, '_> {
         application: NativeApplication<'_>,
     ) -> Result<MirValue, MirLoweringError> {
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        if matches!(
-            intrinsic,
-            StandardIntrinsic::MapGetOrInsertWith | StandardIntrinsic::MapUpdate
-        ) {
-            let base = receiver
-                .or_else(|| args.first().copied())
-                .ok_or(MirLoweringError::MissingBinding("map receiver"))?;
-            let receiver = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(base)
-                .ok_or(MirLoweringError::MissingExprType(base))?;
-            let receiver = self
-                .planner
-                .arguments(&[receiver], &self.instance.substitution, span)?
-                .remove(0);
-            return self.lower_map_update(intrinsic, &receiver, &lowered);
-        }
-
         if intrinsic == StandardIntrinsic::StringParse {
             let output = self
                 .analyzed
@@ -199,25 +179,6 @@ impl FunctionLowerer<'_, '_> {
                     &[equal, lowered[2]],
                     ValueType::Unit,
                 ));
-            }
-            let key = match &ty {
-                TypeId::Map { key, .. } | TypeId::Set(key, _) => Some(&**key),
-                _ => None,
-            };
-            if let Some(key) = key
-                && self.has_custom_protocol(key)?
-                && matches!(
-                    intrinsic,
-                    StandardIntrinsic::MapGet
-                        | StandardIntrinsic::MapContainsKey
-                        | StandardIntrinsic::MapInsert
-                        | StandardIntrinsic::MapRemove
-                        | StandardIntrinsic::SetContains
-                        | StandardIntrinsic::SetInsert
-                        | StandardIntrinsic::SetRemove
-                )
-            {
-                return self.lower_key_operation(intrinsic, key, &lowered);
             }
         }
         let contract = self.engine_native_contract(

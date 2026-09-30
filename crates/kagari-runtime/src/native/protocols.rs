@@ -211,36 +211,14 @@ pub(super) fn equal(
     }
     let arguments = vec![left, right];
     if witness.implementation == NativeWitnessImplementation::Derived {
-        let [target] = witness.methods.as_slice() else {
-            return Err(invalid());
-        };
-        let implementation = owner
-            .members()
-            .find(|module| module.bytecode.identity == target.declaration.module)
-            .ok_or_else(invalid)?;
-        let function = implementation
-            .bytecode
-            .functions
-            .iter()
-            .find(|function| function.identity.as_ref() == Some(target))
-            .ok_or_else(invalid)?;
-        let metadata = &function.metadata;
-        if metadata.params.len() != 2
-            || metadata.semantic.params.get(&0) != Some(&witness.receiver)
-            || metadata.semantic.params.get(&1) != Some(&witness.receiver)
-            || metadata.semantic.result.as_ref() != Some(&AbiType::Builtin(BuiltinType::Bool))
-        {
-            return Err(invalid());
-        }
-        let function = function.id;
-        runtime.validate_loaded_module(&implementation)?;
-        return Ok(ProtocolStep::Call(NativeCallback {
-            target: NativeCallbackTarget::Function {
-                implementation,
-                function,
-            },
+        return derived_call(
+            runtime,
+            owner,
+            witness,
             arguments,
-        }));
+            &[witness.receiver.clone(), witness.receiver.clone()],
+            &AbiType::Builtin(BuiltinType::Bool),
+        );
     }
     table_call(
         runtime,
@@ -250,6 +228,88 @@ pub(super) fn equal(
         arguments,
         &[witness.receiver.clone(), witness.receiver.clone()],
         &AbiType::Builtin(BuiltinType::Bool),
+    )
+}
+
+fn derived_call(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    arguments: Vec<Value>,
+    params: &[AbiType],
+    result: &AbiType,
+) -> Result<ProtocolStep, RuntimeError> {
+    let [target] = witness.methods.as_slice() else {
+        return Err(invalid());
+    };
+    let implementation = owner
+        .members()
+        .find(|module| module.bytecode.identity == target.declaration.module)
+        .ok_or_else(invalid)?;
+    let function = implementation
+        .bytecode
+        .functions
+        .iter()
+        .find(|function| function.identity.as_ref() == Some(target))
+        .ok_or_else(invalid)?;
+    let metadata = &function.metadata;
+    if metadata.params.len() != params.len()
+        || params
+            .iter()
+            .enumerate()
+            .any(|(slot, ty)| metadata.semantic.params.get(&slot) != Some(ty))
+        || metadata.semantic.result.as_ref() != Some(result)
+    {
+        return Err(invalid());
+    }
+    let function = function.id;
+    runtime.validate_loaded_module(&implementation)?;
+    Ok(ProtocolStep::Call(NativeCallback {
+        target: NativeCallbackTarget::Function {
+            implementation,
+            function,
+        },
+        arguments,
+    }))
+}
+pub(super) fn hash(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    value: Value,
+) -> Result<ProtocolStep, RuntimeError> {
+    if !runtime.matches_interface_method_abi(&value, &witness.receiver, owner) {
+        return Err(invalid());
+    }
+    if matches!(
+        witness.implementation,
+        NativeWitnessImplementation::Primitive | NativeWitnessImplementation::Interface
+    ) {
+        return runtime
+            .invoke_standard_builtin(StandardIntrinsic::ValueHash, &[value])
+            .map(ProtocolStep::Value)
+            .map_err(|error| error.into_runtime_error());
+    }
+    let arguments = vec![value];
+    let result = AbiType::Builtin(BuiltinType::I64);
+    if witness.implementation == NativeWitnessImplementation::Derived {
+        return derived_call(
+            runtime,
+            owner,
+            witness,
+            arguments,
+            slice::from_ref(&witness.receiver),
+            &result,
+        );
+    }
+    table_call(
+        runtime,
+        owner,
+        witness,
+        0,
+        arguments,
+        slice::from_ref(&witness.receiver),
+        &result,
     )
 }
 

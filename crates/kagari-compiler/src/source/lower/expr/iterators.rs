@@ -210,16 +210,8 @@ impl FunctionLowerer<'_, '_> {
                     ValueType::HeapObject,
                 );
             }
-            TypeId::Set(key, _) => {
-                if self.has_custom_protocol(key)? {
-                    self.lower_key_operation(StandardIntrinsic::SetInsert, key, &[output, item])?;
-                } else {
-                    self.emit_intrinsic(
-                        StandardIntrinsic::SetInsert,
-                        &[output, item],
-                        ValueType::HeapObject,
-                    );
-                }
+            TypeId::Set(_, _) => {
+                self.lower_key_storage_call(target, StandardIntrinsic::SetInsert, &[output, item])?;
             }
             TypeId::Map { key, value, .. } => {
                 let first = self.lower_constant(Constant::I32(0), ValueType::I32);
@@ -236,15 +228,7 @@ impl FunctionLowerer<'_, '_> {
                     base: item,
                     index: second,
                 });
-                if self.has_custom_protocol(key)? {
-                    self.lower_key_operation(StandardIntrinsic::MapInsert, key, &[output, k, v])?;
-                } else {
-                    self.emit_intrinsic(
-                        StandardIntrinsic::MapInsert,
-                        &[output, k, v],
-                        ValueType::HeapObject,
-                    );
-                }
+                self.lower_key_storage_call(target, StandardIntrinsic::MapInsert, &[output, k, v])?;
             }
             _ => return Err(MirLoweringError::MissingBinding("collection insertion")),
         }

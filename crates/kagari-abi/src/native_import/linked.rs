@@ -1,7 +1,7 @@
 //! Link a concrete import to its checked declaration and selected protocol facts.
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
-    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys},
     standard::{
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         intrinsic,
@@ -242,6 +242,19 @@ impl EngineNativeImport {
                 constraints: vec![ConstraintAbi::Trait(iterable)],
             });
         }
+        if let Some(key) = keys::key(self) {
+            obligations.push(GenericBoundAbi {
+                ty: key.clone(),
+                constraints: [
+                    StandardTrait::Eq,
+                    StandardTrait::Hash,
+                    StandardTrait::PartialEq,
+                ]
+                .into_iter()
+                .map(|protocol| ConstraintAbi::Trait(intrinsic::applied(protocol, vec![])))
+                .collect(),
+            });
+        }
         let mut consumed = HashSet::new();
         for bound in &obligations {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
@@ -265,13 +278,13 @@ impl EngineNativeImport {
                             && !catalog.has_explicit_implementation(interface, &bound.ty, cancel)?
                     }
                     NativeWitnessImplementation::Derived => {
-                        StandardTrait::from_id(&interface.declaration)
-                            == Some(StandardTrait::PartialEq)
-                            && matches!(
-                                bound.ty,
-                                AbiType::Tuple(_) | AbiType::Enum(_) | AbiType::StandardEnum { .. }
-                            )
-                            && !catalog.has_explicit_implementation(interface, &bound.ty, cancel)?
+                        matches!(
+                            StandardTrait::from_id(&interface.declaration),
+                            Some(StandardTrait::PartialEq | StandardTrait::Hash)
+                        ) && matches!(
+                            bound.ty,
+                            AbiType::Tuple(_) | AbiType::Enum(_) | AbiType::StandardEnum { .. }
+                        ) && !catalog.has_explicit_implementation(interface, &bound.ty, cancel)?
                             && catalog.uses_custom_equality(&bound.ty, cancel)?
                     }
                     NativeWitnessImplementation::Host => matches!(bound.ty, AbiType::Host(_)),

@@ -301,16 +301,17 @@ impl FunctionLowerer<'_, '_> {
                 declaration,
                 arguments: table_arguments.iter().map(lower_type).collect(),
             })
-        } else if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::PartialEq)
-            && matches!(
-                receiver,
-                TypeId::Tuple(_) | TypeId::Enum(_) | TypeId::StandardEnum { .. }
-            )
-            && self.has_custom_protocol(receiver)?
+        } else if matches!(
+            StandardTrait::from_id(&interface.declaration),
+            Some(StandardTrait::PartialEq | StandardTrait::Hash)
+        ) && matches!(
+            receiver,
+            TypeId::Tuple(_) | TypeId::Enum(_) | TypeId::StandardEnum { .. }
+        ) && self.has_custom_protocol(receiver)?
         {
             let id = self.planner.enqueue_protocol(
                 &self.instance,
-                StandardTrait::PartialEq,
+                StandardTrait::from_id(&interface.declaration).ok_or_else(invalid)?,
                 receiver,
                 span,
             )?;

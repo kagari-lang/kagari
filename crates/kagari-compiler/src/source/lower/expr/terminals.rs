@@ -81,17 +81,17 @@ impl FunctionLowerer<'_, '_> {
             }
             NativeDefaultMethod::GroupBy => {
                 let key_type = &arguments[0];
-                let key = self.call_function_value(values[1], key_type, &[item])?;
-                let custom = self.has_custom_protocol(key_type)?;
-                let group = if custom {
-                    self.lower_key_operation(StandardIntrinsic::MapGet, key_type, &[result, key])?
-                } else {
-                    self.emit_intrinsic(
-                        StandardIntrinsic::MapGet,
-                        &[result, key],
-                        ValueType::HeapObject,
-                    )
+                let result_type = TypeId::Map {
+                    key: Box::new(key_type.clone()),
+                    value: Box::new(array_type.clone()),
+                    access: Mutable,
                 };
+                let key = self.call_function_value(values[1], key_type, &[item])?;
+                let group = self.lower_key_storage_call(
+                    &result_type,
+                    StandardIntrinsic::MapGet,
+                    &[result, key],
+                )?;
                 let group_option = TypeId::StandardEnum {
                     kind: StandardEnum::Option,
                     args: vec![array_type.clone()],
@@ -113,19 +113,11 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(fresh);
                 let group = self.collection_new(&array_type)?;
                 self.collection_insert(&array_type, group, item)?;
-                if custom {
-                    self.lower_key_operation(
-                        StandardIntrinsic::MapInsert,
-                        key_type,
-                        &[result, key, group],
-                    )?;
-                } else {
-                    self.emit_intrinsic(
-                        StandardIntrinsic::MapInsert,
-                        &[result, key, group],
-                        ValueType::HeapObject,
-                    );
-                }
+                self.lower_key_storage_call(
+                    &result_type,
+                    StandardIntrinsic::MapInsert,
+                    &[result, key, group],
+                )?;
                 self.ensure_jump(head);
             }
             _ => unreachable!(),

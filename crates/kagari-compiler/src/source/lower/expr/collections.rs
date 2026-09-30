@@ -69,17 +69,6 @@ impl FunctionLowerer<'_, '_> {
         name: &str,
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
-        if matches!(name, "get_or_insert_with" | "update") {
-            return self.lower_map_update(
-                if name == "update" {
-                    StandardIntrinsic::MapUpdate
-                } else {
-                    StandardIntrinsic::MapGetOrInsertWith
-                },
-                ty,
-                args,
-            );
-        }
         if name == "iter" {
             let dst = self.alloc_temp(ValueType::HeapObject);
             self.emit(Instruction::Iter {
@@ -128,63 +117,12 @@ impl FunctionLowerer<'_, '_> {
             (TypeId::Array(_, _), "clear") => {
                 (StandardIntrinsic::ArrayClear, ValueType::HeapObject, true)
             }
-            (TypeId::Map { key, .. }, "get" | "contains_key" | "insert" | "remove") => {
-                let intrinsic = match name {
-                    "get" => StandardIntrinsic::MapGet,
-                    "contains_key" => StandardIntrinsic::MapContainsKey,
-                    "insert" => StandardIntrinsic::MapInsert,
-                    _ => StandardIntrinsic::MapRemove,
-                };
-                let result = if self.has_custom_protocol(key)? {
-                    self.lower_key_operation(intrinsic, key, args)?
-                } else {
-                    self.emit_intrinsic(
-                        intrinsic,
-                        args,
-                        if name == "contains_key" {
-                            ValueType::Bool
-                        } else {
-                            ValueType::HeapObject
-                        },
-                    )
-                };
-                return Ok(if name == "insert" {
-                    self.lower_unit()
-                } else {
-                    result
-                });
-            }
             (TypeId::Map { .. }, "len") => (StandardIntrinsic::MapLen, ValueType::U64, false),
             (TypeId::Map { .. }, "is_empty") => {
                 (StandardIntrinsic::MapIsEmpty, ValueType::Bool, false)
             }
             (TypeId::Map { .. }, "clear") => {
                 (StandardIntrinsic::MapClear, ValueType::HeapObject, true)
-            }
-            (TypeId::Set(item, _), "contains" | "insert" | "remove") => {
-                let intrinsic = match name {
-                    "contains" => StandardIntrinsic::SetContains,
-                    "insert" => StandardIntrinsic::SetInsert,
-                    _ => StandardIntrinsic::SetRemove,
-                };
-                let result = if self.has_custom_protocol(item)? {
-                    self.lower_key_operation(intrinsic, item, args)?
-                } else {
-                    self.emit_intrinsic(
-                        intrinsic,
-                        args,
-                        if name == "insert" {
-                            ValueType::HeapObject
-                        } else {
-                            ValueType::Bool
-                        },
-                    )
-                };
-                return Ok(if name == "insert" {
-                    self.lower_unit()
-                } else {
-                    result
-                });
             }
             (TypeId::Set(_, _), "len") => (StandardIntrinsic::SetLen, ValueType::U64, false),
             (TypeId::Set(_, _), "is_empty") => {

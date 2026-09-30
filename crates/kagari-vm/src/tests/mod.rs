@@ -30,3 +30,5 @@ mod native_array_ranges;
 mod native_retention;
 
 mod native_sorting;
+
+mod native_keys;

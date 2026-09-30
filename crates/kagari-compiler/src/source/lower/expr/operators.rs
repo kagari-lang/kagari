@@ -19,7 +19,8 @@ use kagari_hir::{
     aggregates::MethodDefault,
     builtin::traits::{self, StandardTraitSemantics},
     hir,
-    typeck::CallTarget as HirCallTarget,
+    native::NativeBinding,
+    typeck::{CallTarget as HirCallTarget, FunctionImplementation},
     types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -230,8 +231,12 @@ impl FunctionLowerer<'_, '_> {
             });
             return Ok(dst);
         }
+        let selected_key_binding = self.planner.catalog.implementation_method(method, &interface, &ty)
+            .and_then(|(declaration,_)|self.planner.native_function(&declaration))
+            .is_some_and(|function|matches!(function.implementation, FunctionImplementation::Native(NativeBinding::Engine(binding)) if self.key_binding(binding)));
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
             && native_default.is_none()
+            && !selected_key_binding
             && !(matches!(ty, TypeId::Array(_, _))
                 && method
                     .path

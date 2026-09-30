@@ -109,6 +109,7 @@ impl FunctionLowerer<'_, '_> {
             span,
         )?;
         self.native_array_source(binding, &params, &mut witnesses)?;
+        self.native_key_witnesses(binding, &params, &mut witnesses)?;
         if matches!(
             binding,
             EngineNativeBinding::Intrinsic(
@@ -153,14 +154,15 @@ impl FunctionLowerer<'_, '_> {
                     | StandardIntrinsic::ArraySortByKey
                     | StandardIntrinsic::ArrayDedup
             )
-        ) || matches!(
-            binding,
-            EngineNativeBinding::Protocol(
-                NativeProtocolMethod::NumericSum
-                    | NativeProtocolMethod::NumericProduct
-                    | NativeProtocolMethod::CollectionFromIterator
-            )
-        );
+        ) || self.key_binding(binding)
+            || matches!(
+                binding,
+                EngineNativeBinding::Protocol(
+                    NativeProtocolMethod::NumericSum
+                        | NativeProtocolMethod::NumericProduct
+                        | NativeProtocolMethod::CollectionFromIterator
+                )
+            );
         let mut witnesses = Vec::new();
         for bound in requirements {
             for constraint in &bound.constraints {
@@ -276,6 +278,7 @@ impl FunctionLowerer<'_, '_> {
             .map_err(|_| invalid())?;
         let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
         self.native_array_source(binding, &params, &mut witnesses)?;
+        self.native_key_witnesses(binding, &params, &mut witnesses)?;
         if matches!(
             binding,
             EngineNativeBinding::Intrinsic(

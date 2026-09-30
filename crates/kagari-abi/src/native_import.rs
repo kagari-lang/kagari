@@ -17,6 +17,7 @@ use kagari_common::{collection::CollectionAccess, identity::DefinitionId};
 use serde::{Deserialize, Serialize};
 
 pub mod contract;
+mod keys;
 mod linked;
 mod signature;
 
@@ -142,6 +143,11 @@ impl EngineNativeImport {
             || !valid(&self.signature.result)
         {
             return None;
+        }
+        if keys::selected(self.binding)
+            && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
+        {
+            return Some(EngineNativeOperation::Resumable(self.binding));
         }
         if let Some(operation) = validate(self.binding, &self.signature) {
             return Some(EngineNativeOperation::Direct(operation));

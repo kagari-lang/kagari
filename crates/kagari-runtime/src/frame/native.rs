@@ -39,9 +39,10 @@ impl ExecutionStack {
                 .resources
                 .quarantine("native invocation replaced its continuation"));
         }
-        let progress = invocation.take_entry();
+        let action = invocation.take_entry();
         frame.native = Some(invocation);
-        Ok(progress)
+        drop(frame);
+        self.process_native_action(destination, action)
     }
 
     pub fn has_native_continuation(&self) -> Result<bool, RuntimeError> {
@@ -61,7 +62,17 @@ impl ExecutionStack {
         let action = invocation.advance(runtime);
         let mut frame = self.current_mut()?;
         frame.native = Some(invocation);
-        match action? {
+        drop(frame);
+        self.process_native_action(destination, action?)
+    }
+
+    fn process_native_action(
+        &self,
+        destination: Option<Register>,
+        action: NativeAction,
+    ) -> Result<NativeProgress, RuntimeError> {
+        let mut frame = self.current_mut()?;
+        match action {
             NativeAction::Continue => Ok(NativeProgress::Continue),
             NativeAction::Callback(request) => Ok(NativeProgress::Callback(request)),
             NativeAction::BuiltinFailure(error) => Ok(NativeProgress::BuiltinFailure(error)),

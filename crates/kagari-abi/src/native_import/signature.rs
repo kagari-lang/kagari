@@ -3,7 +3,7 @@
 use crate::{
     callable::EngineNativeBinding,
     contracts::verify_intrinsic,
-    native_import::NativeSignature,
+    native_import::{NativeSignature, keys},
     numeric::{self, method::IntegerMethodContract},
     scalar::BuiltinType,
     standard::{StandardIntrinsic, surface::StandardEnum},
@@ -50,6 +50,10 @@ pub(super) fn validate(
         // this direct storage-operation entrypoint.
         EngineNativeBinding::TraitDefault(_) | EngineNativeBinding::Protocol(_) => return None,
     };
+    if keys::selected(binding) {
+        return storage::valid(operation, &signature.params, &signature.result)
+            .then_some(operation);
+    }
     let representations: Vec<_> = signature
         .params
         .iter()
