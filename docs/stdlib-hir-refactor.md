@@ -1,7 +1,9 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00 complete, ST01 implementation scope complete, ST02 checked
-callable facts in progress. Integration remains broken with carried ABI errors.
+Status: active; ST00 complete, ST01 implementation scope complete. ST02 ordinary
+declarations and tooling are checked; native execution-obligation metadata and
+ST03 portable calls remain incomplete. Workspace integration remains broken in
+bytecode access validation.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -442,15 +444,15 @@ import path. Downstream users of removed catalogs may remain broken until ST02/S
 
 ### ST02 — Complete checked HIR facts
 
-- [ ] Unify standard function/method/trait/impl participation with ordinary HIR
+- [x] Unify standard function/method/trait/impl participation with ordinary HIR
   declarations; preserve builtin representation hooks as explicit semantic facts.
 - [ ] Record Script/Native implementation, explicit Engine/Host provider, generic
   applications, witnesses, defaults/overrides and all required call metadata.
-- [ ] Import existing offline host declarations into this shared callable model,
+- [x] Import existing offline host declarations into this shared callable model,
   retaining provider contracts and optional declaration origin metadata.
-- [ ] Migrate name resolution, inference, completion, definition navigation and
+- [x] Migrate name resolution, inference, completion, definition navigation and
   documentation queries from generated-table lookups to semantic identities.
-- [ ] Test mixed native and script methods, associated outputs, native defaults,
+- [x] Test mixed native and script methods, associated outputs, native defaults,
   ordinary overrides, shadowing and invalid native provenance/signatures.
 
 Exit: compiler source lowering can obtain every required standard fact from
@@ -780,6 +782,68 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST02 checked declaration/query checkpoint (2026-09-30): completes the ordinary
+  declaration, offline-host input, semantic tooling and behavioral-test checklist
+  items together. Standard functions, native representations, impls and methods
+  use the installed HIR declarations; host callables use the same signature
+  interface and retain the full registration contract and optional origins.
+  Mixed Required/Script/Native methods, native defaults, ordinary overrides,
+  associated outputs, invalid annotations/signatures and provider metadata are
+  now exercised by the passing HIR suite. The execution-obligation checklist
+  remains open until the native portable handoff removes the operand-count table
+  and carries the required provider, effects, witness and resource contracts.
+- Source type and callable targets now retain stable `DefinitionId` identities.
+  File/revision/local-function identities remain with snapshot-owned declarations
+  and imports, where navigation and lowering resolve them. Independent installed
+  source universes no longer leak file IDs into reusable semantic call/type facts.
+  Fresh user-query comparison shares an immutable installed source universe when
+  asserting exact aggregate declaration locations; independent installations
+  still verify equivalent semantic type/call facts in the existing reuse suites.
+- Ordinary namespace indexing exposes inherent methods under their declaring
+  type, including imported type aliases. Export visibility is bounded by both
+  owner and method. Qualified lexical values block associated function and
+  conversion selection, including `String::from`; no spelling-based escape
+  remains in those paths. Collection inference handles known storage shapes with
+  unresolved slots and read/write interface views through the existing iterative
+  traversal. Native iterator views do not duplicate installed implementations.
+- Declaration indexing excludes trailing trivia from name locations; docs queries
+  read exact source syntax. Type navigation covers qualified annotation paths,
+  while host documentation selects the terminal name. Enum pattern navigation
+  uses retained variant identity and lexical terminal-name spans, including
+  imported aliases. Pattern identities participate in fresh/reused fact checks.
+  Import-graph assertions now include the complete installed manifest and retain
+  the exact user dependency closure and cancellation checks. Declaration-dependent
+  type tests enter ordinary source analysis instead of isolated checker fixtures.
+- Diagnostic consequence of ordinary signatures: `clamp(missing, 7, true)` emits
+  the unknown name and `max: i32` versus `bool` mismatch at `true`. The old special
+  catalog emitted an additional per-operand numeric-bound error; the single
+  inferred declaration parameter `T = i32` satisfies its bound. The regression
+  now asserts the exact remaining mismatch and location rather than expecting
+  the duplicate special-path diagnostic. Rejection and recovery coverage remain.
+- Coupled ST03 proof migration: deleted descriptor-only ABI application,
+  implementation and resolve modules instead of adding replacement catalogs.
+  Linked proofs discharge carried implementation templates and associated outputs;
+  native bridge validation checks the physical storage shape and still requires
+  the carried proof, including Eq/Hash obligations. Template matching allows only
+  the readonly capability's outer access weakening; nested arguments and mutable
+  capabilities remain invariant. Positive key-bound/wrapper and identity-iterator
+  tests now supply actual portable implementation templates; missing/forged
+  contracts, output members, access and cancellation remain covered.
+- Validation: `cargo test -p kagari-abi -p kagari-hir -p kagari-stdlib` passes
+  43 ABI, 412 HIR and seven stdlib tests. All-target Clippy for these three crates
+  with warnings denied passes. Format, structure and diff checks pass (549 Rust
+  files, zero violations/exceptions); affected imports, module ownership and
+  visibility were reviewed. No unresolved structural exception was introduced.
+- Remaining integration failure: `cargo check --workspace` reports two bytecode
+  errors: `E0432` importing deleted `standard::application::StandardArguments`
+  and `E0425` querying deleted `standard_function_by_intrinsic` in `access.rs`.
+  ST03 owns their replacement by carried concrete native-call signatures and
+  trusted physical contracts. The rejected `standard/operands.rs` still exists
+  and must be removed through that complete handoff, with input validation
+  preserved. No workspace, serialized execution or ST02/ST03 exit acceptance is
+  claimed. ST04–ST06 remain required, including the stale artifact fixture and
+  final matrix/measurement checks. Logs are under ignored `target/`.
 
 - Machine handoff (2026-09-30): the user requested committing the current work
   before continuing on another machine. This explicitly authorizes one coupled

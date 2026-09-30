@@ -84,10 +84,17 @@ impl Lowerer {
         let id = self.alloc_type(syntax_span(ty), TypeData { kind });
         if let Some(name) = ty
             .path()
+            .map(|path| token_span(&path))
+            .or_else(|| ty.name().map(|name| token_span(&name)))
+        {
+            self.source_map.insert_type_name(id, name);
+        }
+        if let Some(name) = ty
+            .path()
             .and_then(|path| path.segments().last())
             .or_else(|| ty.name())
         {
-            self.source_map.insert_type_name(id, token_span(&name));
+            self.source_map.insert_type_terminal(id, token_span(&name));
         }
         id
     }

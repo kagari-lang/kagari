@@ -160,10 +160,10 @@ pub(super) fn resolve_owner_in(
         if !matches!(
             table
                 .type_ref(bound.target_ref)
-                .and_then(|reference| reference.target),
+                .and_then(|reference| reference.target.clone()),
             Some(TypeTarget::Generic(_))
         ) && !matches!(
-            table.type_ref(bound.target_ref).map(|reference| (&reference.ty, reference.target)),
+            table.type_ref(bound.target_ref).map(|reference| (&reference.ty, reference.target.clone())),
             Some((TypeId::SelfType(_), Some(TypeTarget::Trait(id)))) if Some(id) == context.self_type
         ) && !(table
             .type_ref(bound.target_ref)
@@ -234,7 +234,7 @@ pub(super) fn resolve_constraint(
     // The two sealed numeric predicates are language bounds, not traits from
     // a source catalog. A binder or explicit declaration still shadows them.
     let standard = (resolved.target.is_none() && context.declarations.names.lookup(name).is_none())
-        .then(|| match name.as_str() {
+        .then_some(match name.as_str() {
             "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
             "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
             _ => None,

@@ -1,5 +1,7 @@
 use super::*;
-use crate::{aggregates::MethodDefault, builtin::traits::StandardTraitSemantics};
+use crate::{
+    aggregates::MethodDefault, builtin::traits::StandardTraitSemantics, native::NativeBinding,
+};
 use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
 
 #[test]
@@ -341,7 +343,7 @@ fn clamp(value: i32) -> i32 {
             .tail_expr
             .unwrap();
         let call = analyzed.typed.type_table.call_resolution(tail).unwrap();
-        let crate::typeck::CallTarget::SourceFunction(target) = call.target else {
+        let crate::typeck::CallTarget::SourceFunction(target) = &call.target else {
             panic!("call must use the imported checked function");
         };
         let imported = analyzed.imported_functions.target(target).unwrap();
@@ -380,7 +382,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     let typed = &analyzed.typed;
     let binding = |expression| {
         let call = typed.type_table.call_resolution(expression).unwrap();
-        let crate::typeck::CallTarget::SourceFunction(target) = call.target else {
+        let crate::typeck::CallTarget::SourceFunction(target) = &call.target else {
             panic!("ordinary imported method target");
         };
         analyzed
@@ -399,7 +401,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     assert_eq!(
         binding(keys_tail),
         crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
-            crate::native::NativeBinding::Intrinsic(StandardIntrinsic::MapKeys)
+            EngineNativeBinding::Intrinsic(StandardIntrinsic::MapKeys)
         ))
     );
     let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
@@ -417,7 +419,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     assert_eq!(
         binding(chars_tail),
         crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
-            crate::native::NativeBinding::Intrinsic(StandardIntrinsic::StringLenChars)
+            EngineNativeBinding::Intrinsic(StandardIntrinsic::StringLenChars)
         ))
     );
 
@@ -448,20 +450,14 @@ fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
 }
 "#,
     );
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    check_module(&lowered, &names, None)
+    crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
     let lowered = common::lower_ok(
         "fn bad(values: LinkedHashMap<f64, i32>) -> usize { std::map::LinkedHashMap::len(values) }",
     );
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("f64 map keys should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -475,10 +471,7 @@ fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
     let lowered = common::lower_ok(
         "fn bad<K, V>(values: LinkedHashMap<K, V>) -> usize { std::map::LinkedHashMap::len(values) }",
     );
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -493,16 +486,13 @@ fn unique<T: Eq + Hash>(values: LinkedHashSet<T>) -> usize {
 #[test]
 fn rejects_standard_library_invalid_arity_and_argument_types() {
     let lowered = common::lower_ok("fn bad() -> i32 { std::math::clamp(1, 2) }");
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("standard call arity should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::CallArityMismatch {
-                function_name: "std::math::clamp".to_owned(),
+                function_name: "clamp".to_owned(),
                 expected: 3,
                 found: 2,
             }
@@ -515,16 +505,13 @@ fn bad(values: LinkedHashMap<String, i32>) -> bool {
 }
 "#,
     );
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("standard method key type should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind
             == DiagnosticKind::ArgumentTypeMismatch {
-                function_name: "std::map::LinkedHashMap::contains_key".to_owned(),
+                function_name: "contains_key".to_owned(),
                 parameter_name: "key".to_owned(),
                 expected: "String".to_owned(),
                 found: "i32".to_owned(),

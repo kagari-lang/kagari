@@ -5,10 +5,10 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
     let lowered = common::lower_ok(
         "trait Sequence { type Item; fn size(self) -> usize where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
     );
-    let names = resolve_names(&lowered).into_checked().expect("trait names");
-    let typed = check_module(&lowered, &names, None)
+    let analyzed = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect("Self bounds in their declaring trait context");
+    let typed = analyzed.typed;
     let method = typed
         .functions
         .iter()
@@ -60,12 +60,10 @@ where T: Display
 }
 "#,
     );
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    let typed = check_module(&lowered, &names, None)
+    let analyzed = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect("type checker should succeed");
+    let typed = analyzed.typed;
 
     let show_interface = typed
         .functions
@@ -176,10 +174,7 @@ struct Player {
 impl Display for Player {}
 "#,
     );
-    let names = resolve_names(&missing_method)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&missing_method, &names, None)
+    let diagnostics = crate::analyze_source(&missing_method.source, Default::default())
         .into_checked()
         .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -208,10 +203,7 @@ impl Display for Player {
 }
 "#,
     );
-    let names = resolve_names(&wrong_return)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&wrong_return, &names, None)
+    let diagnostics = crate::analyze_source(&wrong_return.source, Default::default())
         .into_checked()
         .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {

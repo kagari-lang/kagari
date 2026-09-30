@@ -33,14 +33,16 @@ pub struct ImportedFunction {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportedFunctions {
     functions: HashMap<ResolvedName, ImportedFunction>,
-    methods: HashMap<SourceFunctionId, ImportedFunction>,
+    methods: HashMap<DefinitionId, ImportedFunction>,
 }
 
 impl ImportedFunctions {
-    pub fn target(&self, id: SourceFunctionId) -> Option<&ImportedFunction> {
-        self.methods
-            .get(&id)
-            .or_else(|| self.functions.values().find(|function| function.id == id))
+    pub fn target(&self, id: &DefinitionId) -> Option<&ImportedFunction> {
+        self.methods.get(id).or_else(|| {
+            self.functions
+                .values()
+                .find(|function| function.declaration == *id)
+        })
     }
     pub fn get(&self, name: ResolvedName) -> Option<&ImportedFunction> {
         self.functions.get(&name)
@@ -48,7 +50,7 @@ impl ImportedFunctions {
     pub(crate) fn include_inherent_methods(&mut self, aggregates: &AggregateCatalog) {
         for method in aggregates.inherent_methods() {
             self.methods.insert(
-                method.id,
+                method.declaration.clone(),
                 ImportedFunction {
                     id: method.id,
                     declaration: method.declaration.clone(),

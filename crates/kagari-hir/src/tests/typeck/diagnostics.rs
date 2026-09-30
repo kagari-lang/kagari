@@ -274,10 +274,7 @@ const VALUES: ArrayList<i32> = [3, 4];
 const POINT: Point = Point { x: 5, y: 6 };
 "#,
     );
-    let names = resolve_names(&lowered)
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&lowered, &names, None)
+    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
         .into_checked()
         .expect_err("type checker should reject heap-backed const types");
 

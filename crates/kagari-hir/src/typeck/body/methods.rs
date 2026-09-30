@@ -182,7 +182,10 @@ impl<'a> BodyChecker<'a> {
         let receiver = *receiver;
         let name = name.clone();
         let receiver_ty = self.infer_expr_type(receiver, env);
-        if receiver_ty.is_unresolved() {
+        if matches!(
+            receiver_ty,
+            TypeId::Unknown | TypeId::Error | TypeId::Inference(_)
+        ) {
             return None;
         }
         let candidates = self
@@ -213,7 +216,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     CallTarget::Function(method.id.function)
                 } else {
-                    CallTarget::SourceFunction(method.id)
+                    CallTarget::SourceFunction(method.declaration.clone())
                 };
                 Some((function, substitution, target))
             })

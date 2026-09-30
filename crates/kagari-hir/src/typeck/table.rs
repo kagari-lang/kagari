@@ -7,7 +7,6 @@ use crate::{
         PlaceId, StructId, TraitId, TypeRefId,
     },
     host::{HostFunctionId, HostTypeId},
-    imports::{SourceFunctionId, SourceTypeId},
     source_map::SourceMap,
     types::{
         AssociatedTypeFamily, AssociatedTypeParameters, GenericParameterType, NominalType, TypeId,
@@ -28,11 +27,11 @@ pub enum ConstraintTarget {
     Trait(NominalType),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeTarget {
     OpaqueType(OpaqueTypeId),
     Host(HostTypeId),
-    Source(SourceTypeId),
+    Source(DefinitionId),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),
@@ -50,7 +49,7 @@ pub enum CallTarget {
     /// The recorded receiver is the callee expression. Its evaluation exits
     /// before any callable value or explicit argument can be produced.
     TerminatingCallee,
-    SourceFunction(SourceFunctionId),
+    SourceFunction(DefinitionId),
     HostFunction(HostFunctionId),
     Function(FunctionId),
     Value,
@@ -265,7 +264,7 @@ impl TypeTable {
             }
             keys!(iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
-                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId,
+                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_variants: PatternId,
                 callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
             for call in result.calls.values_mut() {
                 if let Some(receiver) = call.receiver {

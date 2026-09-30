@@ -7,7 +7,7 @@ use crate::{
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
 };
 use kagari_abi::{
-    standard::{intrinsic, traits::StandardTrait},
+    standard::traits::StandardTrait,
     types::{
         self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
         TraitAbi, inheritance as trait_inheritance,
@@ -240,18 +240,8 @@ fn linked_bounds_match(
         {
             return Ok(false);
         }
-        if table.native_bridge {
-            let key = match &table.for_type {
-                AbiType::Map { key, .. } | AbiType::Set(key, _) => Some(key.as_ref()),
-                _ => None,
-            };
-            if let Some(key) = key {
-                for kind in [StandardTrait::Eq, StandardTrait::Hash] {
-                    if !catalog.holds(&intrinsic::applied(kind, vec![]), key, &[], &cancel)? {
-                        return Ok(false);
-                    }
-                }
-            }
+        if table.native_bridge && !catalog.holds(interface, &table.for_type, &[], &cancel)? {
+            return Ok(false);
         }
         if !associated_bounds_match(table, interface, record, &catalog, closure, &cancel)? {
             return Ok(false);

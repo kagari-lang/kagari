@@ -97,7 +97,10 @@ pub(crate) fn interfaces(
         for kind in StandardTrait::ALL {
             let interface = kind.intrinsic_view(ty);
             if traits::intrinsic_holds(kind, ty, Some(aggregates), assumptions)
-                && !implemented.contains(&interface)
+                && !implemented.iter().any(|available| {
+                    available.declaration == interface.declaration
+                        && available.arguments == interface.arguments
+                })
             {
                 implemented.push(interface);
             }

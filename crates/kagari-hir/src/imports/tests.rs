@@ -22,6 +22,19 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
         .unwrap()
 }
 
+fn with_standard(names: &[&str]) -> Vec<ModuleIdentity> {
+    let mut expected = kagari_stdlib::bundled_sources()
+        .iter()
+        .map(|source| ModuleIdentity {
+            package: PackageId("kagari-std".into()),
+            path: vec![source.module().into()],
+        })
+        .chain(names.iter().map(|name| identity(name)))
+        .collect::<Vec<_>>();
+    expected.sort();
+    expected
+}
+
 #[test]
 fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
     let mut db = SourceDatabase::default();
@@ -291,13 +304,13 @@ fn diamond_has_deterministic_reachable_order() {
         graph
             .reachable_order(&identity("root"), &Default::default())
             .unwrap(),
-        ["left", "right", "root", "shared"].map(identity)
+        with_standard(&["left", "right", "root", "shared"])
     );
     assert_eq!(
         graph
             .reachable_order(&identity("unrelated"), &Default::default())
             .unwrap(),
-        vec![identity("unrelated")]
+        with_standard(&["unrelated"])
     );
     let root = graph.node(&identity("root")).unwrap();
     assert!(
@@ -327,7 +340,7 @@ fn cycles_are_reachable_without_invalidating_dependents() {
         graph
             .reachable_order(&identity("caller"), &Default::default())
             .unwrap(),
-        ["a", "b", "caller"].map(identity)
+        with_standard(&["a", "b", "caller"])
     );
     assert!(
         snapshot
@@ -605,7 +618,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
             .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
-        1024
+        1024 + kagari_stdlib::bundled_sources().len()
     );
     let cancel = CancellationToken::default();
     cancel.cancel();
@@ -613,4 +626,46 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
         graph.reachable_order(&identity("m0"), &cancel),
         Err(ModuleOrderError::Cancelled)
     );
+}
+
+#[test]
+fn associated_methods_respect_owner_visibility_and_type_aliases() {
+    let mut sources = SourceDatabase::default();
+    let library = insert(
+        &mut sources,
+        "library",
+        "struct Hidden {} impl Hidden { pub fn make() -> Hidden { Hidden {} } } pub struct Visible {} impl Visible { pub fn make() -> Visible { Visible {} } fn secret() -> i32 { 0 } }",
+    );
+    let valid = insert(
+        &mut sources,
+        "valid",
+        "use pkg::library::Visible as Item; fn main() -> Item { Item::make() }",
+    );
+    let invalid = insert(
+        &mut sources,
+        "invalid",
+        "use pkg::library::Hidden::make; use pkg::library::Visible::secret;",
+    );
+    let snapshot = analyze(&sources);
+    let analysis = snapshot.file(valid).unwrap();
+    assert!(
+        analysis.result().diagnostics().is_empty(),
+        "{:?}",
+        analysis.result().diagnostics()
+    );
+    let offset = analysis.source().text().find("make()").unwrap();
+    let declaration = snapshot.definition_at(valid, offset).unwrap();
+    assert_eq!(declaration.name, "make");
+    assert_eq!(declaration.location.file, library);
+    let analysis = snapshot.file(invalid).unwrap();
+    assert_eq!(
+        analysis
+            .result()
+            .diagnostics()
+            .iter()
+            .filter(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::ImportNotPublic { .. }))
+            .count(),
+        2
+    );
+    assert!(analysis.result().clone().into_codegen().is_err());
 }

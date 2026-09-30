@@ -7,12 +7,13 @@ use crate::{
     resolver::ResolvedName,
     typeck::{
         BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, GenericBounds,
-        ScalarValue, body::BodyChecker, check, completion, constraints, inference,
-        ty::display_type_id,
+        ScalarValue,
+        body::BodyChecker,
+        check, completion, constraints, inference, members,
+        ty::{TypeContext, display_type_id, resolve_named_type},
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
-use kagari_abi::scalar::BuiltinType;
 use kagari_abi::standard::{
     surface::{self as standard_surface, StandardTypeConstraint},
     traits::StandardTrait,
@@ -33,7 +34,7 @@ impl<'a> BodyChecker<'a> {
             .names
             .expr_resolution(callee)
             .and_then(|name| self.imported_functions.get(name))
-            .or_else(|| self.primitive_associated_function(callee))
+            .or_else(|| self.associated_function(callee))
         {
             let local = imported.id.file == self.lowered.source.id()
                 && imported.id.revision == self.lowered.source.revision();
@@ -42,7 +43,7 @@ impl<'a> BodyChecker<'a> {
                 if local {
                     CallTarget::Function(imported.id.function)
                 } else {
-                    CallTarget::SourceFunction(imported.id)
+                    CallTarget::SourceFunction(imported.declaration.clone())
                 },
                 None,
             );
@@ -157,28 +158,48 @@ impl<'a> BodyChecker<'a> {
         self.infer_checked_function_call(function, call_expr, callee, args, env, expected)
     }
 
-    /// Primitive type names are language syntax; their associated functions are
-    /// ordinary checked impl members. A lexical binding still takes precedence.
-    fn primitive_associated_function(&self, callee: ExprId) -> Option<&'a ImportedFunction> {
-        if self.names.expr_resolution(callee).is_some()
-            || self.names.qualified_member(callee).is_some()
-        {
+    pub(super) fn associated_owner_shadowed(&self, callee: ExprId) -> bool {
+        self.names.qualified_member(callee).is_some_and(|member| {
+            !matches!(
+                member.owner,
+                ResolvedName::OpaqueType(_)
+                    | ResolvedName::Struct(_)
+                    | ResolvedName::Enum(_)
+                    | ResolvedName::Trait(_)
+                    | ResolvedName::HostType(_)
+            ) && self
+                .declarations
+                .imported_types()
+                .resolved(member.owner)
+                .is_none()
+        })
+    }
+
+    /// Resolve associated functions from checked impl members when a primitive
+    /// owner or local type has no imported callable name. Lexical bindings win.
+    pub(super) fn associated_function(&self, callee: ExprId) -> Option<&'a ImportedFunction> {
+        if self.names.expr_resolution(callee).is_some() || self.associated_owner_shadowed(callee) {
             return None;
         }
-        let ExprKind::Name {
-            name,
-            explicit_type: None,
-        } = &self.lowered.module.expr(callee).kind
-        else {
+        let ExprKind::Name { name, .. } = &self.lowered.module.expr(callee).kind else {
             return None;
         };
         let (owner, member) = name.rsplit_once("::")?;
-        let ty = TypeId::from_name(owner)?;
-        if !matches!(ty, TypeId::Builtin(scalar) if scalar != BuiltinType::String) {
+        let ty = resolve_named_type(
+            owner,
+            TypeContext {
+                declarations: self.declarations,
+                generics: &[],
+                self_type: None,
+                implementation: None,
+            },
+        )
+        .ty;
+        if ty.is_unresolved() {
             return None;
         }
         let mut methods = self.aggregates.inherent_methods().filter(|method| {
-            method.owner == ty
+            members::inherent_substitution(self.aggregates, method, &ty, self.cancel).is_some()
                 && method.function.name == member
                 && method.visibility.allows(
                     &method.declaration.module,
@@ -189,7 +210,7 @@ impl<'a> BodyChecker<'a> {
         if methods.next().is_some() {
             return None;
         }
-        self.imported_functions.target(method.id)
+        self.imported_functions.target(&method.declaration)
     }
 
     pub(super) fn infer_checked_function_call(

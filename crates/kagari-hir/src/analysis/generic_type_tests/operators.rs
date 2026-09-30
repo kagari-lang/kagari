@@ -265,7 +265,9 @@ fn standard_math_and_equality_check_each_known_operand_after_recovery() {
     for (body, extra) in [
         ("std::math::min(missing, 7);", 0),
         ("std::math::min(missing, true);", 1),
-        ("std::math::clamp(missing, 7, true);", 2),
+        // The ordinary declaration infers T = i32 from the known operand.
+        // Its bound holds once; the conflicting max argument is still checked.
+        ("std::math::clamp(missing, 7, true);", 1),
         (
             "std::debug::assert_eq((1, missing), (1, true), \"test\");",
             0,
@@ -289,6 +291,21 @@ fn standard_math_and_equality_check_each_known_operand_after_recovery() {
             "{body}: {:?}",
             analysis.diagnostics()
         );
+        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+            &diagnostic.kind, kagari_common::DiagnosticKind::UnknownName { name } if name == "missing"
+        )));
+        if body.starts_with("std::math::clamp") {
+            let diagnostic = analysis.diagnostics().iter().find(|diagnostic| matches!(
+                &diagnostic.kind,
+                kagari_common::DiagnosticKind::ArgumentTypeMismatch { function_name, parameter_name, expected, found }
+                    if function_name == "clamp" && parameter_name == "max" && expected == "i32" && found == "bool"
+            )).expect("the remaining known operand must be checked after recovery");
+            let span = diagnostic.span.unwrap();
+            assert_eq!(
+                &analysis.facts().lowered.source.text()[span.start..span.end],
+                "true"
+            );
+        }
         assert!(analysis.into_codegen().is_err());
     }
 }

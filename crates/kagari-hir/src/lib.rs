@@ -1,4 +1,3 @@
-use aggregates::AggregateCatalog;
 use analysis::AnalysisDatabase;
 use declarations::Declarations;
 use hir::BodySelection;

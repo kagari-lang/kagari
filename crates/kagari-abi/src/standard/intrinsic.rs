@@ -1,14 +1,10 @@
-//! Portable intrinsic trait contracts and their remaining proof obligations.
+//! Primitive language trait contracts and their remaining proof obligations.
 //! Nominal overrides, generic assumptions and recursive structural protocols are
 //! resolved by the linked catalog, using the obligations returned here.
 use crate::numeric;
 use crate::{
     scalar::BuiltinType,
-    standard::{
-        implementation,
-        surface::STANDARD_IMPLEMENTATIONS,
-        traits::{self, StandardTrait},
-    },
+    standard::traits::{self, StandardTrait},
     types::{
         AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -85,16 +81,6 @@ pub fn requirements(
             && matches!(receiver, AbiType::Builtin(ty) if ty.number_type().is_some()))
         .then(Vec::new));
     }
-    for declaration in STANDARD_IMPLEMENTATIONS {
-        if declaration.interface != kind.name() {
-            continue;
-        }
-        if let Some(bindings) =
-            implementation::match_application(declaration, interface, receiver, cancel)?
-        {
-            return implementation::requirements(declaration, &bindings, cancel).map(Some);
-        }
-    }
     // Iterator supplies identity Iterable; the linked solver proves Iterator,
     // including any requested Item output, rather than assuming it is available.
     Ok(identity_iterator(interface, receiver).map(|required| {
@@ -105,8 +91,8 @@ pub fn requirements(
     }))
 }
 
-/// Outputs supplied directly by scalar operators, conversions and generated
-/// declarations. The caller separately proves the complete applied contract.
+/// Outputs supplied directly by scalar operators and conversions. Installed implementation
+/// outputs are read from the carried module tables by the linked proof catalog. The caller separately proves the complete applied contract.
 pub fn associated_output(
     interface: &NominalAbiType,
     receiver: &AbiType,
@@ -139,34 +125,6 @@ pub fn associated_output(
                 interface: Box::new(required),
                 arguments: vec![],
             }));
-        }
-    }
-    let declared_kind = if kind == StandardTrait::Iterable && matches!(receiver, AbiType::Iter(_)) {
-        StandardTrait::Iterator
-    } else {
-        kind
-    };
-    for declaration in STANDARD_IMPLEMENTATIONS {
-        if declaration.interface != declared_kind.name() {
-            continue;
-        }
-        let requested = applied(declared_kind, interface.arguments.clone());
-        if let Some(bindings) =
-            implementation::match_application(declaration, &requested, receiver, cancel)?
-        {
-            let contract = implementation::applied_contract(declaration, &bindings, cancel)?;
-            if declared_kind == kind {
-                return Ok(contract.associated_types.get(member).cloned());
-            }
-            if *member == associated_type_id(&interface.declaration, "Iter") {
-                return Ok(Some(receiver.clone()));
-            }
-            if *member == associated_type_id(&interface.declaration, "Item") {
-                return Ok(contract
-                    .associated_types
-                    .get(&associated_type_id(&contract.declaration, "Item"))
-                    .cloned());
-            }
         }
     }
     Ok(None)

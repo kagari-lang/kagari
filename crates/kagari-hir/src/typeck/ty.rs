@@ -1,6 +1,7 @@
 use super::{ResolvedTypeRef, TypeTable, TypeTarget, associated};
 use crate::{
-    declarations::Declarations,
+    builtin::traits::StandardTraitSemantics,
+    declarations::{DeclarationId, Declarations},
     hir,
     native::NativeTypeKind,
     resolver::ResolvedName,
@@ -25,7 +26,12 @@ pub(super) fn native_type(
     match target? {
         TypeTarget::OpaqueType(id) => declarations.native_type(id),
         TypeTarget::Enum(id) => declarations.native_enum(id),
-        TypeTarget::Source(id) => declarations.imported_types().target(id)?.native_type,
+        TypeTarget::Source(id) => {
+            declarations
+                .imported_types()
+                .by_declaration(&id)?
+                .native_type
+        }
         _ => None,
     }
 }
@@ -68,7 +74,10 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                     }
                     if let Some(imported) = context.declarations.imported_types().resolved(resolved)
                     {
-                        target = Some(TypeTarget::Source(imported.id));
+                        target = Some(TypeTarget::Source(match &imported.declaration.id {
+                            DeclarationId::Definition(id) => id.clone(),
+                            _ => return None,
+                        }));
                         return Some(imported.ty.clone());
                     }
                     let definition = context.declarations.definition(resolved)?.clone();
@@ -223,7 +232,7 @@ pub(super) fn resolve_type_in(
                 return resolved;
             }
             match &reference.ty {
-                _ if native_type(target, context.declarations)
+                _ if native_type(target.clone(), context.declarations)
                     .is_some_and(|kind| kind.arity() != 0) =>
                 {
                     TypeId::Error
@@ -272,7 +281,7 @@ pub(super) fn resolve_type_in(
                 );
                 return resolved;
             }
-            match native_type(target, context.declarations) {
+            match native_type(target.clone(), context.declarations) {
                 Some(kind) if kind.arity() != 0 && bindings.is_empty() && !*callable_syntax => {
                     kind.apply(&args).unwrap_or(TypeId::Error)
                 }

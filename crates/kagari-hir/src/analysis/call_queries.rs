@@ -58,7 +58,7 @@ impl FileAnalysis {
                 )
             }
             CallTarget::SourceFunction(function) => {
-                let imported = facts.imported_functions.target(*function)?;
+                let imported = facts.imported_functions.target(function)?;
                 callable_signature(
                     imported.site.id.clone(),
                     imported.signature.parameters().map(|(name, _)| name),

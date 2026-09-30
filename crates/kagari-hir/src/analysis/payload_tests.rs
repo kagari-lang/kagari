@@ -96,7 +96,14 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     assert!(new_file.signatures_reused());
     let new_facts = new_file.result().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
-    let fresh = analyze(&mut AnalysisDatabase::default(), &sources);
+    // Recheck user sources without query caches against the same immutable
+    // installed source universe; its declaration locations must compare exactly.
+    let mut fresh_db = AnalysisDatabase::default();
+    fresh_db
+        .stdlib
+        .set(db.stdlib.get().unwrap().clone())
+        .unwrap();
+    let fresh = analyze(&mut fresh_db, &sources);
     let fresh = fresh.file(file).unwrap().result().facts();
     new_facts.typed.type_table.assert_same_source_facts(
         &fresh.typed.type_table,
@@ -145,7 +152,20 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         old_root.result().diagnostics()
     );
     let catalog = &old_root.result().facts().aggregates;
-    assert_eq!(catalog.enumerations().count(), 3);
+    assert_eq!(
+        catalog
+            .enumerations()
+            .filter(|item| item.id.module.package.0 == "pkg")
+            .count(),
+        3
+    );
+    assert_eq!(
+        catalog
+            .enumerations()
+            .filter(|item| item.id.module.package.0 == "kagari-std")
+            .count(),
+        7
+    );
     let a = old
         .file(left)
         .unwrap()
@@ -153,7 +173,13 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .facts()
         .aggregates
         .enumerations()
-        .next()
+        .find(|item| {
+            item.id.module
+                == ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["left".into()],
+                }
+        })
         .unwrap();
     let b = old
         .file(right)
@@ -162,7 +188,13 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .facts()
         .aggregates
         .enumerations()
-        .next()
+        .find(|item| {
+            item.id.module
+                == ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["right".into()],
+                }
+        })
         .unwrap();
     assert_ne!(a.variants[0].payload[0], b.variants[0].payload[0]);
     assert!(catalog.enumeration(&a.id).is_some());
@@ -173,7 +205,13 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .facts()
         .aggregates
         .enumerations()
-        .next()
+        .find(|item| {
+            item.id.module
+                == ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["unrelated".into()],
+                }
+        })
         .unwrap();
     assert!(catalog.enumeration(&hidden.id).is_none());
     sources

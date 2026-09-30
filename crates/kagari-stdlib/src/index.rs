@@ -144,7 +144,7 @@ pub(crate) fn declarations(
             name_span: node
                 .children()
                 .find_map(Name::cast)
-                .map(|name| span(name.syntax())),
+                .map(|name| name_span(&name)),
             body_span: node
                 .children()
                 .find(|child| child.kind() == SyntaxKind::BlockExpr)
@@ -153,4 +153,20 @@ pub(crate) fn declarations(
         });
     }
     Ok(sites)
+}
+
+fn name_span(name: &Name) -> Span {
+    let mut tokens = name
+        .syntax()
+        .descendants_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| !token.kind().is_trivia());
+    let Some(first) = tokens.next() else {
+        return span(name.syntax());
+    };
+    let last = tokens.last().unwrap_or_else(|| first.clone());
+    Span::new(
+        first.text_range().start().into(),
+        last.text_range().end().into(),
+    )
 }

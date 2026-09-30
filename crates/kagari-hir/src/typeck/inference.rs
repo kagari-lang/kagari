@@ -1,4 +1,5 @@
 use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
+use kagari_abi::standard::traits::StandardTrait;
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
@@ -16,6 +17,16 @@ pub(super) fn infer(
     while let Some((expected, actual)) = pending.pop() {
         cancel.check()?;
         if matches!(actual, TypeId::Unknown | TypeId::Error) {
+            continue;
+        }
+        if (matches!(expected, TypeId::Trait(_)) || matches!(actual, TypeId::Trait(_)))
+            && !matches!((expected, actual), (TypeId::Trait(left), TypeId::Trait(right)) if left.declaration == right.declaration)
+            && let (Some((left, left_args)), Some((right, right_args))) =
+                (collection_inputs(expected), collection_inputs(actual))
+            && left == right
+            && left_args.len() == right_args.len()
+        {
+            pending.extend(left_args.into_iter().zip(right_args).rev());
             continue;
         }
         match (expected, actual) {
@@ -91,14 +102,70 @@ pub(super) fn infer(
     Ok(())
 }
 
+/// Borrow the native representation's slots so cross-view inference keeps the
+/// same bounded, iterative traversal as nominal and structural types.
+fn collection_inputs(ty: &TypeId) -> Option<(StandardTrait, Vec<&TypeId>)> {
+    Some(match ty {
+        TypeId::Array(item, _) => (StandardTrait::List, vec![item]),
+        TypeId::Set(item, _) => (StandardTrait::Set, vec![item]),
+        TypeId::Map { key, value, .. } => (StandardTrait::Map, vec![key, value]),
+        TypeId::Trait(interface) => (
+            match StandardTrait::from_id(&interface.declaration)? {
+                StandardTrait::List | StandardTrait::MutableList => StandardTrait::List,
+                StandardTrait::Map | StandardTrait::MutableMap => StandardTrait::Map,
+                StandardTrait::Set | StandardTrait::MutableSet => StandardTrait::Set,
+                _ => return None,
+            },
+            interface.arguments.iter().collect(),
+        ),
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::NominalType;
+    use crate::{builtin::traits::StandardTraitSemantics, types::NominalType};
     use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };
+
+    #[test]
+    fn collection_context_infers_slots_across_native_and_declared_views() {
+        let parameter = GenericParameterType {
+            owner: DefinitionId {
+                module: ModuleIdentity::single_file("views.kgr"),
+                path: vec![DefinitionPathSegment {
+                    kind: DefinitionKind::Function,
+                    name: "consume".into(),
+                    occurrence: 0,
+                }],
+            },
+            position: 0,
+            name: "T".into(),
+        };
+        let mut expected = StandardTrait::Set.nominal();
+        expected.arguments = vec![TypeId::Generic(parameter.clone())];
+        let integer = TypeId::Builtin(BuiltinType::I32);
+        let mut writable = StandardTrait::MutableSet.nominal();
+        writable.arguments = vec![integer.clone()];
+        for actual in [
+            TypeId::Set(Box::new(integer.clone()), CollectionAccess::Mutable),
+            TypeId::Trait(writable),
+        ] {
+            let mut substitution = TypeSubstitution::default();
+            infer(
+                &TypeId::Trait(expected.clone()),
+                &actual,
+                std::slice::from_ref(&parameter),
+                &mut substitution,
+                &Default::default(),
+            )
+            .unwrap();
+            assert_eq!(substitution[&parameter], integer);
+        }
+    }
 
     #[test]
     fn deep_inference_is_iterative_cancellable_and_preserves_member_order() {

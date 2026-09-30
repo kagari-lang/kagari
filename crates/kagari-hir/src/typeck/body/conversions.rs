@@ -27,6 +27,15 @@ impl BodyChecker<'_> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> Option<TypeId> {
+        if self.associated_owner_shadowed(callee)
+            || self.associated_function(callee).is_some()
+            || self
+                .names
+                .expr_resolution(callee)
+                .is_some_and(|name| self.imported_functions.get(name).is_some())
+        {
+            return None;
+        }
         let (protocol, source_expr, target, qualified) =
             match &self.lowered.module.expr(callee).kind {
                 ExprKind::Field { receiver, name }
@@ -118,7 +127,8 @@ impl BodyChecker<'_> {
                         (env.self_type.clone().unwrap_or(TypeId::Error), None)
                     } else {
                         let reference = ty::resolve_named_type(owner, context);
-                        native_constructor = ty::native_type(reference.target, self.declarations);
+                        native_constructor =
+                            ty::native_type(reference.target.clone(), self.declarations);
                         (reference.ty, None)
                     };
                     if protocol == StandardTrait::FromIterator

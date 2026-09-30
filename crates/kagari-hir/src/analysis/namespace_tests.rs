@@ -252,6 +252,7 @@ fn duplicate_type_imports_invalidate_all_alias_targets() {
                 .imports
                 .entries
                 .iter()
+                .take(facts.lowered.module.imports.len())
                 .all(|import| import.target.is_none())
         );
         assert!(facts.declarations.imported_types().get(ty).is_none());

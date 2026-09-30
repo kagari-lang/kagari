@@ -320,3 +320,150 @@ fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
     );
     assert_eq!(catalog.normalize(&projection, &cancel).unwrap(), projection);
 }
+
+#[test]
+fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
+    let cancel = CancellationToken::default();
+    let mut set = table(
+        "collect_set",
+        intrinsic::applied(StandardTrait::FromIterator, vec![]),
+        scalar(),
+    );
+    let item = GenericParameterAbi {
+        owner: set.declaration.clone(),
+        position: 0,
+    };
+    set.generic_params.push(item.clone());
+    set.for_type = AbiType::Set(Box::new(item.as_type()), CollectionAccess::Mutable);
+    set.trait_type = AbiType::Trait(intrinsic::applied(
+        StandardTrait::FromIterator,
+        vec![item.as_type()],
+    ));
+    for kind in [StandardTrait::Eq, StandardTrait::Hash] {
+        set.bounds
+            .push(bound(item.as_type(), intrinsic::applied(kind, vec![])));
+    }
+    let mut lifted = table(
+        "collect_option",
+        intrinsic::applied(StandardTrait::FromIterator, vec![]),
+        scalar(),
+    );
+    let element = GenericParameterAbi {
+        owner: lifted.declaration.clone(),
+        position: 0,
+    };
+    let output = GenericParameterAbi {
+        owner: lifted.declaration.clone(),
+        position: 1,
+    };
+    lifted.generic_params = vec![element.clone(), output.clone()];
+    let option = |ty| AbiType::StandardEnum {
+        kind: StandardEnum::Option,
+        args: vec![ty],
+    };
+    lifted.for_type = option(output.as_type());
+    lifted.trait_type = AbiType::Trait(intrinsic::applied(
+        StandardTrait::FromIterator,
+        vec![option(element.as_type())],
+    ));
+    lifted.bounds.push(bound(
+        output.as_type(),
+        intrinsic::applied(StandardTrait::FromIterator, vec![element.as_type()]),
+    ));
+    let storage = |ty| AbiType::Set(Box::new(ty), CollectionAccess::Mutable);
+    let requested = |ty| intrinsic::applied(StandardTrait::FromIterator, vec![ty]);
+    let empty = ProofCatalog::new(vec![], vec![], [], [], &cancel).unwrap();
+    assert!(
+        !empty
+            .holds(&requested(scalar()), &storage(scalar()), &[], &cancel)
+            .unwrap()
+    );
+    let catalog = ProofCatalog::new(vec![&set, &lifted], vec![], [], [], &cancel).unwrap();
+    assert!(
+        catalog
+            .holds(&requested(scalar()), &storage(scalar()), &[], &cancel)
+            .unwrap()
+    );
+    assert!(
+        catalog
+            .holds(
+                &requested(option(scalar())),
+                &option(storage(scalar())),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    let float = AbiType::Builtin(BuiltinType::F64);
+    assert!(
+        !catalog
+            .holds(
+                &requested(float.clone()),
+                &storage(float.clone()),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    assert!(
+        !catalog
+            .holds(
+                &requested(option(float.clone())),
+                &option(storage(float)),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    assert!(
+        !catalog
+            .holds(
+                &requested(AbiType::Builtin(BuiltinType::Bool)),
+                &storage(scalar()),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    cancel.cancel();
+    assert_eq!(
+        catalog.holds(&requested(scalar()), &storage(scalar()), &[], &cancel),
+        Err(TypeTransformError::Cancelled)
+    );
+}
+
+#[test]
+fn carried_iterator_outputs_supply_identity_iterable_and_reject_forged_items() {
+    let cancel = CancellationToken::default();
+    let iterator = AbiType::Iter(Box::new(scalar()));
+    let mut implemented = intrinsic::applied(StandardTrait::Iterator, vec![]);
+    implemented.associated_types.insert(
+        associated_type_id(&implemented.declaration, "Item"),
+        scalar(),
+    );
+    let implementation = table("iterator", implemented, iterator.clone());
+    let mut required = intrinsic::applied(StandardTrait::Iterable, vec![]);
+    required
+        .associated_types
+        .insert(associated_type_id(&required.declaration, "Item"), scalar());
+    required.associated_types.insert(
+        associated_type_id(&required.declaration, "Iter"),
+        iterator.clone(),
+    );
+    let catalog = ProofCatalog::new(vec![&implementation], vec![], [], [], &cancel).unwrap();
+    assert!(catalog.holds(&required, &iterator, &[], &cancel).unwrap());
+    for (member, value) in &required.associated_types {
+        let projection = AbiType::Projection {
+            receiver: Box::new(iterator.clone()),
+            interface: Box::new(required.clone()),
+            member: member.clone(),
+            arguments: vec![],
+        };
+        assert_eq!(catalog.normalize(&projection, &cancel).unwrap(), *value);
+    }
+    required.associated_types.insert(
+        associated_type_id(&required.declaration, "Item"),
+        AbiType::Builtin(BuiltinType::Bool),
+    );
+    assert!(!catalog.holds(&required, &iterator, &[], &cancel).unwrap());
+}

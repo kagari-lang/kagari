@@ -1,7 +1,6 @@
 use crate::{
     BytecodeProgram, HostImportId, InterfaceMethodSlot, verifier::operation::verify_instruction,
 };
-use kagari_abi::standard::declarations as standard_declarations;
 mod operation;
 use crate::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
@@ -9,6 +8,7 @@ use crate::{
     StructId, access, trait_bounds,
 };
 use kagari_abi::{
+    callable::{CallableImplementation, NativeBinding},
     contracts::{self, ContractError},
     host,
     ids::FunctionRef,
@@ -448,9 +448,9 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .iter()
                 .filter(|method| method.generic_params.is_empty())
                 .filter(|method| {
-                    !standard_declarations::native_trait_default(
-                        &trait_type.declaration,
-                        &method.name,
+                    !matches!(
+                        method.implementation,
+                        CallableImplementation::Native(NativeBinding::Engine(_))
                     )
                 })
                 .any(|method| {

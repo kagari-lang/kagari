@@ -1,4 +1,5 @@
 //! Match checked implementation templates against a requested executable contract.
+use crate::standard::traits::StandardTrait;
 use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError};
 use crate::types::{AbiType, InterfaceTableAbi, NominalAbiType};
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
@@ -27,6 +28,18 @@ pub fn match_implementation<'a>(
     // Validate the requested nominal as one tree before comparisons or borrowing
     // nested arguments into the returned substitution.
     TypeSubstitution::default().apply_nominal(interface, cancel)?;
+    // Readonly native capabilities admit either storage view. Other impls must
+    // match access exactly; storage arguments remain invariant in either case.
+    let readonly = StandardTrait::from_id(&implemented.declaration).is_some_and(|kind| {
+        matches!(
+            kind,
+            StandardTrait::List
+                | StandardTrait::Map
+                | StandardTrait::Set
+                | StandardTrait::Iterable
+                | StandardTrait::Index
+        )
+    });
     let mut bindings = TypeSubstitution::default();
     let mut pending = vec![(&table.for_type, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
@@ -100,8 +113,8 @@ pub fn match_implementation<'a>(
             (AbiType::Range(left, a), AbiType::Range(right, b)) if a == b => {
                 pending.push((left, right))
             }
-            (AbiType::Iter(left), AbiType::Iter(right))
-            | (AbiType::Array(left, _), AbiType::Array(right, _))
+            (AbiType::Iter(left), AbiType::Iter(right)) => pending.push((left, right)),
+            (AbiType::Array(left, _), AbiType::Array(right, _))
             | (AbiType::Set(left, _), AbiType::Set(right, _)) => pending.push((left, right)),
             (
                 AbiType::Map {
@@ -116,6 +129,15 @@ pub fn match_implementation<'a>(
         }
         if pending.len() > MAX_TYPE_NODES * 2 {
             return Err(TypeTransformError::LimitExceeded);
+        }
+    }
+    let target = bindings.apply(&table.for_type, cancel)?;
+    if target != *receiver && !(readonly && target.can_weaken_to(receiver)) {
+        return Ok(None);
+    }
+    for (template, actual) in implemented.arguments.iter().zip(&interface.arguments) {
+        if bindings.apply(template, cancel)? != *actual {
+            return Ok(None);
         }
     }
     for (member, expected) in &interface.associated_types {
@@ -174,8 +196,9 @@ mod tests {
         scalar::BuiltinType,
         types::{AssociatedTypeFamilyAbi, GenericParameterAbi},
     };
-    use kagari_common::identity::{
-        DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id,
+    use kagari_common::{
+        collection::CollectionAccess,
+        identity::{DefinitionKind, DefinitionPathSegment, ModuleIdentity, associated_type_id},
     };
     use std::slice;
 
@@ -188,6 +211,75 @@ mod tests {
                 occurrence: 0,
             }],
         }
+    }
+
+    #[test]
+    fn native_templates_weaken_only_readonly_outer_access() {
+        let integer = AbiType::Builtin(BuiltinType::I32);
+        let mutable = AbiType::Array(Box::new(integer.clone()), CollectionAccess::Mutable);
+        let readonly = AbiType::Array(Box::new(integer.clone()), CollectionAccess::ReadOnly);
+        let parameter = GenericParameterAbi {
+            owner: id(DefinitionKind::Impl, ""),
+            position: 0,
+        };
+        let mut interface =
+            crate::standard::intrinsic::applied(StandardTrait::List, vec![integer.clone()]);
+        let mut table = InterfaceTableAbi {
+            declaration: parameter.owner.clone(),
+            name: "List".into(),
+            generic_params: vec![parameter.clone()],
+            bounds: vec![],
+            methods: vec![],
+            associated_consts: vec![],
+            for_type: AbiType::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
+            trait_type: AbiType::Trait(crate::standard::intrinsic::applied(
+                StandardTrait::List,
+                vec![parameter.as_type()],
+            )),
+            associated_type_families: vec![],
+            host_bridge: false,
+            native_bridge: false,
+        };
+        let cancel = CancellationToken::default();
+        assert!(
+            match_implementation(&table, &interface, &mutable, &cancel)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            match_implementation(&table, &interface, &readonly, &cancel)
+                .unwrap()
+                .is_some()
+        );
+        interface.declaration = crate::standard::traits::identity(StandardTrait::MutableList);
+        let AbiType::Trait(implemented) = &mut table.trait_type else {
+            unreachable!()
+        };
+        implemented.declaration = interface.declaration.clone();
+        assert!(
+            match_implementation(&table, &interface, &mutable, &cancel)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            match_implementation(&table, &interface, &readonly, &cancel)
+                .unwrap()
+                .is_none()
+        );
+        // Generic arguments cannot acquire the outer access relaxation.
+        interface =
+            crate::standard::intrinsic::applied(StandardTrait::List, vec![readonly.clone()]);
+        table.trait_type = AbiType::Trait(crate::standard::intrinsic::applied(
+            StandardTrait::List,
+            vec![parameter.as_type()],
+        ));
+        table.for_type = AbiType::Array(Box::new(mutable), CollectionAccess::Mutable);
+        let nested = AbiType::Array(Box::new(readonly), CollectionAccess::ReadOnly);
+        assert!(
+            match_implementation(&table, &interface, &nested, &cancel)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

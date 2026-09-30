@@ -1,7 +1,7 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 
 use crate::{
-    hir::{ExportItem, FunctionKind, ModuleId, Visibility},
+    hir::{ExportItem, FunctionKind, ModuleId, TypeKind, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
     resolver::ResolvedName,
@@ -920,6 +920,64 @@ impl<'a> SourceCatalog<'a> {
             for item in &module.module.traits {
                 cancel.check()?;
                 add(&item.name, ExportItem::Trait(item.id), item.visibility);
+            }
+            for implementation in &module.module.impls {
+                cancel.check()?;
+                if implementation.trait_ref.is_some() {
+                    continue;
+                }
+                let Some(reference) = implementation.for_type else {
+                    continue;
+                };
+                let owner = match &module.module.type_ref(reference).kind {
+                    TypeKind::Named(name) | TypeKind::Generic { name, .. } => name,
+                    _ => continue,
+                };
+                let owner_visibility = module
+                    .module
+                    .structs
+                    .iter()
+                    .find(|item| &item.name == owner)
+                    .map(|item| item.visibility)
+                    .or_else(|| {
+                        module
+                            .module
+                            .enums
+                            .iter()
+                            .find(|item| &item.name == owner)
+                            .map(|item| item.visibility)
+                    })
+                    .or_else(|| {
+                        module
+                            .module
+                            .opaque_types
+                            .iter()
+                            .find(|item| &item.name == owner)
+                            .map(|item| item.visibility)
+                    });
+                for method in &implementation.methods {
+                    let Some(function) = module
+                        .module
+                        .functions
+                        .iter()
+                        .find(|item| item.id == method.function)
+                    else {
+                        continue;
+                    };
+                    add(
+                        &format!("{owner}::{}", method.name),
+                        ExportItem::Function(method.function),
+                        match (owner_visibility, function.visibility) {
+                            (Some(Visibility::Private), _) | (_, Visibility::Private) => {
+                                Visibility::Private
+                            }
+                            (Some(Visibility::PublicSuper), _) | (_, Visibility::PublicSuper) => {
+                                Visibility::PublicSuper
+                            }
+                            _ => Visibility::Public,
+                        },
+                    );
+                }
             }
             for (index, item) in module.module.imports.iter().enumerate() {
                 cancel.check()?;

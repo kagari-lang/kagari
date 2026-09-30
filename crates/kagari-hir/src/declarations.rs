@@ -11,7 +11,7 @@ use crate::{
         BodyOwner, ConstOwner, EnumId, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId,
         Item, OpaqueTypeId, TypeRefId, VariantId,
     },
-    host::{HostDeclarations, HostTypeId},
+    host::HostDeclarations,
     imports::{ImportedTypes, ModuleImports},
     lower::LoweredModule,
     native::NativeTypeKind,
@@ -116,12 +116,6 @@ impl Declarations {
         }
     }
 
-    pub(crate) fn host_type(&self, name: &str) -> Option<HostTypeId> {
-        match self.resolve_name(name)? {
-            ResolvedName::HostType(id) => Some(id),
-            _ => None,
-        }
-    }
     pub fn variant(&self, id: VariantId) -> Option<&Declaration> {
         self.targets.get(&DeclarationKey::Variant(id))
     }

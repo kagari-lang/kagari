@@ -10,7 +10,10 @@ use kagari_common::identity::ModuleIdentity;
 
 impl SourceImport {
     pub(crate) fn is_namespace(&self) -> bool {
-        matches!(self.item, None | Some(ExportItem::Enum(_)))
+        matches!(
+            self.item,
+            None | Some(ExportItem::Enum(_) | ExportItem::Struct(_) | ExportItem::OpaqueType(_))
+        )
     }
 
     /// Module paths retain their qualification; an imported enum exposes its own
@@ -25,7 +28,7 @@ impl SourceImport {
             .iter()
             .filter_map(move |(name, items)| match self.item {
                 None => Some((name.as_str(), items.as_slice())),
-                Some(ExportItem::Enum(_)) => {
+                Some(ExportItem::Enum(_) | ExportItem::Struct(_) | ExportItem::OpaqueType(_)) => {
                     let (enumeration, member) = name.split_once("::")?;
                     (Some(enumeration) == owner).then_some((member, items.as_slice()))
                 }

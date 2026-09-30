@@ -55,7 +55,9 @@ fn signatures_and_imported_calls_survive_dependency_body_errors() {
                     .typed
                     .type_table
                     .call_resolution(id)
-                    .is_some_and(|call| call.target == CallTarget::SourceFunction(signature.id))
+                    .is_some_and(|call| {
+                        call.target == CallTarget::SourceFunction(signature.declaration.clone())
+                    })
             })
     );
     let library = snapshot.file(library).unwrap();

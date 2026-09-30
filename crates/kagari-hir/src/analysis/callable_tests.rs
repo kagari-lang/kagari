@@ -14,7 +14,7 @@ use kagari_abi::{
     standard::{StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum},
 };
 use kagari_common::{
-    DiagnosticKind,
+    DiagnosticKind, SourceFile,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
     },
@@ -56,7 +56,7 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
                 panic!("call statement")
             };
             let call = facts.typed.type_table.call_resolution(expression).unwrap();
-            let CallTarget::SourceFunction(id) = call.target else {
+            let CallTarget::SourceFunction(id) = &call.target else {
                 panic!("checked source impl member")
             };
             let imported = facts.imported_functions.target(id).unwrap();
@@ -204,12 +204,12 @@ fn main() -> i32 {
             _ => continue,
         };
         let call = facts.typed.type_table.call_resolution(id).unwrap();
-        let signature = match call.target {
+        let signature = match &call.target {
             CallTarget::Function(target) if name == "identity" => facts
                 .typed
                 .functions
                 .iter()
-                .find(|function| function.id == target)
+                .find(|function| function.id == *target)
                 .unwrap(),
             CallTarget::SourceFunction(target) if name != "identity" => {
                 let imported = facts.imported_functions.target(target).unwrap();
@@ -531,4 +531,34 @@ fn run(callback: fn(i32) -> bool) {
     }
     seen.sort_unstable();
     assert_eq!(seen, ["callback", "consume", "read"]);
+}
+
+#[test]
+fn lexical_values_shadow_associated_native_and_script_owners() {
+    for (owner, call) in [
+        ("ArrayList", "ArrayList::new()"),
+        ("String", "String::from(\"value\")"),
+        ("Item", "Item::make()"),
+    ] {
+        let text = format!(
+            "struct Item {{}} impl Item {{ pub fn make() -> Item {{ Item {{}} }} }} fn bad({owner}: i32) {{ {call}; }}"
+        );
+        let analysis = crate::analyze_source(
+            &SourceFile::new("shadow-owners.kgr", text),
+            Default::default(),
+        );
+        assert!(analysis.clone().into_codegen().is_err(), "{owner}");
+        let facts = analysis.facts();
+        let (id, _) = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find(|(_, expression)| matches!(expression.kind, ExprKind::Call { .. }))
+            .unwrap();
+        assert!(
+            facts.typed.type_table.call_resolution(id).is_none(),
+            "{owner}"
+        );
+    }
 }

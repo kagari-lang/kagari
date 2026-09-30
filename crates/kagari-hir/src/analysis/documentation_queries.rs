@@ -76,9 +76,16 @@ impl FileDeclarations {
             } else {
                 let node = self.parsed.syntax().syntax().descendants().find(|node| {
                     node.children().filter_map(Name::cast).any(|name| {
-                        let range = name.syntax().text_range();
-                        Span::new(usize::from(range.start()), usize::from(range.end()))
-                            == declaration.location.range
+                        let range = name
+                            .syntax()
+                            .descendants_with_tokens()
+                            .filter_map(|element| element.into_token())
+                            .find(|token| !token.kind().is_trivia())
+                            .map(|token| token.text_range());
+                        range.is_some_and(|range| {
+                            Span::new(usize::from(range.start()), usize::from(range.end()))
+                                == declaration.location.range
+                        })
                     })
                 })?;
                 let documentation = if let Some(item) = Item::cast(node.clone()) {
@@ -87,10 +94,8 @@ impl FileDeclarations {
                     method.documentation(source.text())
                 } else if let Some(variant) = Variant::cast(node.clone()) {
                     variant.documentation(source.text())
-                } else if let Some(field) = Field::cast(node.clone()) {
-                    field.documentation(source.text())
                 } else {
-                    return None;
+                    Field::cast(node.clone())?.documentation(source.text())
                 };
                 (documentation, node.text().to_string())
             };

@@ -81,41 +81,20 @@ fn reverse_conversion_preserves_error_binding_and_reverses_the_receiver() {
 }
 
 #[test]
-fn collection_construction_returns_key_proofs_and_lifted_collection_obligations() {
+fn native_storage_requires_carried_implementations_instead_of_implicit_proofs() {
     let cancel = CancellationToken::default();
     let item = scalar(BuiltinType::I32);
     let destination = AbiType::Set(Box::new(item.clone()), CollectionAccess::Mutable);
     let collect = applied(StandardTrait::FromIterator, vec![item.clone()]);
-    let required = requirements(&collect, &destination, &cancel)
-        .unwrap()
-        .unwrap();
-    let kinds: Vec<_> = required
-        .iter()
-        .flat_map(|bound| &bound.constraints)
-        .filter_map(|c| match c {
-            ConstraintAbi::Trait(t) => StandardTrait::from_id(&t.declaration),
-            _ => None,
-        })
-        .collect();
-    assert!(kinds.contains(&StandardTrait::Eq));
-    assert!(kinds.contains(&StandardTrait::Hash));
+    assert_eq!(requirements(&collect, &destination, &cancel).unwrap(), None);
     let wrapped = AbiType::StandardEnum {
         kind: StandardEnum::Option,
-        args: vec![destination.clone()],
+        args: vec![destination],
     };
-    let collect = applied(
-        StandardTrait::FromIterator,
-        vec![AbiType::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item.clone()],
-        }],
-    );
-    let required = requirements(&collect, &wrapped, &cancel).unwrap().unwrap();
-    assert!(required.iter().any(|bound| bound.ty == destination
-        && bound.constraints.contains(&ConstraintAbi::Trait(applied(
-            StandardTrait::FromIterator,
-            vec![item.clone()]
-        )))));
+    assert_eq!(requirements(&collect, &wrapped, &cancel).unwrap(), None);
+    let iterator = applied(StandardTrait::Iterator, vec![]);
+    let receiver = AbiType::Iter(Box::new(item));
+    assert_eq!(requirements(&iterator, &receiver, &cancel).unwrap(), None);
 }
 
 #[test]
@@ -139,16 +118,11 @@ fn identity_iteration_requires_iterator_and_validates_outputs() {
     let ConstraintAbi::Trait(iterator) = &required[0].constraints[0] else {
         panic!("iterator proof");
     };
-    assert_eq!(
-        requirements(iterator, &receiver, &cancel).unwrap(),
-        Some(vec![])
-    );
-    for (member, value) in &interface.associated_types {
+    assert_eq!(requirements(iterator, &receiver, &cancel).unwrap(), None);
+    for member in interface.associated_types.keys() {
         assert_eq!(
-            associated_output(&interface, &receiver, member, &cancel)
-                .unwrap()
-                .as_ref(),
-            Some(value)
+            associated_output(&interface, &receiver, member, &cancel).unwrap(),
+            None
         );
     }
     interface

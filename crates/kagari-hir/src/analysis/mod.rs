@@ -147,7 +147,7 @@ impl FileAnalysis {
                         };
                         let span = facts.lowered.source_map.expr_reference_span(*callee)?;
                         (span.start <= offset && offset < span.end)
-                            .then(|| facts.imported_functions.target(function))
+                            .then(|| facts.imported_functions.target(&function))
                             .flatten()
                     })
                     .next()
@@ -235,11 +235,22 @@ impl FileAnalysis {
     /// Portable host documentation has no synthetic source-file location.
     pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
         let facts = self.result.facts();
-        if let Some(target) =
-            type_reference_target_at(&facts.lowered, &facts.typed.type_table, offset)
+        if let Some((index, _)) = facts
+            .lowered
+            .source_map
+            .type_spans()
+            .iter()
+            .enumerate()
+            .filter(|(_, span)| span.start <= offset && offset < span.end)
+            .min_by_key(|(_, span)| span.end - span.start)
         {
-            return match target {
-                Some(TypeTarget::Host(id)) => facts.names.hosts.type_declaration(id),
+            let id = facts.lowered.source_map.type_id(index);
+            let span = facts.lowered.source_map.type_terminal_span(id)?;
+            if !(span.start <= offset && offset < span.end) {
+                return None;
+            }
+            return match &facts.typed.type_table.type_ref(id)?.target {
+                Some(TypeTarget::Host(id)) => facts.names.hosts.type_declaration(*id),
                 _ => None,
             };
         }
@@ -470,7 +481,7 @@ impl FileAnalysis {
                     )),
                     CallTarget::SourceFunction(function) => Some((
                         callee_span,
-                        &facts.imported_functions.target(function)?.site,
+                        &facts.imported_functions.target(&function)?.site,
                     )),
                     CallTarget::TraitMethod { method, .. } => Some((
                         callee_span,
@@ -479,7 +490,20 @@ impl FileAnalysis {
                     _ => None,
                 }
             });
+        let patterns = facts
+            .lowered
+            .source_map
+            .pattern_spans()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, _)| {
+                let id = facts.lowered.source_map.pattern_id(index);
+                let span = facts.lowered.source_map.pattern_reference_span(id)?;
+                let variant = facts.typed.type_table.pattern_variant(id)?;
+                Some((span, &facts.aggregates.variant(variant)?.declaration))
+            });
         expressions
+            .chain(patterns)
             .chain(places)
             .chain(initializer_fields)
             .chain(enum_owners)
@@ -539,7 +563,7 @@ fn type_reference_at<'a>(
             TypeTarget::Host(_) => None,
             TypeTarget::Source(id) => declarations
                 .imported_types()
-                .target(id)
+                .by_declaration(&id)
                 .map(|ty| &ty.declaration),
             TypeTarget::Struct(id) => declarations.target(ResolvedName::Struct(id)),
             TypeTarget::Enum(id) => declarations.target(ResolvedName::Enum(id)),
@@ -566,7 +590,7 @@ fn type_reference_target_at(
         .source_map
         .type_name_span(type_id)
         .filter(|span| span.start <= offset && offset < span.end)
-        .and_then(|_| table.type_ref(type_id)?.target);
+        .and_then(|_| table.type_ref(type_id)?.target.clone());
     Some(target)
 }
 

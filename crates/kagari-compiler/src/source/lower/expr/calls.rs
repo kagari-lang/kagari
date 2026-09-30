@@ -482,7 +482,7 @@ impl FunctionLowerer<'_, '_> {
                             }
                         }
                         TypeckCallTarget::SourceFunction(id) => {
-                            let imported = self.analyzed.imported_functions.target(id).ok_or(
+                            let imported = self.analyzed.imported_functions.target(&id).ok_or(
                                 MirLoweringError::MissingBinding("source function contract"),
                             )?;
                             let signature =

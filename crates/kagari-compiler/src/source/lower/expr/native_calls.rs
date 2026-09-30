@@ -37,7 +37,7 @@ impl FunctionLowerer<'_, '_> {
                 &self
                     .analyzed
                     .imported_functions
-                    .target(*id)
+                    .target(id)
                     .ok_or(MirLoweringError::MissingBinding("checked source callable"))?
                     .signature
             }
