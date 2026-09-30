@@ -2,7 +2,7 @@
 use super::sources;
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
-    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys},
+    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys, sets},
     scalar::BuiltinType,
     standard::{
         StandardIntrinsic,
@@ -67,9 +67,10 @@ pub(super) fn valid<'a>(
             }
             continue;
         }
-        if (list_query || snapshot || sources::selected(import))
+        if (list_query || snapshot || sources::selected(import) || sets::selected(import.binding))
             && collection == Some(StandardTrait::List)
             || snapshot && collection == Some(StandardTrait::Map)
+            || sets::selected(import.binding) && collection == Some(StandardTrait::Set)
         {
             if !collections::valid(witness, catalog, &table, &callable, cancel)? {
                 return Ok(false);
@@ -90,7 +91,11 @@ pub(super) fn valid<'a>(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
         );
-        let conversion = numeric || list_query || snapshot || sources::selected(import);
+        let conversion = numeric
+            || list_query
+            || snapshot
+            || sources::selected(import)
+            || sets::selected(import.binding);
         let prepared_order = matches!(
             import.binding,
             EngineNativeBinding::Intrinsic(

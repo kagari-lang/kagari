@@ -1,9 +1,11 @@
 use crate::{
+    callable::EngineNativeBinding,
     native_import::{
         NativeSignature,
         contract::{
             bound, builtin, callback, iterable_item, member, option, readonly_collection, result,
         },
+        sets,
     },
     scalar::BuiltinType,
     standard::{
@@ -80,6 +82,26 @@ pub(super) fn valid(
                     }
                     _ => false,
                 }
+            });
+        }
+        let binding = EngineNativeBinding::TraitDefault(method);
+        if sets::selected(binding) {
+            return bound(bounds, receiver, StandardTrait::Set).is_some_and(|interface| {
+                let [item] = interface.arguments.as_slice() else {
+                    return false;
+                };
+                let [_, rhs] = signature.params.as_slice() else {
+                    return false;
+                };
+                readonly_collection(rhs, StandardTrait::Set, slice::from_ref(item))
+                    && if sets::algebra(binding) {
+                        signature.result
+                            == AbiType::Set(Box::new(item.clone()), CollectionAccess::Mutable)
+                            && bound(bounds, item, StandardTrait::Eq).is_some()
+                            && bound(bounds, item, StandardTrait::Hash).is_some()
+                    } else {
+                        signature.result == builtin(BuiltinType::Bool)
+                    }
             });
         }
         if matches!(receiver, AbiType::Host(_) | AbiType::Trait(_)) {

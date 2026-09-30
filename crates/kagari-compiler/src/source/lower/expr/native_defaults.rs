@@ -214,6 +214,9 @@ impl FunctionLowerer<'_, '_> {
             witnesses.push(self.lower_native_witness(&iterator, &next, &[])?);
             witnesses.push(self.native_list_result(&result)?);
         }
+        let engine_binding = EngineNativeBinding::TraitDefault(binding);
+        self.native_set_sources(engine_binding, &params, &mut witnesses)?;
+        self.native_key_witnesses(engine_binding, &params, &result, &mut witnesses)?;
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {
                 declaration: method.clone(),

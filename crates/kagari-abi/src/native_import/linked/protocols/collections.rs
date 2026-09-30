@@ -1,4 +1,4 @@
-//! Validate the complete selected List/Map requirement sets, including native storage.
+//! Validate the complete selected List/Map/Set requirement sets, including native storage.
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{NativeSignature, NativeWitness, NativeWitnessImplementation},
@@ -36,7 +36,7 @@ pub(super) fn valid<'a>(
     };
     let protocol = StandardTrait::from_id(&witness.interface.declaration);
     let item = match (protocol, witness.interface.arguments.as_slice()) {
-        (Some(StandardTrait::List), [item]) => item.clone(),
+        (Some(StandardTrait::List | StandardTrait::Set), [item]) => item.clone(),
         (Some(StandardTrait::Map), [key, value]) => {
             AbiType::Tuple(vec![key.clone(), value.clone()])
         }
@@ -117,6 +117,10 @@ pub(super) fn valid<'a>(
                             args: vec![witness.interface.arguments[1].clone()],
                         }
             }
+            2 if protocol == Some(StandardTrait::Set) => {
+                expected.params == [witness.receiver.clone(), item.clone()]
+                    && expected.result == AbiType::Builtin(BuiltinType::Bool)
+            }
             2 => {
                 expected.params == [witness.receiver.clone(), index]
                     && expected.result
@@ -159,6 +163,15 @@ pub(super) fn valid<'a>(
                     ][required],
                     matches!(&witness.receiver,AbiType::Array(element,_) if element.as_ref()==&item),
                 )
+            } else if protocol == Some(StandardTrait::Set) {
+                (
+                    [
+                        StandardIntrinsic::SetLen,
+                        StandardIntrinsic::SetIsEmpty,
+                        StandardIntrinsic::SetContains,
+                    ][required],
+                    matches!(&witness.receiver,AbiType::Set(element,_) if element.as_ref()==&item),
+                )
             } else {
                 (
                     [
@@ -191,7 +204,7 @@ pub(super) fn valid<'a>(
         required += 1;
     }
     Ok(required
-        == if protocol == Some(StandardTrait::List) {
+        == if protocol != Some(StandardTrait::Map) {
             3
         } else {
             4

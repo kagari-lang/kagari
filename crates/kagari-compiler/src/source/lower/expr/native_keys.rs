@@ -46,6 +46,12 @@ impl FunctionLowerer<'_, '_> {
             ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
         ) {
             Some(result)
+        } else if self.set_binding(binding) {
+            if matches!(result, TypeId::Set(..)) {
+                Some(result)
+            } else {
+                params.first()
+            }
         } else {
             None
         };

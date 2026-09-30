@@ -26,7 +26,8 @@ extraction and atomic final storage commit. Native Map/Set key queries and
 mutations also own selected Hash/Eq bucket traversal; Map factories/transforms
 execute under their callback guard before checked insertion. LinkedHashMap/Set
 source and FromIterator construction use selected native traversal and the same
-key lookup implementation. Remaining ST05
+key lookup implementation. Set relations and algebra execute native dual guarded
+traversal with selected membership policies and ordered shallow results. Remaining ST05
 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -545,6 +546,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   both selected lookups, failure effects and atomic checked insertion.
 - [x] Migrate LinkedHashMap/LinkedHashSet source construction and FromIterator with
   checked traversal, shared key lookup, duplicate policy and rooted final publication.
+- [x] Migrate Set relations and algebra with dual guarded traversal, selected
+  membership, unhashed custom relations and ordered shallow result construction.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate remaining collection/set operations, plus lazy
@@ -840,6 +843,45 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native Set relations/algebra checkpoint (2026-10-01): completes all seven
+  sealed defaults (`union`, `intersection`, `difference`, `symmetric_difference`,
+  `is_subset`, `is_superset`, `is_disjoint`). Removed the compiler Set algorithm
+  module and its now-unused query-guard helpers. The checked producer carries
+  both Set/Iterable selections and their Iterator output, together with selected
+  Hash/PartialEq only when native key lookup or result insertion consumes them.
+  Relation queries on user/dynamic Set implementations retain no Eq/Hash requirement.
+- Set state remains private to the native key family. Left conversion and guard
+  acquisition precede right conversion/acquisition, both sources stay protected
+  through membership and result construction, and right closes before left.
+  Relations short-circuit through the queried source's membership policy; superset
+  reverses the traversal. Algebra inserts shallow accepted elements through the
+  existing native key lookup/token helpers, preserving left-first order, original
+  identity and deduplication. Union avoids membership callbacks; symmetric difference
+  traverses both sources in order. No second Hash/Eq or membership algorithm was added.
+  Shared List/Set dynamic required-method dispatch resolves carried declaration
+  ordinals and validated linked functions, without source-catalog interpretation.
+- Recorded 325 cases at a6a3413: all seven defaults, direct native and user storage,
+  generic/dynamic routes, scalar/custom keys, empty/subset/overlap/disjoint/self-alias
+  inputs and unhashed float relations. All 87,175 instruction limits pass source
+  and decoded KBC with exact effects/counters and no bulk-charge holes. All 726
+  forged source/iterator/membership/key/witness/authority/instantiation contracts
+  reject in memory and encoded loading. Boundary coverage passes successful and
+  failed synchronous host reentry, cancellation at every callback, every allocation
+  limit, forced collection, both-source alias writes and conversion/next/membership
+  traps. Source tokens/handles and completed effects survive failures; subsequent
+  writes succeed and roots/guards/frames release. Foreign generic defaults pin
+  private traversal, membership and key methods, including unhashed float relations;
+  removing their dependency rejects verification and loading in both artifact routes.
+- Validation: all eight affected library suites pass (963 tests), together with
+  92 affected embedding tests (1055 total). Workspace/all-target Clippy with denied
+  warnings, format, diff and structure checks pass (741 Rust files, zero violations
+  or documented exceptions). Manual review confirms explicit imports, ordinary
+  module ownership, private key-family state, reused lookup policy, exact dual-guard
+  charging, once-only evaluation and generation-pinned source-free callbacks.
+  No build/test errors or structural debt are carried. Runtime ABI is v125;
+  binding v2, KBC v109, KMIR v7 and helper ABI v6 retain their schemas. Remaining
+  ST05 families and ST06 acceptance remain pending.
 
 - ST05 native Map/Set construction checkpoint (2026-10-01): completes the source
   and FromIterator construction family for LinkedHashMap/LinkedHashSet. Removed

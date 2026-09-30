@@ -1,6 +1,7 @@
 //! Selected key lookups and atomic mutations on existing Map/Set storage.
 mod construction;
 mod lookup;
+mod sets;
 mod updates;
 use crate::{
     LoadedModule, Runtime, RuntimeError,
@@ -10,6 +11,7 @@ use crate::{
         keys::{
             construction::Construction,
             lookup::{KeyStep, Lookup},
+            sets::SetQuery,
             updates::MapUpdate,
         },
     },
@@ -19,7 +21,11 @@ use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        traits::StandardTrait,
+    },
     types::AbiType,
 };
 const CANDIDATES: usize = 0;
@@ -67,7 +73,9 @@ fn witness(
         EngineNativeBinding::Intrinsic(
             StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
         ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
-    ) {
+    ) || matches!(contract.signature.result, AbiType::Set(..))
+        && matches!(contract.binding, EngineNativeBinding::TraitDefault(_))
+    {
         &contract.signature.result
     } else {
         &contract.signature.params[0]
@@ -93,11 +101,18 @@ enum State {
     },
     Update(MapUpdate),
     Construction(Construction),
+    Sets(SetQuery),
 }
 pub(super) struct KeyInvocation {
     state: State,
 }
 impl KeyInvocation {
+    pub(super) fn sets(operation: NativeDefaultMethod, arguments: &[Value]) -> Self {
+        Self {
+            state: State::Sets(SetQuery::start(operation, arguments)),
+        }
+    }
+
     pub(super) fn construct(
         contract: &EngineNativeImport,
         arguments: &[Value],
@@ -107,10 +122,10 @@ impl KeyInvocation {
         })
     }
     pub(super) fn scratch_roots(&self) -> usize {
-        if matches!(self.state, State::Construction(_)) {
-            construction::SCRATCH_ROOTS
-        } else {
-            SCRATCH_ROOTS
+        match self.state {
+            State::Construction(_) => construction::SCRATCH_ROOTS,
+            State::Sets(_) => sets::SCRATCH_ROOTS,
+            _ => SCRATCH_ROOTS,
         }
     }
     pub(super) fn start(
@@ -165,6 +180,7 @@ impl KeyInvocation {
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            State::Sets(state) => state.initialize(runtime, owner, contract, roots),
             State::Construction(state) => state.initialize(runtime, owner, contract, roots),
             State::Update(state) => state.initialize(runtime, roots),
             State::Lookup {
@@ -182,6 +198,7 @@ impl KeyInvocation {
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            State::Sets(state) => state.advance(runtime, owner, contract, roots),
             State::Construction(state) => state.advance(runtime, owner, contract, roots),
             State::Update(state) => state.advance(runtime, owner, contract, roots),
             State::Lookup {
@@ -210,6 +227,7 @@ impl KeyInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            State::Sets(state) => state.receive(runtime, owner, contract, roots, value),
             State::Construction(state) => state.receive(runtime, owner, contract, roots, value),
             State::Update(state) => state.receive(runtime, owner, contract, roots, value),
             State::Lookup { lookup, .. } => lookup.receive(runtime, owner, value),

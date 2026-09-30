@@ -1,7 +1,7 @@
 //! Link a concrete import to its checked declaration and selected protocol facts.
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
-    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys},
+    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys, sets},
     standard::{
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         intrinsic,
@@ -255,6 +255,10 @@ impl EngineNativeImport {
                 .collect(),
             });
         }
+        let Some(set_obligations) = sets::obligations(self, catalog, cancel)? else {
+            return Ok(false);
+        };
+        obligations.extend(set_obligations);
         let mut consumed = HashSet::new();
         for bound in &obligations {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {

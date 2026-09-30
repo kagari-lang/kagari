@@ -83,6 +83,7 @@ mod native_array_ranges;
 
 mod native_retention;
 
+mod native_sets;
 mod native_sorting;
 
 mod native_key_construction;

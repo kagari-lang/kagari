@@ -30,8 +30,8 @@ mod list_windows;
 mod native_calls;
 mod native_contracts;
 mod native_keys;
+mod native_sets;
 mod operators;
-mod set_queries;
 mod standard;
 mod terminals;
 

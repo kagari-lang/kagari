@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 pub mod contract;
 mod keys;
 mod linked;
+mod sets;
 mod signature;
 
 pub const ENGINE_NATIVE_BINDING_VERSION: u32 = 2;
@@ -240,6 +241,13 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::MapKeysView
                     | NativeDefaultMethod::MapValuesView
                     | NativeDefaultMethod::MapEntriesView
+                    | NativeDefaultMethod::SetUnion
+                    | NativeDefaultMethod::SetIntersection
+                    | NativeDefaultMethod::SetDifference
+                    | NativeDefaultMethod::SetSymmetricDifference
+                    | NativeDefaultMethod::SetIsSubset
+                    | NativeDefaultMethod::SetIsSuperset
+                    | NativeDefaultMethod::SetIsDisjoint
             )
         ) {
             let mut bounds = self.requirements.clone();

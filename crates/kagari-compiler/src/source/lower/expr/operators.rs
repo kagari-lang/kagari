@@ -331,12 +331,7 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::MapKeysView
                     | NativeDefaultMethod::MapValuesView
                     | NativeDefaultMethod::MapEntriesView
-            ) {
-                return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
-            }
-            if matches!(
-                operation,
-                NativeDefaultMethod::SetUnion
+                    | NativeDefaultMethod::SetUnion
                     | NativeDefaultMethod::SetIntersection
                     | NativeDefaultMethod::SetDifference
                     | NativeDefaultMethod::SetSymmetricDifference
@@ -344,7 +339,7 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::SetIsSuperset
                     | NativeDefaultMethod::SetIsDisjoint
             ) {
-                return self.lower_set_query(operation, &ty, args);
+                return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
             if matches!(
                 operation,

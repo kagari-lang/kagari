@@ -1,7 +1,7 @@
 //! Physical key-operation family consumed by checked native traversal.
 use crate::{
     callable::EngineNativeBinding,
-    native_import::EngineNativeImport,
+    native_import::{EngineNativeImport, sets},
     standard::{StandardIntrinsic, bindings::NativeProtocolMethod},
     types::AbiType,
 };
@@ -32,8 +32,10 @@ pub(super) fn construction(binding: EngineNativeBinding) -> bool {
 pub(super) fn key(import: &EngineNativeImport) -> Option<&AbiType> {
     let storage = if selected(import.binding) {
         import.signature.params.first()?
-    } else if construction(import.binding) {
+    } else if construction(import.binding) || sets::algebra(import.binding) {
         &import.signature.result
+    } else if sets::selected(import.binding) {
+        import.signature.params.first()?
     } else {
         return None;
     };

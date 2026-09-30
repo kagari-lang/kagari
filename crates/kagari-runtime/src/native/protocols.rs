@@ -352,38 +352,7 @@ pub(super) fn list(
         return Err(invalid());
     }
     if witness.implementation == NativeWitnessImplementation::Interface {
-        let declaration = owner
-            .members()
-            .find(|module| module.bytecode.identity == witness.interface.declaration.module)
-            .and_then(|module| {
-                abi::trait_contract(
-                    &module.bytecode.identity,
-                    &module.bytecode.public_items,
-                    &module.bytecode.trait_contracts,
-                    &witness.interface.declaration,
-                )
-                .cloned()
-            })
-            .ok_or_else(invalid)?;
-        let (slot, _) = declaration
-            .methods
-            .iter()
-            .enumerate()
-            .filter(|(_, method)| method.implementation == CallableImplementation::Required)
-            .nth(required_slot)
-            .ok_or_else(invalid)?;
-        let method =
-            runtime.resolve_interface_method_slot(&arguments[0], &witness.interface, slot)?;
-        let mut arguments = arguments;
-        arguments[0] = method.receiver().clone();
-        if method.return_type() != output {
-            return Err(invalid());
-        }
-        runtime.validate_interface_method_arguments(&method, &arguments)?;
-        return Ok(ProtocolStep::Call(NativeCallback {
-            target: NativeCallbackTarget::Interface(Box::new(method)),
-            arguments,
-        }));
+        return interface_call(runtime, owner, witness, required_slot, arguments, output);
     }
     // Native storage has no generated script methods. Its selected table is
     // checked against these exact storage bindings by the portable linker.
@@ -417,6 +386,77 @@ pub(super) fn list(
         &parameters,
         output,
     )
+}
+
+pub(super) fn set_contains(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    source: Value,
+    item: Value,
+) -> Result<ProtocolStep, RuntimeError> {
+    let [ty] = witness.interface.arguments.as_slice() else {
+        return Err(invalid());
+    };
+    if !runtime.matches_interface_method_abi(&source, &witness.receiver, owner)
+        || !runtime.matches_interface_method_abi(&item, ty, owner)
+    {
+        return Err(invalid());
+    }
+    let arguments = vec![source, item];
+    let output = AbiType::Builtin(BuiltinType::Bool);
+    if witness.implementation == NativeWitnessImplementation::Interface {
+        return interface_call(runtime, owner, witness, 2, arguments, &output);
+    }
+    table_call(
+        runtime,
+        owner,
+        witness,
+        2,
+        arguments,
+        &[witness.receiver.clone(), ty.clone()],
+        &output,
+    )
+}
+fn interface_call(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    required_slot: usize,
+    arguments: Vec<Value>,
+    output: &AbiType,
+) -> Result<ProtocolStep, RuntimeError> {
+    let declaration = owner
+        .members()
+        .find(|module| module.bytecode.identity == witness.interface.declaration.module)
+        .and_then(|module| {
+            abi::trait_contract(
+                &module.bytecode.identity,
+                &module.bytecode.public_items,
+                &module.bytecode.trait_contracts,
+                &witness.interface.declaration,
+            )
+            .cloned()
+        })
+        .ok_or_else(invalid)?;
+    let (slot, _) = declaration
+        .methods
+        .iter()
+        .enumerate()
+        .filter(|(_, method)| method.implementation == CallableImplementation::Required)
+        .nth(required_slot)
+        .ok_or_else(invalid)?;
+    let method = runtime.resolve_interface_method_slot(&arguments[0], &witness.interface, slot)?;
+    let mut arguments = arguments;
+    arguments[0] = method.receiver().clone();
+    if method.return_type() != output {
+        return Err(invalid());
+    }
+    runtime.validate_interface_method_arguments(&method, &arguments)?;
+    Ok(ProtocolStep::Call(NativeCallback {
+        target: NativeCallbackTarget::Interface(Box::new(method)),
+        arguments,
+    }))
 }
 
 fn table_call(

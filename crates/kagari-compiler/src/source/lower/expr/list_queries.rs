@@ -41,25 +41,4 @@ impl FunctionLowerer<'_, '_> {
         });
         dst
     }
-    pub(super) fn query_guard(
-        &mut self,
-        source: &TypeId,
-        value: MirValue,
-    ) -> Result<(TypeId, MirValue), MirLoweringError> {
-        let iterator_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
-        let iterator = self.lower_applied_operator(
-            StandardTrait::Iterable.nominal(),
-            source.clone(),
-            &self.protocol_method(StandardTrait::Iterable, 0)?,
-            &[value],
-        )?;
-        self.emit(Instruction::BeginIteration {
-            collection: iterator,
-        });
-        Ok((iterator_type, iterator))
-    }
-    pub(super) fn end_query_guard(&mut self, guard: (TypeId, MirValue)) {
-        self.iterator_close(&guard.0, guard.1);
-        self.emit(Instruction::EndIteration);
-    }
 }

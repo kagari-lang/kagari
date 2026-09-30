@@ -201,6 +201,17 @@ impl NativeInvocation {
             ))) => {
                 if matches!(
                     operation,
+                    NativeDefaultMethod::SetUnion
+                        | NativeDefaultMethod::SetIntersection
+                        | NativeDefaultMethod::SetDifference
+                        | NativeDefaultMethod::SetSymmetricDifference
+                        | NativeDefaultMethod::SetIsSubset
+                        | NativeDefaultMethod::SetIsSuperset
+                        | NativeDefaultMethod::SetIsDisjoint
+                ) {
+                    NativeState::Key(KeyInvocation::sets(operation, arguments))
+                } else if matches!(
+                    operation,
                     NativeDefaultMethod::ListContains
                         | NativeDefaultMethod::ListStartsWith
                         | NativeDefaultMethod::ListEndsWith
