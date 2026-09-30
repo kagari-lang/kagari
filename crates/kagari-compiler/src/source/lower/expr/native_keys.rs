@@ -3,7 +3,11 @@ use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::NativeWitness,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        traits::StandardTrait,
+    },
 };
 use kagari_hir::{
     builtin::traits::StandardTraitSemantics,
@@ -44,7 +48,8 @@ impl FunctionLowerer<'_, '_> {
             EngineNativeBinding::Intrinsic(
                 StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
             ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
-        ) {
+        ) || binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::GroupBy)
+        {
             Some(result)
         } else if self.set_binding(binding) {
             if matches!(result, TypeId::Set(..)) {

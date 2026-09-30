@@ -322,6 +322,7 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::Join
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
+                    | NativeDefaultMethod::GroupBy
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
                     | NativeDefaultMethod::ListBinarySearch
@@ -388,11 +389,8 @@ impl FunctionLowerer<'_, '_> {
                     &[iterator, args[1]],
                 );
             }
-            if matches!(
-                operation,
-                NativeDefaultMethod::Partition | NativeDefaultMethod::GroupBy
-            ) {
-                return self.lower_iterator_terminal(operation, &ty, &method_arguments, args);
+            if matches!(operation, NativeDefaultMethod::Partition) {
+                return self.lower_iterator_partition(&ty, &method_arguments, args);
             }
             if operation != NativeDefaultMethod::Collect {
                 return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);

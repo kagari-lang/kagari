@@ -232,6 +232,7 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::Join
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
+                    | NativeDefaultMethod::GroupBy
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
                     | NativeDefaultMethod::ListBinarySearch

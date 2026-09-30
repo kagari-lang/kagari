@@ -1,5 +1,6 @@
 //! Selected key lookups and atomic mutations on existing Map/Set storage.
 mod construction;
+mod grouping;
 mod lookup;
 mod sets;
 mod updates;
@@ -10,6 +11,7 @@ use crate::{
         NativeAction,
         keys::{
             construction::Construction,
+            grouping::Grouping,
             lookup::{KeyStep, Lookup},
             sets::SetQuery,
             updates::MapUpdate,
@@ -73,8 +75,10 @@ fn witness(
         EngineNativeBinding::Intrinsic(
             StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
         ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
-    ) || matches!(contract.signature.result, AbiType::Set(..))
-        && matches!(contract.binding, EngineNativeBinding::TraitDefault(_))
+    ) || contract.binding
+        == EngineNativeBinding::TraitDefault(NativeDefaultMethod::GroupBy)
+        || matches!(contract.signature.result, AbiType::Set(..))
+            && matches!(contract.binding, EngineNativeBinding::TraitDefault(_))
     {
         &contract.signature.result
     } else {
@@ -102,11 +106,20 @@ enum State {
     Update(MapUpdate),
     Construction(Construction),
     Sets(SetQuery),
+    Grouping(Grouping),
 }
 pub(super) struct KeyInvocation {
     state: State,
 }
 impl KeyInvocation {
+    pub(super) fn group(
+        contract: &EngineNativeImport,
+        arguments: &[Value],
+    ) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            state: State::Grouping(Grouping::start(contract, arguments)?),
+        })
+    }
     pub(super) fn sets(operation: NativeDefaultMethod, arguments: &[Value]) -> Self {
         Self {
             state: State::Sets(SetQuery::start(operation, arguments)),
@@ -125,6 +138,7 @@ impl KeyInvocation {
         match self.state {
             State::Construction(_) => construction::SCRATCH_ROOTS,
             State::Sets(_) => sets::SCRATCH_ROOTS,
+            State::Grouping(_) => grouping::SCRATCH_ROOTS,
             _ => SCRATCH_ROOTS,
         }
     }
@@ -180,6 +194,7 @@ impl KeyInvocation {
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            State::Grouping(state) => state.initialize(runtime, roots),
             State::Sets(state) => state.initialize(runtime, owner, contract, roots),
             State::Construction(state) => state.initialize(runtime, owner, contract, roots),
             State::Update(state) => state.initialize(runtime, roots),
@@ -198,6 +213,7 @@ impl KeyInvocation {
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            State::Grouping(state) => state.advance(runtime, owner, contract, roots),
             State::Sets(state) => state.advance(runtime, owner, contract, roots),
             State::Construction(state) => state.advance(runtime, owner, contract, roots),
             State::Update(state) => state.advance(runtime, owner, contract, roots),
@@ -227,6 +243,7 @@ impl KeyInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            State::Grouping(state) => state.receive(runtime, owner, contract, roots, value),
             State::Sets(state) => state.receive(runtime, owner, contract, roots, value),
             State::Construction(state) => state.receive(runtime, owner, contract, roots, value),
             State::Update(state) => state.receive(runtime, owner, contract, roots, value),

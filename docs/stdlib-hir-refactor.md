@@ -27,8 +27,10 @@ mutations also own selected Hash/Eq bucket traversal; Map factories/transforms
 execute under their callback guard before checked insertion. LinkedHashMap/Set
 source and FromIterator construction use selected native traversal and the same
 key lookup implementation. Set relations and algebra execute native dual guarded
-traversal with selected membership policies and ordered shallow results. Remaining ST05
-iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
+traversal with selected membership policies and ordered shallow results. Iterator
+grouping uses once-only typed key callbacks and the shared native key lookup for
+ordered shallow groups. Remaining ST05 iterator/collection migration and ST06
+encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -548,6 +550,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   checked traversal, shared key lookup, duplicate policy and rooted final publication.
 - [x] Migrate Set relations and algebra with dual guarded traversal, selected
   membership, unhashed custom relations and ordered shallow result construction.
+- [x] Migrate Iterator `group_by` with once-only key callbacks, selected key/next
+  witnesses, shared native Map lookup and ordered shallow groups.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate remaining collection/set operations, plus lazy
@@ -843,6 +847,47 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native iterator grouping checkpoint (2026-10-01): removes the compiler's
+  `group_by` loop and routes checked Iterator defaults to the private native key
+  family. The remaining compiler terminal module owns only pending partition
+  behavior; its obsolete multi-policy branch and impossible return path are removed.
+  The producer carries the selected Iterator and key Eq/Hash/PartialEq applications
+  from checked HIR. Executable linking validates source Item, callback and exact
+  mutable Map/Array result shapes, as well as the selected key methods and dependencies.
+- Grouping allocates a fresh map, computes each key once, and reuses existing
+  rooted native MapGet/MapInsert lookup states for both primitive and custom keys.
+  Accepted items append shallowly to existing groups or a fresh rooted array before
+  insertion. First key objects, insertion order, group order and completed payload
+  effects remain observable. There is no second Hash/Eq traversal or generic driver
+  policy. Native Iter sources keep their guard through key callbacks and lookup,
+  close before publication and release guards/roots/frames on every exit; custom
+  Iterator implementations retain their own protocol behavior.
+- Recorded 144 cases at 3ee6486: scalar, nominal, tuple/Option composition and
+  native/dynamic collection identity keys, empty/unique/repeated/all-equal inputs,
+  direct native/custom/inspected sources and each generic route. All 65,328 limits
+  pass source and decoded KBC with exact counters/effects and no bulk-charge holes.
+  Iterator itself remains a static protocol, as specified; no dynamic Iterator
+  capability is introduced. All 450 forged source/callback/result/key/witness/version
+  applications reject in memory and encoded loading.
+- Boundary checks pass cancellation at every callback, every allocation limit,
+  successful/failed synchronous host reentry, forced collection and next/key/read-
+  lookup/insert-lookup Hash/Eq traps. Native source alias writes in key/Hash/Eq
+  callbacks reject without losing source handles or completed effects; subsequent
+  writes succeed after cleanup. Remaining native iterator state and a non-fused
+  custom source stop at each None and compute keys once. Foreign generic defaults
+  pin private generic key/iterator methods and user Fn adapters; removing their
+  dependency rejects verification/loading in both artifact routes.
+- Validation: all eight affected library suites pass (968 tests), plus the added
+  remaining-state case (969 distinct library cases). All 100 affected embedding
+  tests pass (1069 total). Workspace/all-target Clippy with denied warnings,
+  format, diff and structure checks pass (760 Rust files, zero violations or
+  documented exceptions). Manual review confirms explicit imports, ordinary module
+  ownership, private key-family state, shared lookup, exact charge boundaries and
+  pinned source-free callbacks; no public forwarding surface or second algorithm
+  is added. No new build/test error or structural debt is carried. Runtime ABI is
+  v126; binding v2, KBC v109, KMIR v7 and helper ABI v6 retain their schemas.
+  Remaining ST05 families and ST06 acceptance remain pending.
 
 - ST05 native Set relations/algebra checkpoint (2026-10-01): completes all seven
   sealed defaults (`union`, `intersection`, `difference`, `symmetric_difference`,

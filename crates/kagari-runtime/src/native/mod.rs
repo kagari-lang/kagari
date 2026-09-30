@@ -199,7 +199,9 @@ impl NativeInvocation {
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
                 operation,
             ))) => {
-                if matches!(
+                if operation == NativeDefaultMethod::GroupBy {
+                    NativeState::Key(KeyInvocation::group(contract, arguments)?)
+                } else if matches!(
                     operation,
                     NativeDefaultMethod::SetUnion
                         | NativeDefaultMethod::SetIntersection
