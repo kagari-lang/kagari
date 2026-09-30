@@ -28,6 +28,9 @@ pub(super) fn valid(
             NativeDefaultMethod::ListFirst
                 | NativeDefaultMethod::ListLast
                 | NativeDefaultMethod::ListBinarySearch
+                | NativeDefaultMethod::ListContains
+                | NativeDefaultMethod::ListStartsWith
+                | NativeDefaultMethod::ListEndsWith
         ) {
             return bound(bounds, receiver, StandardTrait::List).is_some_and(|interface| {
                 let [item] = interface.arguments.as_slice() else {
@@ -42,6 +45,19 @@ pub(super) fn valid(
                         value == item
                             && signature.result == result(&index, &index)
                             && bound(bounds, item, StandardTrait::Ord).is_some()
+                    }
+                    (NativeDefaultMethod::ListContains, [_, value]) => {
+                        value == item
+                            && signature.result == builtin(BuiltinType::Bool)
+                            && bound(bounds, item, StandardTrait::PartialEq).is_some()
+                    }
+                    (
+                        NativeDefaultMethod::ListStartsWith | NativeDefaultMethod::ListEndsWith,
+                        [_, prefix],
+                    ) => {
+                        readonly_collection(prefix, StandardTrait::List, slice::from_ref(item))
+                            && signature.result == builtin(BuiltinType::Bool)
+                            && bound(bounds, item, StandardTrait::PartialEq).is_some()
                     }
                     _ => false,
                 }

@@ -88,6 +88,11 @@ pub fn lower_program_to_mir(
             modules.push(lowered.into_unverified());
         }
         let mut changed = false;
+        let materialized: HashSet<_> = modules
+            .iter()
+            .flat_map(|module| &module.functions)
+            .map(|function| &function.instance)
+            .collect();
         for instance in modules
             .iter()
             .flat_map(|module| &module.functions)
@@ -117,7 +122,7 @@ pub fn lower_program_to_mir(
                 module: Box::new(root.clone()),
                 kind: ProgramErrorKind::Cancelled,
             })?;
-            if seen.insert(instance.clone()) {
+            if !materialized.contains(&instance) && seen.insert(instance.clone()) {
                 requests
                     .entry(instance.declaration.module.clone())
                     .or_default()

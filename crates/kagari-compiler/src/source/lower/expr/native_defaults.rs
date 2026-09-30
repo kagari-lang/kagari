@@ -156,16 +156,41 @@ impl FunctionLowerer<'_, '_> {
         }
         if matches!(
             binding,
-            NativeDefaultMethod::ListLast | NativeDefaultMethod::ListBinarySearch
+            NativeDefaultMethod::ListLast
+                | NativeDefaultMethod::ListBinarySearch
+                | NativeDefaultMethod::ListContains
+                | NativeDefaultMethod::ListStartsWith
+                | NativeDefaultMethod::ListEndsWith
         ) {
-            let mut iterable = StandardTrait::Iterable.nominal();
-            for name in ["Item", "Iter"] {
-                let output = self.iteration_output(StandardTrait::Iterable, receiver, name)?;
-                iterable
-                    .associated_types
-                    .insert(associated_type_id(&iterable.declaration, name), output);
+            let sources: Vec<_> = if matches!(
+                binding,
+                NativeDefaultMethod::ListStartsWith | NativeDefaultMethod::ListEndsWith
+            ) {
+                vec![receiver.clone(), params[1].clone()]
+            } else {
+                vec![receiver.clone()]
+            };
+            for (slot, source) in sources.into_iter().enumerate() {
+                if slot == 1
+                    && let TypeId::Trait(list) = &source
+                {
+                    let witness = self.lower_native_witness(&source, list, &[])?;
+                    if !witnesses.contains(&witness) {
+                        witnesses.push(witness);
+                    }
+                }
+                let mut iterable = StandardTrait::Iterable.nominal();
+                for name in ["Item", "Iter"] {
+                    let output = self.iteration_output(StandardTrait::Iterable, &source, name)?;
+                    iterable
+                        .associated_types
+                        .insert(associated_type_id(&iterable.declaration, name), output);
+                }
+                let witness = self.lower_native_witness(&source, &iterable, &[])?;
+                if !witnesses.contains(&witness) {
+                    witnesses.push(witness);
+                }
             }
-            witnesses.push(self.lower_native_witness(receiver, &iterable, &[])?);
         }
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {
@@ -254,6 +279,25 @@ impl FunctionLowerer<'_, '_> {
                 declaration,
                 arguments: table_arguments.iter().map(lower_type).collect(),
             })
+        } else if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::PartialEq)
+            && matches!(
+                receiver,
+                TypeId::Tuple(_) | TypeId::Enum(_) | TypeId::StandardEnum { .. }
+            )
+            && self.has_custom_protocol(receiver)?
+        {
+            let id = self.planner.enqueue_protocol(
+                &self.instance,
+                StandardTrait::PartialEq,
+                receiver,
+                span,
+            )?;
+            let instance = &self.planner.instances[id.index()];
+            methods.push(ConcreteFunctionIdentity {
+                declaration: instance.key.declaration.clone(),
+                arguments: instance.key.arguments.iter().map(lower_type).collect(),
+            });
+            NativeWitnessImplementation::Derived
         } else {
             match receiver {
                 TypeId::Trait(_) => NativeWitnessImplementation::Interface,

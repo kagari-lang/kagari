@@ -482,3 +482,70 @@ fn carried_iterator_outputs_supply_identity_iterable_and_reject_forged_items() {
     );
     assert!(!catalog.holds(&required, &iterator, &[], &cancel).unwrap());
 }
+
+#[test]
+fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries() {
+    let cancel = CancellationToken::default();
+    let key = AbiType::Struct(nominal(id(DefinitionKind::Struct, "Key"), vec![]));
+    let partial = table(
+        "key_partial",
+        intrinsic::applied(StandardTrait::PartialEq, vec![]),
+        key.clone(),
+    );
+    let instance = nominal(id(DefinitionKind::Enum, "Chain"), vec![]);
+    let chain = AbiType::Enum(instance.clone());
+    let layout = EnumLayout {
+        declaration: instance.declaration,
+        arguments: vec![],
+        variants: vec![EnumVariantLayout {
+            declaration: id(DefinitionKind::Variant, "Next"),
+            payload: vec![key.clone(), chain.clone()],
+        }],
+    };
+    let catalog = ProofCatalog::new(vec![&partial], vec![], [&layout], [], &cancel).unwrap();
+    assert!(catalog.uses_custom_equality(&chain, &cancel).unwrap());
+    assert!(
+        catalog
+            .uses_custom_equality(&AbiType::Tuple(vec![chain.clone()]), &cancel)
+            .unwrap()
+    );
+    for storage in [
+        AbiType::Array(Box::new(key.clone()), CollectionAccess::Mutable),
+        AbiType::Map {
+            key: Box::new(key.clone()),
+            value: Box::new(chain.clone()),
+            access: CollectionAccess::ReadOnly,
+        },
+        AbiType::Set(Box::new(key), CollectionAccess::Mutable),
+    ] {
+        assert!(
+            !catalog
+                .uses_custom_equality(
+                    &AbiType::StandardEnum {
+                        kind: StandardEnum::Option,
+                        args: vec![storage],
+                    },
+                    &cancel
+                )
+                .unwrap()
+        );
+    }
+    let empty = ProofCatalog::new(vec![], vec![], [], [], &cancel).unwrap();
+    assert_eq!(
+        empty.uses_custom_equality(&chain, &cancel),
+        Err(TypeTransformError::InvalidContract)
+    );
+    let mut deep = scalar();
+    for _ in 0..=MAX_DEPTH {
+        deep = AbiType::Tuple(vec![deep]);
+    }
+    assert_eq!(
+        empty.uses_custom_equality(&deep, &cancel),
+        Err(TypeTransformError::LimitExceeded)
+    );
+    cancel.cancel();
+    assert_eq!(
+        catalog.uses_custom_equality(&chain, &cancel),
+        Err(TypeTransformError::Cancelled)
+    );
+}

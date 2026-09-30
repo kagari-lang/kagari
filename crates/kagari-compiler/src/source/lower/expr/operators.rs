@@ -315,6 +315,9 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
                     | NativeDefaultMethod::ListBinarySearch
+                    | NativeDefaultMethod::ListContains
+                    | NativeDefaultMethod::ListStartsWith
+                    | NativeDefaultMethod::ListEndsWith
             ) {
                 return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
@@ -343,14 +346,6 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::MapEntriesView
             ) {
                 return self.lower_map_view_snapshot(operation, &ty, args[0]);
-            }
-            if matches!(
-                operation,
-                NativeDefaultMethod::ListContains
-                    | NativeDefaultMethod::ListStartsWith
-                    | NativeDefaultMethod::ListEndsWith
-            ) {
-                return self.lower_list_query(operation, &ty, args);
             }
             if operation == NativeDefaultMethod::ListJoin {
                 if matches!(ty, TypeId::Array(_, _)) {

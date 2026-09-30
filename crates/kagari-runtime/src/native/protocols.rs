@@ -4,6 +4,7 @@ use crate::{
     builtin::BuiltinError,
     native::{NativeCallback, NativeCallbackTarget, callback},
     value::Value,
+    value_semantics,
 };
 use kagari_abi::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
@@ -185,6 +186,70 @@ pub(super) fn compare(
         arguments,
         &[witness.receiver.clone(), witness.receiver.clone()],
         &output,
+    )
+}
+
+pub(super) fn equal(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    left: Value,
+    right: Value,
+) -> Result<ProtocolStep, RuntimeError> {
+    if [&left, &right]
+        .iter()
+        .any(|value| !runtime.matches_interface_method_abi(value, &witness.receiver, owner))
+    {
+        return Err(invalid());
+    }
+    if matches!(
+        witness.implementation,
+        NativeWitnessImplementation::Primitive | NativeWitnessImplementation::Interface
+    ) {
+        return value_semantics::script_equal(runtime.gc(), &left, &right)
+            .map(|equal| ProtocolStep::Value(Value::Bool(equal)));
+    }
+    let arguments = vec![left, right];
+    if witness.implementation == NativeWitnessImplementation::Derived {
+        let [target] = witness.methods.as_slice() else {
+            return Err(invalid());
+        };
+        let implementation = owner
+            .members()
+            .find(|module| module.bytecode.identity == target.declaration.module)
+            .ok_or_else(invalid)?;
+        let function = implementation
+            .bytecode
+            .functions
+            .iter()
+            .find(|function| function.identity.as_ref() == Some(target))
+            .ok_or_else(invalid)?;
+        let metadata = &function.metadata;
+        if metadata.params.len() != 2
+            || metadata.semantic.params.get(&0) != Some(&witness.receiver)
+            || metadata.semantic.params.get(&1) != Some(&witness.receiver)
+            || metadata.semantic.result.as_ref() != Some(&AbiType::Builtin(BuiltinType::Bool))
+        {
+            return Err(invalid());
+        }
+        let function = function.id;
+        runtime.validate_loaded_module(&implementation)?;
+        return Ok(ProtocolStep::Call(NativeCallback {
+            target: NativeCallbackTarget::Function {
+                implementation,
+                function,
+            },
+            arguments,
+        }));
+    }
+    table_call(
+        runtime,
+        owner,
+        witness,
+        0,
+        arguments,
+        &[witness.receiver.clone(), witness.receiver.clone()],
+        &AbiType::Builtin(BuiltinType::Bool),
     )
 }
 
@@ -394,6 +459,7 @@ fn table_call(
         }
         NativeWitnessImplementation::Interface
         | NativeWitnessImplementation::Host
-        | NativeWitnessImplementation::Primitive => Err(invalid()),
+        | NativeWitnessImplementation::Primitive
+        | NativeWitnessImplementation::Derived => Err(invalid()),
     }
 }

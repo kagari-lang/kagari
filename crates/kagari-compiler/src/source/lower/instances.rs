@@ -272,8 +272,8 @@ impl<'a> InstancePlanner<'a> {
         self.check()?;
         let declaration = DefinitionId {
             module: self.module.lowered.source.module_identity().clone(),
-            path: vec![kagari_common::identity::DefinitionPathSegment {
-                kind: kagari_common::identity::DefinitionKind::Function,
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Function,
                 name: format!("$derived_{}", protocol.name()),
                 occurrence: 0,
             }],

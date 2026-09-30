@@ -89,6 +89,37 @@ fn main() -> i32 {
 }
 
 #[test]
+fn native_list_equality_preserves_composition_identity_and_inherited_views() {
+    execute(
+        r#"
+struct Key {val value:ArrayList<i32>}
+impl PartialEq for Key {fn eq(self,other:Self)->bool {
+val absent:Option<i32> =None;self.value[0]==absent.unwrap_or_else(||other.value[0])}}
+enum Choice<T> {Empty,Item(T)}
+fn check<L:List<(Option<Key>,Choice<Key>)>>(source:L)->bool {
+source.contains((Some(Key{value:[42]}),Choice::Item(Key{value:[7]})))}
+fn main()->i32 {
+val value=(Some(Key{value:[42]}),Choice::Item(Key{value:[7]}));
+val values=[value];val inherited:MutableList<(Option<Key>,Choice<Key>)> =values;
+std::debug::assert(check(values),"generic nested equality");
+std::debug::assert(inherited.contains((Some(Key{value:[42]}),Choice::Item(Key{value:[7]}))),"inherited contains");
+std::debug::assert(inherited.starts_with([value]) && inherited.ends_with([value]),"same composite");
+std::debug::assert(values.starts_with(values) && values.ends_with(values),"aliased guards");
+inherited.push(value);
+val a=[1];val b=[1];val x:List<i32> =a;val y:List<i32> =b;
+std::debug::assert([a].contains(a) && ![a].contains(b),"storage identity");
+std::debug::assert([x].contains(x) && ![x].contains(y),"collection view identity");
+std::debug::assert([x].starts_with([x]) && ![x].ends_with([y]),"view sequence identity");
+std::debug::assert([(Some(1),Choice::Item(2))].contains((Some(1),Choice::Item(2))),"primitive composition");
+std::debug::assert(["a","b"].ends_with(["b"]),"string equality");
+val nan="NaN".parse::<f64>().unwrap_or(0.0);
+std::debug::assert(![nan].contains(nan) && ![nan].starts_with([nan]),"IEEE equality");42
+}
+"#,
+    );
+}
+
+#[test]
 fn user_containers_implement_the_same_storage_independent_contracts() {
     execute(
         r#"

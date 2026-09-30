@@ -20,7 +20,7 @@ pub mod contract;
 mod linked;
 mod signature;
 
-pub const ENGINE_NATIVE_BINDING_VERSION: u32 = 1;
+pub const ENGINE_NATIVE_BINDING_VERSION: u32 = 2;
 
 /// A trusted linked engine entry. Resumable implementations are driven by the
 /// execution session instead of recursively invoking script from a Rust helper.
@@ -58,6 +58,8 @@ pub enum NativeWitnessImplementation {
     Table(ConcreteFunctionIdentity),
     Host,
     Interface,
+    /// Core tuple/enum composition emitted through the language primitive path.
+    Derived,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,7 +67,8 @@ pub struct NativeWitness {
     pub receiver: AbiType,
     pub interface: NominalAbiType,
     pub implementation: NativeWitnessImplementation,
-    /// Concrete script required-method applications selected by the source producer.
+    /// Concrete script required-method or derived core protocol applications
+    /// selected by the source producer.
     /// Signatures and obligations remain in the carried trait declarations.
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub methods: Vec<ConcreteFunctionIdentity>,
@@ -184,6 +187,9 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
                     | NativeDefaultMethod::ListBinarySearch
+                    | NativeDefaultMethod::ListContains
+                    | NativeDefaultMethod::ListStartsWith
+                    | NativeDefaultMethod::ListEndsWith
             )
         ) {
             let mut bounds = self.requirements.clone();

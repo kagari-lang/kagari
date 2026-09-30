@@ -2,6 +2,7 @@
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
+    scalar::BuiltinType,
     standard::{
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         surface::StandardEnum,
@@ -33,6 +34,9 @@ pub(super) fn valid<'a>(
                 NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
                     | NativeDefaultMethod::ListBinarySearch
+                    | NativeDefaultMethod::ListContains
+                    | NativeDefaultMethod::ListStartsWith
+                    | NativeDefaultMethod::ListEndsWith
             )
         );
         if list_query
@@ -58,6 +62,50 @@ pub(super) fn valid<'a>(
             )
         );
         let conversion = numeric || list_query;
+        let equality = list_query && protocol == Some(StandardTrait::PartialEq);
+        if equality
+            && witness.implementation == NativeWitnessImplementation::Interface
+            && matches!(&witness.receiver,AbiType::Trait(interface) if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection))
+        {
+            if !witness.methods.is_empty() {
+                return Ok(false);
+            }
+            continue;
+        }
+        if equality
+            && matches!(
+                witness.implementation,
+                NativeWitnessImplementation::Primitive | NativeWitnessImplementation::Derived
+            )
+        {
+            let composed = catalog.uses_custom_equality(&witness.receiver, cancel)?;
+            if witness.implementation == NativeWitnessImplementation::Primitive {
+                if composed || !witness.methods.is_empty() {
+                    return Ok(false);
+                }
+            } else {
+                let [target] = witness.methods.as_slice() else {
+                    return Ok(false);
+                };
+                if !composed
+                    || target.arguments != [witness.receiver.clone()]
+                    || target.declaration.path.as_slice()
+                        != [DefinitionPathSegment {
+                            kind: DefinitionKind::Function,
+                            name: "$derived_PartialEq".into(),
+                            occurrence: 0,
+                        }]
+                    || callable(target)
+                        != Some(NativeSignature {
+                            params: vec![witness.receiver.clone(), witness.receiver.clone()],
+                            result: AbiType::Builtin(BuiltinType::Bool),
+                        })
+                {
+                    return Ok(false);
+                }
+            }
+            continue;
+        }
         let invoked = (conversion
             && matches!(
                 protocol,
@@ -65,7 +113,8 @@ pub(super) fn valid<'a>(
             ))
             || matches!(import.binding, EngineNativeBinding::TraitDefault(_))
                 && (matches!(protocol, Some(StandardTrait::Iterator | StandardTrait::Ord))
-                    || aggregate);
+                    || aggregate
+                    || equality);
         if !invoked
             || (protocol == Some(StandardTrait::Iterator)
                 && matches!(witness.receiver, AbiType::Iter(_)))
@@ -196,6 +245,10 @@ pub(super) fn valid<'a>(
                 )?;
                 expected.params.as_slice() == slice::from_ref(&witness.receiver)
                     && expected.result == iterator
+            }
+            Some(StandardTrait::PartialEq) if equality => {
+                expected.params.as_slice() == [witness.receiver.clone(), witness.receiver.clone()]
+                    && expected.result == AbiType::Builtin(BuiltinType::Bool)
             }
             Some(StandardTrait::Ord) => {
                 expected.params.as_slice() == [witness.receiver.clone(), witness.receiver.clone()]

@@ -10,9 +10,9 @@ Twenty iterator terminals also execute natively with selected static protocol
 witnesses, including search, reduction, callback comparisons, Ord extrema, join
 and numeric/user-defined aggregation. Checked scalar implementations also own
 direct Iterable-based Sum/Product entrypoints through the same native traversal.
-List first/last/binary_search queries execute natively across storage, selected
-script implementations and declared dynamic views with checked multi-method
-witnesses. Remaining ST05 iterator/collection migration and ST06 encoded fixtures/
+All six List queries execute natively across storage, selected script
+implementations and declared dynamic views with checked multi-method witnesses
+and selected primitive, nominal or core composed equality. Remaining ST05 iterator/collection migration and ST06 encoded fixtures/
 final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -511,6 +511,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   static/dynamic Iterable conversion, generic sources and checked error categories.
 - [x] Migrate List positional queries (`first`, `last`, `binary_search`) with selected
   List/Iterable/Ord witnesses across storage, script implementations and dynamic views.
+- [x] Migrate List equality queries (`contains`, `starts_with`, `ends_with`) with
+  selected equality composition, dual guards and storage/script/dynamic traversal.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -806,6 +808,58 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 List equality-query checkpoint (2026-09-30): completes contains,
+  starts_with and ends_with as one native family. Deleted their compiler control
+  flow expansion. Runtime owns traversal, both List/Iterable conversions, lengths,
+  selected get calls, equality, prefix/suffix offsets and guard/iterator teardown,
+  preserving the original logical operation schedule and shared payload semantics.
+- Portable equality witnesses distinguish primitive identity/structural equality,
+  selected nominal PartialEq methods, collection-view identity and core derived
+  tuple/enum composition. The existing core language equality function remains
+  the same implementation used by ordinary `==`; it is not a second List
+  algorithm or a compatibility adapter. Derived witnesses carry its canonical
+  concrete function identity and receiver argument. Source lowering materializes
+  it normally; program demand collection requests only unmaterialized targets,
+  including selected foreign generic methods in their defining modules.
+- Source-free validation checks the required composition from carried enum layouts
+  and implementation tables, with cancellation and bounded recursive traversal.
+  Identity containers stop payload traversal. It rejects primitive bypass of a
+  selected custom leaf, unnecessary derived composition, altered core identities,
+  receiver applications and missing targets. Required physical parameter/result
+  contracts and all List/Iterable shapes remain checked before execution. Runtime
+  resolves the carried core target in the pinned program generation and invokes
+  it on ordinary shared frames; there is no artificial native query frame.
+- Recorded 312 cases at 56bf0bd across scalar/custom leaf/tuple/Option/user enum/
+  nested composition, native/custom storage and dynamic views, matches/misses,
+  empty inputs and longer needles. All 66,800 source/decoded budget cuts preserve
+  exact totals, iter/len/get/eq/done positions, results and GC/session cleanup.
+  Additional tests cover successful and failed host reentry, cancellation at each
+  callback occurrence, core and selected-method trap frames, both source/needle
+  alias-mutation guards, inconsistent get payload failures, foreign generic
+  composition and subsequent clean execution at GC threshold 1. All 189 selected
+  equality import corruptions reject in memory and encoded loading. ABI tests
+  cover recursive carried layouts, identity boundaries, missing layouts, bounded
+  depth and cancellation.
+- Embedding checks preserve nested callbacks, inherited MutableList dispatch,
+  aliased source/needle guards, subsequent mutation, container/view identity,
+  primitive composition, strings and IEEE NaN equality on source, decoded and
+  supported JIT/fallback routes. Runtime ABI is v116, engine binding v2, KBC v109
+  and KMIR v7 for the explicit derived-witness schema; helper ABI remains v6.
+  Previous formats/bindings are rejected rather than read through an old model.
+- ABI 46, bytecode 27, compiler 173, HIR 414, MIR 1, runtime 71, stdlib 7
+  and VM 167 library tests pass (907 cumulative, including the final ABI suite).
+  Embedding collection_interfaces/default_methods/error_traces/iteration_traits/
+  lazy_iterators/numeric_operations pass 91 tests (998 cumulative). Workspace
+  all-target Clippy with warnings denied, formatting, structure and diff checks
+  pass. Structure covers 603 Rust files with zero violations/exceptions. Manual
+  review covered core/native ownership, canonical applications, required-method
+  dispatch, pinned callbacks, import scopes, effective LOC and root/guard/budget
+  teardown. Initial derived-witness exhaustiveness and test fixture construction
+  errors were corrected; no carried build/test error or structural debt remains
+  at this checkpoint. Remaining iterator destinations/adapters, custom keys and mutation algorithms
+  stay in ST05. ST06 owns encoded fixture regeneration and whole workspace,
+  source-free feature/behavior and measurement acceptance.
 
 - ST05 List positional-query checkpoint (2026-09-30): completes first, last and
   binary_search as one native execution family. Removed their compiler algorithm

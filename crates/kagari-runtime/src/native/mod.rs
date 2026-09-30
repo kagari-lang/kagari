@@ -1,6 +1,7 @@
 //! Bounded native method state retained by the caller's execution frame.
 mod enums;
 mod iterators;
+mod list_equality;
 mod lists;
 mod protocols;
 use crate::{
@@ -10,6 +11,7 @@ use crate::{
     native::{
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
+        list_equality::EqualityInvocation,
         lists::ListInvocation,
     },
     value::Value,
@@ -66,6 +68,7 @@ enum NativeState {
     Enum(EnumInvocation),
     Iterator(IteratorInvocation),
     List(ListInvocation),
+    ListEquality(EqualityInvocation),
     Forward,
 }
 
@@ -110,6 +113,13 @@ impl NativeInvocation {
                 operation,
             ))) => {
                 if matches!(
+                    operation,
+                    NativeDefaultMethod::ListContains
+                        | NativeDefaultMethod::ListStartsWith
+                        | NativeDefaultMethod::ListEndsWith
+                ) {
+                    NativeState::ListEquality(EqualityInvocation::start(operation, arguments)?)
+                } else if matches!(
                     operation,
                     NativeDefaultMethod::ListFirst
                         | NativeDefaultMethod::ListLast
@@ -192,6 +202,13 @@ impl NativeInvocation {
                         NativeState::List(state) => state.initial.take().ok_or_else(|| {
                             RuntimeError::module_validation("missing List initial roots")
                         })?,
+                        NativeState::ListEquality(state) => {
+                            state.initial.take().ok_or_else(|| {
+                                RuntimeError::module_validation(
+                                    "missing List equality initial roots",
+                                )
+                            })?
+                        }
                         NativeState::Forward => vec![],
                     })
                     .collect(),
@@ -230,6 +247,9 @@ impl NativeInvocation {
             NativeState::List(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
+            NativeState::ListEquality(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::Forward => Err(RuntimeError::module_validation(
                 "aggregation callback is pending",
             )),
@@ -255,6 +275,13 @@ impl NativeInvocation {
                 )
                 .map(|()| NativeAction::Continue),
             NativeState::List(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()],
+                &self.roots,
+                value,
+            ),
+            NativeState::ListEquality(state) => state.receive(
                 runtime,
                 &self.implementation,
                 &self.implementation.bytecode.engine_imports[self.import.index()],

@@ -130,7 +130,11 @@ impl EngineNativeImport {
         if matches!(
             self.binding,
             EngineNativeBinding::TraitDefault(
-                NativeDefaultMethod::ListLast | NativeDefaultMethod::ListBinarySearch
+                NativeDefaultMethod::ListLast
+                    | NativeDefaultMethod::ListBinarySearch
+                    | NativeDefaultMethod::ListContains
+                    | NativeDefaultMethod::ListStartsWith
+                    | NativeDefaultMethod::ListEndsWith
             )
         ) {
             let Some(list) = self.witnesses.iter().find(|witness| {
@@ -197,6 +201,36 @@ impl EngineNativeImport {
                 constraints: vec![ConstraintAbi::Trait(interface)],
             });
         }
+        if matches!(
+            self.binding,
+            EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::ListStartsWith | NativeDefaultMethod::ListEndsWith
+            )
+        ) {
+            let Some(AbiType::Trait(list)) = self.signature.params.get(1) else {
+                return Ok(false);
+            };
+            let receiver = self.signature.params[1].clone();
+            obligations.push(GenericBoundAbi {
+                ty: receiver.clone(),
+                constraints: vec![ConstraintAbi::Trait(list.clone())],
+            });
+            let Some(iterable) =
+                catalog
+                    .ancestry(list, &receiver, cancel)?
+                    .into_iter()
+                    .find(|interface| {
+                        StandardTrait::from_id(&interface.declaration)
+                            == Some(StandardTrait::Iterable)
+                    })
+            else {
+                return Ok(false);
+            };
+            obligations.push(GenericBoundAbi {
+                ty: receiver,
+                constraints: vec![ConstraintAbi::Trait(iterable)],
+            });
+        }
         let mut consumed = HashSet::new();
         for bound in &obligations {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
@@ -218,6 +252,16 @@ impl EngineNativeImport {
                     NativeWitnessImplementation::Primitive => {
                         !matches!(bound.ty, AbiType::Host(_) | AbiType::Trait(_))
                             && !catalog.has_explicit_implementation(interface, &bound.ty, cancel)?
+                    }
+                    NativeWitnessImplementation::Derived => {
+                        StandardTrait::from_id(&interface.declaration)
+                            == Some(StandardTrait::PartialEq)
+                            && matches!(
+                                bound.ty,
+                                AbiType::Tuple(_) | AbiType::Enum(_) | AbiType::StandardEnum { .. }
+                            )
+                            && !catalog.has_explicit_implementation(interface, &bound.ty, cancel)?
+                            && catalog.uses_custom_equality(&bound.ty, cancel)?
                     }
                     NativeWitnessImplementation::Host => matches!(bound.ty, AbiType::Host(_)),
                     NativeWitnessImplementation::Interface => matches!(bound.ty, AbiType::Trait(_)),
