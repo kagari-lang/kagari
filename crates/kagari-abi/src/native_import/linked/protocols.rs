@@ -1,7 +1,7 @@
 //! Validate selected required-method applications against carried declarations.
 use super::{
     destinations::{self, Application},
-    sources,
+    lazy, sources,
 };
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
@@ -74,7 +74,11 @@ pub(super) fn valid<'a>(
             }
             continue;
         }
-        if (list_query || snapshot || sources::selected(import) || sets::selected(import.binding))
+        if (list_query
+            || snapshot
+            || lazy::selected(import)
+            || sources::selected(import)
+            || sets::selected(import.binding))
             && collection == Some(StandardTrait::List)
             || snapshot && collection == Some(StandardTrait::Map)
             || sets::selected(import.binding) && collection == Some(StandardTrait::Set)
@@ -100,6 +104,7 @@ pub(super) fn valid<'a>(
         );
         let conversion = destinations::selected(import)
             || numeric
+            || lazy::selected(import)
             || list_query
             || snapshot
             || sources::selected(import)

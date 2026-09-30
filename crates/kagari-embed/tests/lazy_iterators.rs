@@ -183,14 +183,17 @@ fn explicit_iterator_default_override_uses_the_script_implementation() {
 }
 
 #[test]
-fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
-    use kagari_abi::{operations::IterOp, scalar::BuiltinType, types::AbiType};
+fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_arguments() {
+    use kagari_abi::{
+        callable::EngineNativeBinding, scalar::BuiltinType,
+        standard::bindings::NativeDefaultMethod, types::AbiType,
+    };
     use kagari_bytecode::{BytecodeInstruction as I, ConstantOperand};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
                 "invalid-iter-wire.kgr",
-                "fn main(){val a:ArrayList<(usize,i32)> = [1].iter().enumerate().collect();}",
+                "fn main(){val a:ArrayList<i32> = [1].iter().map(|x|x+1).take(2usize).collect();}",
             ),
             Default::default(),
             Default::default(),
@@ -198,48 +201,36 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
         .unwrap();
     for corrupt in 0..3 {
         let mut program = artifact.program.clone();
-        let function = &mut program.modules[program.root.index()].functions[0];
+        let module = &mut program.modules[program.root.index()];
         if corrupt == 2 {
-            let register = *function
-                .metadata
-                .semantic
-                .registers
-                .iter()
-                .find(|(_, ty)| **ty == AbiType::Builtin(BuiltinType::USize))
-                .unwrap()
-                .0;
-            let value = function
-                .instructions
+            let constant = module
+                .functions
                 .iter_mut()
-                .find_map(|i| match i {
-                    I::LoadConst { dst, constant } if dst.index() == register => Some(constant),
-                    _ => None,
-                })
-                .unwrap();
-            *value = ConstantOperand::I64(-1);
-        } else {
-            let ty = function
-                .instructions
-                .iter_mut()
-                .find_map(|i| match i {
-                    I::Iter {
-                        ty,
-                        op: IterOp::FromClosure,
+                .flat_map(|function| &mut function.instructions)
+                .find_map(|instruction| match instruction {
+                    I::LoadConst {
+                        constant: constant @ ConstantOperand::U64(2),
                         ..
-                    } => Some(ty),
+                    } => Some(constant),
                     _ => None,
                 })
                 .unwrap();
-            let AbiType::Tuple(fields) = ty else {
-                panic!("adapter captures")
-            };
-            let AbiType::Function { params, result } = &mut fields[0] else {
-                panic!("step signature")
+            *constant = ConstantOperand::I64(-1);
+        } else {
+            let contract = module
+                .engine_imports
+                .iter_mut()
+                .find(|contract| {
+                    contract.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::Map)
+                })
+                .unwrap();
+            let AbiType::Function { params, result } = &mut contract.signature.params[1] else {
+                panic!("map callback")
             };
             if corrupt == 0 {
                 params.push(AbiType::Builtin(BuiltinType::I32));
             } else {
-                **result = AbiType::Builtin(BuiltinType::I32);
+                **result = AbiType::Builtin(BuiltinType::Bool);
             }
         }
         assert!(

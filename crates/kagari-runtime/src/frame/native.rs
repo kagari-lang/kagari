@@ -1,9 +1,11 @@
 use crate::{
     NativeCallback, NativeProgress, Runtime, RuntimeError,
     frame::{ExecutionStack, ReturnDestination},
+    gc::lazy_iter::IteratorRequest,
     native::{NativeAction, NativeCallbackTarget, NativeInvocation},
     value::Value,
 };
+use kagari_abi::types::AbiType;
 use kagari_bytecode::{EngineImportId, Register};
 use std::rc::Rc;
 
@@ -18,7 +20,6 @@ impl ExecutionStack {
         }
         Ok(())
     }
-
     /// Entry performs the already charged first logical operation. Further work
     /// is advanced by the driver between safepoints, outside any callback borrow.
     pub fn begin_native(
@@ -33,70 +34,143 @@ impl ExecutionStack {
         let mut invocation =
             NativeInvocation::start(runtime, implementation, import, arguments, destination)?;
         let mut frame = self.current_mut()?;
-        if frame.native.is_some() {
+        if !frame.native.is_empty() {
             return Err(self
                 .session
                 .resources
                 .quarantine("native invocation replaced its continuation"));
         }
         let action = invocation.take_entry();
-        frame.native = Some(invocation);
+        frame
+            .native
+            .try_reserve(1)
+            .map_err(|_| self.session.resources.limit("native continuation capacity"))?;
+        frame.native.push(invocation);
         drop(frame);
-        self.process_native_action(destination, action)
+        self.process_native_action(runtime, action)
     }
-
+    /// Native lazy steps share the active scope and charged driver. Their pinned
+    /// constructor contract owns captures and selected protocols after reload.
+    pub fn begin_iterator_step(
+        &self,
+        runtime: &Runtime,
+        value: &Value,
+        ty: &AbiType,
+        destination: Option<Register>,
+    ) -> Result<Option<NativeProgress>, RuntimeError> {
+        self.validate_native_runtime(runtime)?;
+        let Some(request) = runtime.gc().iterator_request(value, ty)? else {
+            return Ok(None);
+        };
+        if !self.current()?.native.is_empty() {
+            return Err(self
+                .session
+                .resources
+                .quarantine("iterator step replaced its continuation"));
+        }
+        self.push_iterator_request(runtime, request, destination)?;
+        Ok(Some(NativeProgress::Continue))
+    }
+    fn push_iterator_request(
+        &self,
+        runtime: &Runtime,
+        request: IteratorRequest,
+        destination: Option<Register>,
+    ) -> Result<(), RuntimeError> {
+        let invocation = NativeInvocation::iterator_step(runtime, request, destination)?;
+        let mut frame = self.current_mut()?;
+        frame
+            .native
+            .try_reserve(1)
+            .map_err(|_| self.session.resources.limit("native continuation capacity"))?;
+        frame.native.push(invocation);
+        Ok(())
+    }
     pub fn has_native_continuation(&self) -> Result<bool, RuntimeError> {
-        Ok(self.current()?.native.is_some())
+        Ok(!self.current()?.native.is_empty())
     }
-
     pub fn advance_native(&self, runtime: &Runtime) -> Result<NativeProgress, RuntimeError> {
         self.validate_native_runtime(runtime)?;
         let mut invocation = self
             .current_mut()?
             .native
-            .take()
+            .pop()
             .ok_or_else(|| RuntimeError::module_validation("missing native continuation"))?;
-        let destination = invocation.destination;
-        // Rooted state remains owned here while allocations capture the caller
-        // stack. A frame borrow would hide its origin from Result error traces.
+        // No frame borrow spans allocation, callback resolution or trace capture.
         let action = invocation.advance(runtime);
-        let mut frame = self.current_mut()?;
-        frame.native = Some(invocation);
-        drop(frame);
-        self.process_native_action(destination, action?)
+        self.current_mut()?.native.push(invocation);
+        self.process_native_action(runtime, action?)
     }
-
     fn process_native_action(
         &self,
-        destination: Option<Register>,
-        action: NativeAction,
+        runtime: &Runtime,
+        mut action: NativeAction,
     ) -> Result<NativeProgress, RuntimeError> {
-        let mut frame = self.current_mut()?;
-        match action {
-            NativeAction::Continue => Ok(NativeProgress::Continue),
-            NativeAction::Callback(request) => Ok(NativeProgress::Callback(request)),
-            NativeAction::BuiltinFailure(error) => Ok(NativeProgress::BuiltinFailure(error)),
-            NativeAction::TypeMismatch(detail) => Ok(NativeProgress::TypeMismatch(detail)),
-            NativeAction::Publish(value) => {
-                if let Some(destination) = destination {
-                    frame.write_register(destination, value)?;
+        loop {
+            match action {
+                NativeAction::Continue => return Ok(NativeProgress::Continue),
+                NativeAction::Callback(request) => return Ok(NativeProgress::Callback(request)),
+                NativeAction::BuiltinFailure(error) => {
+                    return Ok(NativeProgress::BuiltinFailure(error));
                 }
-                Ok(NativeProgress::Continue)
-            }
-            NativeAction::Finish => {
-                frame.native = None;
-                Ok(NativeProgress::Finished)
-            }
-            NativeAction::Complete(value) => {
-                if let Some(destination) = destination {
-                    frame.write_register(destination, value)?;
+                NativeAction::TypeMismatch(detail) => {
+                    return Ok(NativeProgress::TypeMismatch(detail));
                 }
-                frame.native = None;
-                Ok(NativeProgress::Finished)
+                NativeAction::Publish(value) => {
+                    let mut frame = self.current_mut()?;
+                    let destination = frame
+                        .native
+                        .last()
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("missing native publication")
+                        })?
+                        .destination;
+                    if let Some(destination) = destination {
+                        frame.write_register(destination, value)?;
+                    }
+                    return Ok(NativeProgress::Continue);
+                }
+                NativeAction::Finish => {
+                    self.current_mut()?.native.pop().ok_or_else(|| {
+                        RuntimeError::module_validation("missing native completion")
+                    })?;
+                    if !self.current()?.native.is_empty() {
+                        return Err(RuntimeError::module_validation(
+                            "nested native finish has no value",
+                        ));
+                    }
+                    return Ok(NativeProgress::Finished);
+                }
+                NativeAction::Complete(value) => {
+                    let completed = self.current_mut()?.native.pop().ok_or_else(|| {
+                        RuntimeError::module_validation("missing native completion")
+                    })?;
+                    let destination = completed.destination;
+                    drop(completed);
+                    if self.current()?.native.is_empty() {
+                        if let Some(destination) = destination {
+                            self.current_mut()?.write_register(destination, value)?;
+                        }
+                        return Ok(NativeProgress::Finished);
+                    }
+                    action = self.receive_native(runtime, value)?;
+                }
             }
         }
     }
-
+    fn receive_native(
+        &self,
+        runtime: &Runtime,
+        value: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        let mut invocation =
+            self.current_mut()?.native.pop().ok_or_else(|| {
+                RuntimeError::module_validation("native callback lost its caller")
+            })?;
+        let action = invocation.receive(runtime, value);
+        self.current_mut()?.native.push(invocation);
+        action
+    }
     pub fn push_native_callback(
         &self,
         runtime: &Runtime,
@@ -104,6 +178,14 @@ impl ExecutionStack {
     ) -> Result<(), RuntimeError> {
         self.validate_native_runtime(runtime)?;
         match request.target {
+            NativeCallbackTarget::Iterator(step) => {
+                if !request.arguments.is_empty() {
+                    return Err(RuntimeError::module_validation(
+                        "iterator step has callback arguments",
+                    ));
+                }
+                return self.push_iterator_request(runtime, step, None);
+            }
             NativeCallbackTarget::Interface(method) => {
                 self.push_interface_method(runtime, *method, &request.arguments, None)?;
             }
@@ -118,9 +200,8 @@ impl ExecutionStack {
         self.current_mut()?.return_to = ReturnDestination::Native;
         Ok(())
     }
-
-    /// Complete a script return within this scope. A reentrant scope returns to
-    /// its host caller instead of consuming a suspended outer native callback.
+    /// A reentrant scope returns to its host caller instead of consuming a
+    /// suspended outer callback. Nested native steps remain in their owning scope.
     pub fn finish_return(
         &self,
         runtime: &Runtime,
@@ -138,25 +219,15 @@ impl ExecutionStack {
         if self.is_empty()? {
             return Ok(Some(value));
         }
-        let mut frame = self.current_mut()?;
         match destination {
             ReturnDestination::Register(Some(destination)) => {
-                frame.write_register(destination, value)?
+                self.current_mut()?.write_register(destination, value)?
             }
             ReturnDestination::Register(None) => {}
             ReturnDestination::Native => {
-                let invocation = frame.native.as_mut().ok_or_else(|| {
-                    RuntimeError::module_validation("native callback lost its caller")
-                })?;
-                let destination = invocation.destination;
-                match invocation.receive(runtime, value)? {
-                    NativeAction::Continue => {}
-                    NativeAction::Complete(value) => {
-                        if let Some(destination) = destination {
-                            frame.write_register(destination, value)?;
-                        }
-                        frame.native = None;
-                    }
+                let action = self.receive_native(runtime, value)?;
+                match self.process_native_action(runtime, action)? {
+                    NativeProgress::Continue | NativeProgress::Finished => {}
                     _ => {
                         return Err(RuntimeError::module_validation(
                             "invalid native callback return action",

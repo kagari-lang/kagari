@@ -7,6 +7,7 @@ mod destinations;
 mod enums;
 mod iterators;
 mod keys;
+mod lazy_iterators;
 mod list_equality;
 mod list_join;
 mod lists;
@@ -22,7 +23,7 @@ mod string_iterators;
 use crate::{
     LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
     builtin::BuiltinError,
-    gc::{ClosureValueSnapshot, RootSet},
+    gc::{ClosureValueSnapshot, RootSet, lazy_iter::IteratorRequest},
     native::{
         array_copy::ArrayCopy,
         array_initialization::ArrayInitialization,
@@ -32,6 +33,7 @@ use crate::{
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
         keys::KeyInvocation,
+        lazy_iterators::{LazyInvocation, StepCallScope},
         list_equality::EqualityInvocation,
         list_join::ListJoin,
         lists::ListInvocation,
@@ -65,6 +67,7 @@ pub struct NativeCallback {
 }
 
 pub(crate) enum NativeCallbackTarget {
+    Iterator(IteratorRequest),
     Closure(ClosureValueSnapshot),
     Interface(Box<RootedInterfaceMethod>),
     Function {
@@ -94,6 +97,7 @@ pub(crate) enum NativeAction {
 }
 
 enum NativeState {
+    Lazy(LazyInvocation),
     Key(KeyInvocation),
     PreparedArray(Box<PreparedArray>),
     Retention(Retention),
@@ -121,6 +125,7 @@ pub(crate) struct NativeInvocation {
     roots: RootSet,
     state: NativeState,
     entry: Option<NativeAction>,
+    _step_scope: Option<StepCallScope>,
 }
 
 impl NativeInvocation {
@@ -143,6 +148,11 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
+                operation,
+            ))) if operation.lazy() => {
+                NativeState::Lazy(LazyInvocation::constructor(operation, arguments))
+            }
             Some(EngineNativeOperation::Resumable(binding))
                 if matches!(
                     binding,
@@ -368,6 +378,7 @@ impl NativeInvocation {
                         NativeState::Partition(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Fallible(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Forward => vec![],
+                        NativeState::Lazy(state) => state.constructor_roots()?,
                         NativeState::ArrayInitialization(_) => {
                             vec![Value::Unit; array_initialization::SCRATCH_ROOTS]
                         }
@@ -405,6 +416,9 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
+            NativeState::Lazy(state) => {
+                Some(state.advance(runtime, &implementation, import, contract, &roots)?)
+            }
             NativeState::Factory(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }
@@ -440,6 +454,7 @@ impl NativeInvocation {
             roots,
             state,
             entry,
+            _step_scope: None,
         })
     }
 
@@ -450,6 +465,13 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Lazy(state) => state.advance(
+                runtime,
+                &self.implementation,
+                self.import,
+                contract,
+                &self.roots,
+            ),
             NativeState::Factory(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
@@ -518,6 +540,7 @@ impl NativeInvocation {
     ) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Lazy(state) => state.receive(runtime, &self.roots, value),
             NativeState::Factory(state) => {
                 state.receive(runtime, &self.implementation, contract, &self.roots, value)
             }

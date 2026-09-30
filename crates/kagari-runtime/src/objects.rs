@@ -253,20 +253,13 @@ impl Runtime {
         op: IterOp,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(owner)?;
-        if matches!(
-            op,
-            kagari_abi::operations::IterOp::New
-                | kagari_abi::operations::IterOp::FromClosure
-                | kagari_abi::operations::IterOp::String(_)
-        ) {
+        if matches!(op, IterOp::New | IterOp::String(_)) {
             let retention = self
                 .modules
                 .retain_runtime_program(owner)
                 .ok_or_else(|| RuntimeError::module_validation("iterator version unavailable"))?;
             if let IterOp::String(kind) = op {
                 self.gc.new_string_iter(value, ty, kind, owner, retention)
-            } else if op == IterOp::FromClosure {
-                self.gc.new_script_iter(value, ty, owner, retention)
             } else {
                 self.gc.new_iter(value, ty, owner, retention)
             }

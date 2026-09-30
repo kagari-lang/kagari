@@ -26,11 +26,23 @@ impl SourceSelection {
         let iterable = contract
             .witnesses
             .iter()
-            .position(|witness| {
+            .enumerate()
+            .filter(|(_, witness)| {
                 witness.receiver == *source
                     && StandardTrait::from_id(&witness.interface.declaration)
                         == Some(StandardTrait::Iterable)
+                    && witness
+                        .interface
+                        .associated_types
+                        .contains_key(&associated_type_id(&witness.interface.declaration, "Item"))
             })
+            .min_by_key(|(_, witness)| {
+                !witness
+                    .interface
+                    .associated_types
+                    .contains_key(&associated_type_id(&witness.interface.declaration, "Iter"))
+            })
+            .map(|(index, _)| index)
             .ok_or_else(invalid)?;
         let conversion = &contract.witnesses[iterable];
         let item = conversion
@@ -41,6 +53,15 @@ impl SourceSelection {
                 "Item",
             ))
             .ok_or_else(invalid)?;
+        let iterator = iterator.or_else(|| {
+            conversion
+                .interface
+                .associated_types
+                .get(&associated_type_id(
+                    &conversion.interface.declaration,
+                    "Iter",
+                ))
+        });
         let next = IteratorSelection::matching(contract, iterator, item)?;
         Ok(Self {
             root,

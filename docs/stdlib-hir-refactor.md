@@ -39,7 +39,10 @@ traversal and bounded selected inner constructors, preserving error identity/ori
 and sharing existing Array/Map/Set construction and key lookup.
 Public Iterator collect delegates its original source to the selected constructor;
 partition owns native once-only predicate traversal and ordered buffered construction.
-Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
+All fourteen lazy Iterator adapters and List windows/chunks now execute through
+GC-owned native captures and shared nested continuations, preserving the original
+resource schedules and guard lifecycle. The ST05 residual primitive/lookup route
+audit and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -575,9 +578,9 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   iterator delegation and shared native/script destination construction.
 - [x] Migrate Iterator `partition` with once-only predicates, rooted shallow buffers,
   selected left-before-right factories and shared construction/lookup states.
-- [ ] Migrate remaining iterator defaults and lazy adapters, including generic/user
+- [x] Migrate remaining iterator defaults and lazy adapters, including generic/user
   protocol witnesses.
-- [ ] Migrate remaining collection/set operations, plus lazy
+- [x] Migrate remaining collection/set operations, plus lazy
   windows/chunks with their existing observable contracts.
 - [ ] Remove corresponding compiler algorithm expansions and standard source
   lookups from MIR, bytecode, VM and runtime.
@@ -870,6 +873,83 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native lazy iterator checkpoint (2026-10-01, after `8e5df0d0`):
+  completes the remaining adapter and collection family checklists together;
+  directly replaced all fourteen adapter constructors/steps and List windows/chunks
+  with checked native calls, GC-owned captures and shared nested native continuations.
+  Removed generated iterator instances/functions, compiler adapter/window expansion,
+  obsolete branch/state/collection helpers, and the FromClosure execution primitive.
+  There is no legacy reader, forwarding function, synthetic bytecode import, nested
+  VM or script algorithm copy. Core closure invocation retains ordinary lowering.
+- Native capture objects retain their checked constructor import and execution
+  version. Cursor arrays preserve aliasing, state update order, allocation schedules
+  and live flat traversal state. Native continuations release heap/frame borrows
+  before callbacks, retain roots across safepoints, and use scoped call-depth
+  accounting. Core iterator ownership/revision checks and resumption/closing of
+  active inner guards remain in GC. Constructors preserve once-only right/List
+  conversion, List length reads, zero-size assertions and original argument effects.
+- Checked lazy contracts carry resolved right/inner/List Iterable and next facts.
+  Linkage validates actual associated outputs independently of normalized declaration
+  signatures, selected private callables and every consumed witness. Indexed result
+  publication explicitly distinguishes a readonly native bridge from a source List
+  application when receiver/interface facts coincide. The runtime uses that checked
+  bridge, rather than selecting the source table for result construction. Final
+  review also removed witness-order assumptions from implicit Self, source List
+  and flatten item selection. Native result bridges cannot substitute for ordinary
+  source implementations. Three reordered contracts preserve every baseline budget
+  cut through source and decoded execution; eight missing/replaced source/result
+  applications are rejected independently of the ordinary witness corruption cases.
+- Before production changed, recorded 138 scenarios, 30,005 distinct instruction
+  limits and zero partial-charge holes at `8e5df0d0`. Source and decoded KBC pass
+  every baseline charge/effect/allocation/call-depth assertion (69.50s). Coverage
+  includes all adapters, native/custom/lazy sources, native/custom inner iterables,
+  size boundaries, and storage/script/dynamic/readonly List windows/chunks. The
+  original capture writer used Cargo's cwd; only export failed, then the repository
+  target path was corrected and capture passed (57.43s). Baselines are unchanged.
+- Sixteen routes pass every allocation cut, cancellation at each host effect,
+  success/failure reentry, forced GC and healthy follow-up execution, with no root,
+  object or call-depth leaks. The expanded run passed all five behavior/resource
+  tests; two new fixture errors were then corrected (a no-op Bool corruption, and
+  an unchanged HIR generic projection rejected in a heterogeneous array). The
+  foreign test now uses a valid generic transform while consuming both private
+  sources and checking shared progress; source/decoded execution and deletion of
+  its defining module's private dependency are checked (0.83s).
+- Source-free rejection passes 233 signature/binding/version/witness/application/
+  private-callable corruptions, including both indexed result bridge methods and
+  custom next/iter/List methods (23.52s). Indexed zero-size and inconsistent get
+  failures retain exact BuiltinError/TypeMismatch categories and completed effect
+  prefixes (0.55s). A deeply nested mixed pipeline passes every call-depth limit
+  and cleanup assertion (0.54s). The final native lazy family suite passes all eleven
+  tests (344.41s), including the complete unchanged baselines and all lifecycle cuts.
+  Eight embedding suites (`lazy_iterators`, `iteration_traits`, `result_option`,
+  `error_traces`, `collection_access`, `prepared_collections`, `collection_interfaces`,
+  `list_windows`) pass 94 tests, including explicit default overrides and supported
+  source/decoded/native preparation. Compiler `source_programs` passes all ten tests.
+- Intermediate compiler checks exposed obsolete helper warnings, ABI verifier API
+  misuse, exhaustive new GC-kind arms, and a progress transport lint; these were
+  resolved directly. Lazy policy owners are encapsulated behind one private native
+  invocation facade with normal module visibility. Complete affected library runs
+  passed ABI 46, bytecode 27, compiler 191, HIR 414, MIR 1, runtime 71 and stdlib 7
+  cases. The VM run passed 250 cases; its only failure was an obsolete join assertion
+  counting every resumable default as a join. It now checks the exact Join/ListJoin
+  and Map bindings, retaining all original budget/effect goldens, and passes on
+  rerun (10.27s). The final lazy suite adds two witness-role/order cases, for 1,010
+  distinct affected library cases validated across these runs. Final ABI/bytecode/
+  runtime suites also pass 144 cases after the linker/driver changes; all five Map
+  snapshot tests (74.50s) and five array interval tests (78.65s) pass against the
+  shared result factory. Reproduction: the eight-package `cargo test --lib` run,
+  then `cargo test -p kagari-vm --lib native_lazy_iterators`,
+  `cargo test -p kagari-vm join_preserves_effects_and_every_budget_cut`, and the
+  `native_map_snapshots`/`native_array_ranges` filters. Structure checks pass all
+  834 Rust files with zero violations/exceptions; workspace/all-target Clippy with
+  denied warnings, formatting and diff checks pass. No build or test error is
+  carried. The residual primitive/lookup audit and whole ST06 acceptance remain pending.
+- Runtime ABI is now v132, KBC v110 and KMIR v8: removing FromClosure changes the
+  serialized primitive enum, and native iterator state/call scheduling replaces
+  generated functions. Native binding v2 and helper ABI v6 retain their schemas.
+  Older artifacts require rebuilding; encoded SDK fixtures remain ST06 work after
+  the remaining route audit stabilizes the execution contract.
 
 - ST05 native collect/partition checkpoint (2026-10-01): completes two cohesive
   family checklists. Public collect now invokes a checked native entry and delegates

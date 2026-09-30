@@ -21,6 +21,7 @@ use kagari_common::{
 use std::{collections::HashSet, iter};
 
 mod destinations;
+mod lazy;
 mod protocols;
 mod snapshots;
 mod sources;
@@ -106,7 +107,12 @@ impl EngineNativeImport {
         // A native default also consumes the selected implementation of its
         // declaring trait. This is the implicit Self obligation of the checked
         // trait method, independently of its written where-clause.
+        let Some(snapshot_obligations) = snapshots::obligations(self, catalog, &table, cancel)?
+        else {
+            return Ok(false);
+        };
         let mut obligations = requirements;
+        obligations.extend(snapshot_obligations.obligations);
         if matches!(self.binding, EngineNativeBinding::TraitDefault(_)) {
             let Some(receiver) = self.signature.params.first() else {
                 return Ok(false);
@@ -118,8 +124,9 @@ impl EngineNativeImport {
                 .filter(|(parameter, _)| parameter.owner == receiver_owner)
                 .map(|(_, argument)| argument.clone())
                 .collect();
-            let Some(witness) = self.witnesses.iter().find(|witness| {
-                witness.receiver == *receiver
+            let Some((_, witness)) = self.witnesses.iter().enumerate().find(|(index, witness)| {
+                Some(*index) != snapshot_obligations.result
+                    && witness.receiver == *receiver
                     && witness.interface.declaration == receiver_owner
                     && witness.interface.arguments == owner_arguments
             }) else {
@@ -160,11 +167,10 @@ impl EngineNativeImport {
                 constraints: vec![ConstraintAbi::Trait(iterable)],
             });
         }
-        let Some(snapshot_obligations) = snapshots::obligations(self, catalog, &table, cancel)?
-        else {
+        let Some(lazy_obligations) = lazy::obligations(self, catalog, cancel)? else {
             return Ok(false);
         };
-        obligations.extend(snapshot_obligations);
+        obligations.extend(lazy_obligations);
         let Some(array_obligations) = sources::obligations(self, catalog, cancel)? else {
             return Ok(false);
         };
@@ -265,6 +271,12 @@ impl EngineNativeImport {
         };
         obligations.extend(set_obligations);
         let mut consumed = HashSet::new();
+        // A readonly result table is an explicit physical application. It may
+        // share receiver/interface facts with the source List while selecting a
+        // native bridge for dynamic publication. Both applications are checked.
+        if let Some(index) = snapshot_obligations.result {
+            consumed.insert(index);
+        }
         for bound in &obligations {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
                 return Ok(false);
@@ -273,10 +285,14 @@ impl EngineNativeImport {
                 let ConstraintAbi::Trait(interface) = constraint else {
                     continue;
                 };
-                let Some((index, witness)) =
-                    self.witnesses.iter().enumerate().find(|(_, witness)| {
+                let Some((index, witness)) = self
+                    .witnesses
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, witness)| {
                         witness.receiver == bound.ty && witness.interface == *interface
                     })
+                    .min_by_key(|(index, _)| Some(*index) == snapshot_obligations.result)
                 else {
                     return Ok(false);
                 };
@@ -300,6 +316,9 @@ impl EngineNativeImport {
                     NativeWitnessImplementation::Interface => matches!(bound.ty, AbiType::Trait(_)),
                     NativeWitnessImplementation::Table(instance) => {
                         if let Some(table) = table(&instance.declaration) {
+                            if table.native_bridge && Some(index) != snapshot_obligations.result {
+                                return Ok(false);
+                            }
                             if let Some(matched) =
                                 matching::match_implementation(table, interface, &bound.ty, cancel)?
                             {

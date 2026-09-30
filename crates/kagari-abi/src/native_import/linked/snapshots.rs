@@ -15,12 +15,16 @@ use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionId, associated_type_id},
 };
+pub(super) struct Applications {
+    pub obligations: Vec<GenericBoundAbi>,
+    pub result: Option<usize>,
+}
 pub(super) fn obligations<'a>(
     import: &EngineNativeImport,
     catalog: &ProofCatalog<'_>,
     table: &impl Fn(&DefinitionId) -> Option<&'a InterfaceTableAbi>,
     cancel: &CancellationToken,
-) -> Result<Option<Vec<GenericBoundAbi>>, TypeTransformError> {
+) -> Result<Option<Applications>, TypeTransformError> {
     let readonly_result = matches!(
         import.binding,
         EngineNativeBinding::Intrinsic(
@@ -32,23 +36,32 @@ pub(super) fn obligations<'a>(
             NativeDefaultMethod::MapKeysView
                 | NativeDefaultMethod::MapValuesView
                 | NativeDefaultMethod::MapEntriesView
+                | NativeDefaultMethod::ListWindows
+                | NativeDefaultMethod::ListChunks
         )
     );
     if !readonly_result {
-        return Ok(Some(vec![]));
+        return Ok(Some(Applications {
+            obligations: vec![],
+            result: None,
+        }));
     }
     let mut obligations = Vec::new();
-    let AbiType::Trait(interface) = &import.signature.result else {
+    let result = match &import.signature.result {
+        AbiType::Iter(item) => item.as_ref(),
+        result => result,
+    };
+    let AbiType::Trait(interface) = result else {
         return Ok(None);
     };
     let [item] = interface.arguments.as_slice() else {
         return Ok(None);
     };
     let storage = AbiType::Array(Box::new(item.clone()), CollectionAccess::Mutable);
-    let Some(factory) = import
-        .witnesses
-        .iter()
-        .find(|witness| witness.receiver == storage && witness.interface == *interface)
+    let Some((result_index, factory)) = import.witnesses.iter().enumerate().find(|(_,witness)| {
+        witness.receiver == storage && witness.interface == *interface
+            && matches!(&witness.implementation, NativeWitnessImplementation::Table(instance) if table(&instance.declaration).is_some_and(|table| table.native_bridge))
+    })
     else {
         return Ok(None);
     };
@@ -70,7 +83,14 @@ pub(super) fn obligations<'a>(
         ty: storage,
         constraints: vec![ConstraintAbi::Trait(interface.clone())],
     });
-    if matches!(import.binding, EngineNativeBinding::TraitDefault(_)) {
+    if matches!(
+        import.binding,
+        EngineNativeBinding::TraitDefault(
+            NativeDefaultMethod::MapKeysView
+                | NativeDefaultMethod::MapValuesView
+                | NativeDefaultMethod::MapEntriesView
+        )
+    ) {
         let Some(source) = import.witnesses.iter().find(|witness| {
             import.signature.params.first() == Some(&witness.receiver)
                 && StandardTrait::from_id(&witness.interface.declaration)
@@ -113,5 +133,8 @@ pub(super) fn obligations<'a>(
             constraints: vec![ConstraintAbi::Trait(next)],
         });
     }
-    Ok(Some(obligations))
+    Ok(Some(Applications {
+        obligations,
+        result: Some(result_index),
+    }))
 }

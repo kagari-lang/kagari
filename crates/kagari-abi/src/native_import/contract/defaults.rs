@@ -11,7 +11,7 @@ use crate::{
     standard::{
         bindings::NativeDefaultMethod, intrinsic, surface::StandardEnum, traits::StandardTrait,
     },
-    types::{AbiType, GenericBoundAbi},
+    types::{AbiType, GenericBoundAbi, verify::concrete_type_valid},
 };
 use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
 use std::slice;
@@ -61,6 +61,8 @@ pub(super) fn valid(
                 | NativeDefaultMethod::ListContains
                 | NativeDefaultMethod::ListStartsWith
                 | NativeDefaultMethod::ListEndsWith
+                | NativeDefaultMethod::ListWindows
+                | NativeDefaultMethod::ListChunks
         ) {
             return bound(bounds, receiver, StandardTrait::List).is_some_and(|interface| {
                 let [item] = interface.arguments.as_slice() else {
@@ -68,6 +70,18 @@ pub(super) fn valid(
                 };
                 let index = builtin(BuiltinType::USize);
                 match (method, signature.params.as_slice()) {
+                    (
+                        NativeDefaultMethod::ListWindows | NativeDefaultMethod::ListChunks,
+                        [_, size],
+                    ) => {
+                        *size == index
+                            && signature.result
+                                == iter(AbiType::Trait(intrinsic::applied(
+                                    StandardTrait::List,
+                                    vec![item.clone()],
+                                )))
+                    }
+
                     (NativeDefaultMethod::ListFirst | NativeDefaultMethod::ListLast, [_]) => {
                         signature.result == option(item)
                     }
@@ -294,7 +308,7 @@ fn iterator(
         }
         (NativeDefaultMethod::Zip, [_, source]) => {
             bound(bounds, source, StandardTrait::Iterable).is_some()
-                && matches!(out, AbiType::Iter(output) if matches!(output.as_ref(),AbiType::Tuple(items) if items.len()==2 && &items[0] == item && super::callbacks::projection(&items[1],source,StandardTrait::Iterable,"Item")))
+                && matches!(out, AbiType::Iter(output) if matches!(output.as_ref(),AbiType::Tuple(items) if items.len()==2 && &items[0] == item && (super::callbacks::projection(&items[1],source,StandardTrait::Iterable,"Item") || concrete_type_valid(&items[1], &Default::default()))))
         }
         (NativeDefaultMethod::Chain, [_, source]) => {
             iterable_item(bounds, source) == Some(item) && *out == iter(item.clone())
@@ -353,11 +367,11 @@ fn iterator(
                 && matches!(key_fn, AbiType::Function {params,result} if params.as_slice()==slice::from_ref(item) && bound(bounds,result,StandardTrait::Ord).is_some())
         }
         (NativeDefaultMethod::FlatMap, [_, transform]) => {
-            matches!(transform, AbiType::Function {params,result} if params.as_slice()==slice::from_ref(item) && bound(bounds,result,StandardTrait::Iterable).is_some() && matches!(out, AbiType::Iter(output) if super::callbacks::projection(output,result,StandardTrait::Iterable,"Item")))
+            matches!(transform, AbiType::Function {params,result} if params.as_slice()==slice::from_ref(item) && bound(bounds,result,StandardTrait::Iterable).is_some() && matches!(out, AbiType::Iter(output) if (super::callbacks::projection(output,result,StandardTrait::Iterable,"Item") || concrete_type_valid(output, &Default::default()))))
         }
         (NativeDefaultMethod::Flatten, [_]) => {
             bound(bounds, item, StandardTrait::Iterable).is_some()
-                && matches!(out, AbiType::Iter(output) if super::callbacks::projection(output,item,StandardTrait::Iterable,"Item"))
+                && matches!(out, AbiType::Iter(output) if (super::callbacks::projection(output,item,StandardTrait::Iterable,"Item") || concrete_type_valid(output, &Default::default())))
         }
         _ => false,
     }

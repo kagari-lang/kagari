@@ -1,37 +1,7 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use kagari_abi::{
-    operations::IterOp,
-    representation::ValueType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
-};
-use kagari_common::collection::CollectionAccess;
-use kagari_hir::types::abi::lower_type;
-use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
+use kagari_abi::{operations::IterOp, representation::ValueType, standard::StandardIntrinsic};
+use kagari_hir::types::{TypeId, abi::lower_type};
 use kagari_mir::instruction::{Instruction, MirValue};
-
-impl FunctionLowerer<'_, '_> {
-    pub(super) fn readonly_array(
-        &mut self,
-        item: TypeId,
-        array: MirValue,
-    ) -> Result<MirValue, MirLoweringError> {
-        let mut interface = StandardTrait::List.nominal();
-        interface.arguments.push(item.clone());
-        let storage = TypeId::Array(Box::new(item), CollectionAccess::Mutable);
-        let span = self.function.debug.source_span;
-        self.planner
-            .require_parent_interfaces(&storage, &interface, span)?;
-        let implementation = self.planner.native_interface(&storage, &interface, span)?;
-        let dst = self.alloc_temp(ValueType::HeapObject);
-        self.emit(Instruction::MakeInterface {
-            dst,
-            value: array,
-            implementation,
-            arguments: vec![],
-        });
-        Ok(dst)
-    }
-}
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_native_collection_method(

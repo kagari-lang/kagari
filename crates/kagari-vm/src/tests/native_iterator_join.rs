@@ -1,5 +1,8 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, native_import::EngineNativeOperation};
+use kagari_abi::{
+    callable::EngineNativeBinding, native_import::EngineNativeOperation,
+    standard::bindings::NativeDefaultMethod,
+};
 use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -180,18 +183,42 @@ fn join_preserves_effects_and_every_budget_cut() {
     for (name, source) in cases {
         let baseline = BASELINE.iter().find(|case| case.name == name).unwrap();
         let program = compile_test_bytecode(&source);
+        let defaults: Vec<_> = program.modules[program.root.index()]
+            .engine_imports
+            .iter()
+            .filter_map(|import| match import.resolve() {
+                Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
+                    operation,
+                ))) => Some(operation),
+                _ => None,
+            })
+            .collect();
+        let lazy = name.starts_with("lazy_");
+        let join = if name.starts_with("list_") || name.starts_with("dynamic_") {
+            NativeDefaultMethod::ListJoin
+        } else {
+            NativeDefaultMethod::Join
+        };
         assert_eq!(
-            program.modules[program.root.index()]
-                .engine_imports
+            defaults
                 .iter()
-                .filter(|import| matches!(
-                    import.resolve(),
-                    Some(EngineNativeOperation::Resumable(
-                        EngineNativeBinding::TraitDefault(_)
-                    ))
-                ))
+                .filter(|operation| **operation == join)
                 .count(),
-            1
+            1,
+            "{name} join entry"
+        );
+        assert_eq!(
+            defaults
+                .iter()
+                .filter(|operation| **operation == NativeDefaultMethod::Map)
+                .count(),
+            usize::from(lazy),
+            "{name} lazy entry"
+        );
+        assert_eq!(
+            defaults.len(),
+            1 + usize::from(lazy),
+            "{name} native defaults"
         );
         for encoded in [false, true] {
             let program = if encoded {

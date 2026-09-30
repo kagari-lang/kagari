@@ -246,6 +246,22 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::GroupBy
                     | NativeDefaultMethod::Collect
                     | NativeDefaultMethod::Partition
+                    | NativeDefaultMethod::Map
+                    | NativeDefaultMethod::Filter
+                    | NativeDefaultMethod::FilterMap
+                    | NativeDefaultMethod::Take
+                    | NativeDefaultMethod::Skip
+                    | NativeDefaultMethod::Enumerate
+                    | NativeDefaultMethod::Zip
+                    | NativeDefaultMethod::Chain
+                    | NativeDefaultMethod::TakeWhile
+                    | NativeDefaultMethod::SkipWhile
+                    | NativeDefaultMethod::Inspect
+                    | NativeDefaultMethod::Fuse
+                    | NativeDefaultMethod::FlatMap
+                    | NativeDefaultMethod::Flatten
+                    | NativeDefaultMethod::ListWindows
+                    | NativeDefaultMethod::ListChunks
                     | NativeDefaultMethod::ListJoin
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast

@@ -38,7 +38,7 @@ fn runtime() -> Runtime {
 }
 
 mod baseline;
-mod boundaries;
+pub(super) mod boundaries;
 mod cases;
 mod failures;
 mod foreign;

@@ -1,5 +1,6 @@
-use crate::source::lower::expr::native_contracts::NativeApplication;
-use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use crate::source::lower::{
+    MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
+};
 use kagari_abi::{
     callable::NativeCall,
     representation::ValueType,
@@ -23,6 +24,29 @@ use smallvec::SmallVec;
 use std::{ops::ControlFlow, slice};
 
 impl FunctionLowerer<'_, '_> {
+    pub(super) fn call_function_value(
+        &mut self,
+        callback: MirValue,
+        result: &TypeId,
+        args: &[MirValue],
+    ) -> Result<MirValue, MirLoweringError> {
+        let dst = self.alloc_temp(self.value_type(result)?);
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee: CallTarget::Closure {
+                value: callback,
+                params: args.iter().map(|v| v.ty).collect(),
+                return_type: dst.ty,
+            },
+            args: args.iter().copied().collect(),
+        });
+        self.function
+            .semantic
+            .registers
+            .insert(dst.temp.index(), lower_type(result));
+        Ok(dst)
+    }
+
     pub(super) fn lower_call(
         &mut self,
         expr: hir::ExprId,

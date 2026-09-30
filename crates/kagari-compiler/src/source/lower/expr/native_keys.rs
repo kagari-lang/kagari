@@ -9,13 +9,7 @@ use kagari_abi::{
         traits::StandardTrait,
     },
 };
-use kagari_hir::{
-    builtin::traits::StandardTraitSemantics,
-    native::NativeBinding,
-    typeck::FunctionImplementation,
-    types::{TypeId, TypeSubstitution},
-};
-use kagari_mir::MirValue;
+use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn key_binding(&self, binding: EngineNativeBinding) -> bool {
@@ -75,55 +69,5 @@ impl FunctionLowerer<'_, '_> {
             }
         }
         Ok(())
-    }
-    pub(super) fn lower_key_storage_call(
-        &mut self,
-        storage: &TypeId,
-        operation: StandardIntrinsic,
-        values: &[MirValue],
-    ) -> Result<MirValue, MirLoweringError> {
-        let arguments = match storage {
-            TypeId::Map { key, value, .. } => vec![key.as_ref().clone(), value.as_ref().clone()],
-            TypeId::Set(key, _) => vec![key.as_ref().clone()],
-            _ => return Err(MirLoweringError::MissingBinding("checked key storage")),
-        };
-        let mut candidates = self.planner.catalog.inherent_methods().filter(|method| {
-            if method.function.implementation
-                != FunctionImplementation::Native(NativeBinding::Engine(
-                    EngineNativeBinding::Intrinsic(operation),
-                ))
-                || method.function.generic_params.len() != arguments.len()
-            {
-                return false;
-            }
-            let substitution: TypeSubstitution = method
-                .function
-                .generic_params
-                .iter()
-                .cloned()
-                .zip(arguments.iter().cloned())
-                .collect();
-            method.owner.instantiate(&substitution) == *storage
-        });
-        let method = candidates
-            .next()
-            .ok_or(MirLoweringError::MissingBinding(
-                "checked native key application",
-            ))?
-            .clone();
-        if candidates.next().is_some() {
-            return Err(MirLoweringError::MissingBinding(
-                "ambiguous native key application",
-            ));
-        }
-        let substitution: TypeSubstitution = method
-            .function
-            .generic_params
-            .iter()
-            .cloned()
-            .zip(arguments.iter().cloned())
-            .collect();
-        let result = method.function.return_type.instantiate(&substitution);
-        self.lower_native_implementation(&method.declaration, &arguments, &result, values)
     }
 }

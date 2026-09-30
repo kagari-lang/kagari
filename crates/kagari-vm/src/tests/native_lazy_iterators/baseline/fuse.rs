@@ -1,0 +1,72 @@
+// Recorded at 8e5df0d0 before native lazy constructors/steps.
+use super::Baseline;
+pub(super) const BASELINE: &[Baseline] = &[
+    Baseline {
+        name: "fuse_native_false",
+        steps: 235,
+        allocations: 68,
+        depth: 2,
+        effects: &[("input", 8), ("constructed", 18), ("done", 233)],
+        holes: &[],
+    },
+    Baseline {
+        name: "fuse_native_true",
+        steps: 91,
+        allocations: 29,
+        depth: 2,
+        effects: &[("input", 5), ("constructed", 15), ("done", 89)],
+        holes: &[],
+    },
+    Baseline {
+        name: "fuse_script_false",
+        steps: 293,
+        allocations: 69,
+        depth: 3,
+        effects: &[
+            ("input", 9),
+            ("constructed", 19),
+            ("next", 34),
+            ("next", 67),
+            ("next", 100),
+            ("next", 133),
+            ("done", 291),
+        ],
+        holes: &[],
+    },
+    Baseline {
+        name: "fuse_script_true",
+        steps: 104,
+        allocations: 30,
+        depth: 3,
+        effects: &[
+            ("input", 6),
+            ("constructed", 16),
+            ("next", 31),
+            ("done", 102),
+        ],
+        holes: &[],
+    },
+    Baseline {
+        name: "fuse_lazy_false",
+        steps: 291,
+        allocations: 83,
+        depth: 4,
+        effects: &[
+            ("input", 12),
+            ("constructed", 22),
+            ("upstream", 48),
+            ("upstream", 80),
+            ("upstream", 112),
+            ("done", 289),
+        ],
+        holes: &[],
+    },
+    Baseline {
+        name: "fuse_lazy_true",
+        steps: 105,
+        allocations: 38,
+        depth: 3,
+        effects: &[("input", 9), ("constructed", 19), ("done", 103)],
+        holes: &[],
+    },
+];

@@ -238,6 +238,7 @@ impl FunctionLowerer<'_, '_> {
                 witnesses.push(witness);
             }
         }
+        self.native_lazy_witnesses(binding, &params, &result, &mut witnesses)?;
         let engine_binding = EngineNativeBinding::TraitDefault(binding);
         self.native_destinations(engine_binding, &params, &result, &mut witnesses)?;
         self.native_set_sources(engine_binding, &params, &mut witnesses)?;

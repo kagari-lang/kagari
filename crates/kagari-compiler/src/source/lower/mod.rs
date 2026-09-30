@@ -149,8 +149,6 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
             function::lower_callable(origin, function, instance, &mut planner)?
         } else if instance.native_method.is_some() {
             function::lower_native_method(origin, function, instance, &mut planner)?
-        } else if instance.iterator.is_some() {
-            function::lower_iterator(origin, function, instance, &mut planner)?
         } else if instance.protocol.is_some() {
             function::lower_protocol(origin, function, instance, &mut planner)?
         } else if let Some(closure) = instance.closure {

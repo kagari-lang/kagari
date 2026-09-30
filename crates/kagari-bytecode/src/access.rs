@@ -462,9 +462,6 @@ pub(super) fn verify(
                             Some(kind.item_type())
                         }
                         AbiType::Builtin(B::String) => Some(AbiType::Builtin(B::String)),
-                        AbiType::Tuple(_) if *op == IterOp::FromClosure => {
-                            IterOp::closure_item(ty).cloned()
-                        }
                         AbiType::Range(item, _)
                         | AbiType::Array(item, _)
                         | AbiType::Set(item, _)
@@ -478,9 +475,7 @@ pub(super) fn verify(
                         (
                             *dst,
                             Fact::typed(match op {
-                                IterOp::New | IterOp::FromClosure | IterOp::String(_) => {
-                                    AbiType::Iter(Box::new(item))
-                                }
+                                IterOp::New | IterOp::String(_) => AbiType::Iter(Box::new(item)),
                                 IterOp::Next => AbiType::StandardEnum {
                                     kind: StandardEnum::Option,
                                     args: vec![item],

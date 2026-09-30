@@ -319,11 +319,6 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
         result
     }
 
-    pub(crate) fn debug_span(&self) -> Span {
-        self.current_debug_span
-            .unwrap_or(self.function.debug.source_span)
-    }
-
     pub(crate) fn value_type(&self, ty: &TypeId) -> Result<ValueType, MirLoweringError> {
         self.planner.value_type(
             ty,

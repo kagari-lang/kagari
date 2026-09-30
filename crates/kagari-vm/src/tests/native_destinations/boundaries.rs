@@ -91,7 +91,7 @@ fn fail()->i32{{val x=2147483647;x+1}}fn ready()->i32{{7}}
     }
 }
 
-pub(super) fn lifecycle(program: &BytecodeProgram, name: &str) {
+pub(in crate::tests) fn lifecycle(program: &BytecodeProgram, name: &str) {
     let root = &program.modules[program.root.index()];
     let entry = root.functions.iter().find(|f| f.name == "main").unwrap().id;
     let inner = root

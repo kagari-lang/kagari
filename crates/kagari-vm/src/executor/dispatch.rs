@@ -62,13 +62,19 @@ impl<'a> Executor<'a> {
                     .current_frame()?
                     .read_register(value.ok_or(VmError::TypeMismatch("iterator source"))?)?;
                 if op == IterOp::Next
-                    && let Some(step) = self.runtime.gc().iter_step(&source, &ty)?
+                    && let Some(progress) =
+                        self.stack
+                            .begin_iterator_step(self.runtime, &source, &ty, Some(dst))?
                 {
-                    let closure = self.runtime.resolve_closure(&step)?;
-                    return self
-                        .stack
-                        .push_closure(self.runtime, closure, &[], Some(dst))
-                        .map_err(VmError::RuntimeError);
+                    return match progress {
+                        NativeProgress::Continue | NativeProgress::Finished => Ok(()),
+                        NativeProgress::Callback(request) => self
+                            .stack
+                            .push_native_callback(self.runtime, request)
+                            .map_err(VmError::RuntimeError),
+                        NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
+                        NativeProgress::TypeMismatch(detail) => Err(VmError::TypeMismatch(detail)),
+                    };
                 }
                 let result = self.runtime.iter_operation(
                     self.current_frame()?.loaded(),

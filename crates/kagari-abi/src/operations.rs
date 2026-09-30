@@ -68,7 +68,6 @@ impl StandardEnumOp {
 pub enum IterOp {
     New,
     String(StringIterKind),
-    FromClosure,
     Next,
     Close,
 }
@@ -83,10 +82,6 @@ impl IterOp {
                 if !kind.valid_source(ty) {
                     return None;
                 }
-                ValueType::HeapObject
-            }
-            Self::FromClosure => {
-                Self::closure_item(ty)?;
                 ValueType::HeapObject
             }
             Self::New => match ty {
@@ -112,33 +107,6 @@ impl IterOp {
                 ValueType::HeapObject
             },
         ))
-    }
-
-    pub fn closure_item(ty: &AbiType) -> Option<&AbiType> {
-        let AbiType::Tuple(fields) = ty else {
-            return None;
-        };
-        let AbiType::Function { params, result } = fields.first()? else {
-            return None;
-        };
-        if !params.is_empty() {
-            return None;
-        }
-        for dependency in fields.iter().skip(1) {
-            if let AbiType::Array(element, _) = dependency
-                && !matches!(element.as_ref(), AbiType::StandardEnum { kind: StandardEnumKind::Option, args } if matches!(args.as_slice(), [AbiType::Iter(_)]))
-            {
-                return None;
-            }
-        }
-        let AbiType::StandardEnum {
-            kind: StandardEnumKind::Option,
-            args,
-        } = result.as_ref()
-        else {
-            return None;
-        };
-        (args.len() == 1).then(|| &args[0])
     }
 }
 

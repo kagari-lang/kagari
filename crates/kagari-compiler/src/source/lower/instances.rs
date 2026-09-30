@@ -2,7 +2,7 @@ use crate::source::lower::MirLoweringError;
 use kagari_abi::{
     callable::CallableImplementation,
     representation::ValueType,
-    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
+    standard::traits::StandardTrait,
     types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
 };
 use kagari_common::{
@@ -88,7 +88,6 @@ impl InstanceKey {
 #[derive(Debug, Clone)]
 pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
-    pub iterator: Option<IteratorInstance>,
     pub origin: ModuleIdentity,
     pub id: InstanceId,
     pub function: hir::FunctionId,
@@ -103,14 +102,6 @@ pub(super) struct Instance {
 pub(super) struct CallableInstance {
     pub receiver: TypeId,
     pub interface: NominalType,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct IteratorInstance {
-    pub operation: NativeDefaultMethod,
-    pub captures: Vec<TypeId>,
-    pub output: TypeId,
     pub span: Span,
 }
 
@@ -172,7 +163,6 @@ impl<'a> InstancePlanner<'a> {
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
             callable: Some(body),
-            iterator: None,
             origin: parent.origin.clone(),
             id,
             function: parent.function,
@@ -185,50 +175,6 @@ impl<'a> InstancePlanner<'a> {
         Ok(id)
     }
 
-    pub fn enqueue_iterator(
-        &mut self,
-        parent: &Instance,
-        body: IteratorInstance,
-    ) -> Result<InstanceId, MirLoweringError> {
-        self.check()?;
-        let mut declaration = parent.key.declaration.clone();
-        declaration.path.push(DefinitionPathSegment {
-            kind: DefinitionKind::Function,
-            name: format!("$iterator_{:?}", body.operation),
-            occurrence: body.span.start as u32,
-        });
-        let key = InstanceKey {
-            declaration,
-            arguments: body
-                .captures
-                .iter()
-                .cloned()
-                .chain([body.output.clone()])
-                .collect(),
-        };
-        if let Some(id) = self.keys.get(&key) {
-            return Ok(*id);
-        }
-        self.charge_layout_instance(body.span)?;
-        for ty in &key.arguments {
-            self.record_layout_root(ty, &Default::default(), body.span)?;
-        }
-        let id = InstanceId::new(self.instances.len());
-        self.keys.insert(key.clone(), id);
-        self.instances.push(Instance {
-            callable: None,
-            origin: parent.origin.clone(),
-            id,
-            function: parent.function,
-            key,
-            substitution: parent.substitution.clone(),
-            closure: None,
-            native_method: None,
-            protocol: None,
-            iterator: Some(body),
-        });
-        Ok(id)
-    }
     pub fn new(
         module: &'a AnalyzedModule,
         options: &'a MirLoweringOptions,
@@ -310,7 +256,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: None,
-            iterator: None,
             native_method: None,
             protocol: Some((protocol, ty.clone())),
         });
@@ -419,7 +364,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
-            iterator: None,
             native_method: None,
             protocol: None,
         });
@@ -546,7 +490,6 @@ impl<'a> InstancePlanner<'a> {
                 key,
                 substitution: Default::default(),
                 closure: None,
-                iterator: None,
                 protocol: None,
                 native_method: Some((receiver.clone(), interface.clone(), method.id.clone())),
             });
@@ -784,7 +727,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
-            iterator: None,
             native_method: None,
             protocol: None,
         });
@@ -828,7 +770,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: Some(closure),
-            iterator: None,
             native_method: None,
             protocol: None,
         });

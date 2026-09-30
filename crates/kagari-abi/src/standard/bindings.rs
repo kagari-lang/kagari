@@ -115,3 +115,29 @@ pub enum NativeDefaultMethod {
     #[serde(rename = "IteratorGroupBy")]
     GroupBy,
 }
+
+impl NativeDefaultMethod {
+    /// Closed lazy operations whose checked constructor contracts remain pinned
+    /// by their runtime-owned iterator state.
+    pub fn lazy(self) -> bool {
+        matches!(
+            self,
+            Self::Map
+                | Self::Filter
+                | Self::FilterMap
+                | Self::Take
+                | Self::Skip
+                | Self::Enumerate
+                | Self::Zip
+                | Self::Chain
+                | Self::TakeWhile
+                | Self::SkipWhile
+                | Self::Inspect
+                | Self::Fuse
+                | Self::FlatMap
+                | Self::Flatten
+                | Self::ListWindows
+                | Self::ListChunks
+        )
+    }
+}

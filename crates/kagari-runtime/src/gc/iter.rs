@@ -19,17 +19,24 @@ use std::{
 };
 
 #[derive(Debug)]
+pub(super) enum IteratorKind {
+    Collection,
+    Adapter { dependencies: Vec<Value> },
+}
+
+#[derive(Debug)]
 pub(super) struct NativeIter {
+    pub(super) kind: IteratorKind,
     pub(super) source: Value,
     pub(super) item_type: AbiType,
-    position: u128,
-    string: Option<StringTraversal>,
-    revision: u64,
+    pub(super) position: u128,
+    pub(super) string: Option<StringTraversal>,
+    pub(super) revision: u64,
     pub(super) guard: Option<CollectionIteration>,
     pub(super) loops: Rc<Cell<usize>>,
-    session: Weak<SessionState>,
-    owner: LoadedModule,
-    _retention: RetainedRuntimeProgram,
+    pub(super) session: Weak<SessionState>,
+    pub(super) owner: LoadedModule,
+    pub(super) _retention: RetainedRuntimeProgram,
 }
 
 fn invalid() -> RuntimeError {
@@ -54,19 +61,23 @@ impl GcHeap {
             if !visited.insert(id) {
                 continue;
             }
-            let (source, revision, needs_guard) = {
+            let (source, dependencies, revision, needs_guard) = {
                 let objects = self.objects.borrow();
                 let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, id) else {
                     return Err(invalid());
                 };
                 (
                     iter.source.clone(),
+                    match &iter.kind {
+                        IteratorKind::Collection => None,
+                        IteratorKind::Adapter { dependencies } => Some(dependencies.clone()),
+                    },
                     iter.revision,
                     iter.guard.is_none() && iter.loops.get() == 0,
                 )
             };
-            if let Value::Tuple(fields) = source {
-                for dependency in fields.into_iter().skip(1) {
+            if let Some(dependencies) = dependencies {
+                for dependency in dependencies {
                     match dependency {
                         Value::GcHandle(_) => pending.push(dependency),
                         Value::Array(slot) => {
@@ -105,36 +116,7 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(crate) fn new_script_iter(
-        &self,
-        source: &Value,
-        ty: &AbiType,
-        owner: &LoadedModule,
-        retention: RetainedRuntimeProgram,
-    ) -> Result<Value, RuntimeError> {
-        self.ensure_execution_allowed()?;
-        let item_type = IterOp::closure_item(ty).ok_or_else(invalid)?.clone();
-        if !self.matches_abi(source, ty, owner) {
-            return Err(invalid());
-        }
-        let session = self.resources.active_session().ok_or_else(invalid)?;
-        self.alloc_object(HeapObject::Iter(Box::new(NativeIter {
-            source: source.clone(),
-            item_type,
-            position: 0,
-            string: None,
-            revision: 0,
-            guard: None,
-            loops: Rc::new(Cell::new(0)),
-            session: Rc::downgrade(&session),
-            owner: owner.clone(),
-            _retention: retention,
-        })))
-        .map(Value::GcHandle)
-    }
-
-    /// Script-backed steps execute on the VM frame stack, never under a heap borrow.
-    pub fn iter_step(&self, value: &Value, ty: &AbiType) -> Result<Option<Value>, RuntimeError> {
+    pub(super) fn validate_iter(&self, value: &Value, ty: &AbiType) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         let (Value::GcHandle(id), AbiType::Iter(item)) = (value, ty) else {
             return Err(invalid());
@@ -146,10 +128,7 @@ impl GcHeap {
         if iter.item_type != **item {
             return Err(invalid());
         }
-        Ok(match &iter.source {
-            Value::Tuple(fields) => fields.first().cloned(),
-            _ => None,
-        })
+        Ok(())
     }
 
     fn close_iter_tree(&self, value: &Value) -> Result<(), RuntimeError> {
@@ -164,10 +143,13 @@ impl GcHeap {
                 return Err(invalid());
             };
             iter.guard = None;
-            let source = iter.source.clone();
+            let dependencies = match &iter.kind {
+                IteratorKind::Collection => None,
+                IteratorKind::Adapter { dependencies } => Some(dependencies.clone()),
+            };
             drop(objects);
-            if let Value::Tuple(fields) = source {
-                for dependency in fields.into_iter().skip(1) {
+            if let Some(dependencies) = dependencies {
+                for dependency in dependencies {
                     match dependency {
                         Value::GcHandle(_) => pending.push(dependency),
                         Value::Array(slot) => {
@@ -245,6 +227,7 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("iterator registry"))?;
         let guard = Some(self.begin_collection_iteration(source)?);
         let id = self.alloc_object(HeapObject::Iter(Box::new(NativeIter {
+            kind: IteratorKind::Collection,
             source: source.clone(),
             item_type,
             position: 0,
@@ -303,7 +286,7 @@ impl GcHeap {
             return Err(invalid());
         };
         if op == IterOp::Close {
-            self.iter_step(value, ty)?;
+            self.validate_iter(value, ty)?;
             self.close_iter_tree(value)?;
             return Ok(Value::Unit);
         }

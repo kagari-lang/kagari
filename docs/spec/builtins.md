@@ -758,6 +758,16 @@ can consume one unmatched left item. chain permanently switches sides at the fir
 None and remains exhausted after both sides end. map, filter, filter_map, skip,
 inspect, enumerate and zip do not add a fused guarantee to a custom source. Aliases share adapter state and progress.
 
+Public lazy adapters and List windows/chunks execute through checked native
+constructors. Their opaque Iter state owns GC-traced captures, shared cursor state
+and the constructor's execution version. The compiler emits checked source,
+callback and result contracts; it does not generate script iterator functions.
+Selected custom next/iter/List methods and callbacks run on the ordinary execution
+scope. Native nested steps use that same driver, with instruction and call-depth
+budgets, safepoints, cancellation and synchronous host reentry between operations.
+Guard resumption and closing include the live inner cursor, and traps retain
+completed effects and already committed progress.
+
 find, any and all stop at the decisive item; empty any is false and empty all is
 true. count uses checked usize accumulation. fold starts with the supplied value
 and applies its callback from left to right; for_each requires a unit callback.

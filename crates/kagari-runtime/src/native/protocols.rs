@@ -2,7 +2,7 @@
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     builtin::BuiltinError,
-    native::{NativeCallback, NativeCallbackTarget, callback},
+    native::{NativeCallback, NativeCallbackTarget},
     value::Value,
     value_semantics,
 };
@@ -160,12 +160,11 @@ pub(super) fn next(
         return Err(invalid());
     }
     if matches!(witness.receiver, AbiType::Iter(_)) {
-        if let Some(step) = runtime.gc().iter_step(&source, &witness.receiver)? {
-            let signature = AbiType::Function {
-                params: vec![],
-                result: Box::new(output.clone()),
-            };
-            return callback(runtime, &step, &signature, vec![]).map(ProtocolStep::Call);
+        if let Some(request) = runtime.gc().iterator_request(&source, &witness.receiver)? {
+            return Ok(ProtocolStep::Call(NativeCallback {
+                target: NativeCallbackTarget::Iterator(request),
+                arguments: vec![],
+            }));
         }
         return runtime
             .iter_operation(owner, &source, &witness.receiver, IterOp::Next)

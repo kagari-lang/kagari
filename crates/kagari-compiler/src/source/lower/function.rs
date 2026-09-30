@@ -4,11 +4,7 @@ use crate::source::lower::{
     state::FunctionLowerer,
 };
 use hir::ExprKind;
-use kagari_abi::{
-    representation::ValueType,
-    scalar::BuiltinType,
-    standard::{surface::StandardEnum, traits::StandardTrait},
-};
+use kagari_abi::{representation::ValueType, scalar::BuiltinType, standard::traits::StandardTrait};
 use kagari_hir::{
     AnalyzedModule,
     builtin::traits::callable_signature,
@@ -107,67 +103,6 @@ pub(crate) fn lower_callable<'a>(
     } else {
         Terminator::Return(Some(result))
     });
-    lowerer.planner.check()?;
-    lowerer.finish()
-}
-
-pub(crate) fn lower_iterator<'a>(
-    module: &'a AnalyzedModule,
-    parent: &hir::Function,
-    instance: Instance,
-    planner: &mut InstancePlanner<'a>,
-) -> Result<MirFunction, MirLoweringError> {
-    let body = instance.iterator.clone().expect("iterator step");
-    let typed = TypedFunction {
-        implementation: FunctionImplementation::Script,
-        generic_params: vec![],
-        bounds: Default::default(),
-        id: parent.id,
-        name: String::new(),
-        params: Default::default(),
-        return_type: TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![body.output.clone()],
-        },
-    };
-    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
-    lowerer.function.name = format!("$iterator_{:?}", body.operation);
-    lowerer.function.debug.source_span = body.span;
-    let mut args = vec![];
-    for (index, ty) in body.captures.iter().enumerate() {
-        let physical = lowerer.value_type(ty)?;
-        let name = format!("capture_{index}");
-        let local = lowerer.alloc_local(name.clone(), physical, body.span);
-        lowerer
-            .function
-            .debug
-            .locals
-            .last_mut()
-            .unwrap()
-            .is_parameter = true;
-        lowerer.function.params.push(MirParameter {
-            name,
-            ty: physical,
-            local,
-        });
-        let semantic = lowerer.semantic_type(ty)?;
-        lowerer
-            .function
-            .semantic
-            .params
-            .insert(index, semantic.clone());
-        lowerer
-            .function
-            .semantic
-            .locals
-            .insert(local.index(), semantic);
-        let value = lowerer.alloc_temp(physical);
-        lowerer.emit(Instruction::LoadLocal { dst: value, local });
-        args.push(value);
-    }
-    lowerer.with_debug_span(body.span, |lowerer| {
-        lowerer.lower_iterator_step(&body, &args)
-    })?;
     lowerer.planner.check()?;
     lowerer.finish()
 }

@@ -3,6 +3,7 @@ mod aggregates;
 mod calls;
 mod native_defaults;
 mod native_destinations;
+mod native_lazy;
 mod native_results;
 mod native_sources;
 mod patterns;
@@ -21,13 +22,9 @@ use kagari_hir::{
     types::TypeId,
     types::abi::{lower_nominal_type, lower_type},
 };
-mod adapters;
-mod branches;
 mod collections;
 mod equality;
 mod iterators;
-mod list_queries;
-mod list_windows;
 mod native_calls;
 mod native_contracts;
 mod native_keys;

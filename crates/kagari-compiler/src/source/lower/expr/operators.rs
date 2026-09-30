@@ -8,10 +8,7 @@ use kagari_abi::{
     operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{
-        StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
-        traits::StandardTrait,
-    },
+    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
@@ -292,65 +289,14 @@ impl FunctionLowerer<'_, '_> {
             }
         }
 
-        if let Some(operation) = native_default
+        if native_default.is_some()
             && self
                 .planner
                 .catalog
                 .implementation_method(method, &interface, &ty)
                 .is_none()
         {
-            if matches!(
-                operation,
-                NativeDefaultMethod::Count
-                    | NativeDefaultMethod::Fold
-                    | NativeDefaultMethod::ForEach
-                    | NativeDefaultMethod::Find
-                    | NativeDefaultMethod::Any
-                    | NativeDefaultMethod::All
-                    | NativeDefaultMethod::Last
-                    | NativeDefaultMethod::FindMap
-                    | NativeDefaultMethod::Position
-                    | NativeDefaultMethod::Nth
-                    | NativeDefaultMethod::Reduce
-                    | NativeDefaultMethod::MinBy
-                    | NativeDefaultMethod::MaxBy
-                    | NativeDefaultMethod::Min
-                    | NativeDefaultMethod::Max
-                    | NativeDefaultMethod::MinByKey
-                    | NativeDefaultMethod::MaxByKey
-                    | NativeDefaultMethod::Join
-                    | NativeDefaultMethod::Sum
-                    | NativeDefaultMethod::Product
-                    | NativeDefaultMethod::GroupBy
-                    | NativeDefaultMethod::Collect
-                    | NativeDefaultMethod::Partition
-                    | NativeDefaultMethod::ListJoin
-                    | NativeDefaultMethod::ListFirst
-                    | NativeDefaultMethod::ListLast
-                    | NativeDefaultMethod::ListBinarySearch
-                    | NativeDefaultMethod::ListContains
-                    | NativeDefaultMethod::ListStartsWith
-                    | NativeDefaultMethod::ListEndsWith
-                    | NativeDefaultMethod::MapKeysView
-                    | NativeDefaultMethod::MapValuesView
-                    | NativeDefaultMethod::MapEntriesView
-                    | NativeDefaultMethod::SetUnion
-                    | NativeDefaultMethod::SetIntersection
-                    | NativeDefaultMethod::SetDifference
-                    | NativeDefaultMethod::SetSymmetricDifference
-                    | NativeDefaultMethod::SetIsSubset
-                    | NativeDefaultMethod::SetIsSuperset
-                    | NativeDefaultMethod::SetIsDisjoint
-            ) {
-                return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
-            }
-            if matches!(
-                operation,
-                NativeDefaultMethod::ListWindows | NativeDefaultMethod::ListChunks
-            ) {
-                return self.lower_list_windows(operation, &ty, args);
-            }
-            return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
+            return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
         }
         if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
             let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");
@@ -437,7 +383,7 @@ impl FunctionLowerer<'_, '_> {
                         | TypeId::Array(_, _)
                         | TypeId::Set(_, _)
                         | TypeId::Map { .. }
-                        | TypeId::Builtin(kagari_abi::scalar::BuiltinType::String)
+                        | TypeId::Builtin(BuiltinType::String)
                 ) =>
             {
                 Some(IterOp::New)
