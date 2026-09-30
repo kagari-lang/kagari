@@ -13,7 +13,7 @@ use crate::{
         substitution::MAX_TYPE_NODES, verify::concrete_type_valid,
     },
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::{collection::CollectionAccess, identity::DefinitionId};
 use serde::{Deserialize, Serialize};
 
 pub mod contract;
@@ -150,11 +150,24 @@ impl EngineNativeImport {
             self.binding,
             EngineNativeBinding::Intrinsic(
                 StandardIntrinsic::ArrayListFromFn
+                    | StandardIntrinsic::ArrayListFrom
+                    | StandardIntrinsic::ArrayCopyFrom
+                    | StandardIntrinsic::ArrayExtend
                     | StandardIntrinsic::MapKeys
                     | StandardIntrinsic::MapValues
                     | StandardIntrinsic::MapEntries
             )
         ) && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
+        {
+            return Some(EngineNativeOperation::Resumable(self.binding));
+        }
+        if self.binding
+            == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
+            && matches!(
+                self.signature.result,
+                AbiType::Array(_, CollectionAccess::Mutable)
+            )
+            && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
         {
             return Some(EngineNativeOperation::Resumable(self.binding));
         }

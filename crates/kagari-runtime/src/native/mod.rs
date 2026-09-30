@@ -1,4 +1,5 @@
 //! Bounded native method state retained by the caller's execution frame.
+mod array_copy;
 mod array_initialization;
 mod enums;
 mod iterators;
@@ -11,6 +12,7 @@ use crate::{
     builtin::BuiltinError,
     gc::{ClosureValueSnapshot, RootSet},
     native::{
+        array_copy::ArrayCopy,
         array_initialization::ArrayInitialization,
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
@@ -70,6 +72,7 @@ pub(crate) enum NativeAction {
 }
 
 enum NativeState {
+    ArrayCopy(ArrayCopy),
     ArrayInitialization(ArrayInitialization),
     Enum(EnumInvocation),
     Iterator(IteratorInvocation),
@@ -108,6 +111,14 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(
+                EngineNativeBinding::Intrinsic(
+                    StandardIntrinsic::ArrayListFrom
+                    | StandardIntrinsic::ArrayCopyFrom
+                    | StandardIntrinsic::ArrayExtend,
+                )
+                | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator),
+            )) => NativeState::ArrayCopy(ArrayCopy::start(contract, arguments)?),
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
                 StandardIntrinsic::ArrayListFromFn,
             ))) => NativeState::ArrayInitialization(ArrayInitialization::start(arguments)?),
@@ -235,6 +246,7 @@ impl NativeInvocation {
                         NativeState::ArrayInitialization(_) => {
                             vec![Value::Unit; array_initialization::SCRATCH_ROOTS]
                         }
+                        NativeState::ArrayCopy(_) => vec![Value::Unit; array_copy::SCRATCH_ROOTS],
                         NativeState::MapSnapshot(state) => {
                             state.initial.take().ok_or_else(|| {
                                 RuntimeError::module_validation(
@@ -258,6 +270,20 @@ impl NativeInvocation {
                 .initialize(runtime, &roots)?
                 .map(NativeProgress::BuiltinFailure);
         }
+        if let NativeState::ArrayCopy(state) = &mut state {
+            entry = Some(
+                match state.initialize(runtime, &implementation, contract, &roots)? {
+                    NativeAction::Continue => NativeProgress::Continue,
+                    NativeAction::Callback(request) => NativeProgress::Callback(request),
+                    NativeAction::BuiltinFailure(error) => NativeProgress::BuiltinFailure(error),
+                    _ => {
+                        return Err(RuntimeError::module_validation(
+                            "invalid array snapshot entry action",
+                        ));
+                    }
+                },
+            );
+        }
         Ok(Self {
             implementation,
             import,
@@ -275,6 +301,9 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::ArrayCopy(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::ArrayInitialization(state) => {
                 state.advance(runtime, &contract.signature, &self.roots)
             }
@@ -308,6 +337,13 @@ impl NativeInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            NativeState::ArrayCopy(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()],
+                &self.roots,
+                value,
+            ),
             NativeState::ArrayInitialization(state) => state.receive(
                 runtime,
                 &self.implementation,

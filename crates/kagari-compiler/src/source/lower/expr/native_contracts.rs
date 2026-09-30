@@ -108,6 +108,7 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
+        self.native_array_source(binding, &params, &mut witnesses)?;
         if matches!(
             binding,
             EngineNativeBinding::Intrinsic(
@@ -142,10 +143,12 @@ impl FunctionLowerer<'_, '_> {
         binding: EngineNativeBinding,
         requirements: &[GenericBoundAbi],
     ) -> Result<Vec<NativeWitness>, MirLoweringError> {
-        let numeric = matches!(
+        let traversal = matches!(
             binding,
             EngineNativeBinding::Protocol(
-                NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
+                NativeProtocolMethod::NumericSum
+                    | NativeProtocolMethod::NumericProduct
+                    | NativeProtocolMethod::CollectionFromIterator
             )
         );
         let mut witnesses = Vec::new();
@@ -156,7 +159,7 @@ impl FunctionLowerer<'_, '_> {
                 };
                 let receiver = raise_type(&bound.ty);
                 let applied = raise_nominal_type(interface);
-                let witness = if numeric {
+                let witness = if traversal {
                     self.lower_native_witness(&receiver, &applied, &[])?
                 } else {
                     let implementation = if let Some((declaration, arguments)) = self
@@ -193,7 +196,7 @@ impl FunctionLowerer<'_, '_> {
                 if !witnesses.contains(&witness) {
                     witnesses.push(witness);
                 }
-                if numeric
+                if traversal
                     && StandardTrait::from_id(&interface.declaration)
                         == Some(StandardTrait::Iterable)
                 {
@@ -262,6 +265,7 @@ impl FunctionLowerer<'_, '_> {
             )
             .map_err(|_| invalid())?;
         let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
+        self.native_array_source(binding, &params, &mut witnesses)?;
         if matches!(
             binding,
             EngineNativeBinding::Intrinsic(

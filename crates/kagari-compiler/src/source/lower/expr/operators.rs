@@ -232,6 +232,11 @@ impl FunctionLowerer<'_, '_> {
         }
         if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
             && native_default.is_none()
+            && !(matches!(ty, TypeId::Array(_, _))
+                && method
+                    .path
+                    .last()
+                    .is_some_and(|segment| segment.name == "extend"))
             && traits::native_interface_applies(
                 &interface,
                 &ty,
@@ -407,6 +412,7 @@ impl FunctionLowerer<'_, '_> {
             );
         }
         if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromIterator)
+            && !matches!(ty, TypeId::Array(_, _))
             && traits::intrinsic_applies(
                 &interface,
                 &ty,

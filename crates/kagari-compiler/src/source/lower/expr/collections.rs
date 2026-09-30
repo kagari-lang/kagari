@@ -125,11 +125,6 @@ impl FunctionLowerer<'_, '_> {
             (TypeId::Array(_, _), "truncate") => {
                 (StandardIntrinsic::ArrayTruncate, ValueType::Unit, false)
             }
-            (TypeId::Array(item, _), "extend") => {
-                let mut interface = StandardTrait::List.nominal();
-                interface.arguments.push((**item).clone());
-                return self.lower_list_copy(TypeId::Trait(interface), args[0], args[1], true);
-            }
             (TypeId::Array(_, _), "clear") => {
                 (StandardIntrinsic::ArrayClear, ValueType::HeapObject, true)
             }
@@ -202,33 +197,5 @@ impl FunctionLowerer<'_, '_> {
         };
         let result = self.emit_intrinsic(intrinsic, args, output);
         Ok(if discard { self.lower_unit() } else { result })
-    }
-}
-
-impl FunctionLowerer<'_, '_> {
-    pub(super) fn lower_list_copy(
-        &mut self,
-        source: TypeId,
-        destination: MirValue,
-        input: MirValue,
-        extend: bool,
-    ) -> Result<MirValue, MirLoweringError> {
-        let TypeId::Trait(interface) = &source else {
-            return Err(MirLoweringError::MissingBinding("list copy source"));
-        };
-        let storage = TypeId::Array(
-            Box::new(interface.arguments[0].clone()),
-            CollectionAccess::Mutable,
-        );
-        let snapshot = self.lower_collect(&storage, &source, input)?;
-        Ok(self.emit_intrinsic(
-            if extend {
-                StandardIntrinsic::ArrayExtendStorage
-            } else {
-                StandardIntrinsic::ArrayCopyFromStorage
-            },
-            &[destination, snapshot],
-            ValueType::Unit,
-        ))
     }
 }

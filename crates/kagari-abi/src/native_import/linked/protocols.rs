@@ -1,4 +1,5 @@
 //! Validate selected required-method applications against carried declarations.
+use super::arrays;
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
@@ -53,7 +54,8 @@ pub(super) fn valid<'a>(
             )
         );
         let collection = StandardTrait::from_id(&witness.interface.declaration);
-        if (list_query || snapshot) && collection == Some(StandardTrait::List)
+        if (list_query || snapshot || arrays::selected(import))
+            && collection == Some(StandardTrait::List)
             || snapshot && collection == Some(StandardTrait::Map)
         {
             if !collections::valid(witness, catalog, &table, &callable, cancel)? {
@@ -75,7 +77,7 @@ pub(super) fn valid<'a>(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
         );
-        let conversion = numeric || list_query || snapshot;
+        let conversion = numeric || list_query || snapshot || arrays::selected(import);
         let equality = list_query && protocol == Some(StandardTrait::PartialEq);
         if equality
             && witness.implementation == NativeWitnessImplementation::Interface

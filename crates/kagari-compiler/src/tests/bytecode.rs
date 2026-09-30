@@ -71,6 +71,7 @@ mod host_contracts;
 mod identities;
 mod interfaces;
 mod lowering;
+mod native_array_copy;
 mod native_equality;
 mod native_initialization;
 mod native_lists;

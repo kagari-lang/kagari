@@ -94,8 +94,8 @@ pub(super) fn collect(
                 planner.host_types.insert(id);
             }
             TypeId::Struct(nominal) => {
-                let template = module
-                    .aggregates
+                let template = planner
+                    .aggregate_catalog(&nominal.declaration)
                     .structure(&nominal.declaration)
                     .ok_or(MirLoweringError::MissingBinding("struct layout template"))?;
                 if template.generic_params.len() != nominal.arguments.len() {
@@ -135,8 +135,8 @@ pub(super) fn collect(
                 pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
             }
             TypeId::Enum(nominal) => {
-                let template = module
-                    .aggregates
+                let template = planner
+                    .aggregate_catalog(&nominal.declaration)
                     .enumeration(&nominal.declaration)
                     .ok_or(MirLoweringError::MissingBinding("enum layout template"))?;
                 if template.generic_params.len() != nominal.arguments.len() {

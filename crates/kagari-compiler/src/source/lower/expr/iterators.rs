@@ -14,6 +14,7 @@ use kagari_hir::{
     types::TypeId,
 };
 use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};
+use std::slice;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_fallible_collect(
@@ -256,6 +257,17 @@ impl FunctionLowerer<'_, '_> {
         source: &TypeId,
         value: MirValue,
     ) -> Result<MirValue, MirLoweringError> {
+        if let TypeId::Array(item, _) = target {
+            let mut interface = StandardTrait::FromIterator.nominal();
+            interface.arguments.push(item.as_ref().clone());
+            return self.lower_applied_method(
+                interface,
+                target.clone(),
+                &self.protocol_method(StandardTrait::FromIterator, 0)?,
+                slice::from_ref(source),
+                &[value],
+            );
+        }
         let iterator_type = self.iteration_output(StandardTrait::Iterable, source, "Iter")?;
         let iterator = self.lower_applied_operator(
             StandardTrait::Iterable.nominal(),

@@ -1,6 +1,7 @@
 use crate::source::{lower::support::lower_scalar, types::raise_type};
 mod aggregates;
 mod calls;
+mod native_arrays;
 mod native_defaults;
 mod native_results;
 mod patterns;

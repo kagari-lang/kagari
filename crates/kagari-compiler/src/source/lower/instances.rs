@@ -259,6 +259,12 @@ impl<'a> InstancePlanner<'a> {
     pub fn origin(&self, instance: &Instance) -> &'a AnalyzedModule {
         self.modules[&instance.origin]
     }
+    pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
+        self.modules
+            .get(&declaration.module)
+            .map(|module| &module.aggregates)
+            .unwrap_or(self.catalog)
+    }
     pub fn owner(&self) -> &'a AnalyzedModule {
         self.module
     }

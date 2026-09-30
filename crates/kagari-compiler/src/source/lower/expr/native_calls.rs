@@ -226,37 +226,6 @@ impl FunctionLowerer<'_, '_> {
 
         if matches!(
             intrinsic,
-            StandardIntrinsic::ArrayCopyFrom | StandardIntrinsic::ArrayExtend
-        ) {
-            let source_expr = *args
-                .last()
-                .ok_or(MirLoweringError::MissingBinding("copy source"))?;
-            let source = self
-                .analyzed
-                .typed
-                .type_table
-                .interface_coercion(source_expr)
-                .map(|coercion| TypeId::Trait(coercion.interface_type.clone()))
-                .or_else(|| self.analyzed.typed.type_table.expr_type(source_expr))
-                .ok_or(MirLoweringError::MissingExprType(source_expr))?;
-            let source = self
-                .planner
-                .arguments(
-                    &[source],
-                    &self.instance.substitution,
-                    self.function.debug.source_span,
-                )?
-                .remove(0);
-            return self.lower_list_copy(
-                source,
-                lowered[0],
-                lowered[1],
-                intrinsic == StandardIntrinsic::ArrayExtend,
-            );
-        }
-
-        if matches!(
-            intrinsic,
             StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange
         ) {
             let input = args[usize::from(receiver.is_none())];
@@ -336,9 +305,7 @@ impl FunctionLowerer<'_, '_> {
         }
         if matches!(
             intrinsic,
-            StandardIntrinsic::ArrayListFrom
-                | StandardIntrinsic::LinkedHashMapFrom
-                | StandardIntrinsic::LinkedHashSetFrom
+            StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
         ) {
             return self.lower_collection_factory(expr, lowered[0]);
         }

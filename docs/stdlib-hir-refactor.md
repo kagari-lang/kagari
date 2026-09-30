@@ -15,7 +15,9 @@ implementations and declared dynamic views with checked multi-method witnesses
 and selected primitive, nominal or core composed equality. Native storage and
 static/dynamic Map snapshots execute through checked runtime traversal and result
 construction. ArrayList per-index initialization executes through rooted native
-callbacks and checked append operations. Remaining ST05 iterator/collection
+callbacks and checked append operations. ArrayList source construction, FromIterator,
+copy and extension execute through selected native source traversal and atomic
+final storage helpers. Remaining ST05 iterator/collection
 migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -520,6 +522,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   traversal and dynamic views, with checked readonly result construction.
 - [x] Migrate ArrayList `from_fn` per-index initialization with typed callbacks,
   once-only construction, exact logical charges and failure cleanup.
+- [x] Migrate ArrayList source construction and FromIterator, plus copy/extension,
+  with checked traversal witnesses, rooted snapshots and atomic final storage updates.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -815,6 +819,60 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 ArrayList source construction/copy checkpoint (2026-09-30): completes one
+  family checklist covering `ArrayList::from`, the ArrayList FromIterator provider,
+  `copy_from` and `extend`, including selected generic and dynamic MutableList
+  implementations. Removed the array copy loop and source-factory interception;
+  ArrayList collection lowering now calls the selected checked FromIterator
+  implementation. Set/Map construction, generic Collect dispatch, fallible
+  collection and lazy adapter algorithms remain owned by their pending families.
+  Runtime owns conversion, empty snapshot allocation, guarded next/test/read/append,
+  close/end and final publication or atomic copy/extension. Existing Rust storage
+  helpers retain their charging and commit guarantees; no source algorithm copy,
+  forwarding implementation or alternate public-array expansion remains.
+- Intrinsic contracts carry exact List, inherited Iterable and selected Iterator
+  witnesses. FromIterator carries its written Iterable requirement and concrete
+  Iterator application. Portable linking validates physical method signatures,
+  concrete targets, source Item/Iter outputs and mutable destination/result storage
+  without consulting source catalogs. Arguments, converted iterators, optional
+  results, items and the partially constructed snapshot remain rooted before the
+  already charged entry operation. Identity Iterable conversion preserves its
+  zero-cost entry behavior; script conversion/next calls use the shared frame driver.
+- Traversal completes and releases its source guard before destination commit.
+  Self-copy/extension snapshots once, shallow slots stay independent and heap
+  payloads remain shared. Callback mutations already completed remain observable
+  on failure; failed traversal or commit does not publish a partial storage update.
+  Equal-length copy under an active destination iterator remains permitted slot
+  replacement, while extension retains the structural mutation guard. The foreign
+  generic regression exposed a layout lookup limited to the callee's catalog;
+  aggregate templates now come from their defining module in the checked program
+  closure, including caller-defined private struct and enum generic arguments.
+- Recorded 120 cases at 60ffc8e: empty/singleton/multiple inputs, scalar/heap items,
+  all four operations, storage/custom/generic/dynamic sources, custom cursors,
+  identity conversion and self aliases. All 26,960 source/decoded budget cuts
+  preserve results, effects and their exact positions, counters and GC/session
+  cleanup. The baseline includes 40 bulk-charge rejection cutpoints from the old
+  Rust copy/extension helpers, preserving their exact consumed budgets rather than
+  assuming every rejection consumes the limit. Additional tests cover nested host
+  reentry and callback traps, cancellation at every conversion/next occurrence,
+  all allocation limits through commit, guard failures, completed source effects,
+  foreign generic method targets and subsequent clean execution. All 224 witness,
+  signature, write-authority, instantiation and bare-binding corruptions reject
+  in memory and encoded loading.
+- Runtime ABI is v119 for the newly executable snapshot bindings; binding v2,
+  KBC v109, KMIR v7 and helper ABI v6 retain their schemas. ABI 46, bytecode 27,
+  compiler 176, HIR 414, MIR 1, runtime 71, stdlib 7 and VM 182 library tests pass
+  (924 cumulative). Embedding array_operations, collection_interfaces,
+  error_traces, iteration_traits, lazy_iterators, list_windows and
+  prepared_collections pass 82 tests (1,006 combined), across their supported
+  source, decoded and JIT/fallback routes. Workspace all-target Clippy with
+  warnings denied, formatting, structure and diff checks pass. Structure covers
+  631 Rust files with zero violations/exceptions. Manual review covered explicit
+  imports, module ownership, selected method signatures, logical charges, root
+  registration, guards, shared payloads, commit and failure cleanup. No new build
+  or test error is carried; other ST05 families and ST06 fixture regeneration,
+  documentation, measurements and final acceptance remain pending.
 
 - ST05 per-index ArrayList initialization checkpoint (2026-09-30): removes the
   complete `ArrayList::from_fn` compiler loop and its intrinsic routing branch.
