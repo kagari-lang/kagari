@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 mod operands;
 use kagari_abi::{
+    callable::NativeCall,
     effects::{EffectSet, standard_intrinsic_effects},
+    native_import::EngineNativeImport,
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
@@ -270,7 +272,7 @@ pub enum CallTarget {
     SourceFunction(Box<SourceFunctionContract>),
     Function(InstanceId),
     InterfaceMethod(Box<InterfaceCallContract>),
-    HostFunction(Box<HostFunctionDeclaration>),
+    Native(NativeCall<Box<EngineNativeImport>, Box<HostFunctionDeclaration>>),
     Value(MirValue),
     Closure {
         value: MirValue,
@@ -405,7 +407,11 @@ impl CallTarget {
                 EffectSet::call()
             }
             Self::InterfaceMethod(_) => EffectSet::runtime_call(),
-            Self::HostFunction(declaration) => EffectSet {
+            Self::Native(NativeCall::Engine(contract)) => contract
+                .direct_operation()
+                .map(standard_intrinsic_effects)
+                .unwrap_or_else(EffectSet::runtime_call),
+            Self::Native(NativeCall::Host(declaration)) => EffectSet {
                 allocates: declaration.effects.may_allocate,
                 ..EffectSet::runtime_call()
             },

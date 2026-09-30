@@ -3,7 +3,7 @@ use crate::source::{
         MirLoweringError,
         state::{FunctionLowerer, LoopScope},
     },
-    types::{self, lower_type},
+    types::{self},
 };
 use hir::{Condition, StmtKind};
 use kagari_abi::{
@@ -11,9 +11,8 @@ use kagari_abi::{
     representation::ValueType,
     standard::{surface::StandardEnum, traits::StandardTrait},
 };
-use kagari_hir::{
-    builtin::traits::StandardTraitSemantics, hir, typeck::ResolvedIteration, types::TypeId,
-};
+use kagari_hir::types::abi::lower_type;
+use kagari_hir::{hir, typeck::ResolvedIteration, types::TypeId};
 use std::slice;
 
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};

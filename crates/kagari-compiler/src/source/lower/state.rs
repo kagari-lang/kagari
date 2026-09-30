@@ -1,13 +1,11 @@
-use crate::source::{
-    lower::{
-        MirLoweringError,
-        debug::capture_origin,
-        instances::{Instance, InstancePlanner},
-    },
-    types::lower_type,
+use crate::source::lower::{
+    MirLoweringError,
+    debug::capture_origin,
+    instances::{Instance, InstancePlanner},
 };
 use hir::{BodyOwner, HirOwner, StmtKind, Writeability};
 use kagari_abi::{effects::EffectSet, representation::ValueType, types::AbiType};
+use kagari_hir::types::abi::lower_type;
 use kagari_hir::{
     AnalyzedModule, hir, resolver::ResolvedName, typeck::TypedFunction, types::TypeId,
 };

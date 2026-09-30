@@ -1,3 +1,4 @@
+use kagari_abi::callable::NativeCall;
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{
     ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
@@ -160,7 +161,7 @@ fn host_path_artifact(
                         matches!(
                             instruction,
                             BytecodeInstruction::Call {
-                                callee: CallTarget::HostFunction(_),
+                                callee: CallTarget::Native(NativeCall::Host(_)),
                                 ..
                             }
                         )
@@ -173,7 +174,7 @@ fn host_path_artifact(
                         matches!(
                             instruction,
                             BytecodeInstruction::Call {
-                                callee: CallTarget::HostFunction(_),
+                                callee: CallTarget::Native(NativeCall::Host(_)),
                                 ..
                             }
                         )
@@ -579,7 +580,7 @@ fn execution_context_denies_host_path_mutation_with_structured_error() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                callee: CallTarget::Native(NativeCall::Host(kagari_bytecode::HostImportId::new(0))),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
@@ -647,7 +648,7 @@ fn host_path_capability_denials_surface_as_structured_runtime_errors() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                callee: CallTarget::Native(NativeCall::Host(kagari_bytecode::HostImportId::new(0))),
                 args: vec![],
             },
             BytecodeInstruction::ReadPath {

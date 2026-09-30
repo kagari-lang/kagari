@@ -1,8 +1,6 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::lower_type,
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
+use kagari_hir::types::abi::lower_type;
 use kagari_hir::{hir, typeck::ResolvedHostPath};
 use kagari_mir::{
     PathRef,

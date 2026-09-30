@@ -3,12 +3,13 @@ use crate::types::matching;
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     layout::LayoutValidationError,
+    native_import::{NativeSignature, contract::binding_signature_valid},
     scalar::BuiltinType,
     standard::native,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-        InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi, TraitContract, TypeAbi,
-        TypeAbiKind,
+        InterfaceTableAbi, NativeDeclaration, NominalAbiType, PublicAbiItem, TraitAbi,
+        TraitContract, TypeAbi, TypeAbiKind,
         substitution::{TypeSubstitution, TypeTransformError, normalize_projections},
     },
 };
@@ -98,6 +99,7 @@ pub fn validate(
                     function.implementation,
                     CallableImplementation::Native(NativeBinding::Engine(_))
                 ) || (function.generic_params.is_empty() && function.bounds.is_empty()))
+                    && engine_signature_valid(function, &[])
                     && function_valid(function, module, &[], &Parameters::new(), None, cancel)
             }
             PublicAbiItem::Const(value) => type_valid(&value.ty, &Parameters::new(), None, cancel),
@@ -160,6 +162,7 @@ pub fn validate(
                         && type_valid(&table.for_type, &params, None, cancel)
                         && table.methods.iter().all(|method| {
                             methods.insert(&method.name)
+                                && engine_signature_valid(method, &table.bounds)
                                 && function_valid(
                                     method,
                                     module,
@@ -213,6 +216,71 @@ pub fn validate(
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
             return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
+/// Validate declaration binders before any concrete native import can use them.
+/// The import separately matches this template and the engine's storage guard.
+pub fn validate_native_declarations(
+    declarations: &[NativeDeclaration],
+    module: &ModuleIdentity,
+    cancel: &CancellationToken,
+) -> Result<(), LayoutValidationError> {
+    let mut identities = HashSet::new();
+    for declaration in declarations {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        let id = &declaration.declaration;
+        let function = &declaration.function;
+        if id.module != *module
+            || !id.within_path_limit()
+            || !identities.insert(id)
+            || !id.path.last().is_some_and(|part| {
+                matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
+                    && part.name == function.name
+            })
+            || !matches!(
+                function.implementation,
+                CallableImplementation::Native(NativeBinding::Engine(_))
+            )
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+        let mut owners = BTreeMap::<_, Vec<_>>::new();
+        let mut params = Parameters::new();
+        for parameter in &function.generic_params {
+            if parameter.owner.module != *module
+                || !id.path.starts_with(&parameter.owner.path)
+                || !params.insert((parameter.owner.clone(), parameter.position))
+            {
+                return Err(LayoutValidationError::Invalid);
+            }
+            owners
+                .entry(&parameter.owner)
+                .or_default()
+                .push(parameter.position);
+        }
+        if owners
+            .values()
+            .any(|positions| positions.iter().copied().ne(0..positions.len()))
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+        let mut receiver = id.clone();
+        receiver.path.pop();
+        let self_owner = receiver
+            .path
+            .last()
+            .is_some_and(|part| part.kind == DefinitionKind::Trait)
+            .then_some(&receiver);
+        if !bounds_valid_in(&function.bounds, &params, self_owner, cancel)
+            || !signature_valid(function, &params, self_owner, cancel)
+            || !engine_signature_valid(function, &[])
+        {
+            return Err(LayoutValidationError::Invalid);
         }
     }
     Ok(())
@@ -343,6 +411,7 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
                 })
                 && ty.methods.iter().all(|method| {
                     methods.insert(&method.name)
+                        && engine_signature_valid(method, &ty.bounds)
                         && function_valid(
                             method,
                             module,
@@ -738,10 +807,6 @@ fn bounds_valid_in(
     let mut seen = HashSet::new();
     bounds.iter().all(|bound| {
         type_valid(&bound.ty, params, self_owner, cancel)
-            && matches!(
-                bound.ty,
-                AbiType::Parameter { .. } | AbiType::Projection { .. }
-            )
             && seen.insert(&bound.ty)
             && !bound.constraints.is_empty()
             && constraints_valid(&bound.constraints, params, self_owner, cancel)
@@ -800,6 +865,24 @@ fn function_valid(
             && signature_valid(function, &params, self_owner, cancel)
     })
 }
+pub fn engine_signature_valid(function: &FunctionAbi, inherited: &[GenericBoundAbi]) -> bool {
+    match function.implementation {
+        CallableImplementation::Native(NativeBinding::Engine(binding)) => binding_signature_valid(
+            binding,
+            &NativeSignature {
+                params: function.params.iter().map(|p| p.ty.clone()).collect(),
+                result: function.return_type.clone(),
+            },
+            &inherited
+                .iter()
+                .chain(&function.bounds)
+                .cloned()
+                .collect::<Vec<_>>(),
+        ),
+        _ => true,
+    }
+}
+
 fn signature_valid(
     function: &FunctionAbi,
     params: &Parameters,

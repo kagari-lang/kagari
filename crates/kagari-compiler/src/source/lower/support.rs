@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::lower_nominal_type,
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use hir::{BinaryOp as HirBinaryOp, PlaceKind, PrefixOp};
 use kagari_abi::{
     operations::{BinaryOp, UnaryOp},
@@ -11,6 +8,7 @@ use kagari_abi::{
     types::NominalAbiType,
 };
 use kagari_common::identity::DefinitionId;
+use kagari_hir::types::abi::lower_nominal_type;
 use kagari_hir::{hir, resolver::ResolvedName, typeck::ScalarValue, types::TypeId};
 use kagari_mir::{
     ValueBuffer,

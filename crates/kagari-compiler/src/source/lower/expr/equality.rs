@@ -1,14 +1,15 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::{lower_nominal_type, lower_type},
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
     standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
 };
-use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
+use kagari_hir::{
+    builtin::traits::StandardTraitSemantics,
+    types::TypeId,
+    types::abi::{lower_nominal_type, lower_type},
+};
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,
 };

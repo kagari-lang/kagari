@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar},
-    types::{lower_nominal_type, lower_type},
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar};
 use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
@@ -9,6 +6,7 @@ use kagari_abi::{
 use kagari_hir::{
     hir::{self, PatternKind},
     native::NativeTypeKind,
+    types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId},
 };
 use kagari_mir::{

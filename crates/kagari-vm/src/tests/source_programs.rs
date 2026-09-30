@@ -121,7 +121,10 @@ fn cross_module_debug_frames_keep_their_member_identity() {
     let loaded = runtime
         .load_program("root", fixture("pub fn answer() -> i32 { 40 + 2 }"))
         .unwrap();
-    let dependency = loaded.members().next().unwrap();
+    let dependency = loaded
+        .members()
+        .find(|member| member.bytecode.identity.path == ["dependency"])
+        .unwrap();
     let mut session = DebugSession::new(&runtime).unwrap();
     session
         .add_breakpoint(SourceBreakpoint::at_source_offset(
@@ -151,4 +154,257 @@ fn cross_module_debug_frames_keep_their_member_identity() {
             .iter()
             .all(|point| point.module_id == dependency.id)
     );
+}
+
+#[test]
+fn direct_engine_imports_run_from_source_and_decoded_artifacts() {
+    let program = fixture(
+        r#"
+        pub fn answer() -> i32 {
+            if "abc".len_bytes() == 3usize {
+                std::math::clamp((42i32).wrapping_add(0), 0, 100)
+            } else { 0 }
+        }
+    "#,
+    );
+    let imports: Vec<_> = program
+        .modules
+        .iter()
+        .flat_map(|module| &module.engine_imports)
+        .collect();
+    assert_eq!(imports.len(), 3);
+    assert!(
+        imports
+            .iter()
+            .all(|import| import.direct_operation().is_some())
+    );
+    assert!(imports.iter().any(|import| !import.requirements.is_empty()));
+    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    decoded.validate_for_loader(&Default::default()).unwrap();
+    for program in [program, decoded.program] {
+        let mut runtime = Runtime::default();
+        let loaded = runtime.load_program("native-imports", program).unwrap();
+        let mut vm = Vm::new(runtime);
+        assert_eq!(
+            vm.execute(&loaded, "main").unwrap().return_value,
+            Value::I32(42)
+        );
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
+    }
+}
+
+#[test]
+fn forged_engine_imports_reject_versions_providers_signatures_and_obligations() {
+    let program = fixture("pub fn answer() -> i32 { std::math::clamp(42, 0, 100) }");
+    let member = program
+        .modules
+        .iter()
+        .position(|module| !module.engine_imports.is_empty())
+        .unwrap();
+    for corrupt in 0..7 {
+        let mut forged = program.clone();
+        let import = &mut forged.modules[member].engine_imports[0];
+        match corrupt {
+            0 => import.binding_version += 1,
+            1 => import.signature.params.pop().map(|_| ()).unwrap(),
+            2 => {
+                import.signature.result =
+                    kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool)
+            }
+            3 => import.requirements.clear(),
+            4 => import.instance.arguments.clear(),
+            5 => import.instance.declaration.path.last_mut().unwrap().name = "unpublished".into(),
+            6 => {
+                let instruction = forged.modules[member]
+                    .functions
+                    .iter_mut()
+                    .flat_map(|function| &mut function.instructions)
+                    .find(|instruction| {
+                        matches!(
+                            instruction,
+                            kagari_bytecode::BytecodeInstruction::Call {
+                                callee: kagari_bytecode::CallTarget::Native(
+                                    kagari_abi::callable::NativeCall::Engine(_)
+                                ),
+                                ..
+                            }
+                        )
+                    })
+                    .unwrap();
+                let kagari_bytecode::BytecodeInstruction::Call { callee, .. } = instruction else {
+                    unreachable!()
+                };
+                *callee = kagari_bytecode::CallTarget::Native(
+                    kagari_abi::callable::NativeCall::Host(kagari_bytecode::HostImportId::new(0)),
+                );
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            kagari_bytecode::verify_program(&forged).is_err(),
+            "accepted corruption {corrupt}"
+        );
+        assert!(
+            KbcArtifact::from_program(forged.clone(), Default::default()).is_err(),
+            "artifact accepted corruption {corrupt}"
+        );
+        let mut runtime = Runtime::default();
+        assert!(
+            runtime.load_program("forged-native", forged).is_err(),
+            "runtime accepted corruption {corrupt}"
+        );
+        assert_eq!(runtime.gc().active_roots(), 0);
+    }
+}
+
+#[test]
+fn concrete_collection_native_signatures_preserve_element_types() {
+    let program = fixture(
+        r#"pub fn answer() -> i32 {
+        val values = [40]; values.push(2);
+        values[0] + values.get(1usize).unwrap_or(0)
+    }"#,
+    );
+    assert!(
+        program
+            .modules
+            .iter()
+            .flat_map(|module| &module.engine_imports)
+            .any(|import| matches!(
+                import.signature.params.first(),
+                Some(kagari_abi::types::AbiType::Array(_, _))
+            ))
+    );
+    let artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    for program in [program, decoded.program] {
+        let mut runtime = Runtime::default();
+        let loaded = runtime.load_program("native-collections", program).unwrap();
+        let mut vm = Vm::new(runtime);
+        assert_eq!(
+            vm.execute(&loaded, "main").unwrap().return_value,
+            Value::I32(42)
+        );
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
+    }
+}
+
+#[test]
+fn hash_storage_native_imports_carry_and_validate_selected_witnesses() {
+    let program = fixture(
+        r#"pub fn answer() -> i32 {
+        val values: LinkedHashSet<i32> = LinkedHashSet::new();
+        values.insert(42);
+        if values.contains(42) { 42 } else { 0 }
+    }"#,
+    );
+    let (owner, import) = program
+        .modules
+        .iter()
+        .enumerate()
+        .find_map(|(index, module)| {
+            module
+                .engine_imports
+                .iter()
+                .position(|import| !import.witnesses.is_empty())
+                .map(|import| (index, import))
+        })
+        .unwrap();
+    assert!(
+        program.modules[owner].engine_imports[import]
+            .witnesses
+            .len()
+            >= 2
+    );
+    let mut missing = program.clone();
+    missing.modules[owner].engine_imports[import]
+        .witnesses
+        .clear();
+    assert!(kagari_bytecode::verify_program(&missing).is_err());
+    let mut forged = program.clone();
+    forged.modules[owner].engine_imports[import].witnesses[0].implementation =
+        kagari_abi::native_import::NativeWitnessImplementation::Host;
+    assert!(kagari_bytecode::verify_program(&forged).is_err());
+    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let mut runtime = Runtime::default();
+    let loaded = runtime
+        .load_program("native-witnesses", decoded.program)
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, "main").unwrap().return_value,
+        Value::I32(42)
+    );
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn low_level_storage_writes_reject_element_type_forgery() {
+    use kagari_abi::{
+        callable::NativeCall, scalar::BuiltinType, standard::StandardIntrinsic, types::AbiType,
+    };
+    use kagari_bytecode::{BytecodeInstruction, CallTarget, Register};
+    let mut program = fixture(
+        r#"pub fn answer() -> i32 {
+        val values = [[42]];
+        val wrong = ["bad"];
+        wrong.push("still bad");
+        values.push([1]);
+        values[0][0]
+    }"#,
+    );
+    let member = program
+        .modules
+        .iter()
+        .position(|module| {
+            module
+                .engine_imports
+                .iter()
+                .any(|import| import.direct_operation() == Some(StandardIntrinsic::ArrayPush))
+        })
+        .unwrap();
+    let imports = program.modules[member].engine_imports.clone();
+    let function = program.modules[member]
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "answer")
+        .unwrap();
+    let wrong = function.metadata.semantic.registers.iter().find_map(|(index,ty)| matches!(ty,AbiType::Array(item,_) if item.as_ref() == &AbiType::Builtin(BuiltinType::String)).then_some(Register::new(*index))).unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction,BytecodeInstruction::Call {callee:CallTarget::Native(NativeCall::Engine(id)),..} if imports[id.index()].direct_operation()==Some(StandardIntrinsic::ArrayPush) && matches!(&imports[id.index()].signature.params[0],AbiType::Array(item,_) if matches!(item.as_ref(),AbiType::Array(_, _))))).unwrap();
+    let BytecodeInstruction::Call { callee, .. } = instruction else {
+        unreachable!()
+    };
+    *callee = CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush);
+    // The low-level form still has a valid physical contract and semantic slot
+    // facts; this exercises the storage verifier independently of native imports.
+    kagari_bytecode::verify_program(&program).unwrap();
+    let function = program.modules[member]
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "answer")
+        .unwrap();
+    let BytecodeInstruction::Call { args, .. } = function
+        .instructions
+        .iter_mut()
+        .find(|instruction| {
+            matches!(
+                instruction,
+                BytecodeInstruction::Call {
+                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
+                    ..
+                }
+            )
+        })
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    args[1] = wrong;
+    assert!(kagari_bytecode::verify_program(&program).is_err());
+    assert!(KbcArtifact::from_program(program.clone(), Default::default()).is_err());
+    let mut runtime = Runtime::default();
+    assert!(runtime.load_program("forged-storage", program).is_err());
+    assert_eq!(runtime.gc().active_roots(), 0);
 }

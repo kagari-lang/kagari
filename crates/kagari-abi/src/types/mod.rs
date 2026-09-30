@@ -36,6 +36,8 @@ use std::{collections::BTreeMap, fmt::Write};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleAbi {
     #[serde(deserialize_with = "crate::decode_limits::table")]
+    pub native_declarations: Vec<NativeDeclaration>,
+    #[serde(deserialize_with = "crate::decode_limits::table")]
     pub public_items: PublicAbiItemBuffer,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub trait_contracts: Vec<TraitContract>,
@@ -100,6 +102,14 @@ pub struct FunctionAbi {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub params: Vec<ParameterAbi>,
     pub return_type: AbiType,
+}
+
+/// Declaration contract for native entrypoints, including inherent and private
+/// methods absent from the public ABI. The function uses the same checked model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDeclaration {
+    pub declaration: DefinitionId,
+    pub function: FunctionAbi,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

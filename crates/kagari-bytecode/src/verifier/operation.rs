@@ -8,6 +8,7 @@ use crate::{
     },
 };
 use kagari_abi::{
+    callable::NativeCall,
     contracts::{self, RuntimeHelperKind},
     operations::{self, UnaryOp as MirUnaryOp},
     representation::ValueType,
@@ -656,7 +657,22 @@ pub(super) fn verify_call(
             }
             verify_call_dst(function, dst, return_type)?;
         }
-        CallTarget::HostFunction(import) => {
+        CallTarget::Native(NativeCall::Engine(import)) => {
+            let contract = module.engine_imports.get(import.index()).ok_or(
+                BytecodeVerificationError::InvalidOperation {
+                    function: function.id,
+                    reason: "invalid engine import index",
+                },
+            )?;
+            let args = args
+                .iter()
+                .map(|arg| register_ty(function, *arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
+            contracts::verify_engine_call(dst, contract, &args)
+                .map_err(|error| contract_error(function, error))?;
+        }
+        CallTarget::Native(NativeCall::Host(import)) => {
             let declaration = module.host_interface.functions.get(import.index()).ok_or(
                 BytecodeVerificationError::InvalidHostImport {
                     function: function.id,

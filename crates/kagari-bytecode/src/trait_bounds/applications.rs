@@ -9,6 +9,19 @@ pub(super) fn validate(
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, |id| contract(id, closure));
     validator.declarations(&module.public_items, &module.trait_contracts)?;
+    for declaration in &module.native_declarations {
+        validator.function(&declaration.function)?;
+    }
+    for import in &module.engine_imports {
+        validator.types(&import.instance.arguments)?;
+        validator.types(&import.signature.params)?;
+        validator.validate_type(&import.signature.result)?;
+        validator.bounds(&import.requirements)?;
+        for witness in &import.witnesses {
+            validator.validate_type(&witness.receiver)?;
+            validator.trait_application(&witness.interface)?;
+        }
+    }
     validator.layouts(&module.structures, &module.enumerations)?;
     for table in &module.interface_tables {
         validator.types(&table.arguments)?;

@@ -3,11 +3,14 @@ use crate::{
     cache::ReloadDependencySnapshot,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
 };
-use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
+use kagari_abi::{
+    layout::{EnumLayout, EnumVariantLayout, StructLayout},
+    standard::StandardIntrinsic,
+};
 use kagari_bytecode as bytecode;
 use kagari_bytecode::{
-    ArtifactFingerprint, BytecodeModule, BytecodeProgram, EnumId, HostImportId, ModuleRef, PathId,
-    StructId,
+    ArtifactFingerprint, BytecodeModule, BytecodeProgram, EngineImportId, EnumId, HostImportId,
+    ModuleRef, PathId, StructId,
 };
 use kagari_common::identity::ModuleIdentity;
 use std::{
@@ -159,6 +162,7 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
+    engine_bindings: Vec<StandardIntrinsic>,
     pub(crate) host_bindings: LinkedHostBindings,
 }
 
@@ -232,6 +236,11 @@ impl LoadedModule {
             variant,
         })
     }
+    /// Registry entries are resolved once for this immutable program generation.
+    pub fn engine_binding(&self, import: EngineImportId) -> Option<StandardIntrinsic> {
+        self.engine_bindings.get(import.index()).copied()
+    }
+
     pub fn host_binding(&self, import: HostImportId) -> Option<HostFunctionId> {
         self.host_bindings.functions.get(import.index()).copied()
     }
@@ -480,7 +489,17 @@ impl ModuleStore {
                 } else {
                     format!("{}::{}", name, bytecode.identity)
                 };
+                let engine_bindings = bytecode
+                    .engine_imports
+                    .iter()
+                    .map(|import| {
+                        import
+                            .direct_operation()
+                            .expect("sealed engine native binding")
+                    })
+                    .collect();
                 LinkedModule {
+                    engine_bindings,
                     id,
                     name: display,
                     epoch,

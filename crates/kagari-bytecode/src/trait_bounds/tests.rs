@@ -1,6 +1,7 @@
 use super::*;
 use kagari_abi::{
     scalar::BuiltinType,
+    standard::intrinsic,
     types::{AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstraintAbi, InterfaceTableAbi},
 };
 use kagari_common::identity::{ModuleIdentity, associated_type_id};
@@ -56,6 +57,17 @@ fn module(items: Vec<PublicAbiItem>) -> BytecodeModule {
     }
 }
 
+fn with_hash_bounds(module: &BytecodeModule) -> bool {
+    let protocol = BytecodeModule {
+        identity: intrinsic::applied(StandardTrait::Hash, vec![])
+            .declaration
+            .module,
+        public_items: vec![PublicAbiItem::Trait(record("Hash"))],
+        ..Default::default()
+    };
+    trait_bounds_match(module, &[module, &protocol], None)
+}
+
 #[test]
 fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implementations() {
     let mut declaration = record("Read");
@@ -78,7 +90,7 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
         PublicAbiItem::Trait(declaration.clone()),
         PublicAbiItem::InterfaceTable(Box::new(implementation.clone())),
     ]);
-    assert!(trait_bounds_match(&module, &[&module], None));
+    assert!(with_hash_bounds(&module));
     let PublicAbiItem::InterfaceTable(corrupt) = &mut module.public_items[1] else {
         unreachable!()
     };
@@ -88,21 +100,21 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
     corrupt_interface
         .associated_types
         .insert(member, AbiType::Builtin(BuiltinType::F32));
-    assert!(!trait_bounds_match(&module, &[&module], None));
+    assert!(!with_hash_bounds(&module));
     declaration.supertraits.push(applied("Parent"));
     module.public_items = vec![
         PublicAbiItem::Trait(declaration),
         PublicAbiItem::Trait(record("Parent")),
         PublicAbiItem::InterfaceTable(Box::new(implementation)),
     ];
-    assert!(!trait_bounds_match(&module, &[&module], None));
+    assert!(!with_hash_bounds(&module));
     module
         .public_items
         .push(PublicAbiItem::InterfaceTable(Box::new(table(
             "parent",
             applied("Parent"),
         ))));
-    assert!(trait_bounds_match(&module, &[&module], None));
+    assert!(with_hash_bounds(&module));
 }
 
 #[test]
@@ -141,7 +153,7 @@ fn linked_family_bounds_use_declared_input_assumptions_and_check_unused_projecti
         PublicAbiItem::Trait(declaration),
         PublicAbiItem::InterfaceTable(Box::new(implementation)),
     ]);
-    assert!(trait_bounds_match(&module, &[&module], None));
+    assert!(with_hash_bounds(&module));
     let PublicAbiItem::InterfaceTable(table) = &mut module.public_items[1] else {
         unreachable!()
     };
@@ -151,5 +163,5 @@ fn linked_family_bounds_use_declared_input_assumptions_and_check_unused_projecti
         member,
         arguments: vec![AbiType::Builtin(BuiltinType::F32)],
     };
-    assert!(!trait_bounds_match(&module, &[&module], None));
+    assert!(!with_hash_bounds(&module));
 }

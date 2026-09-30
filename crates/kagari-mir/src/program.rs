@@ -1,5 +1,6 @@
 //! Verified executable modules and concrete instance-to-module/function link bindings.
 mod applications;
+mod native;
 use kagari_abi::{
     contracts, host,
     representation::ValueType,
@@ -198,6 +199,24 @@ pub fn verify_program(
                         .map(|id| indices[id]),
                 );
             }
+        }
+        let closure: Vec<_> = modules
+            .iter()
+            .enumerate()
+            .filter_map(|(owner, module)| {
+                (owner == index || dependencies.contains(&owner)).then_some(module)
+            })
+            .collect();
+        if !native::validate(module, &closure, cancel).map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })? {
+            return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
         applications::validate(module, cancel, |id| {
             let owner = *indices.get(&id.module)?;

@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::MirLoweringError,
-    types::{lower_nominal_type, lower_type},
-};
+use crate::source::lower::MirLoweringError;
 use kagari_abi::{
     callable::CallableImplementation,
     representation::ValueType,
@@ -21,6 +18,7 @@ use kagari_hir::{
     hir,
     resolver::ResolvedName,
     typeck::{FunctionImplementation, ScalarValue},
+    types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use std::{

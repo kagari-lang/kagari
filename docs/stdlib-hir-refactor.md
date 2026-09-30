@@ -1,9 +1,10 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00 complete, ST01 implementation scope complete. ST02 ordinary
-declarations and tooling are checked; native execution-obligation metadata and
-ST03 portable calls remain incomplete. Workspace integration remains broken in
-bytecode access validation.
+Status: active; ST00, ST01 and ST02 implementation scope complete. ST03's native
+call representation, versions and direct-call vertical are checked. Portable
+validation integration and source test consumer migration remain incomplete.
+The workspace builds; legacy single-module source tests and stale artifact
+fixtures still prevent final acceptance. ST04-ST06 remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -446,7 +447,7 @@ import path. Downstream users of removed catalogs may remain broken until ST02/S
 
 - [x] Unify standard function/method/trait/impl participation with ordinary HIR
   declarations; preserve builtin representation hooks as explicit semantic facts.
-- [ ] Record Script/Native implementation, explicit Engine/Host provider, generic
+- [x] Record Script/Native implementation, explicit Engine/Host provider, generic
   applications, witnesses, defaults/overrides and all required call metadata.
 - [x] Import existing offline host declarations into this shared callable model,
   retaining provider contracts and optional declaration origin metadata.
@@ -460,15 +461,15 @@ checked HIR. There is no fallback standard signature or trait solver.
 
 ### ST03 — Portable call contracts and validation
 
-- [ ] Introduce the checked provider-qualified native call/import representation
+- [x] Introduce the checked provider-qualified native call/import representation
   in ABI, MIR and bytecode; lower it from HIR and link it against runtime bindings.
 - [ ] Replace source-catalog queries in executable validators with carried type,
   layout and witness facts plus trusted native contract validation.
 - [ ] Preserve ordinary script, closure, interface and host-call integration;
   reject provider substitution and missing/mismatched host contracts.
-- [ ] Version affected bytecode/artifact, portable MIR, runtime and helper contracts
+- [x] Version affected bytecode/artifact, portable MIR, runtime and helper contracts
   as required; reject superseded products without compatibility readers.
-- [ ] Pass forged-artifact rejection tests and a vertical direct-native-call test.
+- [x] Pass forged-artifact rejection tests and a vertical direct-native-call test.
 
 Exit: direct Rust helpers work on source and serialized-artifact paths; runtime
 requires no source catalog. Callback-heavy families remain owned by ST04/ST05.
@@ -782,6 +783,60 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- Coupled ST02/ST03 native handoff checkpoint (2026-09-30): completes ST02's
+  execution-fact checklist and ST03's representation, version and direct-call
+  vertical checklists together. Checked HIR callable applications supply native
+  declaration identities, owner-qualified generic arguments, applied signatures
+  and selected protocol witnesses. Native imports retain the complete declaration
+  application and binding version; `NativeCall` distinguishes Engine and Host in
+  MIR and bytecode. Host calls preserve the existing full offline registration
+  contract. Runtime resolves direct engine bindings once within the immutable
+  loaded program generation, without a source declaration catalog.
+- Removed `standard/operands.rs` and every `operand_count` query through this
+  complete handoff. HIR now validates installed bindings after ordinary signature
+  and bound resolution, using storage/callback/protocol guards at the native ABI
+  boundary. Physical low-level instructions validate consumed operands directly.
+  These guards compare carried types and their relationships; they provide no
+  source names, declaration lookup or replacement public signature catalog.
+  Shared checked-type encoding belongs to HIR and is reused by source lowering.
+- Portable native declaration validation checks binder ownership, signature
+  templates and native storage contracts even for unused declarations. Direct
+  imports must exactly match their declaration application and discharged bounds;
+  selected primitive/table/host/interface witnesses cannot substitute providers.
+  Generic engine implementation tables require the native storage family, each
+  method's consumed signature and the correct receiver or static destination.
+  Low-level container writes separately retain invariant element/key/value facts.
+- Fixed method ABI collection to remove only obligations guaranteed by the
+  enclosing declaration. A constraint such as `List<T>::contains where T:
+  PartialEq` must survive in its method contract. Complete native declaration
+  records retain inherited and method obligations for concrete applications;
+  table method records use the enclosing table's guarantees during validation.
+- Runtime ABI v106, KBC v107 and KMIR v5 reject superseded schemas; helper ABI
+  remains v6 because its contract has not changed. SDK/golden artifact regeneration
+  remains owned by ST06 after the full execution migration stabilizes. No old
+  reader or compatibility path was introduced.
+- Validation at this checkpoint: `cargo check --workspace --all-targets` and
+  `cargo clippy --workspace --all-targets -- -D warnings` pass. ABI/bytecode/MIR
+  library suites pass 71 tests; HIR/stdlib library suites pass 419; compiler ABI
+  collection passes three; VM source-program vertical passes seven (500 total).
+  Source and encoded/decoded artifacts execute strings, integer methods, generic
+  math, invariant arrays and hash-backed sets; completion releases all roots.
+  Forged binding versions, providers, signatures, declaration identities, generic
+  obligations, witness providers and low-level element writes reject before entry.
+  Full structure checking passes for 562 Rust files without violations or
+  exceptions; formatting and diff checks pass.
+- Carried integration failure remains explicit: `cargo test -p kagari-compiler
+  --lib tests::bytecode::artifacts::builds_versioned_kbc_artifact_metadata` fails
+  with `UnlinkedSourceModules` at `tests/common.rs:27`. The old helper lowers only
+  the root analysis and then tries to emit standalone bytecode despite its checked
+  standard dependency closure. ST03 owns migration of compiler, VM and embedding
+  source consumers to whole checked programs, preserving artifact, host and
+  rejection assertions. The earlier broad compiler run reported 54 passes and
+  110 failures; that historical count is not a current acceptance claim. Avoid
+  rerunning unchanged legacy failures until their helper/consumer migration.
+  ST03's remaining validator/integration checklists and all ST04-ST06 checklists
+  stay open. This is not workspace test or final architecture acceptance.
 
 - ST02 checked declaration/query checkpoint (2026-09-30): completes the ordinary
   declaration, offline-host input, semantic tooling and behavioral-test checklist

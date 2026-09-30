@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::lower_type,
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
@@ -13,6 +10,7 @@ use kagari_abi::{
     types::AbiType,
 };
 use kagari_common::collection::CollectionAccess::Mutable;
+use kagari_hir::types::abi::lower_type;
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
 use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};
 use std::slice;

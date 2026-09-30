@@ -1,13 +1,12 @@
 //! Access-flow validation runs after physical operand and layout validation.
 
-use kagari_abi::standard::application::StandardArguments;
+mod storage;
+
 use kagari_abi::{
+    callable::NativeCall,
     operations::{IterOp, StandardEnumOp},
     scalar::BuiltinType as B,
-    standard::{
-        StandardIntrinsic as S,
-        surface::{self as standard_surface, StandardEnum},
-    },
+    standard::{StandardIntrinsic as S, surface::StandardEnum},
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access, verify as abi_verify},
 };
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
@@ -702,6 +701,11 @@ pub(super) fn verify(
                     let mut result = Fact::default();
                     match callee {
                         CallTarget::StandardIntrinsic(intrinsic) => {
+                            if let Some(storage_result) =
+                                storage::validate(*intrinsic, &facts).map_err(|_| invalid())?
+                            {
+                                result = storage_result;
+                            }
                             if let S::ParseNumber(ty) = intrinsic {
                                 result = Fact::typed(AbiType::StandardEnum {
                                     kind: StandardEnum::Result,
@@ -890,44 +894,6 @@ pub(super) fn verify(
                                     ));
                                 }
                             }
-                            if let Some(spec) =
-                                standard_surface::standard_function_by_intrinsic(*intrinsic)
-                            {
-                                let cancel = CancellationToken::default();
-                                let mut bindings = StandardArguments::new(spec.type_params);
-                                for (parameter, actual) in spec.api.params.iter().zip(&facts) {
-                                    if let Some(ty) = &actual.ty {
-                                        bindings
-                                            .bind(&parameter.ty, ty, &cancel)
-                                            .map_err(|_| invalid())?;
-                                    }
-                                }
-                                for (index, (parameter, actual)) in
-                                    spec.api.params.iter().zip(&facts).enumerate()
-                                {
-                                    if let Some(mut expected) = bindings
-                                        .resolve(&parameter.ty, &cancel)
-                                        .map_err(|_| invalid())?
-                                    {
-                                        if index == 0
-                                            && standard_surface::collection_read_method(*intrinsic)
-                                        {
-                                            expected =
-                                                expected.read_only_view().unwrap_or(expected);
-                                        }
-                                        if expected.is_concrete() && !flows(actual, &expected) {
-                                            return Err(invalid());
-                                        }
-                                    }
-                                }
-                                let ty = bindings
-                                    .resolve(&spec.api.result, &cancel)
-                                    .map_err(|_| invalid())?;
-                                result.access = bindings.collection_access(&spec.api.result);
-                                if let Some(ty) = ty.filter(AbiType::is_concrete) {
-                                    result.ty = Some(ty);
-                                }
-                            }
                         }
                         CallTarget::Function(target)
                         | CallTarget::ModuleFunction {
@@ -990,7 +956,16 @@ pub(super) fn verify(
                             }
                             result = Fact::typed(output);
                         }
-                        CallTarget::HostFunction(target) => {
+                        CallTarget::Native(NativeCall::Engine(target)) => {
+                            let target = &module.engine_imports[target.index()];
+                            for (value, parameter) in facts.iter().zip(&target.signature.params) {
+                                if !flows(value, parameter) {
+                                    return Err(invalid());
+                                }
+                            }
+                            result = Fact::typed(target.signature.result.clone());
+                        }
+                        CallTarget::Native(NativeCall::Host(target)) => {
                             let target = &module.host_interface.functions[target.index()];
                             for (value, parameter) in facts.iter().zip(&target.params) {
                                 if !flows(value, &AbiType::from_host_type(&parameter.ty)) {

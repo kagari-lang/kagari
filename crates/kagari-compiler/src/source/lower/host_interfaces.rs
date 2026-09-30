@@ -1,9 +1,9 @@
 //! Compile checked host mappings into ordinary verified interface call bridges.
-use crate::source::types::{lower_nominal_type, lower_type};
 
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
 use kagari_abi::{
     callable::CallableImplementation,
+    callable::NativeCall,
     slots::SemanticSlots,
     types::{
         AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi,
@@ -11,7 +11,11 @@ use kagari_abi::{
     },
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
-use kagari_hir::{AnalyzedModule, types::TypeId};
+use kagari_hir::{
+    AnalyzedModule,
+    types::TypeId,
+    types::abi::{lower_nominal_type, lower_type},
+};
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
     function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp},
@@ -107,7 +111,7 @@ pub(super) fn collect(
             temps.push(MirTemp { ty: result.ty });
             instructions.push(Instruction::Call {
                 dst: Some(result),
-                callee: CallTarget::HostFunction(Box::new(host_call)),
+                callee: CallTarget::Native(NativeCall::Host(Box::new(host_call))),
                 args: arguments.into(),
             });
             let terminator = Terminator::Return(Some(result));

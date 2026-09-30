@@ -1,3 +1,4 @@
+use kagari_abi::callable::NativeCall;
 use kagari_common::{
     host_interface::{
         HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
@@ -352,7 +353,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                 else {
                     unreachable!()
                 };
-                *callee = CallTarget::HostFunction(import);
+                *callee = CallTarget::Native(NativeCall::Host(import));
             }
             _ => unreachable!(),
         }

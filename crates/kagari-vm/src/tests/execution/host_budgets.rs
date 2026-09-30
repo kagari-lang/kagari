@@ -1,4 +1,5 @@
 use super::*;
+use kagari_abi::callable::NativeCall;
 
 #[test]
 fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
@@ -35,9 +36,9 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::HostFunction(
+                                callee: CallTarget::Native(NativeCall::Host(
                                     kagari_bytecode::HostImportId::new(0),
-                                ),
+                                )),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),
@@ -117,9 +118,9 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::HostFunction(
+                                callee: CallTarget::Native(NativeCall::Host(
                                     kagari_bytecode::HostImportId::new(0),
-                                ),
+                                )),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),
@@ -199,9 +200,9 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::HostFunction(
+                                callee: CallTarget::Native(NativeCall::Host(
                                     kagari_bytecode::HostImportId::new(0),
-                                ),
+                                )),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),

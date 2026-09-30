@@ -1,3 +1,4 @@
+use kagari_abi::callable::NativeCall;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
@@ -66,9 +67,9 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::HostFunction(
+                                callee: CallTarget::Native(NativeCall::Host(
                                     kagari_bytecode::HostImportId::new(0),
-                                ),
+                                )),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),
@@ -324,9 +325,9 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
                         vec![
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(0)),
-                                callee: CallTarget::HostFunction(
+                                callee: CallTarget::Native(NativeCall::Host(
                                     kagari_bytecode::HostImportId::new(0),
-                                ),
+                                )),
                                 args: vec![],
                             },
                             BytecodeInstruction::Return(Some(Register::new(0))),

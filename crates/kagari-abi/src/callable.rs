@@ -33,3 +33,12 @@ pub enum EngineNativeBinding {
     TraitDefault(NativeDefaultMethod),
     Protocol(NativeProtocolMethod),
 }
+
+/// Provider is retained while source contracts become linked import references.
+/// The host payload remains the full registration contract or its checked import
+/// reference; it never becomes an engine operation merely by sharing a name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeCall<Engine, Host> {
+    Engine(Engine),
+    Host(Host),
+}

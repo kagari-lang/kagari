@@ -5,7 +5,7 @@ use crate::{
 use kagari_abi::{
     host, layout,
     standard::traits::StandardTrait,
-    types::{AbiType, PublicAbiItem, TypeAbiKind, verify},
+    types::{AbiType, PublicAbiItem, TypeAbiKind, native::engine_implementation_shape, verify},
 };
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
     let mut host_types = HashMap::new();
     let mut host_type_symbols = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
-        if module.identity.package.0 == "kagari-std" || !identities.insert(&module.identity) {
+        if !identities.insert(&module.identity) {
             return Err(invalid());
         }
         for layout in &module.structures {
@@ -181,17 +181,17 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let AbiType::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if let Some(kind) = StandardTrait::from_id(&instance.declaration) {
-                if !kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
+            if let Some(kind) = StandardTrait::from_id(&instance.declaration)
+                && (!kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
                     || !table.native_bridge
+                        && !engine_implementation_shape(table)
                         && !kind.conversion()
                         && !matches!(
                             table.for_type,
                             AbiType::Struct(_) | AbiType::Enum(_) | AbiType::Host(_)
-                        )
-                {
-                    return Err(BytecodeVerificationError::InvalidInterfaceTable);
-                }
+                        ))
+            {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
             if instance.declaration.module == module.identity {
                 continue;

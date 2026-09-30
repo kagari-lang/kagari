@@ -108,24 +108,6 @@ pub(super) fn install(
                     ),
                 )
             })?;
-            let operand_count = match kind {
-                EngineNativeBinding::Intrinsic(intrinsic) => Some(intrinsic.operand_count()),
-                EngineNativeBinding::Integer(_) | EngineNativeBinding::ParseRadix => Some(2),
-                EngineNativeBinding::TraitDefault(_) | EngineNativeBinding::Protocol(_) => None,
-            };
-            if let Some(expected) = operand_count
-                && function.params.len() != expected
-            {
-                return Err(invalid(
-                    file,
-                    marker.span,
-                    format!(
-                        "native function binding `{}` parameter count mismatch: expected {expected}, found {}",
-                        marker.binding,
-                        function.params.len(),
-                    ),
-                ));
-            }
             lowered.native_functions.insert(function.id, kind);
             lowered
                 .native_attributes

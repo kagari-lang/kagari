@@ -1,13 +1,11 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::lower_nominal_type,
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use hir::PlaceKind;
 use kagari_abi::{
     numeric::NumericOperation, operations::BinaryOp, representation::ValueType,
     scalar::BuiltinType, standard::traits::StandardTrait, types::NominalAbiType,
 };
 use kagari_common::identity;
+use kagari_hir::types::abi::lower_nominal_type;
 use kagari_hir::{builtin::traits::StandardTraitSemantics, hir, types::TypeId};
 use kagari_mir::{
     AggregateFieldRef, CallTarget, Instruction, LocalId, MirValue, PathRef, ValueBuffer,

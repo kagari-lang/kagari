@@ -162,6 +162,42 @@ fn linked_bounds_match(
     {
         return Ok(false);
     }
+    for import in &module.engine_imports {
+        let Some(owner) = closure
+            .iter()
+            .find(|owner| owner.identity == import.instance.declaration.module)
+        else {
+            return Ok(false);
+        };
+        let Some(declaration) = owner
+            .native_declarations
+            .iter()
+            .find(|declaration| declaration.declaration == import.instance.declaration)
+        else {
+            return Ok(false);
+        };
+        if !import.matches_declaration(
+            declaration,
+            &catalog,
+            |id| {
+                closure
+                    .iter()
+                    .find(|owner| owner.identity == id.module)?
+                    .public_items
+                    .iter()
+                    .find_map(|item| {
+                        if let PublicAbiItem::InterfaceTable(table) = item {
+                            (table.declaration == *id).then_some(table.as_ref())
+                        } else {
+                            None
+                        }
+                    })
+            },
+            &cancel,
+        )? {
+            return Ok(false);
+        }
+    }
     // Validate unused declaration graphs and constructor references too.
     for (id, record) in closure.iter().flat_map(|module| declarations(module)) {
         let applied = NominalAbiType {

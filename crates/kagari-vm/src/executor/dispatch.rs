@@ -1,3 +1,4 @@
+use kagari_abi::callable::NativeCall;
 use kagari_abi::{operations::IterOp, standard::StandardIntrinsic};
 use kagari_bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
 use kagari_runtime::{HostPathDescriptorId, numeric, range::RangeValue, value::Value};
@@ -474,7 +475,13 @@ impl<'a> Executor<'a> {
                     .push_interface_method(self.runtime, resolved, &arguments, dst)
                     .map_err(VmError::RuntimeError)
             }
-            CallTarget::HostFunction(import) => {
+            CallTarget::Native(NativeCall::Engine(import)) => {
+                let binding = self.current_loaded()?.engine_binding(import).ok_or(
+                    VmError::UnsupportedInstruction("unlinked engine native import"),
+                )?;
+                self.dispatch_standard_intrinsic(binding, dst, arg_values)
+            }
+            CallTarget::Native(NativeCall::Host(import)) => {
                 let binding = self
                     .current_loaded()?
                     .host_binding(import)

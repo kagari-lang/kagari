@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::support::lower_scalar,
-    types::{lower_nominal_type, lower_type, raise_type},
-};
+use crate::source::{lower::support::lower_scalar, types::raise_type};
 mod aggregates;
 mod calls;
 mod patterns;
@@ -18,6 +15,7 @@ use kagari_hir::{
     resolver::ResolvedName,
     typeck::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
     types::TypeId,
+    types::abi::{lower_nominal_type, lower_type},
 };
 mod adapters;
 mod collections;
@@ -29,6 +27,7 @@ mod list_queries;
 mod list_windows;
 mod map_updates;
 mod native_calls;
+mod native_contracts;
 mod operators;
 mod prepared_collections;
 mod set_queries;

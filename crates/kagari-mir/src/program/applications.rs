@@ -1,4 +1,5 @@
 use crate::{CallTarget, Instruction, MirModule};
+use kagari_abi::callable::NativeCall;
 use kagari_abi::types::{
     TraitAbi, applications::ApplicationValidator, substitution::TypeTransformError,
 };
@@ -11,6 +12,9 @@ pub(super) fn validate<'a>(
 ) -> Result<(), TypeTransformError> {
     let validator = ApplicationValidator::new(cancel, lookup);
     validator.declarations(&module.abi.public_items, &module.abi.trait_contracts)?;
+    for declaration in &module.abi.native_declarations {
+        validator.function(&declaration.function)?;
+    }
     validator.layouts(&module.structures, &module.enumerations)?;
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
@@ -42,6 +46,19 @@ pub(super) fn validate<'a>(
                 Instruction::ReadAggregateField { field, .. }
                 | Instruction::WriteAggregateField { field, .. } => {
                     validator.nominal_arguments(&field.owner)?
+                }
+                Instruction::Call {
+                    callee: CallTarget::Native(NativeCall::Engine(import)),
+                    ..
+                } => {
+                    validator.types(&import.instance.arguments)?;
+                    validator.types(&import.signature.params)?;
+                    validator.validate_type(&import.signature.result)?;
+                    validator.bounds(&import.requirements)?;
+                    for witness in &import.witnesses {
+                        validator.validate_type(&witness.receiver)?;
+                        validator.trait_application(&witness.interface)?;
+                    }
                 }
                 Instruction::Call {
                     callee: CallTarget::SourceFunction(contract),

@@ -1,4 +1,4 @@
-use crate::source::types::{lower_native_constructor, lower_nominal_type, lower_type};
+use crate::source::types::lower_native_constructor;
 use kagari_abi::{
     callable::{
         CallableImplementation, EngineNativeBinding, NativeBinding as PortableNativeBinding,
@@ -6,8 +6,8 @@ use kagari_abi::{
     types::{
         AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
         ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-        InterfaceTableAbi, ModuleAbi, ParameterAbi, PublicAbiItem, TraitAbi, TraitContract,
-        TypeAbi, TypeAbiKind, VariantAbi,
+        InterfaceTableAbi, ModuleAbi, NativeDeclaration, ParameterAbi, PublicAbiItem, TraitAbi,
+        TraitContract, TypeAbi, TypeAbiKind, VariantAbi,
     },
 };
 use kagari_common::identity;
@@ -19,6 +19,7 @@ use kagari_hir::{
     native::NativeBinding,
     resolver::ResolvedName,
     typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ScalarValue},
+    types::abi::{lower_nominal_type, lower_type},
     types::{GenericParameterType, TypeId},
 };
 
@@ -403,7 +404,47 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
         })));
     }
 
+    let native_declarations = hir_module
+        .functions
+        .iter()
+        .filter_map(|function| {
+            let typed = module
+                .typed
+                .functions
+                .iter()
+                .find(|typed| typed.id == function.id)?;
+            if !matches!(
+                typed.implementation,
+                FunctionImplementation::Native(NativeBinding::Engine(_))
+            ) {
+                return None;
+            }
+            let DeclarationId::Definition(declaration) = &module
+                .declarations
+                .target(ResolvedName::Function(function.id))?
+                .id
+            else {
+                return None;
+            };
+            let mut abi = function_abi(module, function)?;
+            // Native method applications bind the owner parameters as well as the
+            // method parameters; public trait method contracts keep their own scope.
+            abi.generic_params = typed
+                .generic_params
+                .iter()
+                .map(|parameter| GenericParameterAbi {
+                    owner: parameter.owner.clone(),
+                    position: parameter.position,
+                })
+                .collect();
+            Some(NativeDeclaration {
+                declaration: declaration.clone(),
+                function: abi,
+            })
+        })
+        .collect();
     ModuleAbi {
+        native_declarations,
         public_items,
         trait_contracts,
     }
@@ -586,15 +627,23 @@ fn method_abi(
     method
         .generic_params
         .retain(|parameter| !inherited.contains(parameter));
-    method.bounds.retain(|bound| {
-        !inherited.iter().any(|parameter| {
-            bound.ty
-                == AbiType::Parameter {
-                    owner: parameter.owner.clone(),
-                    position: parameter.position,
-                }
-        })
-    });
+    let mut guaranteed = parameter_bounds(module, outer);
+    if let Some(owner) = inherited.first().map(|p| &p.owner)
+        && let Some(implementation) = module
+            .aggregates
+            .implementations()
+            .find(|item| &item.id == owner)
+    {
+        guaranteed.extend(checked_bounds(&implementation.bounds));
+    }
+    for bound in &mut method.bounds {
+        bound.constraints.retain(|constraint| {
+            !guaranteed
+                .iter()
+                .any(|outer| outer.ty == bound.ty && outer.constraints.contains(constraint))
+        });
+    }
+    method.bounds.retain(|bound| !bound.constraints.is_empty());
     Some(method)
 }
 
@@ -656,7 +705,7 @@ fn parameter_bounds(module: &AnalyzedModule, params: &[hir::GenericParam]) -> Ve
     canonical_bounds(bounds)
 }
 
-fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBoundAbi> {
+pub(super) fn checked_bounds(bounds: &GenericBounds) -> Vec<GenericBoundAbi> {
     canonical_bounds(
         bounds
             .iter()

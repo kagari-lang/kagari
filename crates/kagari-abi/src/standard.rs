@@ -1,7 +1,6 @@
 pub mod bindings;
 pub mod intrinsic;
 pub(crate) mod native;
-mod operands;
 pub mod surface;
 pub mod traits;
 use crate::scalar::BuiltinType;

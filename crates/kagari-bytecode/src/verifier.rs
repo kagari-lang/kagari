@@ -8,7 +8,7 @@ use crate::{
     StructId, access, trait_bounds,
 };
 use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding},
+    callable::{CallableImplementation, NativeBinding, NativeCall},
     contracts::{self, ContractError},
     host,
     ids::FunctionRef,
@@ -200,6 +200,12 @@ pub(super) fn verify_module_with_program(
     }
     verify::validate(&module.public_items, &module.identity, &Default::default())
         .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    verify::validate_native_declarations(
+        &module.native_declarations,
+        &module.identity,
+        &Default::default(),
+    )
+    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     verify::validate_trait_contracts(
         &module.trait_contracts,
         &module.public_items,
@@ -496,7 +502,7 @@ fn host_bridge_method_matches(
     }
     let BytecodeInstruction::Call {
         dst: Some(result),
-        callee: CallTarget::HostFunction(import),
+        callee: CallTarget::Native(NativeCall::Host(import)),
         args,
     } = &function.instructions[params]
     else {

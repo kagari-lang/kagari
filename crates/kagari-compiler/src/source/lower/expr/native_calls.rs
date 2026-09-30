@@ -1,9 +1,11 @@
 //! Existing engine operation lowering, selected from checked callable bindings.
 //! Callback algorithm expansion remains here until the runtime continuation migration.
 
-use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
+use crate::source::lower::{
+    MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
+};
 use kagari_abi::{
-    callable::EngineNativeBinding,
+    callable::{EngineNativeBinding, NativeCall},
     operations::{IterOp, StringIterKind},
     representation::ValueType,
     scalar::BuiltinType,
@@ -17,7 +19,7 @@ use kagari_hir::{
     typeck::{CallTarget, FunctionImplementation},
     types::TypeId,
 };
-use kagari_mir::instruction::{Instruction, MirValue, ValueBuffer};
+use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue, ValueBuffer};
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn engine_intrinsic_for_call(
@@ -103,6 +105,7 @@ impl FunctionLowerer<'_, '_> {
         receiver: Option<hir::ExprId>,
         args: &[hir::ExprId],
         lowered: ValueBuffer,
+        application: NativeApplication<'_>,
     ) -> Result<MirValue, MirLoweringError> {
         let span = self.analyzed.lowered.source_map.expr_span(expr);
         if matches!(
@@ -430,6 +433,18 @@ impl FunctionLowerer<'_, '_> {
                 .ok_or(MirLoweringError::MissingExprType(base))?;
             return self.lower_standard_combinator(expr, intrinsic, &base_ty, &lowered);
         }
-        Ok(self.emit_intrinsic(intrinsic, &lowered, self.expr_type(expr)?))
+        let contract = self.engine_native_contract(
+            application.target,
+            application.signature,
+            application.arguments,
+            span,
+        )?;
+        let dst = self.alloc_temp(self.expr_type(expr)?);
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee: MirCallTarget::Native(NativeCall::Engine(Box::new(contract))),
+            args: lowered,
+        });
+        Ok(dst)
     }
 }

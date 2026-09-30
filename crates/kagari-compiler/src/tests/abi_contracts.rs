@@ -1,7 +1,4 @@
-use crate::{
-    source::types::{lower_type, raise_type},
-    tests::common::bytecode_ok,
-};
+use crate::{source::types::raise_type, tests::common::bytecode_ok};
 use bincode::Options;
 use kagari_abi::{
     scalar::BuiltinType,
@@ -13,6 +10,7 @@ use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
+use kagari_hir::types::abi::lower_type;
 
 fn codec() -> impl Options {
     bincode::DefaultOptions::new()

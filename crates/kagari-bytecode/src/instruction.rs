@@ -1,5 +1,6 @@
 use crate::ModuleRef;
 use kagari_abi::{
+    callable::NativeCall,
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
     operations::{IterOp, StandardEnumOp},
@@ -126,6 +127,18 @@ impl PathId {
     }
 }
 
+/// Index of a concrete engine binding resolved when the module is linked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EngineImportId(u32);
+impl EngineImportId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstantOperand {
     Unit,
@@ -168,7 +181,7 @@ pub enum CallTarget {
         interface: NominalAbiType,
         method_slot: u32,
     },
-    HostFunction(HostImportId),
+    Native(NativeCall<EngineImportId, HostImportId>),
     Register(Register),
     ClosureRegister {
         register: Register,

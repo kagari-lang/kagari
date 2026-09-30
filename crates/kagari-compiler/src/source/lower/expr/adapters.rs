@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::{MirLoweringError, instances::IteratorInstance, state::FunctionLowerer},
-    types::lower_type,
-};
+use crate::source::lower::{MirLoweringError, instances::IteratorInstance, state::FunctionLowerer};
 use kagari_abi::{
     operations::{BinaryOp, IterOp, StandardEnumOp},
     representation::ValueType,
@@ -10,6 +7,7 @@ use kagari_abi::{
     types::AbiType,
 };
 use kagari_common::collection::CollectionAccess;
+use kagari_hir::types::abi::lower_type;
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
 use kagari_mir::instruction::{CallTarget, Constant, Instruction, MirValue, Terminator};
 use std::iter;

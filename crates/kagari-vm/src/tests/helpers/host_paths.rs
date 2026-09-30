@@ -1,5 +1,6 @@
 use super::*;
 use crate::{PreparedNativeEntry, tests::native_fixtures};
+use kagari_abi::callable::NativeCall;
 use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
 
 #[test]
@@ -49,9 +50,9 @@ fn executes_runtime_host_helper_call() {
                             },
                             BytecodeInstruction::Call {
                                 dst: Some(Register::new(2)),
-                                callee: CallTarget::HostFunction(
+                                callee: CallTarget::Native(NativeCall::Host(
                                     kagari_bytecode::HostImportId::new(0),
-                                ),
+                                )),
                                 args: vec![Register::new(0), Register::new(1)],
                             },
                             BytecodeInstruction::Return(Some(Register::new(2))),
@@ -134,7 +135,9 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                            callee: CallTarget::Native(NativeCall::Host(
+                                kagari_bytecode::HostImportId::new(0),
+                            )),
                             args: vec![],
                         },
                         BytecodeInstruction::LoadConst {
@@ -340,7 +343,9 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                            callee: CallTarget::Native(NativeCall::Host(
+                                kagari_bytecode::HostImportId::new(0),
+                            )),
                             args: vec![],
                         },
                         BytecodeInstruction::ReadPath {
@@ -407,7 +412,9 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                            callee: CallTarget::Native(NativeCall::Host(
+                                kagari_bytecode::HostImportId::new(0),
+                            )),
                             args: vec![],
                         },
                         BytecodeInstruction::LoadConst {
@@ -451,7 +458,9 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
                     vec![
                         BytecodeInstruction::Call {
                             dst: Some(Register::new(0)),
-                            callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                            callee: CallTarget::Native(NativeCall::Host(
+                                kagari_bytecode::HostImportId::new(0),
+                            )),
                             args: vec![],
                         },
                         BytecodeInstruction::ReadPath {
@@ -522,7 +531,9 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                        callee: CallTarget::Native(NativeCall::Host(
+                            kagari_bytecode::HostImportId::new(0),
+                        )),
                         args: vec![],
                     },
                     BytecodeInstruction::ReadPath {
@@ -666,7 +677,9 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                 vec![
                     BytecodeInstruction::Call {
                         dst: Some(Register::new(0)),
-                        callee: CallTarget::HostFunction(kagari_bytecode::HostImportId::new(0)),
+                        callee: CallTarget::Native(NativeCall::Host(
+                            kagari_bytecode::HostImportId::new(0),
+                        )),
                         args: vec![],
                     },
                     BytecodeInstruction::LoadConst {

@@ -7,9 +7,10 @@ use kagari_abi::{
     effects::EffectSet,
     ids::{DebugPointId, FunctionRef},
     layout::{EnumLayout, StructLayout},
+    native_import::EngineNativeImport,
     representation::ValueType,
     slots::SemanticSlots,
-    types::{AbiType, ConcreteFunctionIdentity, PublicAbiItem, TraitContract},
+    types::{AbiType, ConcreteFunctionIdentity, NativeDeclaration, PublicAbiItem, TraitContract},
 };
 use kagari_common::{
     Span,
@@ -23,6 +24,10 @@ pub struct BytecodeModule {
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub dependencies: Vec<ModuleRef>,
     pub host_interface: HostInterface,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    pub engine_imports: Vec<EngineNativeImport>,
+    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
+    pub native_declarations: Vec<NativeDeclaration>,
     pub identity: ModuleIdentity,
     pub source_name: String,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]

@@ -1,21 +1,18 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::{lower_nominal_type, lower_type},
-};
+use crate::source::lower::expr::native_contracts::NativeApplication;
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
+    callable::NativeCall,
     representation::ValueType,
     standard::{StandardIntrinsic, traits::StandardTrait},
 };
 use kagari_common::host_interface;
 use kagari_hir::{
-    builtin::{
-        BuiltinFunction,
-        traits::{self, StandardTraitSemantics},
-    },
+    builtin::{BuiltinFunction, traits},
     declarations::DeclarationId,
     hir,
     resolver::ResolvedName,
     typeck::{CallTarget as TypeckCallTarget, ScalarValue},
+    types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId},
 };
 use kagari_mir::instruction::{
@@ -437,6 +434,15 @@ impl FunctionLowerer<'_, '_> {
                         call.receiver,
                         args,
                         lowered,
+                        NativeApplication {
+                            target: &target,
+                            signature: call.signature.as_ref().expect("checked native application"),
+                            arguments: &impl_arguments
+                                .iter()
+                                .chain(&call.type_arguments)
+                                .cloned()
+                                .collect::<Vec<_>>(),
+                        },
                     );
                 }
                 let target =
@@ -504,14 +510,16 @@ impl FunctionLowerer<'_, '_> {
                                 return_type,
                             }))
                         }
-                        TypeckCallTarget::HostFunction(id) => CallTarget::HostFunction(Box::new(
-                            self.analyzed
-                                .names
-                                .hosts
-                                .function(id)
-                                .ok_or(MirLoweringError::MissingBinding("host declaration"))?
-                                .clone(),
-                        )),
+                        TypeckCallTarget::HostFunction(id) => {
+                            CallTarget::Native(NativeCall::Host(Box::new(
+                                self.analyzed
+                                    .names
+                                    .hosts
+                                    .function(id)
+                                    .ok_or(MirLoweringError::MissingBinding("host declaration"))?
+                                    .clone(),
+                            )))
+                        }
                         TypeckCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
                             MirLoweringError::MissingBinding("imported implementation contract"),
                         )?,
@@ -560,7 +568,7 @@ impl FunctionLowerer<'_, '_> {
                 smallvec::smallvec![*base, *index, *value],
             ),
             (BuiltinFunction::Print, [message]) => (
-                CallTarget::HostFunction(Box::new(host_interface::standard_log())),
+                CallTarget::Native(NativeCall::Host(Box::new(host_interface::standard_log()))),
                 smallvec::smallvec![*message],
             ),
             _ => {

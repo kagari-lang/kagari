@@ -1,6 +1,6 @@
 use crate::source::{
     lower::{MirLoweringError, state::FunctionLowerer},
-    types::{self, lower_nominal_type, lower_type},
+    types::{self},
 };
 use hir::BinaryOp as HirBinaryOp;
 use kagari_abi::{
@@ -20,6 +20,7 @@ use kagari_hir::{
     builtin::traits::{self, StandardTraitSemantics},
     hir,
     typeck::CallTarget as HirCallTarget,
+    types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_mir::instruction::{

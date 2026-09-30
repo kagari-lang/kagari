@@ -175,3 +175,41 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
     assert_eq!(*member, associated_type_id(&add, "Output"));
     assert!(arguments.is_empty());
 }
+
+#[test]
+fn every_installed_callable_and_public_contract_passes_portable_validation() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .set(
+            "native-contracts.kgr",
+            "fn main() {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    for declared in snapshot.declaration_snapshot().files() {
+        let analyzed = snapshot.file(declared.source().id()).unwrap();
+        let abi = collect_module_abi(analyzed.result().facts());
+        let identity = declared.source().module_identity();
+        for declaration in &abi.native_declarations {
+            assert!(
+                verify::validate_native_declarations(
+                    std::slice::from_ref(declaration),
+                    identity,
+                    &Default::default()
+                )
+                .is_ok(),
+                "invalid native declaration {declaration:#?}"
+            );
+        }
+        for item in &abi.public_items {
+            assert!(
+                verify::validate(std::slice::from_ref(item), identity, &Default::default()).is_ok(),
+                "invalid public declaration {identity}: {item:#?}"
+            );
+        }
+        verify::validate(&abi.public_items, identity, &Default::default()).unwrap();
+    }
+}

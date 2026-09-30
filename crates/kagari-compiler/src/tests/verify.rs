@@ -1,10 +1,11 @@
-use crate::source::types::lower_type;
 use kagari_bytecode as bytecode;
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+use kagari_hir::types::abi::lower_type;
 
 use crate::{bytecode::lower_to_bytecode, lower_to_mir, tests::common};
 use kagari_abi::{
-    contracts::ContractError, effects::EffectSet, operations::BinaryOp, representation::ValueType,
+    callable::NativeCall, contracts::ContractError, effects::EffectSet, operations::BinaryOp,
+    representation::ValueType,
 };
 use kagari_bytecode::{BytecodeInstruction, ConstantOperand};
 use kagari_mir::{
@@ -225,7 +226,7 @@ fn conflicting_host_contracts_cannot_be_hidden_by_import_interning() {
         .flat_map(|b| &mut b.instructions)
         .filter_map(|i| {
             if let Instruction::Call {
-                callee: CallTarget::HostFunction(declaration),
+                callee: CallTarget::Native(NativeCall::Host(declaration)),
                 ..
             } = i
             {

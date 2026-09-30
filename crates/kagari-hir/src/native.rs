@@ -5,6 +5,7 @@ use kagari_abi::{
 };
 use kagari_common::{collection::CollectionAccess, range::RangeKind};
 
+pub(crate) mod signatures;
 pub(crate) mod stdlib;
 
 /// Provider-qualified semantic binding. Host identities are scoped to the

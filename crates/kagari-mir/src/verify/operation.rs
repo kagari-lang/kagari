@@ -5,6 +5,7 @@ use crate::{
 };
 use contracts::RuntimeHelperKind;
 use kagari_abi::{
+    callable::NativeCall,
     contracts::{self, ContractError},
     operations::{self, range_operands_valid},
     representation::ValueType,
@@ -195,7 +196,13 @@ pub(super) fn verify(
                 &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
             )
             .map_err(contract)?,
-            CallTarget::HostFunction(declaration) => contracts::verify_host_call(
+            CallTarget::Native(NativeCall::Engine(import)) => contracts::verify_engine_call(
+                dst.map(|v| v.ty),
+                import,
+                &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
+            )
+            .map_err(contract)?,
+            CallTarget::Native(NativeCall::Host(declaration)) => contracts::verify_host_call(
                 dst.map(|v| v.ty),
                 declaration,
                 &args.iter().map(|v| v.ty).collect::<Vec<_>>(),

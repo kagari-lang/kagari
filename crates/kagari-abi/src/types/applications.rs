@@ -140,7 +140,7 @@ where
         Ok(())
     }
 
-    fn bounds(&self, bounds: &[GenericBoundAbi]) -> Result<(), TypeTransformError> {
+    pub fn bounds(&self, bounds: &[GenericBoundAbi]) -> Result<(), TypeTransformError> {
         for bound in bounds {
             self.validate_type(&bound.ty)?;
             self.constraints(&bound.constraints)?;
@@ -148,7 +148,7 @@ where
         Ok(())
     }
 
-    fn function(&self, function: &FunctionAbi) -> Result<(), TypeTransformError> {
+    pub fn function(&self, function: &FunctionAbi) -> Result<(), TypeTransformError> {
         self.bounds(&function.bounds)?;
         self.types(function.params.iter().map(|p| &p.ty))?;
         self.validate_type(&function.return_type)

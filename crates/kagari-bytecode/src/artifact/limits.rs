@@ -6,6 +6,7 @@ use crate::{
         MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
     },
 };
+use kagari_abi::native_import::NativeWitnessImplementation;
 use kagari_abi::types::{
     AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
     PublicAbiItem,
@@ -25,6 +26,38 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         *total = total.saturating_add(length);
         length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
     };
+    for import in &module.engine_imports {
+        if !add(import.instance.arguments.len())
+            || !add(import.signature.params.len())
+            || !add(import.requirements.len())
+            || !add_abi_bounds(&import.requirements, &mut add)
+            || !add(import.witnesses.len())
+        {
+            return false;
+        }
+        for witness in &import.witnesses {
+            if !add(witness.interface.arguments.len())
+                || !add(witness.interface.associated_types.len())
+            {
+                return false;
+            }
+            if let NativeWitnessImplementation::Table(instance) = &witness.implementation
+                && !add(instance.arguments.len())
+            {
+                return false;
+            }
+        }
+    }
+    for declaration in &module.native_declarations {
+        let function = &declaration.function;
+        if !add(function.generic_params.len())
+            || !add(function.bounds.len())
+            || !add_abi_bounds(&function.bounds, &mut add)
+            || !add(function.params.len())
+        {
+            return false;
+        }
+    }
     for function in &module.functions {
         if function
             .identity
@@ -228,79 +261,97 @@ pub(super) fn function_abi_identity_limit(function: &FunctionAbi) -> bool {
 
 pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     let valid = |ty: &AbiType| ty.within_wire_limits();
-    module.interface_tables.iter().all(|table| {
-        table.declaration.within_path_limit()
-            && table.arguments.iter().all(&valid)
-            && table
-                .methods
-                .iter()
-                .all(|slot| slot.method.within_path_limit())
-    }) && module.functions.iter().all(|function| {
-        function.identity.as_ref().is_none_or(|identity| {
-            identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
+    module
+        .engine_imports
+        .iter()
+        .all(|import| import.direct_operation().is_some())
+        && module.native_declarations.iter().all(|declaration| {
+            let function = &declaration.function;
+            declaration.declaration.within_path_limit()
+                && function_abi_identity_limit(function)
+                && function.params.iter().all(|param| valid(&param.ty))
+                && valid(&function.return_type)
         })
-    }) && module.function_table.iter().all(|record| {
-        record.identity.as_ref().is_none_or(|identity| {
-            identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
+        && module.interface_tables.iter().all(|table| {
+            table.declaration.within_path_limit()
+                && table.arguments.iter().all(&valid)
+                && table
+                    .methods
+                    .iter()
+                    .all(|slot| slot.method.within_path_limit())
         })
-    }) && module.structures.iter().all(|layout| {
-        layout.arguments.iter().all(&valid) && layout.fields.iter().all(|field| valid(&field.ty))
-    }) && module.enumerations.iter().all(|layout| {
-        layout.arguments.iter().all(&valid)
-            && layout
-                .variants
-                .iter()
-                .all(|variant| variant.payload.iter().all(&valid))
-    }) && module.trait_contracts.iter().all(|contract| {
-        contract.declaration.within_path_limit()
-            && generic_identity_limit(&contract.abi.generic_params, &contract.abi.bounds)
-            && associated_identity_limit(&contract.abi.associated_types)
-            && contract.abi.methods.iter().all(|method| {
-                function_abi_identity_limit(method)
-                    && method.params.iter().all(|param| valid(&param.ty))
-                    && valid(&method.return_type)
+        && module.functions.iter().all(|function| {
+            function.identity.as_ref().is_none_or(|identity| {
+                identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
             })
-    }) && module.public_items.iter().all(|item| match item {
-        PublicAbiItem::Function(item) => {
-            function_abi_identity_limit(item)
-                && item.params.iter().all(|param| valid(&param.ty))
-                && valid(&item.return_type)
-        }
-        PublicAbiItem::Const(item) => valid(&item.ty),
-        PublicAbiItem::Type(item) => {
-            generic_identity_limit(&item.generic_params, &item.bounds)
-                && item.fields.iter().all(|field| valid(&field.ty))
-                && item
+        })
+        && module.function_table.iter().all(|record| {
+            record.identity.as_ref().is_none_or(|identity| {
+                identity.declaration.within_path_limit() && identity.arguments.iter().all(&valid)
+            })
+        })
+        && module.structures.iter().all(|layout| {
+            layout.arguments.iter().all(&valid)
+                && layout.fields.iter().all(|field| valid(&field.ty))
+        })
+        && module.enumerations.iter().all(|layout| {
+            layout.arguments.iter().all(&valid)
+                && layout
                     .variants
                     .iter()
                     .all(|variant| variant.payload.iter().all(&valid))
-        }
-        PublicAbiItem::Trait(item) => {
-            associated_identity_limit(&item.associated_types)
-                && generic_identity_limit(&item.generic_params, &item.bounds)
-                && item.methods.iter().all(|method| {
+        })
+        && module.trait_contracts.iter().all(|contract| {
+            contract.declaration.within_path_limit()
+                && generic_identity_limit(&contract.abi.generic_params, &contract.abi.bounds)
+                && associated_identity_limit(&contract.abi.associated_types)
+                && contract.abi.methods.iter().all(|method| {
                     function_abi_identity_limit(method)
                         && method.params.iter().all(|param| valid(&param.ty))
                         && valid(&method.return_type)
                 })
-        }
-        PublicAbiItem::InterfaceTable(item) => {
-            item.declaration.within_path_limit()
-                && generic_identity_limit(&item.generic_params, &item.bounds)
-                && valid(&item.trait_type)
-                && valid(&item.for_type)
-                && item.associated_type_families.iter().all(|family| {
-                    family.declaration.within_path_limit()
-                        && generic_identity_limit(&family.generic_params, &family.bounds)
-                        && valid(&family.value)
-                })
-                && item.methods.iter().all(|method| {
-                    function_abi_identity_limit(method)
-                        && method.params.iter().all(|param| valid(&param.ty))
-                        && valid(&method.return_type)
-                })
-        }
-    })
+        })
+        && module.public_items.iter().all(|item| match item {
+            PublicAbiItem::Function(item) => {
+                function_abi_identity_limit(item)
+                    && item.params.iter().all(|param| valid(&param.ty))
+                    && valid(&item.return_type)
+            }
+            PublicAbiItem::Const(item) => valid(&item.ty),
+            PublicAbiItem::Type(item) => {
+                generic_identity_limit(&item.generic_params, &item.bounds)
+                    && item.fields.iter().all(|field| valid(&field.ty))
+                    && item
+                        .variants
+                        .iter()
+                        .all(|variant| variant.payload.iter().all(&valid))
+            }
+            PublicAbiItem::Trait(item) => {
+                associated_identity_limit(&item.associated_types)
+                    && generic_identity_limit(&item.generic_params, &item.bounds)
+                    && item.methods.iter().all(|method| {
+                        function_abi_identity_limit(method)
+                            && method.params.iter().all(|param| valid(&param.ty))
+                            && valid(&method.return_type)
+                    })
+            }
+            PublicAbiItem::InterfaceTable(item) => {
+                item.declaration.within_path_limit()
+                    && generic_identity_limit(&item.generic_params, &item.bounds)
+                    && valid(&item.trait_type)
+                    && valid(&item.for_type)
+                    && item.associated_type_families.iter().all(|family| {
+                        family.declaration.within_path_limit()
+                            && generic_identity_limit(&family.generic_params, &family.bounds)
+                            && valid(&family.value)
+                    })
+                    && item.methods.iter().all(|method| {
+                        function_abi_identity_limit(method)
+                            && method.params.iter().all(|param| valid(&param.ty))
+                            && valid(&method.return_type)
+                    })
+            }
+        })
 }
 
 pub(super) fn host_identity_limit(interface: &HostInterface) -> bool {
@@ -377,6 +428,8 @@ pub(super) fn program_count_limit(program: &BytecodeProgram) -> Option<&'static 
                 module.dependencies.len(),
                 module.host_interface.types.len(),
                 module.host_interface.functions.len(),
+                module.engine_imports.len(),
+                module.native_declarations.len(),
                 module.host_interface.paths.len(),
                 module.module_slots.len(),
                 module.constants.len(),

@@ -102,6 +102,10 @@ pub enum DiagnosticKind {
         from: String,
         to: String,
     },
+    InvalidNativeSignature {
+        function: String,
+        binding: String,
+    },
     InvalidCallTarget {
         type_name: String,
     },
@@ -387,6 +391,7 @@ impl DiagnosticKind {
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidNumericCast { .. } => "KG_TYPE_INVALID_NUMERIC_CAST",
+            Self::InvalidNativeSignature { .. } => "KG_NATIVE_SIGNATURE_INVALID",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
             Self::InvalidClosureCapture { .. } => "KG_TYPE_INVALID_CLOSURE_CAPTURE",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
@@ -543,6 +548,10 @@ impl Display for DiagnosticKind {
                 write!(f, "unknown type annotation `{type_name}`")
             }
             Self::InvalidNumericCast { from, to } => write!(f, "cannot cast {from} to {to}"),
+            Self::InvalidNativeSignature { function, binding } => write!(
+                f,
+                "native declaration `{function}` does not match engine binding `{binding}`"
+            ),
             Self::InvalidCallTarget { type_name } => {
                 write!(f, "value of type `{type_name}` cannot be called")
             }

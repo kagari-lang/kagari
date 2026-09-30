@@ -1,7 +1,4 @@
-use crate::source::{
-    lower::{MirLoweringError, state::FunctionLowerer},
-    types::lower_type,
-};
+use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
     operations::{BinaryOp, IterOp, StandardEnumOp},
     representation::ValueType,
@@ -11,6 +8,7 @@ use kagari_common::{
     collection::CollectionAccess::{self, Mutable},
     identity::associated_type_id,
 };
+use kagari_hir::types::abi::lower_type;
 use kagari_hir::{
     builtin::traits::{self, StandardTraitSemantics},
     types::TypeId,

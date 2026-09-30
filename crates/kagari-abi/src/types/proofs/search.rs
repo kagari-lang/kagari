@@ -70,6 +70,23 @@ impl ProofCatalog<'_> {
         )
     }
 
+    pub fn has_explicit_implementation(
+        &self,
+        interface: &NominalAbiType,
+        receiver: &AbiType,
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        self.preflight(interface, receiver, &[], cancel)?;
+        Ok(self.explicit(
+            interface,
+            receiver,
+            &[],
+            &mut Search::default(),
+            &Budget::new(cancel),
+            0,
+        )? != 0)
+    }
+
     pub fn implementation_count(
         &self,
         interface: &NominalAbiType,

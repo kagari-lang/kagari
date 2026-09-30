@@ -1,3 +1,5 @@
+pub mod abi;
+
 use crate::{
     builtin::traits::StandardTraitSemantics,
     native::enum_display_name,

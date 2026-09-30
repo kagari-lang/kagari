@@ -3,6 +3,7 @@ use crate::{
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
 use kagari_abi::{
+    callable::NativeCall,
     host,
     layout::{self, LayoutValidationError, validate_layouts},
     types::verify as abi_verify,
@@ -23,7 +24,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             .check()
             .map_err(|_| context.error(Error::Cancelled))?;
         if let Instruction::Call {
-            callee: CallTarget::HostFunction(function),
+            callee: CallTarget::Native(NativeCall::Host(function)),
             ..
         } = instruction
             && functions
@@ -58,6 +59,12 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             })
         },
     )?;
+    abi_verify::validate_native_declarations(
+        &module.abi.native_declarations,
+        &module.identity,
+        context.cancel,
+    )
+    .map_err(|_| context.error(Error::InvalidPublicAbi))?;
     abi_verify::validate_trait_contracts(
         &module.abi.trait_contracts,
         &module.abi.public_items,
