@@ -44,6 +44,15 @@ pub(super) fn valid(
                     && readonly_collection(&signature.result, StandardTrait::List, &[item])
             });
         }
+        if method == NativeDefaultMethod::ListJoin {
+            let string = builtin(BuiltinType::String);
+            return bound(bounds, receiver, StandardTrait::List).is_some_and(|list| {
+                list.arguments.as_slice() == slice::from_ref(&string)
+                    && matches!(signature.params.as_slice(), [_, separator] if *separator == string)
+                    && signature.result == string
+                    && iterable_item(bounds, receiver) == Some(&string)
+            });
+        }
         if matches!(
             method,
             NativeDefaultMethod::ListFirst

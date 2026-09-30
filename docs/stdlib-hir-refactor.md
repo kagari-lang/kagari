@@ -30,8 +30,9 @@ key lookup implementation. Set relations and algebra execute native dual guarded
 traversal with selected membership policies and ordered shallow results. Iterator
 grouping uses once-only typed key callbacks and the shared native key lookup for
 ordered shallow groups. String lazy iterator constructors use checked native calls
-and the existing generation-pinned Rust traversal. Remaining ST05 iterator/collection
-migration and ST06 encoded fixtures/final acceptance remain pending.
+and the existing generation-pinned Rust traversal. Public List joining also selects
+native storage or rooted conversion and shared iterator traversal from checked facts.
+Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -523,6 +524,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   item/key witnesses, concrete comparison targets and once-only key callbacks.
 - [x] Migrate iterator string joining, including the traversal used by custom and
   dynamic List joining, with selected `next`, rooted accumulation and exact charges.
+- [x] Migrate the public List `join` default with checked conversion/next witnesses,
+  the direct native storage path and shared runtime iterator joining.
 - [x] Migrate Iterator `sum`/`product` defaults with checked numeric behavior and
   concrete generic/user destination methods on shared frames.
 - [x] Migrate direct numeric Sum/Product providers for all scalar types, including
@@ -850,6 +853,42 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 public native List joining checkpoint (2026-10-01): removes the compiler's
+  ArrayList-versus-Iterable policy for `List::join`. Lowering carries the checked
+  default application, selected List/Iterable methods and concrete Iterator witness.
+  Source-free executable linking derives the exact source Item/Iter obligations
+  from carried declarations and verifies selected required methods and dependencies.
+  Native contracts require String source items, separator and result; unrelated,
+  missing or forged witnesses do not create an alternate execution route.
+- A private runtime entry uses the existing Rust ArrayJoin helper for concrete
+  ArrayList receivers, preserving its single charge and allocation path. Other
+  sources call their selected Iterable conversion once, root its typed result, and
+  enter the existing native Iterator join state on the next original charge. The
+  same fragment accumulation, next calls, iterator guard and final Rust join helper
+  own traversal. No duplicate join algorithm, synthetic public contract, compiler
+  expansion, source lookup or generic frame-driver policy is introduced.
+- Recorded 35 cases at 7d2ba34 across native storage, generic storage/custom sources,
+  custom generic Lists, dynamic native/custom Lists and MutableList views, with
+  empty/singleton/Unicode/mixed input and empty/Unicode separators. All 2,385 budget
+  limits pass source and decoded KBC with exact counters/effect positions, zero
+  bulk-charge holes and full cleanup. All 90 forged applications reject in memory
+  and encoded loading across storage, script and dynamic receiver shapes.
+- Cancellation at each host effect, every allocation limit, forced GC and successful/
+  failed synchronous reentry pass all seven receiver routes. Conversion and item
+  traps retain completed effects/state and reject structural alias writes during
+  native iteration; recovery confirms guard release. Imported generic defaults
+  retain private conversion targets and interface adapters; removed dependencies
+  reject before execution. Eight affected library suites pass 978 tests; eight
+  embedding suites pass 105. Structure checking covers 780 Rust files with zero
+  violations/exceptions; workspace/all-target clippy with denied warnings, formatting
+  and diff checks pass. Manual review confirms private normal modules, explicit
+  imports, bounded rooted delegation, unchanged generation retention and no new
+  public forwarding surface or policy in the generic frame driver. The standard
+  declaration specification now describes the checked native List join entry.
+  Runtime ABI is v128; binding v2, KBC v109, KMIR v7 and helper ABI v6 retain their
+  schemas. No build/test errors or structural debt are carried by this checkpoint.
+  Remaining ST05 families and ST06 acceptance remain pending.
 
 - ST05 native String iterator construction checkpoint (2026-10-01): completes
   `bytes`, `char_indices`, `split`, `splitn`, `split_whitespace` and `lines` as

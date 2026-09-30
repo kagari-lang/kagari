@@ -1,9 +1,13 @@
-//! Selected source traversal for native collection construction and snapshot copying.
+//! Selected source traversal for native collection construction, copying and joining.
 use crate::{
     callable::EngineNativeBinding,
     native_import::EngineNativeImport,
+    scalar::BuiltinType,
     standard::{
-        StandardIntrinsic, bindings::NativeProtocolMethod, intrinsic, traits::StandardTrait,
+        StandardIntrinsic,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        intrinsic,
+        traits::StandardTrait,
     },
     types::{
         AbiType, ConstraintAbi, GenericBoundAbi, proofs::ProofCatalog,
@@ -24,17 +28,18 @@ pub(super) fn selected(import: &EngineNativeImport) -> bool {
                 | StandardIntrinsic::ArrayCopyFrom
                 | StandardIntrinsic::ArrayExtend
         )
-    ) || import.binding
-        == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
-        && matches!(
-            import.signature.result,
-            AbiType::Array(_, CollectionAccess::Mutable)
-                | AbiType::Set(_, CollectionAccess::Mutable)
-                | AbiType::Map {
-                    access: CollectionAccess::Mutable,
-                    ..
-                }
-        )
+    ) || import.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::ListJoin)
+        || import.binding
+            == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
+            && matches!(
+                import.signature.result,
+                AbiType::Array(_, CollectionAccess::Mutable)
+                    | AbiType::Set(_, CollectionAccess::Mutable)
+                    | AbiType::Map {
+                        access: CollectionAccess::Mutable,
+                        ..
+                    }
+            )
 }
 
 pub(super) fn obligations(
@@ -59,12 +64,17 @@ pub(super) fn obligations(
     } else {
         &import.signature.result
     };
-    let item = match storage {
-        AbiType::Array(item, _) | AbiType::Set(item, _) => item.as_ref().clone(),
-        AbiType::Map { key, value, .. } => {
-            AbiType::Tuple(vec![key.as_ref().clone(), value.as_ref().clone()])
+    let item = if import.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::ListJoin)
+    {
+        AbiType::Builtin(BuiltinType::String)
+    } else {
+        match storage {
+            AbiType::Array(item, _) | AbiType::Set(item, _) => item.as_ref().clone(),
+            AbiType::Map { key, value, .. } => {
+                AbiType::Tuple(vec![key.as_ref().clone(), value.as_ref().clone()])
+            }
+            _ => return Ok(None),
         }
-        _ => return Ok(None),
     };
     let mut out = Vec::new();
     let iterable = if matches!(import.binding, EngineNativeBinding::Intrinsic(_)) {

@@ -6,6 +6,7 @@ mod enums;
 mod iterators;
 mod keys;
 mod list_equality;
+mod list_join;
 mod lists;
 mod map_snapshots;
 mod prepared_arrays;
@@ -25,6 +26,7 @@ use crate::{
         iterators::IteratorInvocation,
         keys::KeyInvocation,
         list_equality::EqualityInvocation,
+        list_join::ListJoin,
         lists::ListInvocation,
         map_snapshots::SnapshotInvocation,
         prepared_arrays::PreparedArray,
@@ -92,6 +94,7 @@ enum NativeState {
     Enum(EnumInvocation),
     Iterator(IteratorInvocation),
     List(ListInvocation),
+    ListJoin(ListJoin),
     ListEquality(EqualityInvocation),
     MapSnapshot(SnapshotInvocation),
     StringIterator(StringIterator),
@@ -230,6 +233,8 @@ impl NativeInvocation {
                         | NativeDefaultMethod::ListEndsWith
                 ) {
                     NativeState::ListEquality(EqualityInvocation::start(operation, arguments)?)
+                } else if operation == NativeDefaultMethod::ListJoin {
+                    NativeState::ListJoin(ListJoin::start(contract, arguments)?)
                 } else if matches!(
                     operation,
                     NativeDefaultMethod::ListFirst
@@ -315,6 +320,7 @@ impl NativeInvocation {
                         NativeState::Iterator(state) => state.initial.take().ok_or_else(|| {
                             RuntimeError::module_validation("missing terminal initial roots")
                         })?,
+                        NativeState::ListJoin(_) => vec![Value::Unit; iterators::SCRATCH_ROOTS],
                         NativeState::List(state) => state.initial.take().ok_or_else(|| {
                             RuntimeError::module_validation("missing List initial roots")
                         })?,
@@ -367,6 +373,9 @@ impl NativeInvocation {
         }
         let initialized = match &mut state {
             NativeState::StringIterator(state) => Some(state.initialize(runtime, &roots)?),
+            NativeState::ListJoin(state) => {
+                Some(state.initialize(runtime, &implementation, contract, &roots)?)
+            }
             NativeState::Key(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }
@@ -398,6 +407,9 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::ListJoin(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::StringIterator(state) => {
                 state.advance(runtime, &self.implementation, &self.roots)
             }
@@ -451,7 +463,11 @@ impl NativeInvocation {
         runtime: &Runtime,
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
+        let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::ListJoin(state) => {
+                state.receive(runtime, &self.implementation, contract, &self.roots, value)
+            }
             NativeState::StringIterator(_) => Err(RuntimeError::module_validation(
                 "string constructor has no callback",
             )),

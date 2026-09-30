@@ -323,6 +323,7 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
                     | NativeDefaultMethod::GroupBy
+                    | NativeDefaultMethod::ListJoin
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
                     | NativeDefaultMethod::ListBinarySearch
@@ -347,47 +348,6 @@ impl FunctionLowerer<'_, '_> {
                 NativeDefaultMethod::ListWindows | NativeDefaultMethod::ListChunks
             ) {
                 return self.lower_list_windows(operation, &ty, args);
-            }
-            if operation == NativeDefaultMethod::ListJoin {
-                if matches!(ty, TypeId::Array(_, _)) {
-                    return Ok(self.emit_intrinsic(
-                        StandardIntrinsic::ArrayJoin,
-                        args,
-                        ValueType::Str,
-                    ));
-                }
-                let iterator_type = self.iteration_output(StandardTrait::Iterable, &ty, "Iter")?;
-                let iterator = self.lower_applied_operator(
-                    StandardTrait::Iterable.nominal(),
-                    ty.clone(),
-                    &self.protocol_method(StandardTrait::Iterable, 0)?,
-                    &[args[0]],
-                )?;
-                let interface = StandardTrait::Iterator.nominal();
-                let method = self
-                    .planner
-                    .catalog
-                    .trait_(&interface.declaration)
-                    .and_then(|owner| {
-                        owner.methods.iter().find(|method| {
-                            matches!(
-                                method.default,
-                                Some(MethodDefault::Native {
-                                    binding: NativeDefaultMethod::Join,
-                                    ..
-                                })
-                            )
-                        })
-                    })
-                    .map(|method| method.id.clone())
-                    .ok_or(MirLoweringError::MissingBinding("checked iterator join"))?;
-                return self.lower_native_default(
-                    &iterator_type,
-                    &interface,
-                    &method,
-                    &[],
-                    &[iterator, args[1]],
-                );
             }
             if matches!(operation, NativeDefaultMethod::Partition) {
                 return self.lower_iterator_partition(&ty, &method_arguments, args);

@@ -34,6 +34,7 @@ const PREVIOUS: usize = 5;
 const KEY_STATE: usize = 6;
 const CURRENT_KEY: usize = 7;
 const SOURCE: usize = 8;
+pub(super) const SCRATCH_ROOTS: usize = SOURCE + 1;
 
 #[derive(Clone, Copy)]
 enum DecisionPhase {
@@ -180,7 +181,10 @@ impl IteratorInvocation {
             .position(|witness| {
                 StandardTrait::from_id(&witness.interface.declaration)
                     == Some(StandardTrait::Iterator)
-                    && (numeric || Some(&witness.receiver) == contract.signature.params.first())
+                    && (numeric
+                        || contract.binding
+                            == EngineNativeBinding::TraitDefault(NativeDefaultMethod::ListJoin)
+                        || Some(&witness.receiver) == contract.signature.params.first())
             })
             .ok_or_else(invalid)?;
         let iterator_type = &contract.witnesses[iterator_witness].receiver;

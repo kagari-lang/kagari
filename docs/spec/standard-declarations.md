@@ -92,8 +92,11 @@ marked with intrinsic attributes; user implementations need only supply required
 methods and may provide ordinary explicit overrides of default methods. The fixed
 `List::join` and `Iterator::join` traversal operations are exceptions: their declared
 string-item constraints are checked at each call, and implementations cannot override
-them. They lower at the call site and do not require a virtual method binding. Runtime
-interface tables retain vacant slots for omitted engine operations so later declared
+them. Their checked call applications select native implementations and do not require
+virtual method bindings. List joining carries its selected List, Iterable and Iterator
+contracts; runtime-owned conversion and traversal consume those facts on shared frames.
+Concrete ArrayList sources retain the direct Rust storage helper. Runtime interface
+tables retain vacant slots for omitted engine operations so later declared
 method ordinals remain stable.
 
 `iter.kgr` explicitly declares `impl<T> Iterator for Iter<T>`, including

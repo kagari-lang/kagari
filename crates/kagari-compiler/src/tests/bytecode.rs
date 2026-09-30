@@ -92,3 +92,5 @@ mod native_keys;
 mod native_grouping;
 
 mod native_string_iterators;
+
+mod native_list_join;

@@ -214,6 +214,17 @@ impl FunctionLowerer<'_, '_> {
             witnesses.push(self.lower_native_witness(&iterator, &next, &[])?);
             witnesses.push(self.native_list_result(&result)?);
         }
+        if binding == NativeDefaultMethod::ListJoin {
+            let iterator = self.iteration_output(StandardTrait::Iterable, receiver, "Iter")?;
+            let item = self.iteration_output(StandardTrait::Iterable, receiver, "Item")?;
+            let mut next = StandardTrait::Iterator.nominal();
+            next.associated_types
+                .insert(associated_type_id(&next.declaration, "Item"), item);
+            let witness = self.lower_native_witness(&iterator, &next, &[])?;
+            if !witnesses.contains(&witness) {
+                witnesses.push(witness);
+            }
+        }
         let engine_binding = EngineNativeBinding::TraitDefault(binding);
         self.native_set_sources(engine_binding, &params, &mut witnesses)?;
         self.native_key_witnesses(engine_binding, &params, &result, &mut witnesses)?;

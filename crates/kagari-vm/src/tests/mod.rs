@@ -22,6 +22,7 @@ mod native_array_copy;
 mod native_array_initialization;
 mod native_fixtures;
 mod native_list_equality;
+mod native_list_join;
 mod native_list_queries;
 mod native_map_snapshots;
 
