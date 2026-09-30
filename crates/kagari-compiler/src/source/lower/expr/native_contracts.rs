@@ -147,7 +147,11 @@ impl FunctionLowerer<'_, '_> {
         let invoked_protocols = matches!(
             binding,
             EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange
+                StandardIntrinsic::ArrayCopyWithin
+                    | StandardIntrinsic::ArrayRemoveRange
+                    | StandardIntrinsic::ArraySort
+                    | StandardIntrinsic::ArraySortByKey
+                    | StandardIntrinsic::ArrayDedup
             )
         ) || matches!(
             binding,

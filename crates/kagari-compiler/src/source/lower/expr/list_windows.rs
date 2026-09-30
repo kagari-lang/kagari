@@ -108,7 +108,7 @@ impl FunctionLowerer<'_, '_> {
         let source = &body.captures[0];
         let item = self.iteration_output(StandardTrait::Iterable, source, "Item")?;
         let zero = self.usize_constant(0);
-        let start = self.prepared_read(args[2], zero, &TypeId::Builtin(BuiltinType::USize))?;
+        let start = self.window_read(args[2], zero, &TypeId::Builtin(BuiltinType::USize))?;
         let remaining = self.query_binary(BinaryOp::Sub, args[4], start, ValueType::U64);
         let available = if body.operation == NativeDefaultMethod::ListWindows {
             self.query_binary(BinaryOp::Ge, remaining, args[1], ValueType::Bool)
@@ -128,7 +128,7 @@ impl FunctionLowerer<'_, '_> {
         });
         self.switch_to_block(work);
         self.emit_intrinsic(StandardIntrinsic::IterResume, &[args[3]], ValueType::Unit);
-        let end = self.sort_bound(start, args[1], args[4])?;
+        let end = self.window_bound(start, args[1], args[4])?;
         let count = self.query_binary(BinaryOp::Sub, end, start, ValueType::U64);
         let storage = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
         let snapshot = self.collection_new(&storage)?;
@@ -136,7 +136,7 @@ impl FunctionLowerer<'_, '_> {
             kind: StandardEnum::Option,
             args: vec![item.clone()],
         };
-        self.prepared_indices(count, |this, offset| {
+        self.window_indices(count, |this, offset| {
             let index = this.query_binary(BinaryOp::Add, start, offset, ValueType::U64);
             let value = this.list_call(source, &item, "get", &[args[0], index])?;
             let value = this.standard_enum_op(&member, Op::Read(0), Some(value))?;
@@ -166,5 +166,80 @@ impl FunctionLowerer<'_, '_> {
         let none = self.standard_enum_op(&optional, Op::Make(1), None)?;
         self.set_terminator(Terminator::Return(Some(none)));
         Ok(())
+    }
+    fn window_read(
+        &mut self,
+        source: MirValue,
+        index: MirValue,
+        ty: &TypeId,
+    ) -> Result<MirValue, MirLoweringError> {
+        let dst = self.alloc_temp(self.value_type(ty)?);
+        self.emit(Instruction::ReadAggregateIndex {
+            dst,
+            base: source,
+            index,
+        });
+        Ok(dst)
+    }
+    fn increment_window_index(&mut self, index: MirValue) {
+        let one = self.usize_constant(1);
+        let next = self.query_binary(BinaryOp::Add, index, one, ValueType::U64);
+        self.emit(Instruction::Move {
+            dst: index,
+            src: next,
+        });
+    }
+    fn window_while(
+        &mut self,
+        condition: impl FnOnce(&mut Self) -> Result<MirValue, MirLoweringError>,
+        body: impl FnOnce(&mut Self) -> Result<(), MirLoweringError>,
+    ) -> Result<(), MirLoweringError> {
+        let head = self.new_block();
+        let work = self.new_block();
+        let done = self.new_block();
+        self.ensure_jump(head);
+        self.switch_to_block(head);
+        let cond = condition(self)?;
+        self.set_terminator(Terminator::Branch {
+            cond,
+            then_block: work,
+            else_block: done,
+        });
+        self.switch_to_block(work);
+        body(self)?;
+        self.ensure_jump(head);
+        self.switch_to_block(done);
+        Ok(())
+    }
+    fn window_indices(
+        &mut self,
+        length: MirValue,
+        body: impl FnOnce(&mut Self, MirValue) -> Result<(), MirLoweringError>,
+    ) -> Result<(), MirLoweringError> {
+        let index = self.usize_constant(0);
+        self.window_while(
+            |this| Ok(this.query_binary(BinaryOp::Lt, index, length, ValueType::Bool)),
+            |this| {
+                body(this, index)?;
+                this.increment_window_index(index);
+                Ok(())
+            },
+        )
+    }
+
+    fn window_bound(
+        &mut self,
+        start: MirValue,
+        width: MirValue,
+        len: MirValue,
+    ) -> Result<MirValue, MirLoweringError> {
+        let remaining = self.query_binary(BinaryOp::Sub, len, start, ValueType::U64);
+        let short = self.query_binary(BinaryOp::Lt, remaining, width, ValueType::Bool);
+        self.branch_value(
+            short,
+            &TypeId::Builtin(BuiltinType::USize),
+            |_| Ok(len),
+            |this| Ok(this.query_binary(BinaryOp::Add, start, width, ValueType::U64)),
+        )
     }
 }

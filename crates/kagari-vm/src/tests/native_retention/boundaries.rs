@@ -1,6 +1,7 @@
 use super::runtime;
 use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use kagari_abi::native_import::NativeWitnessImplementation;
+use kagari_bytecode::{BytecodeProgram, KbcArtifact, verify_program};
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::standard_log,
@@ -470,6 +471,34 @@ fn main()->i32{
         .unwrap();
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let program = lower_program_to_bytecode(&ir).unwrap();
+    for encoded in [false, true] {
+        let mut forged = route(&program, encoded);
+        let root_identity = forged.modules[forged.root.index()].identity.clone();
+        let owner = forged
+            .modules
+            .iter_mut()
+            .find(|module| module.identity.path == ["model"])
+            .unwrap();
+        assert!(owner.engine_imports.iter().any(|contract| {
+            contract.witnesses.iter().any(|witness| matches!(
+                &witness.implementation,
+                NativeWitnessImplementation::Table(instance)
+                    if instance.declaration.module == root_identity && witness.methods.is_empty()
+            ))
+        }));
+        assert!(owner.dependencies.contains(&forged.root));
+        owner
+            .dependencies
+            .retain(|dependency| *dependency != forged.root);
+        assert!(
+            verify_program(&forged).is_err(),
+            "non-invoked bound witnesses need their dependency"
+        );
+        let mut rt = runtime();
+        rt.register_host_function(HostFunction::new(standard_log(), |_, _| Ok(Value::Unit)))
+            .unwrap();
+        assert!(rt.load_program("unlinked-private-retain", forged).is_err());
+    }
     for encoded in [false, true] {
         let mut rt = runtime();
         rt.register_host_function(HostFunction::new(standard_log(), |context, _| {

@@ -5,7 +5,10 @@ use kagari_abi::{
     types::{ConcreteFunctionIdentity, PublicAbiItem},
 };
 use kagari_common::{Diagnostic, DiagnosticKind};
-use kagari_hir::{CheckedAnalysis, imports::ImportTarget, typeck::FunctionImplementation};
+use kagari_hir::{
+    CheckedAnalysis, aggregates::AggregateCatalog, imports::ImportTarget,
+    typeck::FunctionImplementation,
+};
 use kagari_mir::MirVerificationError;
 use std::{
     collections::{BTreeSet, HashSet},
@@ -56,7 +59,13 @@ pub fn lower_to_mir(
     module: &CheckedAnalysis,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
-    lower_to_mir_with_requests(module, options, &[], slice::from_ref(module))
+    lower_to_mir_with_requests(
+        module,
+        options,
+        &[],
+        slice::from_ref(module),
+        &module.aggregates,
+    )
 }
 
 pub(crate) fn lower_to_mir_with_requests<'a>(
@@ -64,8 +73,9 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     options: &'a MirLoweringOptions,
     requests: &[ConcreteFunctionIdentity],
     modules: &'a [CheckedAnalysis],
+    catalog: &'a AggregateCatalog,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
-    let mut planner = InstancePlanner::new(module, options, modules);
+    let mut planner = InstancePlanner::new(module, options, modules, catalog);
     planner.check()?;
     let callable_methods = module
         .lowered

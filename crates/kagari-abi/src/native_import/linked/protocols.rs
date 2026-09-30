@@ -91,7 +91,15 @@ pub(super) fn valid<'a>(
             )
         );
         let conversion = numeric || list_query || snapshot || arrays::selected(import);
-        let equality = list_query && protocol == Some(StandardTrait::PartialEq);
+        let prepared_order = matches!(
+            import.binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::ArraySort | StandardIntrinsic::ArraySortByKey
+            )
+        );
+        let equality = (list_query
+            || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup))
+            && protocol == Some(StandardTrait::PartialEq);
         if equality
             && witness.implementation == NativeWitnessImplementation::Interface
             && matches!(&witness.receiver,AbiType::Trait(interface) if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection))
@@ -143,7 +151,9 @@ pub(super) fn valid<'a>(
             || matches!(import.binding, EngineNativeBinding::TraitDefault(_))
                 && (matches!(protocol, Some(StandardTrait::Iterator | StandardTrait::Ord))
                     || aggregate
-                    || equality);
+                    || equality)
+            || prepared_order && protocol == Some(StandardTrait::Ord)
+            || equality;
         if !invoked
             || (protocol == Some(StandardTrait::Iterator)
                 && matches!(witness.receiver, AbiType::Iter(_)))

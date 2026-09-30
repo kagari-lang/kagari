@@ -7,6 +7,7 @@ mod iterators;
 mod list_equality;
 mod lists;
 mod map_snapshots;
+mod prepared_arrays;
 mod protocols;
 mod results;
 mod retention;
@@ -23,6 +24,7 @@ use crate::{
         list_equality::EqualityInvocation,
         lists::ListInvocation,
         map_snapshots::SnapshotInvocation,
+        prepared_arrays::PreparedArray,
         retention::Retention,
     },
     value::Value,
@@ -77,6 +79,7 @@ pub(crate) enum NativeAction {
 }
 
 enum NativeState {
+    PreparedArray(Box<PreparedArray>),
     Retention(Retention),
     ArrayRange(ArrayRange),
     ArrayCopy(ArrayCopy),
@@ -118,6 +121,14 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
+                operation @ (StandardIntrinsic::ArraySort
+                | StandardIntrinsic::ArraySortBy
+                | StandardIntrinsic::ArraySortByKey
+                | StandardIntrinsic::ArrayDedup),
+            ))) => {
+                NativeState::PreparedArray(Box::new(PreparedArray::start(operation, arguments)?))
+            }
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
                 StandardIntrinsic::ArrayRetain
                 | StandardIntrinsic::MapRetain
@@ -244,6 +255,9 @@ impl NativeInvocation {
                     .cloned()
                     .chain(match &mut state {
                         NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
+                        NativeState::PreparedArray(_) => {
+                            vec![Value::Unit; prepared_arrays::SCRATCH_ROOTS]
+                        }
                         NativeState::Retention(_) => vec![Value::Unit; retention::SCRATCH_ROOTS],
                         NativeState::Iterator(state) => state.initial.take().ok_or_else(|| {
                             RuntimeError::module_validation("missing terminal initial roots")
@@ -289,6 +303,9 @@ impl NativeInvocation {
                 .initialize(runtime, &roots)?
                 .map(NativeProgress::BuiltinFailure);
         }
+        if let NativeState::PreparedArray(state) = &mut state {
+            state.initialize(runtime, &roots)?;
+        }
         if let NativeState::Retention(state) = &mut state {
             state.initialize(runtime, &roots)?;
         }
@@ -330,6 +347,9 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::PreparedArray(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::Retention(state) => state.advance(
                 runtime,
                 &self.implementation,
@@ -375,6 +395,13 @@ impl NativeInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
+            NativeState::PreparedArray(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()],
+                &self.roots,
+                value,
+            ),
             NativeState::Retention(state) => {
                 state.receive(runtime, &self.implementation, &self.roots, value)
             }

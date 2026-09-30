@@ -233,9 +233,10 @@ impl<'a> InstancePlanner<'a> {
         module: &'a AnalyzedModule,
         options: &'a MirLoweringOptions,
         modules: &'a [CheckedAnalysis],
+        catalog: &'a AggregateCatalog,
     ) -> Self {
         Self {
-            catalog: &module.aggregates,
+            catalog,
             modules: modules
                 .iter()
                 .map(|module| (module.lowered.source.module_identity().clone(), &**module))
@@ -644,15 +645,14 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<(), MirLoweringError> {
         let parents = self
-            .module
-            .aggregates
+            .catalog
             .trait_closure(interface, receiver, &self.options.cancel)
             .map_err(|_| MirLoweringError::MissingBinding("checked inheritance closure"))?;
         for parent in parents.into_iter().skip(1) {
             if traits::native_interface_applies(
                 &parent,
                 receiver,
-                &self.module.aggregates,
+                self.catalog,
                 &Default::default(),
             ) {
                 self.native_interface(receiver, &parent, span)?;
@@ -669,8 +669,7 @@ impl<'a> InstancePlanner<'a> {
                 continue;
             }
             let (declaration, arguments) = self
-                .module
-                .aggregates
+                .catalog
                 .concrete_interface_implementation(
                     &parent,
                     receiver,
@@ -685,13 +684,9 @@ impl<'a> InstancePlanner<'a> {
                 ))?;
             self.record_interface(&declaration, &arguments, span)?;
             if declaration.module == *self.module.lowered.source.module_identity() {
-                let signature = self
-                    .module
-                    .aggregates
-                    .implementation_signature(&declaration)
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "parent interface contract",
-                    ))?;
+                let signature = self.catalog.implementation_signature(&declaration).ok_or(
+                    MirLoweringError::MissingBinding("parent interface contract"),
+                )?;
                 let methods = self.catalog.implementation_methods(signature);
                 for method in methods {
                     self.enqueue_declaration(&method, arguments.clone(), span)?;
@@ -858,7 +853,7 @@ impl<'a> InstancePlanner<'a> {
                     0,
                     span,
                 )
-                .map(|ty| self.module.aggregates.normalize_type(&ty))
+                .map(|ty| self.catalog.normalize_type(&ty))
             })
             .collect()
     }
@@ -879,7 +874,7 @@ impl<'a> InstancePlanner<'a> {
             0,
             span,
         )?;
-        let ty = self.module.aggregates.normalize_type(&ty);
+        let ty = self.catalog.normalize_type(&ty);
         if !ty.is_concrete() {
             return Err(unresolved_type(&ty, span));
         }

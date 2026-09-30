@@ -32,7 +32,6 @@ mod map_updates;
 mod native_calls;
 mod native_contracts;
 mod operators;
-mod prepared_collections;
 mod set_queries;
 mod standard;
 mod terminals;

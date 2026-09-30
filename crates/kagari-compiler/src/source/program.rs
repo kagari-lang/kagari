@@ -1,12 +1,15 @@
 use crate::{MirLoweringError, MirLoweringOptions, source::lower};
-use kagari_abi::{callable::NativeCall, types::ConcreteFunctionIdentity};
+use kagari_abi::{
+    callable::NativeCall, native_import::NativeWitnessImplementation,
+    types::ConcreteFunctionIdentity,
+};
 use kagari_common::{DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_mir::{
-    CallTarget, Instruction,
+    CallTarget, Instruction, MirModule,
     program::{ProgramError, ProgramErrorKind, VerifiedMirProgram, verify_program},
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 #[derive(Debug)]
 pub enum SourceProgramError {
     Lowering {
@@ -25,6 +28,10 @@ pub fn lower_program_to_mir(
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
     let root = program.root().lowered.source.module_identity().clone();
+    // The root catalog already owns checked facts for the entire dependency
+    // closure, including caller-private generic arguments. Per-module catalogs
+    // cannot select those arguments' implementations in foreign bodies.
+    let catalog = &program.root().aggregates;
     let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>> = HashMap::new();
     let mut seen = HashSet::new();
     loop {
@@ -40,24 +47,29 @@ pub fn lower_program_to_mir(
                 .get(identity)
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let lowered =
-                lower::lower_to_mir_with_requests(module, &remaining, demanded, program.modules())
-                    .map_err(|mut error| {
-                        if let MirLoweringError::Diagnostic(diagnostic) = &mut error
-                            && let DiagnosticKind::CompileLimitExceeded { resource, limit } =
-                                &mut diagnostic.kind
-                        {
-                            match *resource {
-                                "generated instructions" => *limit = options.max_instructions,
-                                "generic instances" => *limit = options.max_generic_instances,
-                                _ => {}
-                            }
-                        }
-                        SourceProgramError::Lowering {
-                            module: Box::new(identity.clone()),
-                            error,
-                        }
-                    })?;
+            let lowered = lower::lower_to_mir_with_requests(
+                module,
+                &remaining,
+                demanded,
+                program.modules(),
+                catalog,
+            )
+            .map_err(|mut error| {
+                if let MirLoweringError::Diagnostic(diagnostic) = &mut error
+                    && let DiagnosticKind::CompileLimitExceeded { resource, limit } =
+                        &mut diagnostic.kind
+                {
+                    match *resource {
+                        "generated instructions" => *limit = options.max_instructions,
+                        "generic instances" => *limit = options.max_generic_instances,
+                        _ => {}
+                    }
+                }
+                SourceProgramError::Lowering {
+                    module: Box::new(identity.clone()),
+                    error,
+                }
+            })?;
             // These budgets apply to the whole source closure, not once per module.
             remaining.max_generic_instances -= lowered
                 .functions
@@ -88,36 +100,28 @@ pub fn lower_program_to_mir(
             modules.push(lowered.into_unverified());
         }
         let mut changed = false;
+        for module in &mut modules {
+            // A generic body may use a private implementation supplied by its
+            // caller. Pin both invoked methods and non-invoked bound witnesses
+            // even when the defining source module did not import the caller.
+            let mut dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
+            for dependency in execution_dependencies(module) {
+                options.cancel.check().map_err(|_| ProgramError {
+                    module: Box::new(root.clone()),
+                    kind: ProgramErrorKind::Cancelled,
+                })?;
+                if dependency != module.identity {
+                    dependencies.insert(dependency);
+                }
+            }
+            module.dependencies = dependencies.into_iter().collect();
+        }
         let materialized: HashSet<_> = modules
             .iter()
             .flat_map(|module| &module.functions)
             .map(|function| &function.instance)
             .collect();
-        for instance in modules
-            .iter()
-            .flat_map(|module| &module.functions)
-            .flat_map(|function| &function.blocks)
-            .flat_map(|block| &block.instructions)
-            .flat_map(|instruction| match instruction {
-                Instruction::Call {
-                    callee: CallTarget::SourceFunction(contract),
-                    ..
-                } if !contract.arguments.is_empty() => vec![ConcreteFunctionIdentity {
-                    declaration: contract.declaration.clone(),
-                    arguments: contract.arguments.clone(),
-                }],
-                Instruction::Call {
-                    callee: CallTarget::Native(NativeCall::Engine(contract)),
-                    ..
-                } => contract
-                    .witnesses
-                    .iter()
-                    .flat_map(|witness| &witness.methods)
-                    .cloned()
-                    .collect(),
-                _ => vec![],
-            })
-        {
+        for instance in modules.iter().flat_map(callable_demands) {
             options.cancel.check().map_err(|_| ProgramError {
                 module: Box::new(root.clone()),
                 kind: ProgramErrorKind::Cancelled,
@@ -216,4 +220,58 @@ pub fn lower_program_to_mir(
                 .map_err(SourceProgramError::Verification);
         }
     }
+}
+
+fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIdentity> + '_ {
+    let callables = callable_demands(module).map(|instance| instance.declaration.module);
+    let native = module
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .filter_map(|instruction| match instruction {
+            Instruction::Call {
+                callee: CallTarget::Native(NativeCall::Engine(contract)),
+                ..
+            } => Some(contract),
+            _ => None,
+        })
+        .flat_map(|contract| {
+            let mut owners = vec![contract.instance.declaration.module.clone()];
+            for witness in &contract.witnesses {
+                owners.push(witness.interface.declaration.module.clone());
+                if let NativeWitnessImplementation::Table(instance) = &witness.implementation {
+                    owners.push(instance.declaration.module.clone());
+                }
+            }
+            owners
+        });
+    callables.chain(native)
+}
+
+fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {
+    module
+        .functions
+        .iter()
+        .flat_map(|function| &function.blocks)
+        .flat_map(|block| &block.instructions)
+        .flat_map(|instruction| match instruction {
+            Instruction::Call {
+                callee: CallTarget::SourceFunction(contract),
+                ..
+            } => vec![ConcreteFunctionIdentity {
+                declaration: contract.declaration.clone(),
+                arguments: contract.arguments.clone(),
+            }],
+            Instruction::Call {
+                callee: CallTarget::Native(NativeCall::Engine(contract)),
+                ..
+            } => contract
+                .witnesses
+                .iter()
+                .flat_map(|witness| &witness.methods)
+                .cloned()
+                .collect(),
+            _ => vec![],
+        })
 }

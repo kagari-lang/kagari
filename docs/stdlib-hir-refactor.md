@@ -20,7 +20,9 @@ copy and extension execute through selected native source traversal and atomic
 final storage helpers. Array interval copying/removal also execute through checked
 static RangeBounds witnesses and prepared native storage updates. ArrayList, Map
 and Set retention execute rooted native predicate traversal with one token-preserving
-storage commit. Remaining ST05 iterator/collection
+storage commit. ArrayList sorting and adjacent deduplication execute native
+preparation with selected Ord/PartialEq witnesses, stable merging, once-only key
+extraction and atomic final storage commit. Remaining ST05 iterator/collection
 migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -531,9 +533,11 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   rooted prepared storage and checked readonly result construction before commit.
 - [x] Migrate ArrayList/LinkedHashMap/LinkedHashSet retention with typed predicates,
   rooted native traversal, callback guards and token-preserving atomic storage commit.
+- [x] Migrate ArrayList sorting (`sort`, `sort_by`, `sort_by_key`) and adjacent
+  `dedup` with selected comparisons, stable ordering, once-only keys and atomic commit.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
-- [ ] Migrate remaining collection queries, custom keys, prepared mutation, sort/dedup,
+- [ ] Migrate remaining collection queries, custom keys, prepared mutation,
   map updates and lazy windows/chunks with their existing observable contracts.
 - [ ] Remove corresponding compiler algorithm expansions and standard source
   lookups from MIR, bytecode, VM and runtime.
@@ -826,6 +830,61 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 ArrayList sorting/dedup checkpoint (2026-09-30): completes one family
+  checklist covering `sort`, `sort_by`, `sort_by_key` and `dedup`. Removed their
+  entire compiler expansion and prepared-collection module. Only windows/chunks
+  retain their own pending compiler helpers. Runtime owns stable bottom-up merging,
+  once-per-element key decoration in original order and adjacent deduplication
+  against the last retained element. Existing `ArrayReplaceStorage` and
+  `CollectionRetainStorage` helpers perform the final atomic update after successful
+  preparation. Shared object identity, first retained equal element and completed
+  callback effects remain observable; no public-operation static fallback, source
+  algorithm copy or second execution driver remains.
+- Native contracts carry the selected Ord/PartialEq applications and concrete
+  method targets, including derived Tuple/Option/user-enum equality. Callback
+  signatures retain exact item/key types and the mutable physical ArrayList
+  receiver. Primitive and collection identity comparisons preserve their existing
+  paths. All callback execution uses shared frames, generation-pinned modules and
+  rooted arguments, intermediate values, key tuples, buffers and results. Mutation
+  and iteration guards retain their original charge positions and lifetimes;
+  independent active iteration rejects the structural commit, while callback
+  cancellation, traps and allocation limits leave original slots uncommitted.
+- Whole-program specialization now reuses the root's existing checked dependency
+  catalog to select caller-private implementations and normalize associated key
+  types in foreign generic bodies. Emitted calls and native witnesses pin their
+  actual defining-module edges, including non-invoked Eq/Hash bound tables. This
+  does not resolve source syntax again, widen source visibility or fabricate
+  execution of bound methods. The existing foreign retention regression exposed
+  the missing non-invoked dependency; it is resolved. Sorting and retention graph
+  corruptions removing the private implementation edge reject in memory and decoded
+  loading, including the bound witnesses whose method lists are empty.
+- Recorded 82 cases at 490fe39: all four operations, scalar and generic nominal
+  comparisons, empty/single/three/five-element arrays, direct/generic calls,
+  ascending/descending order, duplicate-key stability and composed adjacent equality.
+  All 23,436 distinct instruction limits pass both source and decoded KBC,
+  retaining 168 original bulk-charge rejection cutpoints. Receiver/callback/key/
+  comparison/equality/commit event positions, counters, ordering and cleanup match
+  the original implementation with forced collection at threshold one. Boundary
+  tests cover nested successful/failed host reentry, cancellation at each callback,
+  every allocation limit, callback overflow, alias replacement/push/pop/clear,
+  recursive mutation, independent active iteration, shared heap payloads and foreign
+  generic/private associated-key applications. All 315 native storage/callback/
+  signature/witness/instantiation/bare-call corruptions reject in memory and encoded
+  loading. Failure cleanup permits subsequent successful execution.
+- Runtime ABI is v122 for the newly executable sorting/dedup bindings; binding v2,
+  KBC v109, KMIR v7 and helper ABI v6 retain their schemas. ABI 46, bytecode 27,
+  compiler 180, HIR 414, MIR 1, runtime 71, stdlib 7 and VM 199 library tests pass
+  (945 cumulative). Embedding array_operations, collection_interfaces, error_traces,
+  iteration_traits, lazy_iterators, list_mutations, list_windows and
+  prepared_collections pass 84 tests (1,029 combined), across their supported source,
+  decoded and JIT/fallback routes. Workspace all-target Clippy with warnings denied,
+  formatting, structure and diff checks pass. Structure covers 671 Rust files with
+  zero violations/exceptions. Manual review covered imports, module ownership,
+  exact witness/callback signatures, dependency pinning, rooted preparation, guards,
+  logical charges, stable merging, key evaluation and final commit/cleanup. No build
+  or test error is carried; other ST05 families and ST06 fixture regeneration,
+  documentation, measurements and final acceptance remain pending.
 
 - ST05 prepared retention checkpoint (2026-09-30): completes one family checklist
   covering ArrayList, LinkedHashMap and LinkedHashSet `retain`. Removed their

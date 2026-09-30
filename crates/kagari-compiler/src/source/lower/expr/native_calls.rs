@@ -109,52 +109,6 @@ impl FunctionLowerer<'_, '_> {
         let span = self.analyzed.lowered.source_map.expr_span(expr);
         if matches!(
             intrinsic,
-            StandardIntrinsic::ArraySort
-                | StandardIntrinsic::ArraySortBy
-                | StandardIntrinsic::ArraySortByKey
-                | StandardIntrinsic::ArrayDedup
-        ) {
-            let base = receiver
-                .or_else(|| args.first().copied())
-                .ok_or(MirLoweringError::MissingBinding("collection receiver"))?;
-            let receiver = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(base)
-                .ok_or(MirLoweringError::MissingExprType(base))?;
-            let receiver = self
-                .planner
-                .arguments(&[receiver], &self.instance.substitution, span)?
-                .remove(0);
-            let callback_type = if intrinsic == StandardIntrinsic::ArraySortByKey {
-                let site = *args
-                    .last()
-                    .ok_or(MirLoweringError::MissingBinding("sort callback"))?;
-                let ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .coerced_expr_type(site)
-                    .ok_or(MirLoweringError::MissingExprType(site))?;
-                Some(
-                    self.planner
-                        .arguments(&[ty], &self.instance.substitution, span)?
-                        .remove(0),
-                )
-            } else {
-                None
-            };
-            return self.lower_prepared_array(
-                intrinsic,
-                &receiver,
-                &lowered,
-                callback_type.as_ref(),
-            );
-        }
-
-        if matches!(
-            intrinsic,
             StandardIntrinsic::MapGetOrInsertWith | StandardIntrinsic::MapUpdate
         ) {
             let base = receiver
