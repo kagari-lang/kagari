@@ -6,10 +6,10 @@ and engine/host integration. The workspace builds; compiler and VM library suite
 and selected embedding integration suites pass. Runtime-owned native continuations
 execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
-Thirteen iterator terminals also execute natively with selected static protocol
-witnesses, including search, reduction and callback comparisons. Remaining ST05
-iterator/collection migration and ST06 encoded fixtures/final acceptance remain
-pending.
+Seventeen iterator terminals also execute natively with selected static protocol
+witnesses, including search, reduction, callback comparisons and Ord extrema.
+Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final
+acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -497,6 +497,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   `all`, `last`) with checked static receiver witnesses and shared frame execution.
 - [x] Migrate iterator search/reduction (`find_map`, `position`, `nth`, `reduce`)
   and callback comparisons (`min_by`, `max_by`) with typed outputs and static `next`.
+- [x] Migrate Ord extrema (`min`, `max`, `min_by_key`, `max_by_key`) with selected
+  item/key witnesses, concrete comparison targets and once-only key callbacks.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -792,6 +794,65 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 Ord extrema checkpoint (2026-09-30): completes one checklist with `min`,
+  `max`, `min_by_key` and `max_by_key`. Their four compiler algorithms, separate
+  key accumulator setup and old terminal selectors are removed. The checked
+  native-default producer now selects witnesses for written trait obligations as
+  well as implicit Self, deduplicates them and records concrete implementation
+  instances. Local required methods are queued locally; foreign generic methods
+  are materialized by the existing whole-program interface demand mechanism in
+  their defining module. A two-module generic Rank test verifies that boundary
+  through source and decoded products. Remaining destinations, adapters, collection
+  terminals and mutation/query algorithms stay pending in ST05.
+- Protocol target signatures are instantiated from the carried checked trait
+  declaration, receiver and arguments before MIR/bytecode linking checks the exact
+  materialized callable. The native consumer also guards the physical next/compare
+  operand and result shapes it actually consumes; these checks grant no source
+  signature or provider selection. Selected user `cmp` enters the shared frame
+  stack on the retained program graph. Primitive Ord uses the existing Rust
+  comparison helper. Host operator eligibility and static-only Ord/Iterator
+  boundaries remain as specified; no dynamic adapter or public signature catalog
+  was added.
+- Runtime terminal state roots the previous and current keys independently from
+  yielded items and callback/comparison results. Each key callback runs once per
+  yielded item, including the first. Key Option construction, reads, result tests,
+  comparison calls, branches, moves and jumps preserve original logical charges.
+  Equal minima keep the first item and equal maxima select the last, preserving
+  aliases. Existing close/iteration guards release on completion and suffix
+  cleanup. Comparison callback state survives successful and failed scoped host
+  reentry; cancellation remains sticky only within its owning execution session.
+- Recorded 48 cases at `d3bfe82` before replacing the algorithms: native/custom
+  iteration, primitive/custom generic Ord, empty/singleton/multiple items and
+  equal keys. All 9,600 source/decoded budget cuts match exact charges and next,
+  key and cmp host-effect positions, with GC threshold 1 and complete cleanup.
+  Further coverage checks heap keys with nested native callbacks, aliases, string
+  and Ordering comparison, key/comparison traps and original frames, reentry,
+  cancellation and foreign generic comparison targets. Nine in-memory and encoded
+  corruptions reject missing/forged/duplicate Ord witnesses, substituted impl
+  arguments, callback result forgery, deleted obligations and absent cmp targets.
+- Expanded ordering integration uncovered `Ordering::*` being incorrectly rejected
+  as a non-module glob after ST01. The existing builtins specification and
+  `operator_traits` test explicitly require this variant import. Restored that
+  specific namespace eligibility from the validated installed native-enum hook;
+  its variant names and arena identities still come from ordinary source members.
+  Direct and relative type-alias globs, explicit/local shadowing and an uninstalled
+  same-named enum are tested. General non-module globs, including Option, retain
+  their existing rejection. Syntax wording now records the specified Ordering
+  exception. This corrects the ST01 ledger's overly broad non-module-glob claim,
+  without restoring the old standard name resolver or weakening the integration
+  test. The initially observed integration failure is resolved.
+- Runtime ABI is v111 for the additional linked native families; binding v1, KBC
+  v107, KMIR v5 and helper ABI v6 retain their schemas. ST06 owns fixture regeneration
+  and full workspace/matrix acceptance. Validation: ABI 43, bytecode 27, compiler
+  168, HIR 413, MIR 1, runtime 71 and VM 142 library tests pass (865). Embedding
+  `default_methods`, `error_traces`, `iteration_traits`, `lazy_iterators`,
+  `list_queries`, `never` and `operator_traits` pass 86 tests (951 total), including
+  decoded and supported JIT/fallback routes. Workspace all-target Clippy with
+  warnings denied, formatting, structure and diff checks pass. Structure covers
+  573 Rust files with zero violations/exceptions. Changed imports, ownership,
+  foreign specialization, physical callback guards and cleanup were manually
+  reviewed; no new structural debt or carried integration errors.
 
 - ST05 iterator search/reduction and callback comparison checkpoint (2026-09-30):
   completes one family checklist with `find_map`, `position`, `nth`, `reduce`,

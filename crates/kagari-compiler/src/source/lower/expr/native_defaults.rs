@@ -9,6 +9,7 @@ use kagari_abi::{
         ENGINE_NATIVE_BINDING_VERSION, EngineNativeImport, NativeSignature, NativeWitness,
         NativeWitnessImplementation,
     },
+    standard::traits::StandardTrait,
     types::{
         ConcreteFunctionIdentity, ConstraintAbi, substitution::TypeSubstitution as AbiSubstitution,
     },
@@ -126,49 +127,21 @@ impl FunctionLowerer<'_, '_> {
             });
             applied.associated_types.insert(id.clone(), output);
         }
-        let implementation = if let Some((declaration, table_arguments)) = self
-            .planner
-            .catalog
-            .concrete_interface_implementation(
-                &applied,
-                receiver,
-                &Default::default(),
-                self.planner.options.max_type_nodes,
-                self.planner.options.max_type_depth,
-                &self.planner.options.cancel,
-            )
-            .map_err(|_| invalid())?
-        {
-            if !matches!(receiver, TypeId::Iter(_)) {
-                self.planner
-                    .record_interface(&declaration, &table_arguments, span)?;
-                for required in &owner.methods {
-                    if required.default.is_none()
-                        && let Some((target, method_arguments)) = self
-                            .planner
-                            .catalog
-                            .implementation_method(&required.id, &applied, receiver)
-                    {
-                        self.planner
-                            .enqueue_declaration(&target, method_arguments, span)?;
+        let mut witnesses = vec![self.lower_native_witness(receiver, &applied)?];
+        for bound in &requirements {
+            for constraint in &bound.constraints {
+                if let ConstraintAbi::Trait(interface) = constraint {
+                    let receiver = raise_type(&bound.ty);
+                    let interface = raise_nominal_type(interface);
+                    if !witnesses.iter().any(|witness| {
+                        witness.receiver == bound.ty
+                            && witness.interface == lower_nominal_type(&interface)
+                    }) {
+                        witnesses.push(self.lower_native_witness(&receiver, &interface)?);
                     }
                 }
             }
-            NativeWitnessImplementation::Table(ConcreteFunctionIdentity {
-                declaration,
-                arguments: table_arguments.iter().map(lower_type).collect(),
-            })
-        } else {
-            match receiver {
-                TypeId::Trait(_) | TypeId::Host(_) => return Err(invalid()),
-                _ => NativeWitnessImplementation::Primitive,
-            }
-        };
-        let witness = NativeWitness {
-            receiver: lower_type(receiver),
-            interface: lower_nominal_type(&applied),
-            implementation,
-        };
+        }
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {
                 declaration: method.clone(),
@@ -181,7 +154,7 @@ impl FunctionLowerer<'_, '_> {
                 result: lower_type(&result),
             },
             requirements,
-            witnesses: vec![witness],
+            witnesses,
         };
         if contract.resolve().is_none() {
             return Err(invalid());
@@ -197,5 +170,68 @@ impl FunctionLowerer<'_, '_> {
             args: values.iter().copied().collect(),
         });
         Ok(dst)
+    }
+    fn lower_native_witness(
+        &mut self,
+        receiver: &TypeId,
+        interface: &NominalType,
+    ) -> Result<NativeWitness, MirLoweringError> {
+        let invalid = || MirLoweringError::MissingBinding("checked native protocol witness");
+        let owner = self
+            .planner
+            .catalog
+            .trait_(&interface.declaration)
+            .ok_or_else(invalid)?
+            .clone();
+        let span = self.function.debug.source_span;
+        let implementation = if let Some((declaration, table_arguments)) = self
+            .planner
+            .catalog
+            .concrete_interface_implementation(
+                interface,
+                receiver,
+                &Default::default(),
+                self.planner.options.max_type_nodes,
+                self.planner.options.max_type_depth,
+                &self.planner.options.cancel,
+            )
+            .map_err(|_| invalid())?
+        {
+            let native_iterator = matches!(receiver, TypeId::Iter(_))
+                && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Iterator);
+            if !native_iterator {
+                self.planner
+                    .record_interface(&declaration, &table_arguments, span)?;
+                for required in &owner.methods {
+                    if required.default.is_none() {
+                        let (target, method_arguments) = self
+                            .planner
+                            .catalog
+                            .implementation_method(&required.id, interface, receiver)
+                            .ok_or_else(invalid)?;
+                        if target.module == *self.planner.owner().lowered.source.module_identity() {
+                            self.planner
+                                .enqueue_declaration(&target, method_arguments, span)?;
+                        }
+                        // Foreign instances are demanded from their defining
+                        // module by the recorded interface instance above.
+                    }
+                }
+            }
+            NativeWitnessImplementation::Table(ConcreteFunctionIdentity {
+                declaration,
+                arguments: table_arguments.iter().map(lower_type).collect(),
+            })
+        } else {
+            match receiver {
+                TypeId::Trait(_) | TypeId::Host(_) => return Err(invalid()),
+                _ => NativeWitnessImplementation::Primitive,
+            }
+        };
+        Ok(NativeWitness {
+            receiver: lower_type(receiver),
+            interface: lower_nominal_type(interface),
+            implementation,
+        })
     }
 }

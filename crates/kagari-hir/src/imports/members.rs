@@ -38,6 +38,27 @@ impl SourceImport {
 }
 
 impl SourceCatalog<'_> {
+    /// Ordering's specified variant glob follows the installed representation
+    /// hook. The members and arena identities still come from ordinary sources.
+    pub(super) fn glob_namespace(&self, source: &SourceImport) -> bool {
+        match source.item {
+            None => true,
+            Some(ExportItem::Enum(id)) => {
+                self.paths
+                    .get(&source.module.to_string())
+                    .is_some_and(|entries| {
+                        let [entry] = entries.as_slice() else {
+                            return false;
+                        };
+                        entry.source.id() == source.file
+                            && entry.source.revision() == source.revision
+                            && entry.glob_enums.contains(&id)
+                    })
+            }
+            _ => false,
+        }
+    }
+
     /// Follow namespace re-exports before selecting an associated source member.
     /// Each iteration consumes a path component; re-export cycles are rejected by
     /// canonical_namespace_target rather than recursing through source spellings.

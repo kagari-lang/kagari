@@ -6,11 +6,114 @@ use kagari_abi::{
     effects::EffectSet,
     native_import::{EngineNativeOperation, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::bindings::NativeDefaultMethod,
+    standard::{
+        bindings::NativeDefaultMethod,
+        traits::{self as standard_traits, StandardTrait},
+    },
     types::AbiType,
 };
 use kagari_bytecode as bytecode;
 use kagari_bytecode::verify_program;
+
+#[test]
+fn native_extrema_reject_forged_ordering_witnesses_and_missing_targets() {
+    let program = common::bytecode_ok(
+        r#"
+struct Rank<T> {val value:T}
+impl<T:PartialEq> PartialEq for Rank<T> {fn eq(self,other:Self)->bool {self.value==other.value}}
+impl<T:Eq> Eq for Rank<T> {}
+impl<T:PartialOrd> PartialOrd for Rank<T> {fn partial_cmp(self,other:Self)->Option<Ordering> {self.value.partial_cmp(other.value)}}
+impl<T:Ord> Ord for Rank<T> {fn cmp(self,other:Self)->Ordering {self.value.cmp(other.value)}}
+fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0]})}
+"#,
+    );
+    let root = program.root.index();
+    let import = program.modules[root]
+        .engine_imports
+        .iter()
+        .position(|import| {
+            import.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::MinByKey)
+        })
+        .unwrap();
+    let ordinal = program.modules[root].engine_imports[import]
+        .witnesses
+        .iter()
+        .position(|witness| {
+            StandardTrait::from_id(&witness.interface.declaration) == Some(StandardTrait::Ord)
+        })
+        .unwrap();
+    verify_program(&program).unwrap();
+    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+    for mutation in 0..9 {
+        let mut forged = artifact.clone();
+        let contract = &mut forged.program.modules[root].engine_imports[import];
+        match mutation {
+            0 => {
+                contract.witnesses.remove(ordinal);
+            }
+            1 => {
+                contract.witnesses[ordinal].implementation = NativeWitnessImplementation::Primitive
+            }
+            2 => contract.witnesses[ordinal].receiver = AbiType::Builtin(BuiltinType::I64),
+            3 => {
+                contract.witnesses[ordinal].interface.declaration =
+                    standard_traits::identity(StandardTrait::Eq)
+            }
+            4 => {
+                let NativeWitnessImplementation::Table(instance) =
+                    &mut contract.witnesses[ordinal].implementation
+                else {
+                    unreachable!()
+                };
+                instance.arguments[0] = AbiType::Builtin(BuiltinType::I64);
+            }
+            5 => contract.witnesses.push(contract.witnesses[ordinal].clone()),
+            6 => {
+                let AbiType::Function { result, .. } = &mut contract.signature.params[1] else {
+                    unreachable!()
+                };
+                **result = AbiType::Builtin(BuiltinType::Bool);
+            }
+            7 => {
+                let module = &mut forged.program.modules[root];
+                let function = module
+                    .functions
+                    .iter_mut()
+                    .find(|function| {
+                        function.identity.as_ref().is_some_and(|instance| {
+                            instance
+                                .declaration
+                                .path
+                                .last()
+                                .is_some_and(|part| part.name == "cmp")
+                        })
+                    })
+                    .unwrap();
+                let id = function.id;
+                function.identity = None;
+                module.function_table[id.index()].identity = None;
+                for table in &mut module.interface_tables {
+                    table.methods.retain(|method| method.function != id);
+                }
+            }
+            _ => contract.requirements.clear(),
+        }
+        assert!(
+            verify_program(&forged.program).is_err(),
+            "ordering mutation {mutation}"
+        );
+        let bytes = DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(&forged)
+            .unwrap();
+        assert!(
+            !KbcArtifact::from_bytes(&bytes)
+                .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
+            "encoded ordering mutation {mutation}"
+        );
+    }
+}
 
 #[test]
 fn native_terminal_imports_reject_forged_receiver_witnesses() {

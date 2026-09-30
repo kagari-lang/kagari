@@ -21,6 +21,8 @@ const ITEM: usize = 2;
 const CALLBACK: usize = 3;
 const COUNTER: usize = 4;
 const PREVIOUS: usize = 5;
+const KEY_STATE: usize = 6;
+const CURRENT_KEY: usize = 7;
 
 #[derive(Clone, Copy)]
 enum DecisionPhase {
@@ -43,6 +45,11 @@ enum DecisionPhase {
     GreaterTest,
     CompareBranch,
     Replace,
+    KeyNone,
+    KeyRead,
+    KeyWrap,
+    KeyMove,
+    Compare,
 }
 
 enum Phase {
@@ -56,6 +63,9 @@ enum Phase {
     Read,
     Callback,
     WaitingCallback,
+    KeyCallback,
+    WaitingKey,
+    WaitingComparison,
     PredicateBranch,
     Decision,
     DecisionMove,
@@ -103,7 +113,11 @@ impl IteratorInvocation {
             | NativeDefaultMethod::FindMap
             | NativeDefaultMethod::Reduce
             | NativeDefaultMethod::MinBy
-            | NativeDefaultMethod::MaxBy => {
+            | NativeDefaultMethod::MaxBy
+            | NativeDefaultMethod::Min
+            | NativeDefaultMethod::Max
+            | NativeDefaultMethod::MinByKey
+            | NativeDefaultMethod::MaxByKey => {
                 Value::Enum(runtime.alloc_enum(EnumTag::OptionNone, vec![])?)
             }
             _ => return Err(invalid()),
@@ -111,7 +125,12 @@ impl IteratorInvocation {
         let guarded = matches!(contract.signature.params.first(), Some(AbiType::Iter(_)));
         Ok(Self {
             operation,
-            phase: if operation == NativeDefaultMethod::Position {
+            phase: if matches!(
+                operation,
+                NativeDefaultMethod::MinByKey | NativeDefaultMethod::MaxByKey
+            ) {
+                Phase::DecisionStep(DecisionPhase::KeyNone)
+            } else if operation == NativeDefaultMethod::Position {
                 Phase::DecisionStep(DecisionPhase::CounterInit)
             } else if operation == NativeDefaultMethod::Nth {
                 Phase::DecisionStep(DecisionPhase::ResultNone)
@@ -134,9 +153,49 @@ impl IteratorInvocation {
                     Value::Unit
                 },
                 Value::Unit,
+                Value::Unit,
+                Value::Unit,
             ]),
             present: false,
         })
+    }
+    fn keyed(&self) -> bool {
+        matches!(
+            self.operation,
+            NativeDefaultMethod::MinByKey | NativeDefaultMethod::MaxByKey
+        )
+    }
+    fn replacement(&self) -> Phase {
+        Phase::DecisionStep(if self.keyed() {
+            DecisionPhase::KeyWrap
+        } else {
+            DecisionPhase::Replace
+        })
+    }
+    fn ordinal_witness<'a>(
+        &self,
+        contract: &'a EngineNativeImport,
+    ) -> Result<&'a NativeWitness, RuntimeError> {
+        let receiver = if self.keyed() {
+            let Some(AbiType::Function { result, .. }) = contract.signature.params.get(1) else {
+                return Err(invalid());
+            };
+            result.as_ref().clone()
+        } else {
+            let AbiType::StandardEnum { args, .. } = self.optional(contract)? else {
+                return Err(invalid());
+            };
+            args.into_iter().next().ok_or_else(invalid)?
+        };
+        contract
+            .witnesses
+            .iter()
+            .find(|witness| {
+                witness.receiver == receiver
+                    && StandardTrait::from_id(&witness.interface.declaration)
+                        == Some(StandardTrait::Ord)
+            })
+            .ok_or_else(invalid)
     }
     fn is_some(&self, runtime: &Runtime, value: &Value) -> Result<bool, RuntimeError> {
         let Value::Enum(id) = value else {
@@ -313,13 +372,22 @@ impl IteratorInvocation {
                 self.phase = if self.present {
                     Phase::DecisionStep(DecisionPhase::ResultRead)
                 } else {
-                    Phase::DecisionStep(DecisionPhase::Replace)
+                    self.replacement()
                 }
             }
             DecisionPhase::ResultRead => {
                 let value = self.read_some(runtime, &self.get(roots, RESULT)?)?;
                 self.set(runtime, roots, PREVIOUS, value)?;
-                self.phase = Phase::Callback;
+                self.phase = if self.keyed() {
+                    Phase::DecisionStep(DecisionPhase::KeyRead)
+                } else if matches!(
+                    self.operation,
+                    NativeDefaultMethod::Min | NativeDefaultMethod::Max
+                ) {
+                    Phase::DecisionStep(DecisionPhase::Compare)
+                } else {
+                    Phase::Callback
+                };
             }
             DecisionPhase::CombinedWrap => {
                 let value = Value::Enum(
@@ -349,16 +417,69 @@ impl IteratorInvocation {
                 self.phase = Phase::DecisionStep(DecisionPhase::CompareBranch);
             }
             DecisionPhase::CompareBranch => {
-                let replace = if self.operation == NativeDefaultMethod::MinBy {
+                let replace = if matches!(
+                    self.operation,
+                    NativeDefaultMethod::MinBy
+                        | NativeDefaultMethod::Min
+                        | NativeDefaultMethod::MinByKey
+                ) {
                     self.present
                 } else {
                     !self.present
                 };
                 self.phase = if replace {
-                    Phase::DecisionStep(DecisionPhase::Replace)
+                    self.replacement()
                 } else {
                     Phase::Next
                 };
+            }
+            DecisionPhase::KeyNone => {
+                self.set(
+                    runtime,
+                    roots,
+                    KEY_STATE,
+                    Value::Enum(runtime.alloc_enum(EnumTag::OptionNone, vec![])?),
+                )?;
+                self.phase = if self.guarded {
+                    Phase::Begin
+                } else {
+                    Phase::EntryJump
+                };
+            }
+            DecisionPhase::KeyRead => {
+                let key = self.read_some(runtime, &self.get(roots, KEY_STATE)?)?;
+                self.set(runtime, roots, PREVIOUS, key)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::Compare);
+            }
+            DecisionPhase::KeyWrap => {
+                let value = Value::Enum(
+                    runtime.alloc_enum(EnumTag::OptionSome, vec![self.get(roots, CURRENT_KEY)?])?,
+                );
+                self.set(runtime, roots, CALLBACK, value)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::KeyMove);
+            }
+            DecisionPhase::KeyMove => {
+                self.set(runtime, roots, KEY_STATE, self.get(roots, CALLBACK)?)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::Replace);
+            }
+            DecisionPhase::Compare => {
+                let step = protocols::compare(
+                    runtime,
+                    owner,
+                    self.ordinal_witness(contract)?,
+                    self.get(roots, PREVIOUS)?,
+                    self.get(roots, if self.keyed() { CURRENT_KEY } else { ITEM })?,
+                )?;
+                match step {
+                    ProtocolStep::Value(value) => {
+                        self.set(runtime, roots, CALLBACK, value)?;
+                        self.phase = Phase::DecisionStep(DecisionPhase::GreaterTest);
+                    }
+                    ProtocolStep::Call(request) => {
+                        self.phase = Phase::WaitingComparison;
+                        return Ok(NativeAction::Callback(request));
+                    }
+                }
             }
             DecisionPhase::Replace => {
                 self.set(runtime, roots, RESULT, self.get(roots, NEXT)?)?;
@@ -432,9 +553,24 @@ impl IteratorInvocation {
                     NativeDefaultMethod::Nth => Phase::DecisionStep(DecisionPhase::CounterZero),
                     NativeDefaultMethod::Reduce
                     | NativeDefaultMethod::MinBy
-                    | NativeDefaultMethod::MaxBy => Phase::DecisionStep(DecisionPhase::ResultTest),
+                    | NativeDefaultMethod::MaxBy
+                    | NativeDefaultMethod::Min
+                    | NativeDefaultMethod::Max => Phase::DecisionStep(DecisionPhase::ResultTest),
+                    NativeDefaultMethod::MinByKey | NativeDefaultMethod::MaxByKey => {
+                        Phase::KeyCallback
+                    }
                     _ => Phase::Callback,
                 };
+            }
+            Phase::KeyCallback => {
+                let request = callback(
+                    runtime,
+                    &roots.get(1).ok_or_else(invalid)?,
+                    &contract.signature.params[1],
+                    vec![self.get(roots, ITEM)?],
+                )?;
+                self.phase = Phase::WaitingKey;
+                return Ok(NativeAction::Callback(request));
             }
             Phase::Callback => {
                 let slot = if self.operation == NativeDefaultMethod::Fold {
@@ -553,7 +689,10 @@ impl IteratorInvocation {
                 self.guard.take();
                 return self.complete(runtime, owner, contract, roots);
             }
-            Phase::WaitingNext | Phase::WaitingCallback => return Err(invalid()),
+            Phase::WaitingNext
+            | Phase::WaitingCallback
+            | Phase::WaitingKey
+            | Phase::WaitingComparison => return Err(invalid()),
         }
         Ok(NativeAction::Continue)
     }
@@ -567,6 +706,14 @@ impl IteratorInvocation {
             Phase::WaitingNext => {
                 self.set(runtime, roots, NEXT, value)?;
                 self.phase = Phase::Test;
+            }
+            Phase::WaitingKey => {
+                self.set(runtime, roots, CURRENT_KEY, value)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::ResultTest);
+            }
+            Phase::WaitingComparison => {
+                self.set(runtime, roots, CALLBACK, value)?;
+                self.phase = Phase::DecisionStep(DecisionPhase::GreaterTest);
             }
             Phase::WaitingCallback => {
                 self.set(runtime, roots, CALLBACK, value)?;

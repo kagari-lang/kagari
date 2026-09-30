@@ -323,7 +323,9 @@ Notes:
 - A wildcard import expands the target module's public members, including
   members exposed by `pub use`. Local declarations and explicit imports take
   precedence. Conflicting wildcard members are diagnosed. A wildcard target
-  must be a module. Relative import roots `self`, `super`, and `crate` resolve
+  must be a module, with the specified installed `Ordering` variant namespace
+  also supporting `use std::cmp::Ordering::*` (including an imported type alias).
+  Relative import roots `self`, `super`, and `crate` resolve
   against the containing module.
 
 ### Structs and Enums

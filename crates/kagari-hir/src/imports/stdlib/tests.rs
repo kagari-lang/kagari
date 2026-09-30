@@ -48,6 +48,43 @@ fn source(imports: &ModuleImports, name: &str, member: Option<&str>) -> SourceIm
 }
 
 #[test]
+fn ordering_variant_globs_follow_installed_declarations_and_aliases() {
+    for prefix in [
+        "use std::cmp::Ordering::*;",
+        "use std::cmp::Ordering as Order; use self::Order::*;",
+    ] {
+        let imports = prepare_imports(&format!("{prefix} use std::cmp::Ordering::Less as Small;"));
+        assert!(imports.diagnostics.is_empty(), "{:?}", imports.diagnostics);
+        assert_eq!(
+            source(&imports, "Less", None),
+            source(&imports, "Small", None)
+        );
+        for name in ["Less", "Equal", "Greater"] {
+            assert!(matches!(
+                source(&imports, name, None).item,
+                Some(ExportItem::Variant(_))
+            ));
+        }
+    }
+    let shadow = prepare_imports("fn Less() {} use std::cmp::Ordering::*;");
+    assert!(shadow.diagnostics.is_empty());
+    assert!(!shadow.entries.iter().any(|entry| entry.alias == "Less"));
+    let explicit =
+        prepare_imports("fn local() {} use self::local as Less; use std::cmp::Ordering::*;");
+    assert!(explicit.diagnostics.is_empty());
+    assert!(matches!(
+        source(&explicit, "Less", None).item,
+        Some(ExportItem::Function(_))
+    ));
+    let user = prepare_imports("enum Ordering { Less, Equal, Greater } use self::Ordering::*;");
+    assert!(
+        user.diagnostics
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::InvalidGlobTarget { .. }))
+    );
+}
+
+#[test]
 fn standard_namespace_aliases_and_globs_share_the_source_target() {
     let imports = prepare_imports(
         "use std::math::abs as magnitude; use std::math as numbers; use std as library; use std::math::*;",

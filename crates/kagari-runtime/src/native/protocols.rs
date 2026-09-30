@@ -7,6 +7,7 @@ use crate::{
 use kagari_abi::{
     native_import::{NativeWitness, NativeWitnessImplementation},
     operations::IterOp,
+    standard::{StandardIntrinsic, surface::StandardEnum},
     types::{self as abi, AbiType, PublicAbiItem},
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
@@ -42,6 +43,43 @@ pub(super) fn next(
             .iter_operation(owner, &source, &witness.receiver, IterOp::Next)
             .map(ProtocolStep::Value);
     }
+    table_call(runtime, owner, witness, vec![source], output)
+}
+
+pub(super) fn compare(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    left: Value,
+    right: Value,
+) -> Result<ProtocolStep, RuntimeError> {
+    if [&left, &right]
+        .iter()
+        .any(|value| !runtime.matches_interface_method_abi(value, &witness.receiver, owner))
+    {
+        return Err(invalid());
+    }
+    let arguments = vec![left, right];
+    if witness.implementation == NativeWitnessImplementation::Primitive {
+        return runtime
+            .invoke_standard_builtin(StandardIntrinsic::ValueCmp, &arguments)
+            .map(ProtocolStep::Value)
+            .map_err(|error| error.into_runtime_error());
+    }
+    let output = AbiType::StandardEnum {
+        kind: StandardEnum::Ordering,
+        args: vec![],
+    };
+    table_call(runtime, owner, witness, arguments, &output)
+}
+
+fn table_call(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    arguments: Vec<Value>,
+    output: &AbiType,
+) -> Result<ProtocolStep, RuntimeError> {
     match &witness.implementation {
         NativeWitnessImplementation::Table(instance) => {
             let implementation = owner
@@ -103,8 +141,11 @@ pub(super) fn next(
             let function = function.id;
             runtime.validate_loaded_module(&implementation)?;
             let metadata = &implementation.bytecode.functions[function.index()].metadata;
-            if metadata.params.len() != 1
-                || metadata.semantic.params.get(&0) != Some(&witness.receiver)
+            if metadata.params.len() != arguments.len()
+                || arguments.iter().enumerate().any(|(slot, value)| {
+                    metadata.semantic.params.get(&slot) != Some(&witness.receiver)
+                        || !runtime.matches_interface_method_abi(value, &witness.receiver, owner)
+                })
                 || metadata.semantic.result.as_ref() != Some(output)
             {
                 return Err(invalid());
@@ -114,7 +155,7 @@ pub(super) fn next(
                     implementation,
                     function,
                 },
-                arguments: vec![source],
+                arguments,
             }))
         }
         NativeWitnessImplementation::Interface

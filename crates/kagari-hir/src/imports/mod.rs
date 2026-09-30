@@ -1,11 +1,13 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 
 use crate::{
-    hir::{ExportItem, FunctionKind, ModuleId, TypeKind, Visibility},
+    hir::{EnumId, ExportItem, FunctionKind, ModuleId, TypeKind, Visibility},
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
+    native::NativeTypeKind,
     resolver::ResolvedName,
 };
+use kagari_abi::standard::surface::StandardEnum;
 use kagari_common::{
     Diagnostic, DiagnosticKind, SourceFile, Span,
     cancellation::{CancellationToken, Cancelled},
@@ -433,7 +435,7 @@ fn resolve_imports(
             continue;
         }
         let members = match result.entries[root].target.as_ref() {
-            Some(ImportTarget::Source(source)) if source.item.is_none() => source
+            Some(ImportTarget::Source(source)) if catalog.glob_namespace(source) => source
                 .namespace_members()
                 .filter(|(name, _)| !name.contains("::"))
                 .filter_map(|(name, items)| {
@@ -849,6 +851,7 @@ struct SourceCatalog<'a> {
 
 struct SourceCatalogEntry<'a> {
     source: &'a SourceFile,
+    glob_enums: HashSet<EnumId>,
     members: Arc<BTreeMap<String, Vec<CatalogMember>>>,
     reexports: BTreeMap<usize, ImportTarget>,
 }
@@ -1009,6 +1012,16 @@ impl<'a> SourceCatalog<'a> {
                 .or_default()
                 .push(SourceCatalogEntry {
                     source: &module.source,
+                    glob_enums: module
+                        .module
+                        .enums
+                        .iter()
+                        .filter_map(|item| {
+                            (module.native_enums.get(&item.id).copied()
+                                == Some(NativeTypeKind::Enum(StandardEnum::Ordering)))
+                            .then_some(item.id)
+                        })
+                        .collect(),
                     members: Arc::new(members),
                     reexports: resolved_imports.map_or_else(BTreeMap::new, |imports| {
                         imports
@@ -1034,10 +1047,11 @@ impl<'a> SourceCatalog<'a> {
             && self.paths.iter().all(|(path, entries)| {
                 other.paths.get(path).is_some_and(|old| {
                     entries.len() == old.len()
-                        && entries
-                            .iter()
-                            .zip(old)
-                            .all(|(a, b)| a.members == b.members && a.reexports == b.reexports)
+                        && entries.iter().zip(old).all(|(a, b)| {
+                            a.members == b.members
+                                && a.reexports == b.reexports
+                                && a.glob_enums == b.glob_enums
+                        })
                 })
             })
     }

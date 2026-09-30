@@ -29,12 +29,6 @@ impl FunctionLowerer<'_, '_> {
         let array_type = TypeId::Array(Box::new(item_type.clone()), Mutable);
         let bool_type = TypeId::Builtin(BuiltinType::Bool);
         let result = match operation {
-            NativeDefaultMethod::Min
-            | NativeDefaultMethod::Max
-            | NativeDefaultMethod::MinByKey
-            | NativeDefaultMethod::MaxByKey => {
-                self.standard_enum_op(&optional, StandardEnumOp::Make(1), None)?
-            }
             NativeDefaultMethod::Join | NativeDefaultMethod::Partition => {
                 self.collection_new(&array_type)?
             }
@@ -47,21 +41,6 @@ impl FunctionLowerer<'_, '_> {
         };
         let rejected = if operation == NativeDefaultMethod::Partition {
             Some(self.collection_new(&array_type)?)
-        } else {
-            None
-        };
-        let key_state = if matches!(
-            operation,
-            NativeDefaultMethod::MinByKey | NativeDefaultMethod::MaxByKey
-        ) {
-            let ty = TypeId::StandardEnum {
-                kind: StandardEnum::Option,
-                args: vec![arguments[0].clone()],
-            };
-            Some((
-                self.standard_enum_op(&ty, StandardEnumOp::Make(1), None)?,
-                ty,
-            ))
         } else {
             None
         };
@@ -88,72 +67,6 @@ impl FunctionLowerer<'_, '_> {
         match operation {
             NativeDefaultMethod::Join => {
                 self.collection_insert(&array_type, result, item)?;
-                self.ensure_jump(head);
-            }
-            NativeDefaultMethod::Min
-            | NativeDefaultMethod::Max
-            | NativeDefaultMethod::MinByKey
-            | NativeDefaultMethod::MaxByKey => {
-                let current_key = if key_state.is_some() {
-                    Some(self.call_function_value(values[1], &arguments[0], &[item])?)
-                } else {
-                    None
-                };
-                let present =
-                    self.standard_enum_op(&optional, StandardEnumOp::Test(0), Some(result))?;
-                let combine = self.new_block();
-                let replace = self.new_block();
-                self.set_terminator(Terminator::Branch {
-                    cond: present,
-                    then_block: combine,
-                    else_block: replace,
-                });
-                self.switch_to_block(combine);
-                let previous =
-                    self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(result))?;
-                let ordering = TypeId::StandardEnum {
-                    kind: StandardEnum::Ordering,
-                    args: vec![],
-                };
-                let (ty, left, right) = if let Some((state, option)) = &key_state {
-                    (
-                        &arguments[0],
-                        self.standard_enum_op(option, StandardEnumOp::Read(0), Some(*state))?,
-                        current_key.unwrap(),
-                    )
-                } else {
-                    (&item_type, previous, item)
-                };
-                let comparison = self.lower_applied_operator(
-                    StandardTrait::Ord.nominal(),
-                    ty.clone(),
-                    &self.protocol_method(StandardTrait::Ord, 0)?,
-                    &[left, right],
-                )?;
-                let greater =
-                    self.standard_enum_op(&ordering, StandardEnumOp::Test(2), Some(comparison))?;
-                let minimum = matches!(
-                    operation,
-                    NativeDefaultMethod::Min | NativeDefaultMethod::MinByKey
-                );
-                self.set_terminator(Terminator::Branch {
-                    cond: greater,
-                    then_block: if minimum { replace } else { head },
-                    else_block: if minimum { head } else { replace },
-                });
-                self.switch_to_block(replace);
-                if let Some((state, option)) = &key_state {
-                    let key =
-                        self.standard_enum_op(option, StandardEnumOp::Make(0), current_key)?;
-                    self.emit(Instruction::Move {
-                        dst: *state,
-                        src: key,
-                    });
-                }
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: next,
-                });
                 self.ensure_jump(head);
             }
             NativeDefaultMethod::Partition => {

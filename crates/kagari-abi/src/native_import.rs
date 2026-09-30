@@ -146,6 +146,10 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::Reduce
                     | NativeDefaultMethod::MinBy
                     | NativeDefaultMethod::MaxBy
+                    | NativeDefaultMethod::Min
+                    | NativeDefaultMethod::Max
+                    | NativeDefaultMethod::MinByKey
+                    | NativeDefaultMethod::MaxByKey
             )
         ) {
             let mut bounds = self.requirements.clone();
