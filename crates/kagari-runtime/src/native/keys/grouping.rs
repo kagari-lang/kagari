@@ -1,8 +1,7 @@
 //! Once-only key selection, shared lookup, and ordered shallow groups.
 use super::{
-    Buffers, invalid,
+    Buffers, KeySelection, invalid,
     lookup::{KeyStep, Lookup},
-    witness,
 };
 use crate::{
     LoadedModule, Runtime, RuntimeError,
@@ -14,7 +13,7 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::{
-    native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeWitness},
     operations::IterOp,
     standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
     types::AbiType,
@@ -55,7 +54,7 @@ enum Phase {
 pub(super) struct Grouping {
     scratch: usize,
     phase: Phase,
-    custom: bool,
+    keys: KeySelection,
     guarded: bool,
     present: bool,
     fresh: bool,
@@ -69,14 +68,11 @@ impl Grouping {
         arguments: &[Value],
     ) -> Result<Self, RuntimeError> {
         let guarded = matches!(contract.signature.params.first(), Some(AbiType::Iter(_)));
-        let equality = witness(contract, StandardTrait::PartialEq)?;
+        let keys = KeySelection::declared(contract)?;
         Ok(Self {
             scratch: arguments.len(),
             phase: if guarded { Phase::Begin } else { Phase::Jump },
-            custom: matches!(
-                equality.implementation,
-                NativeWitnessImplementation::Table(_) | NativeWitnessImplementation::Derived
-            ),
+            keys,
             guarded,
             present: false,
             fresh: false,
@@ -189,7 +185,7 @@ impl Grouping {
                 } else {
                     StandardIntrinsic::MapGet
                 },
-                self.custom,
+                self.keys,
                 Buffers {
                     scratch: self.scratch + LOOKUP,
                     receiver: self.scratch + OUTPUT,

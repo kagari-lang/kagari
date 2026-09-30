@@ -1,8 +1,7 @@
 //! Construct ordered hash storage through selected traversal and the shared key lookup.
 use super::{
-    Buffers, invalid,
+    Buffers, KeySelection, invalid,
     lookup::{KeyStep, Lookup},
-    witness,
 };
 use crate::{
     LoadedModule, Runtime, RuntimeError,
@@ -10,16 +9,16 @@ use crate::{
     native::{
         NativeAction,
         protocols::{self, ProtocolStep},
+        sources::SourceSelection,
     },
     value::{EnumTag, Value},
 };
 use kagari_abi::{
-    native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeWitnessImplementation},
     operations::IterOp,
-    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::StandardIntrinsic,
     types::AbiType,
 };
-use kagari_common::identity::associated_type_id;
 const OUTPUT: usize = 0;
 const ITERATOR: usize = 1;
 const NEXT: usize = 2;
@@ -52,7 +51,8 @@ pub(super) struct Construction {
     scratch: usize,
     phase: Phase,
     map: bool,
-    custom: bool,
+    keys: KeySelection,
+    source: SourceSelection,
     guarded: bool,
     present: bool,
     guard: Option<CollectionIteration>,
@@ -63,29 +63,32 @@ impl Construction {
         contract: &EngineNativeImport,
         arguments: &[Value],
     ) -> Result<Self, RuntimeError> {
-        let map = match contract.signature.result {
+        let source = SourceSelection::select(contract, &contract.signature.params[0], None, 0)?;
+        Self::for_source(
+            contract,
+            source,
+            &contract.signature.result,
+            arguments.len(),
+        )
+    }
+    pub(super) fn for_source(
+        contract: &EngineNativeImport,
+        source: SourceSelection,
+        storage: &AbiType,
+        scratch: usize,
+    ) -> Result<Self, RuntimeError> {
+        let map = match storage {
             AbiType::Map { .. } => true,
             AbiType::Set(..) => false,
             _ => return Err(invalid()),
         };
-        let equality = witness(contract, StandardTrait::PartialEq)?;
-        let custom = matches!(
-            equality.implementation,
-            NativeWitnessImplementation::Table(_) | NativeWitnessImplementation::Derived
-        );
-        let guarded = contract
-            .witnesses
-            .iter()
-            .find(|w| {
-                StandardTrait::from_id(&w.interface.declaration) == Some(StandardTrait::Iterator)
-            })
-            .is_some_and(|w| matches!(w.receiver, AbiType::Iter(_)));
         Ok(Self {
-            scratch: arguments.len(),
+            scratch,
             phase: Phase::WaitingIter,
             map,
-            custom,
-            guarded,
+            keys: KeySelection::for_storage(contract, storage)?,
+            source,
+            guarded: matches!(source.next(contract).receiver, AbiType::Iter(_)),
             present: false,
             guard: None,
             lookup: None,
@@ -104,29 +107,6 @@ impl Construction {
         roots
             .set(runtime.gc(), self.scratch + slot, value)
             .ok_or_else(invalid)
-    }
-    fn source<'a>(
-        &self,
-        contract: &'a EngineNativeImport,
-        kind: StandardTrait,
-    ) -> Result<&'a NativeWitness, RuntimeError> {
-        contract
-            .witnesses
-            .iter()
-            .find(|w| StandardTrait::from_id(&w.interface.declaration) == Some(kind))
-            .ok_or_else(invalid)
-    }
-    fn optional(&self, contract: &EngineNativeImport) -> Result<AbiType, RuntimeError> {
-        let iterator = self.source(contract, StandardTrait::Iterator)?;
-        let item = iterator
-            .interface
-            .associated_types
-            .get(&associated_type_id(&iterator.interface.declaration, "Item"))
-            .ok_or_else(invalid)?;
-        Ok(AbiType::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item.clone()],
-        })
     }
     fn new_storage(
         &mut self,
@@ -161,9 +141,9 @@ impl Construction {
         contract: &EngineNativeImport,
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
-        let value = roots.get(0).ok_or_else(invalid)?;
-        let source = self.source(contract, StandardTrait::Iterable)?;
-        let output = &self.source(contract, StandardTrait::Iterator)?.receiver;
+        let value = roots.get(self.source.root).ok_or_else(invalid)?;
+        let source = self.source.iterable(contract);
+        let output = &self.source.next(contract).receiver;
         if source.implementation == NativeWitnessImplementation::Primitive
             && source.receiver == *output
         {
@@ -205,12 +185,10 @@ impl Construction {
         let (slot, ty, next) = match self.phase {
             Phase::WaitingIter => (
                 ITERATOR,
-                self.source(contract, StandardTrait::Iterator)?
-                    .receiver
-                    .clone(),
+                self.source.next(contract).receiver.clone(),
                 Phase::New,
             ),
-            Phase::WaitingNext => (NEXT, self.optional(contract)?, Phase::Test),
+            Phase::WaitingNext => (NEXT, self.source.optional(contract)?, Phase::Test),
             _ => return Err(invalid()),
         };
         if !runtime.matches_interface_method_abi(&value, &ty, owner) {
@@ -227,7 +205,7 @@ impl Construction {
             } else {
                 StandardIntrinsic::SetInsert
             },
-            self.custom,
+            self.keys,
             Buffers {
                 scratch: self.scratch + LOOKUP,
                 receiver: self.scratch + OUTPUT,
@@ -259,9 +237,9 @@ impl Construction {
                 let step = protocols::next(
                     runtime,
                     owner,
-                    self.source(contract, StandardTrait::Iterator)?,
+                    self.source.next(contract),
                     self.get(roots, ITERATOR)?,
-                    &self.optional(contract)?,
+                    &self.source.optional(contract)?,
                 )?;
                 self.phase = Phase::WaitingNext;
                 return self.request(runtime, owner, contract, roots, step);
@@ -345,7 +323,7 @@ impl Construction {
                 runtime.iter_operation(
                     owner,
                     &self.get(roots, ITERATOR)?,
-                    &self.source(contract, StandardTrait::Iterator)?.receiver,
+                    &self.source.next(contract).receiver,
                     IterOp::Close,
                 )?;
                 self.phase = Phase::End;

@@ -388,7 +388,8 @@ impl InterfaceTableAbi {
     /// Substitute a selected impl's concrete arguments into its call contract.
     /// Method-owned generics remain scoped templates until their application is
     /// selected. Associated output projections retain their substituted receivers
-    /// until the linked proof catalog resolves them. The verifier proves template
+    /// until the linked proof catalog resolves them. Implementation bounds retain
+    /// their concrete substitutions for downstream method applications. The verifier proves template
     /// validity, bounds and method slots.
     pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
@@ -450,7 +451,7 @@ impl InterfaceTableAbi {
             declaration: self.declaration.clone(),
             name: self.name.clone(),
             generic_params: Vec::new(),
-            bounds: Vec::new(),
+            bounds: substitution.apply_bounds(&self.bounds, &cancel).ok()?,
             trait_type: apply(&self.trait_type)?,
             for_type: apply(&self.for_type)?,
             methods,

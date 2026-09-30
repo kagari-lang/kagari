@@ -2,6 +2,7 @@
 mod array_copy;
 mod array_initialization;
 mod array_ranges;
+mod destinations;
 mod enums;
 mod iterators;
 mod keys;
@@ -14,6 +15,7 @@ mod protocol_entries;
 mod protocols;
 mod results;
 mod retention;
+mod sources;
 mod string_iterators;
 use crate::{
     LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
@@ -23,6 +25,7 @@ use crate::{
         array_copy::ArrayCopy,
         array_initialization::ArrayInitialization,
         array_ranges::ArrayRange,
+        destinations::Fallible,
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
         keys::KeyInvocation,
@@ -101,6 +104,7 @@ enum NativeState {
     MapSnapshot(SnapshotInvocation),
     StringIterator(StringIterator),
     ProtocolEntry(ProtocolEntry),
+    Fallible(Fallible),
     Forward,
 }
 
@@ -147,6 +151,9 @@ impl NativeInvocation {
                 NativeState::Key(KeyInvocation::construct(contract, arguments)?)
             }
 
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Protocol(
+                NativeProtocolMethod::OptionFromIterator | NativeProtocolMethod::ResultFromIterator,
+            ))) => NativeState::Fallible(Fallible::start(&implementation, contract, arguments)?),
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
                 operation @ (StandardIntrinsic::StringParse | StandardIntrinsic::DebugAssertEq),
             ))) => {
@@ -345,6 +352,7 @@ impl NativeInvocation {
                         NativeState::ProtocolEntry(_) => {
                             vec![Value::Unit; protocol_entries::SCRATCH_ROOTS]
                         }
+                        NativeState::Fallible(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Forward => vec![],
                         NativeState::ArrayInitialization(_) => {
                             vec![Value::Unit; array_initialization::SCRATCH_ROOTS]
@@ -383,6 +391,9 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
+            NativeState::Fallible(state) => {
+                Some(state.initialize(runtime, &implementation, contract, &roots)?)
+            }
             NativeState::ProtocolEntry(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }
@@ -421,6 +432,9 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Fallible(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::ProtocolEntry(state) => state.advance(runtime, &self.roots),
             NativeState::ListJoin(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
@@ -480,6 +494,9 @@ impl NativeInvocation {
     ) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Fallible(state) => {
+                state.receive(runtime, &self.implementation, contract, &self.roots, value)
+            }
             NativeState::ProtocolEntry(state) => {
                 state.receive(runtime, &self.implementation, contract, &self.roots, value)
             }

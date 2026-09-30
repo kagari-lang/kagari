@@ -369,19 +369,6 @@ impl FunctionLowerer<'_, '_> {
                 args,
             );
         }
-        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromIterator)
-            && !matches!(ty, TypeId::Array(_, _))
-            && traits::intrinsic_applies(
-                &interface,
-                &ty,
-                Some(self.planner.catalog),
-                &Default::default(),
-            )
-            && traits::lifted_collection_requirement(&interface, &ty, self.planner.catalog)
-                .is_some()
-        {
-            return self.lower_fallible_collect(&ty, &method_arguments[0], args[0]);
-        }
         if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
             let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");
             return self.lower_applied_operator(

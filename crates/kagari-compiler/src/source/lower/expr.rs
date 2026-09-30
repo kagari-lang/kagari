@@ -2,6 +2,7 @@ use crate::source::{lower::support::lower_scalar, types::raise_type};
 mod aggregates;
 mod calls;
 mod native_defaults;
+mod native_destinations;
 mod native_results;
 mod native_sources;
 mod patterns;

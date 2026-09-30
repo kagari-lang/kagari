@@ -20,6 +20,7 @@ use kagari_common::{
 };
 use std::{collections::HashSet, iter};
 
+mod destinations;
 mod protocols;
 mod snapshots;
 mod sources;
@@ -168,6 +169,10 @@ impl EngineNativeImport {
             return Ok(false);
         };
         obligations.extend(array_obligations);
+        let Some(destinations) = destinations::applications(self, catalog, &table, cancel)? else {
+            return Ok(false);
+        };
+        obligations.extend(destinations.obligations);
         if matches!(
             self.binding,
             EngineNativeBinding::Protocol(
@@ -327,6 +332,13 @@ impl EngineNativeImport {
         if consumed.len() != self.witnesses.len() {
             return Ok(false);
         }
-        protocols::valid(self, catalog, table, callable, cancel)
+        protocols::valid(
+            self,
+            catalog,
+            table,
+            callable,
+            &destinations.applications,
+            cancel,
+        )
     }
 }

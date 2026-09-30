@@ -16,6 +16,7 @@ use kagari_abi::{
 };
 use kagari_common::{
     Span,
+    collection::CollectionAccess,
     identity::{DefinitionId, associated_type_id},
 };
 use kagari_hir::{
@@ -108,6 +109,7 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
+        self.native_fallible_destinations(binding, &mut witnesses)?;
         self.native_collection_source(binding, &params, &mut witnesses)?;
         self.native_key_witnesses(binding, &params, &result[0], &mut witnesses)?;
         if matches!(
@@ -140,7 +142,7 @@ impl FunctionLowerer<'_, '_> {
         }
         Ok(contract)
     }
-    fn native_requirement_witnesses(
+    pub(super) fn native_requirement_witnesses(
         &mut self,
         binding: EngineNativeBinding,
         requirements: &[GenericBoundAbi],
@@ -165,6 +167,8 @@ impl FunctionLowerer<'_, '_> {
                     NativeProtocolMethod::NumericSum
                         | NativeProtocolMethod::NumericProduct
                         | NativeProtocolMethod::CollectionFromIterator
+                        | NativeProtocolMethod::OptionFromIterator
+                        | NativeProtocolMethod::ResultFromIterator
                 )
             );
         let mut witnesses = Vec::new();
@@ -176,7 +180,20 @@ impl FunctionLowerer<'_, '_> {
                 let receiver = raise_type(&bound.ty);
                 let applied = raise_nominal_type(interface);
                 let witness = if invoked_protocols {
-                    self.lower_native_witness(&receiver, &applied, &[])?
+                    if StandardTrait::from_id(&interface.declaration)
+                        == Some(StandardTrait::FromIterator)
+                    {
+                        let [item] = applied.arguments.as_slice() else {
+                            return Err(MirLoweringError::MissingBinding(
+                                "native destination item",
+                            ));
+                        };
+                        let source =
+                            TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
+                        self.lower_native_witness(&receiver, &applied, &[source])?
+                    } else {
+                        self.lower_native_witness(&receiver, &applied, &[])?
+                    }
                 } else {
                     let implementation = if let Some((declaration, arguments)) = self
                         .planner
@@ -281,6 +298,7 @@ impl FunctionLowerer<'_, '_> {
             )
             .map_err(|_| invalid())?;
         let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
+        self.native_fallible_destinations(binding, &mut witnesses)?;
         self.native_collection_source(binding, &params, &mut witnesses)?;
         self.native_key_witnesses(binding, &params, result, &mut witnesses)?;
         if matches!(

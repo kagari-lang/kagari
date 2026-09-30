@@ -1,5 +1,5 @@
 //! Hash once, compare stable bucket candidates, then release the guard and commit.
-use super::{Buffers, CANDIDATE, CANDIDATES, KEY, invalid, witness};
+use super::{Buffers, CANDIDATE, CANDIDATES, KEY, KeySelection, invalid};
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     gc::{CollectionIteration, RootSet},
@@ -10,9 +10,7 @@ use crate::{
     value::Value,
 };
 use kagari_abi::{
-    native_import::EngineNativeImport,
-    scalar::BuiltinType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    native_import::EngineNativeImport, scalar::BuiltinType, standard::StandardIntrinsic,
     types::AbiType,
 };
 enum Phase {
@@ -48,7 +46,7 @@ pub(super) enum KeyStep {
 }
 pub(super) struct Lookup {
     operation: StandardIntrinsic,
-    custom: bool,
+    keys: KeySelection,
     buffers: Buffers,
     payload: Option<usize>,
     phase: Phase,
@@ -64,13 +62,13 @@ pub(super) struct Lookup {
 impl Lookup {
     pub(super) fn start(
         operation: StandardIntrinsic,
-        custom: bool,
+        keys: KeySelection,
         buffers: Buffers,
         payload: Option<usize>,
     ) -> Self {
         Self {
             operation,
-            custom,
+            keys,
             buffers,
             payload,
             phase: Phase::Begin,
@@ -103,7 +101,7 @@ impl Lookup {
         if !matches!(self.phase, Phase::Begin) {
             return Err(invalid());
         }
-        if !self.custom {
+        if !self.keys.custom {
             return Ok(
                 match runtime.invoke_standard_builtin(self.operation, &self.values(roots)?) {
                     Ok(value) => KeyStep::Ready(value),
@@ -179,7 +177,7 @@ impl Lookup {
                 let step = protocols::hash(
                     runtime,
                     owner,
-                    witness(contract, StandardTrait::Hash)?,
+                    &contract.witnesses[self.keys.hash],
                     self.buffers.query(roots)?,
                 )?;
                 return self.protocol(runtime, owner, step, true);
@@ -260,7 +258,7 @@ impl Lookup {
                 let step = protocols::equal(
                     runtime,
                     owner,
-                    witness(contract, StandardTrait::PartialEq)?,
+                    &contract.witnesses[self.keys.equality],
                     self.buffers.query(roots)?,
                     self.buffers.get(roots, KEY)?,
                 )?;

@@ -205,7 +205,10 @@ impl EngineNativeImport {
         if matches!(
             self.binding,
             EngineNativeBinding::Protocol(
-                NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
+                NativeProtocolMethod::NumericSum
+                    | NativeProtocolMethod::NumericProduct
+                    | NativeProtocolMethod::OptionFromIterator
+                    | NativeProtocolMethod::ResultFromIterator
             )
         ) {
             let mut bounds = self.requirements.clone();

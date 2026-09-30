@@ -179,6 +179,19 @@ signatures and intrinsic bindings. Static constructors do not appear as instance
 completion candidates. Iterable inheritance through a generic associated Iter
 retains the originating Item equality constraints.
 
+Option and Result FromIterator providers execute through rooted native traversal.
+They stop at the first None or Err, close guarded native iterators and skip the
+inner destination constructor on failure. Result lifting preserves the original
+error object and its origin. On success, including empty input, they construct the
+selected inner destination once from the prepared ArrayList and then wrap it.
+Nested lifting repeats this contract with bounded, checked destination applications.
+Script constructors and source methods run on the caller's ordinary execution
+frames; native Array/Map/Set constructors share their existing traversal and key
+lookup implementations. Portable linking verifies source item equalities, concrete
+constructor method arguments, implementation and method bounds, private dependency
+closure and any key witnesses before loading. Each original logical operation keeps
+its instruction charge and completed side effects across cancellation and traps.
+
 ## String query semantics
 
 String search and slicing use UTF-8 byte offsets. `find`/`rfind` return the first/last

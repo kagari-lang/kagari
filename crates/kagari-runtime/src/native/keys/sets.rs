@@ -1,8 +1,7 @@
 //! Guard both Set sources, use selected membership, and publish ordered native results.
 use super::{
-    Buffers, invalid,
+    Buffers, KeySelection, invalid,
     lookup::{KeyStep, Lookup},
-    witness,
 };
 use crate::{
     LoadedModule, Runtime, RuntimeError,
@@ -14,7 +13,7 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::{
-    native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeWitness},
     operations::IterOp,
     scalar::BuiltinType,
     standard::{
@@ -248,14 +247,10 @@ impl SetQuery {
         receiver: usize,
         operation: StandardIntrinsic,
     ) -> Result<Lookup, RuntimeError> {
-        let equality = witness(contract, StandardTrait::PartialEq)?;
-        let custom = matches!(
-            equality.implementation,
-            NativeWitnessImplementation::Derived | NativeWitnessImplementation::Table(_)
-        );
+        let keys = KeySelection::declared(contract)?;
         Ok(Lookup::start(
             operation,
-            custom,
+            keys,
             Buffers {
                 scratch: self.scratch + LOOKUP,
                 receiver,

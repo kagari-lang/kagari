@@ -93,5 +93,6 @@ mod native_grouping;
 
 mod native_string_iterators;
 
+mod native_destinations;
 mod native_list_join;
 mod native_protocol_entries;

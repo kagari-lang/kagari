@@ -16,6 +16,7 @@ use crate::{
             sets::SetQuery,
             updates::MapUpdate,
         },
+        sources::SourceSelection,
     },
     value::Value,
 };
@@ -97,6 +98,47 @@ fn witness(
         })
         .ok_or_else(invalid)
 }
+/// Key methods are selected for the actual storage, including nested destinations.
+#[derive(Clone, Copy)]
+struct KeySelection {
+    equality: usize,
+    hash: usize,
+    custom: bool,
+}
+impl KeySelection {
+    fn declared(contract: &EngineNativeImport) -> Result<Self, RuntimeError> {
+        let equality = witness(contract, StandardTrait::PartialEq)?;
+        Self::for_key(contract, &equality.receiver)
+    }
+    fn for_storage(contract: &EngineNativeImport, storage: &AbiType) -> Result<Self, RuntimeError> {
+        let key = match storage {
+            AbiType::Map { key, .. } | AbiType::Set(key, _) => key,
+            _ => return Err(invalid()),
+        };
+        Self::for_key(contract, key)
+    }
+    fn for_key(contract: &EngineNativeImport, key: &AbiType) -> Result<Self, RuntimeError> {
+        let select = |protocol| {
+            contract
+                .witnesses
+                .iter()
+                .position(|witness| {
+                    witness.receiver == *key
+                        && StandardTrait::from_id(&witness.interface.declaration) == Some(protocol)
+                })
+                .ok_or_else(invalid)
+        };
+        let equality = select(StandardTrait::PartialEq)?;
+        Ok(Self {
+            equality,
+            hash: select(StandardTrait::Hash)?,
+            custom: matches!(
+                contract.witnesses[equality].implementation,
+                NativeWitnessImplementation::Derived | NativeWitnessImplementation::Table(_)
+            ),
+        })
+    }
+}
 enum State {
     Lookup {
         lookup: Lookup,
@@ -126,6 +168,16 @@ impl KeyInvocation {
         }
     }
 
+    pub(super) fn for_source(
+        contract: &EngineNativeImport,
+        source: SourceSelection,
+        storage: &AbiType,
+        scratch: usize,
+    ) -> Result<Self, RuntimeError> {
+        Construction::for_source(contract, source, storage, scratch).map(|state| Self {
+            state: State::Construction(state),
+        })
+    }
     pub(super) fn construct(
         contract: &EngineNativeImport,
         arguments: &[Value],
@@ -147,11 +199,7 @@ impl KeyInvocation {
         contract: &EngineNativeImport,
         arguments: &[Value],
     ) -> Result<Self, RuntimeError> {
-        let equality = witness(contract, StandardTrait::PartialEq)?;
-        let custom = matches!(
-            equality.implementation,
-            NativeWitnessImplementation::Derived | NativeWitnessImplementation::Table(_)
-        );
+        let keys = KeySelection::declared(contract)?;
         let buffers = Buffers {
             scratch: arguments.len(),
             receiver: 0,
@@ -162,12 +210,12 @@ impl KeyInvocation {
             StandardIntrinsic::MapGetOrInsertWith | StandardIntrinsic::MapUpdate
         ) {
             return Ok(Self {
-                state: State::Update(MapUpdate::start(operation, custom, buffers)),
+                state: State::Update(MapUpdate::start(operation, keys, buffers)),
             });
         }
         Ok(Self {
             state: State::Lookup {
-                lookup: Lookup::start(operation, custom, buffers, Some(2)),
+                lookup: Lookup::start(operation, keys, buffers, Some(2)),
                 discard: contract.signature.result == AbiType::Builtin(BuiltinType::Unit),
                 unit: false,
             },

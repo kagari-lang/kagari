@@ -34,6 +34,9 @@ and the existing generation-pinned Rust traversal. Public List joining also sele
 native storage or rooted conversion and shared iterator traversal from checked facts.
 Public String parsing and equality assertions delegate through checked native entries
 to selected FromStr/PartialEq implementations on the same execution frames.
+Option/Result FromIterator providers also execute rooted native short-circuit
+traversal and bounded selected inner constructors, preserving error identity/origin
+and sharing existing Array/Map/Set construction and key lookup.
 Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -564,6 +567,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   errors, existing numeric parsers and rooted script callbacks preserving Result origins.
 - [x] Migrate `debug::assert_eq` with selected primitive/script/composed/interface
   equality, once-only evaluated arguments and the original final assertion charge/trap.
+- [x] Migrate Option/Result FromIterator providers with native short-circuit traversal,
+  checked nested/script destinations, exact logical charges and original error origins.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate remaining collection/set operations, plus lazy
@@ -859,6 +864,76 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native fallible destination checkpoint (2026-10-01): removes the compiler's
+  `lower_fallible_collect` algorithm and its standard-protocol shortcut. Option and
+  Result FromIterator providers now own their complete native entry, including
+  Iterable conversion, guarded next traversal, prepared payload accumulation,
+  early failure, selected inner construction, wrapping and final publication.
+  This advances one cohesive family checklist; public Iterator collect forwarding,
+  partition and lazy adapters remain explicitly pending.
+- Checked HIR selects every inner FromIterator implementation and carries script
+  method identities with the concrete prepared ArrayList source argument. Native
+  providers recursively carry their own source/destination/key obligations; the
+  compiler emits no collection loop or fallible branches. Portable linking verifies
+  exact source items, destination types, provider bindings, implementation/method
+  bounds, generic arguments, private callable signatures and consumed witnesses.
+  Nested lifting follows strict subtrees of the checked output type, so portable
+  type limits bound native state and root registration. Source-selection and key
+  selection records identify the actual rooted source and actual destination key.
+- Interface-table instantiation now retains substituted implementation bounds.
+  Its previous empty-bound result lost the inner FromIterator obligation when a
+  lifted provider was itself selected as a destination. Method-owned bounds remain
+  separately substituted and are validated together with those implementation
+  bounds; no source inference or unvalidated callable fallback is introduced.
+- Runtime native fallible state delegates script factories to ordinary pinned
+  frames and delegates native Array/Map/Set factories to the existing construction
+  states. They share one execution session and explicit root set; no synthetic
+  public imports, nested VM or duplicate key-lookup algorithm are used. Failure
+  skips the destination constructor, retains the original Result error object and
+  origin, closes guarded native iterators and releases guards/roots on every exit.
+- Recorded the pre-change source baseline at `66ea900`: 175 collection/destination
+  scenarios and 22,031 distinct instruction limits, with zero partial-charge holes.
+  Coverage includes 60 fallible cases, direct/forwarded sources, empty/success/failure
+  inputs, Array/Map/Set/custom generic destinations, private keys and custom next;
+  the remaining scenarios protect shared constructor reuse and establish the still
+  pending public collect/partition schedules. Source and decoded KBC execution keep
+  every step and completed host effect at its original position.
+- Added nested success/inner-None coverage, forced GC at threshold one, every
+  allocation-limit cut, cancellation at each effect, successful/failed synchronous
+  reentry, original error object/origin checks, constructor/next traps, non-fused
+  source termination, guarded alias mutation, dynamic List input and guard release.
+  Cross-module generic construction pins private FromIterator, Iterable/next,
+  Hash/Eq and shallow payloads; removing the required dependency is rejected.
+  A script enum destination also invokes its selected user constructor exactly once.
+  126 malformed factory/source/nested-method contracts are rejected both directly
+  and through encoded loader validation.
+- Checkpoint validation passed: ABI 46, bytecode 27, compiler 190, HIR 414, MIR 1,
+  runtime 71 and stdlib 7 library tests; the final full VM suite passed all 237 tests,
+  followed by the new script-enum destination regression. These are 994 distinct
+  library tests across the affected suites. `cargo test --lib -p kagari-abi
+  -p kagari-bytecode -p kagari-compiler -p kagari-hir -p kagari-mir
+  -p kagari-runtime -p kagari-stdlib -p kagari-vm` initially exposed one new fixture
+  assertion that incorrectly treated native iterator close as permanent exhaustion.
+  The corrected fixture proves preserved remaining progress and released guards;
+  `cargo test --lib -p kagari-vm` then passed in full. No production behavior or
+  established budget/effect assertion was changed to accommodate that fixture.
+- `cargo test -p kagari-compiler --test source_programs` passed all 10 tests after
+  updating two older metadata assumptions: restrict the fixture's module identities
+  to its user package, and permit only installed standard enum layouts in the owner
+  that has no user enum instance. Use the actual shared module rather than a module
+  index. The template-forgery, dependency, concrete generic and compile-limit
+  rejection checks remain intact. The seven embedding suites `lazy_iterators`,
+  `iteration_traits`, `result_option`, `error_traces`, `collection_access`,
+  `prepared_collections` and `collection_interfaces` passed all 92 tests.
+- `uv run --locked scripts/check_structure.py` passed 805 Rust files with no debt or
+  exceptions. `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo fmt --all -- --check` and `git diff --check` passed. Manual review confirmed
+  private source/destination/key ownership, bounded root registration, explicit
+  imports and reuse of existing constructor/lookup implementations. No production
+  build or test error is carried. Runtime ABI is v130; binding v2, KBC v109, KMIR v7
+  and helper ABI v6 remain unchanged. Previous runtime ABI artifacts require
+  rebuilding. Remaining ST05 families and ST06 acceptance remain pending.
 
 - ST05 native parsing/assertion checkpoint (2026-10-01): completes the public
   `String::parse` and `debug::assert_eq` entries together. Removed their compiler

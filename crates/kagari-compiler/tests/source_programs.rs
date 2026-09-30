@@ -288,12 +288,18 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     let mut program = lower_program_to_bytecode(&ir).unwrap();
     kagari_bytecode::verify_program(&program).unwrap();
     // The owner need not execute an instance for its public template to be checked.
+    // Installed standard enum layouts are independent of that user declaration.
     let owner = program
         .modules
         .iter_mut()
         .find(|module| module.identity.path == ["types"])
         .unwrap();
-    assert!(owner.enumerations.is_empty());
+    assert!(
+        owner
+            .enumerations
+            .iter()
+            .all(|layout| layout.declaration.module.package == PackageId("kagari-std".into()))
+    );
     let PublicAbiItem::Type(template) = owner
         .public_items
         .iter_mut()
@@ -324,6 +330,9 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
         checked
             .modules()
             .iter()
+            .filter(
+                |module| module.lowered.source.module_identity().package == PackageId("pkg".into())
+            )
             .map(|module| module.lowered.source.module_identity().path[0].as_str())
             .collect::<Vec<_>>(),
         ["left", "right", "root", "shared"]
@@ -379,8 +388,13 @@ fn source_program_keeps_module_identity_and_resolves_transitive_call_contracts()
         Err(BytecodeLoweringError::UnlinkedSourceModules)
     ));
     // Imported bindings still require whole-program linking.
+    let shared = program
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["shared"])
+        .unwrap();
     assert!(matches!(
-        lower_to_bytecode(&program.modules()[1]),
+        lower_to_bytecode(shared),
         Err(BytecodeLoweringError::UnlinkedSourceModules)
     ));
 }

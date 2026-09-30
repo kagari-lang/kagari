@@ -5,17 +5,17 @@ use crate::{
     native::{
         NativeAction,
         protocols::{self, ProtocolStep},
+        sources::SourceSelection,
     },
     value::{EnumTag, Value},
 };
 use kagari_abi::{
     callable::EngineNativeBinding,
-    native_import::{EngineNativeImport, NativeWitness, NativeWitnessImplementation},
+    native_import::{EngineNativeImport, NativeWitnessImplementation},
     operations::IterOp,
-    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::StandardIntrinsic,
     types::AbiType,
 };
-use kagari_common::identity::associated_type_id;
 
 const ARRAY: usize = 0;
 const ITERATOR: usize = 1;
@@ -42,7 +42,8 @@ enum Phase {
 }
 
 pub(super) struct ArrayCopy {
-    source: usize,
+    source: SourceSelection,
+    commit: Option<StandardIntrinsic>,
     scratch: usize,
     phase: Phase,
     guarded: bool,
@@ -64,16 +65,28 @@ impl ArrayCopy {
                 StandardIntrinsic::ArrayCopyFrom | StandardIntrinsic::ArrayExtend
             )
         ));
-        let guarded = contract
-            .witnesses
-            .iter()
-            .find(|w| {
-                StandardTrait::from_id(&w.interface.declaration) == Some(StandardTrait::Iterator)
-            })
-            .is_some_and(|w| matches!(w.receiver, AbiType::Iter(_)));
+        let selection =
+            SourceSelection::select(contract, &contract.signature.params[source], None, source)?;
+        let commit = (source == 1).then_some(
+            if contract.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayExtend) {
+                StandardIntrinsic::ArrayExtendStorage
+            } else {
+                StandardIntrinsic::ArrayCopyFromStorage
+            },
+        );
+        Self::for_source(contract, selection, arguments.len(), commit)
+    }
+    pub(super) fn for_source(
+        contract: &EngineNativeImport,
+        source: SourceSelection,
+        scratch: usize,
+        commit: Option<StandardIntrinsic>,
+    ) -> Result<Self, RuntimeError> {
+        let guarded = matches!(source.next(contract).receiver, AbiType::Iter(_));
         Ok(Self {
             source,
-            scratch: arguments.len(),
+            commit,
+            scratch,
             phase: Phase::WaitingIter,
             guarded,
             present: false,
@@ -93,29 +106,6 @@ impl ArrayCopy {
         roots
             .set(runtime.gc(), self.scratch + slot, value)
             .ok_or_else(invalid)
-    }
-    fn witness<'a>(
-        &self,
-        contract: &'a EngineNativeImport,
-        kind: StandardTrait,
-    ) -> Result<&'a NativeWitness, RuntimeError> {
-        contract
-            .witnesses
-            .iter()
-            .find(|w| StandardTrait::from_id(&w.interface.declaration) == Some(kind))
-            .ok_or_else(invalid)
-    }
-    fn optional(&self, contract: &EngineNativeImport) -> Result<AbiType, RuntimeError> {
-        let next = self.witness(contract, StandardTrait::Iterator)?;
-        let item = next
-            .interface
-            .associated_types
-            .get(&associated_type_id(&next.interface.declaration, "Item"))
-            .ok_or_else(invalid)?;
-        Ok(AbiType::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item.clone()],
-        })
     }
     fn new_array(
         &mut self,
@@ -144,9 +134,9 @@ impl ArrayCopy {
         contract: &EngineNativeImport,
         roots: &RootSet,
     ) -> Result<NativeAction, RuntimeError> {
-        let source = roots.get(self.source).ok_or_else(invalid)?;
-        let witness = self.witness(contract, StandardTrait::Iterable)?;
-        let output = &self.witness(contract, StandardTrait::Iterator)?.receiver;
+        let source = roots.get(self.source.root).ok_or_else(invalid)?;
+        let witness = self.source.iterable(contract);
+        let output = &self.source.next(contract).receiver;
         if witness.implementation == NativeWitnessImplementation::Primitive
             && witness.receiver == *output
         {
@@ -181,12 +171,10 @@ impl ArrayCopy {
         let (slot, ty, next) = match self.phase {
             Phase::WaitingIter => (
                 ITERATOR,
-                self.witness(contract, StandardTrait::Iterator)?
-                    .receiver
-                    .clone(),
+                self.source.next(contract).receiver.clone(),
                 Phase::New,
             ),
-            Phase::WaitingNext => (NEXT, self.optional(contract)?, Phase::Test),
+            Phase::WaitingNext => (NEXT, self.source.optional(contract)?, Phase::Test),
             _ => return Err(invalid()),
         };
         if !runtime.matches_interface_method_abi(&value, &ty, owner) {
@@ -218,9 +206,9 @@ impl ArrayCopy {
                 let step = protocols::next(
                     runtime,
                     owner,
-                    self.witness(contract, StandardTrait::Iterator)?,
+                    self.source.next(contract),
                     self.get(roots, ITERATOR)?,
-                    &self.optional(contract)?,
+                    &self.source.optional(contract)?,
                 )?;
                 self.phase = Phase::WaitingNext;
                 return self.request(runtime, owner, contract, roots, step);
@@ -270,7 +258,7 @@ impl ArrayCopy {
                 runtime.iter_operation(
                     owner,
                     &self.get(roots, ITERATOR)?,
-                    &self.witness(contract, StandardTrait::Iterator)?.receiver,
+                    &self.source.next(contract).receiver,
                     IterOp::Close,
                 )?;
                 self.phase = Phase::End;
@@ -280,19 +268,13 @@ impl ArrayCopy {
                 self.phase = Phase::Move;
             }
             Phase::Move => {
-                if self.source == 0 {
+                if self.commit.is_none() {
                     return self.get(roots, ARRAY).map(NativeAction::Complete);
                 }
                 self.phase = Phase::Commit;
             }
             Phase::Commit => {
-                let operation = if contract.binding
-                    == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayExtend)
-                {
-                    StandardIntrinsic::ArrayExtendStorage
-                } else {
-                    StandardIntrinsic::ArrayCopyFromStorage
-                };
+                let operation = self.commit.ok_or_else(invalid)?;
                 return Ok(
                     match runtime.invoke_standard_builtin(
                         operation,

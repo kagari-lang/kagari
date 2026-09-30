@@ -31,7 +31,10 @@ fn invalid() -> RuntimeError {
     RuntimeError::module_validation("native iterator witness mismatch")
 }
 
-fn provider(owner: &LoadedModule, witness: &NativeWitness) -> Option<NativeProtocolMethod> {
+pub(super) fn provider(
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+) -> Option<NativeProtocolMethod> {
     let NativeWitnessImplementation::Table(instance) = &witness.implementation else {
         return None;
     };

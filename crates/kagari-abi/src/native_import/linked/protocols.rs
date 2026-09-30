@@ -1,5 +1,8 @@
 //! Validate selected required-method applications against carried declarations.
-use super::sources;
+use super::{
+    destinations::{self, Application},
+    sources,
+};
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, keys, sets},
@@ -27,9 +30,13 @@ pub(super) fn valid<'a>(
     catalog: &ProofCatalog<'_>,
     table: impl Fn(&DefinitionId) -> Option<&'a InterfaceTableAbi>,
     callable: impl Fn(&ConcreteFunctionIdentity) -> Option<NativeSignature>,
+    applications: &[Application],
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
-    for witness in &import.witnesses {
+    for (witness_index, witness) in import.witnesses.iter().enumerate() {
+        let destination = applications
+            .iter()
+            .find(|application| application.witness == witness_index);
         let list_query = matches!(
             import.binding,
             EngineNativeBinding::TraitDefault(
@@ -91,7 +98,8 @@ pub(super) fn valid<'a>(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
         );
-        let conversion = numeric
+        let conversion = destinations::selected(import)
+            || numeric
             || list_query
             || snapshot
             || sources::selected(import)
@@ -105,12 +113,14 @@ pub(super) fn valid<'a>(
         let parsing = import.binding
             == EngineNativeBinding::Intrinsic(StandardIntrinsic::StringParse)
             && protocol == Some(StandardTrait::FromStr);
-        let equality = (list_query
+        let equality = (destinations::selected(import)
+            || list_query
             || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::DebugAssertEq)
             || keys::key(import).is_some()
             || import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup))
             && protocol == Some(StandardTrait::PartialEq);
-        let hashing = keys::key(import).is_some() && protocol == Some(StandardTrait::Hash);
+        let hashing = (destinations::selected(import) || keys::key(import).is_some())
+            && protocol == Some(StandardTrait::Hash);
         if (equality || hashing)
             && witness.implementation == NativeWitnessImplementation::Interface
             && matches!(&witness.receiver,AbiType::Trait(interface) if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection))
@@ -179,7 +189,8 @@ pub(super) fn valid<'a>(
             || prepared_order && protocol == Some(StandardTrait::Ord)
             || equality
             || hashing
-            || parsing;
+            || parsing
+            || destination.is_some();
         if !invoked
             || (protocol == Some(StandardTrait::Iterator)
                 && matches!(witness.receiver, AbiType::Iter(_)))
@@ -221,17 +232,21 @@ pub(super) fn valid<'a>(
             )) => Some(binding),
             _ => None,
         };
-        let consumed_native = match (protocol, native) {
-            (Some(StandardTrait::Iterable), Some(NativeProtocolMethod::CollectionIter)) => {
-                conversion
-            }
-            (Some(StandardTrait::Sum), Some(NativeProtocolMethod::NumericSum))
-            | (Some(StandardTrait::Product), Some(NativeProtocolMethod::NumericProduct)) => {
-                aggregate
-            }
-            (Some(StandardTrait::FromStr), Some(NativeProtocolMethod::NumericFromStr)) => parsing,
-            _ => false,
-        };
+        let consumed_native = destination
+            .is_some_and(|application| application.native == native && native.is_some())
+            || match (protocol, native) {
+                (Some(StandardTrait::Iterable), Some(NativeProtocolMethod::CollectionIter)) => {
+                    conversion
+                }
+                (Some(StandardTrait::Sum), Some(NativeProtocolMethod::NumericSum))
+                | (Some(StandardTrait::Product), Some(NativeProtocolMethod::NumericProduct)) => {
+                    aggregate
+                }
+                (Some(StandardTrait::FromStr), Some(NativeProtocolMethod::NumericFromStr)) => {
+                    parsing
+                }
+                _ => false,
+            };
         if consumed_native {
             if !witness.methods.is_empty() {
                 return Ok(false);
@@ -244,7 +259,9 @@ pub(super) fn valid<'a>(
             name: declared.name.clone(),
             occurrence: 0,
         });
-        let method_arguments = if aggregate {
+        let method_arguments = if let Some(application) = destination {
+            slice::from_ref(&application.source)
+        } else if aggregate {
             &import.signature.params[..1]
         } else {
             &[]
@@ -286,6 +303,9 @@ pub(super) fn valid<'a>(
         // Declarations supply semantic contracts; consumers guard the physical
         // arguments and results they actually pass across the callback boundary.
         let valid = match protocol {
+            Some(StandardTrait::FromIterator) if destination.is_some() => {
+                expected.params == method_arguments && expected.result == witness.receiver
+            }
             Some(StandardTrait::FromStr) if parsing => {
                 expected.params == [AbiType::Builtin(BuiltinType::String)]
                     && expected.result == import.signature.result

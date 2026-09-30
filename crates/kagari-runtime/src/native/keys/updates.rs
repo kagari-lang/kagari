@@ -1,6 +1,6 @@
 //! Map callbacks preserve both lookups and publish only after checked insertion.
 use super::{
-    Buffers, RESULT, invalid,
+    Buffers, KeySelection, RESULT, invalid,
     lookup::{KeyStep, Lookup},
 };
 use crate::{
@@ -26,7 +26,7 @@ enum Phase {
 }
 pub(super) struct MapUpdate {
     operation: StandardIntrinsic,
-    custom: bool,
+    keys: KeySelection,
     buffers: Buffers,
     lookup: Lookup,
     phase: Phase,
@@ -34,12 +34,16 @@ pub(super) struct MapUpdate {
     present: bool,
 }
 impl MapUpdate {
-    pub(super) fn start(operation: StandardIntrinsic, custom: bool, buffers: Buffers) -> Self {
+    pub(super) fn start(
+        operation: StandardIntrinsic,
+        keys: KeySelection,
+        buffers: Buffers,
+    ) -> Self {
         Self {
             operation,
-            custom,
+            keys,
             buffers,
-            lookup: Lookup::start(StandardIntrinsic::MapGet, custom, buffers, None),
+            lookup: Lookup::start(StandardIntrinsic::MapGet, keys, buffers, None),
             phase: Phase::Get,
             mutation: None,
             present: false,
@@ -149,7 +153,7 @@ impl MapUpdate {
                 self.mutation.take();
                 self.lookup = Lookup::start(
                     StandardIntrinsic::MapInsert,
-                    self.custom,
+                    self.keys,
                     self.buffers,
                     Some(self.buffers.scratch + RESULT),
                 );
