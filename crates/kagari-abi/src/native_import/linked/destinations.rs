@@ -3,7 +3,10 @@ use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation, contract},
     standard::{
-        bindings::NativeProtocolMethod, intrinsic, surface::StandardEnum, traits::StandardTrait,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        intrinsic,
+        surface::StandardEnum,
+        traits::StandardTrait,
     },
     types::{
         AbiType, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi,
@@ -32,6 +35,8 @@ pub(super) fn selected(import: &EngineNativeImport) -> bool {
         import.binding,
         EngineNativeBinding::Protocol(
             NativeProtocolMethod::OptionFromIterator | NativeProtocolMethod::ResultFromIterator
+        ) | EngineNativeBinding::TraitDefault(
+            NativeDefaultMethod::Collect | NativeDefaultMethod::Partition
         )
     )
 }
@@ -78,15 +83,12 @@ fn next(
         constraints: vec![ConstraintAbi::Trait(interface)],
     }))
 }
-fn inner(output: &AbiType, bounds: &[GenericBoundAbi]) -> Option<(AbiType, AbiType)> {
-    let AbiType::StandardEnum {
-        kind: StandardEnum::Option | StandardEnum::Result,
-        args,
-    } = output
-    else {
-        return None;
-    };
-    let destination = args.first()?;
+struct Request {
+    destination: AbiType,
+    source: AbiType,
+    item: AbiType,
+}
+fn item<'a>(destination: &AbiType, bounds: &'a [GenericBoundAbi]) -> Option<&'a AbiType> {
     let interface = bounds
         .iter()
         .filter(|bound| &bound.ty == destination)
@@ -103,10 +105,25 @@ fn inner(output: &AbiType, bounds: &[GenericBoundAbi]) -> Option<(AbiType, AbiTy
     let [item] = interface.arguments.as_slice() else {
         return None;
     };
-    Some((
-        destination.clone(),
-        AbiType::Array(Box::new(item.clone()), CollectionAccess::Mutable),
-    ))
+    Some(item)
+}
+fn buffered(destination: &AbiType, bounds: &[GenericBoundAbi]) -> Option<Request> {
+    let item = item(destination, bounds)?.clone();
+    Some(Request {
+        destination: destination.clone(),
+        source: AbiType::Array(Box::new(item.clone()), CollectionAccess::Mutable),
+        item,
+    })
+}
+fn inner(output: &AbiType, bounds: &[GenericBoundAbi]) -> Option<Request> {
+    let AbiType::StandardEnum {
+        kind: StandardEnum::Option | StandardEnum::Result,
+        args,
+    } = output
+    else {
+        return None;
+    };
+    buffered(args.first()?, bounds)
 }
 pub(super) fn applications<'a>(
     import: &EngineNativeImport,
@@ -124,28 +141,56 @@ pub(super) fn applications<'a>(
     let Some(source) = import.signature.params.first() else {
         return Ok(None);
     };
-    let Some(original_next) = next(source, &import.requirements, catalog, cancel)? else {
-        return Ok(None);
-    };
-    result.obligations.push(original_next);
-    let Some(first) = inner(&import.signature.result, &import.requirements) else {
-        return Ok(None);
+    let first = match import.binding {
+        EngineNativeBinding::TraitDefault(NativeDefaultMethod::Collect) => {
+            let Some(item) = item(&import.signature.result, &import.requirements) else {
+                return Ok(None);
+            };
+            Request {
+                destination: import.signature.result.clone(),
+                source: source.clone(),
+                item: item.clone(),
+            }
+        }
+        EngineNativeBinding::TraitDefault(NativeDefaultMethod::Partition) => {
+            let AbiType::Tuple(outputs) = &import.signature.result else {
+                return Ok(None);
+            };
+            let Some(first) = outputs
+                .first()
+                .and_then(|destination| buffered(destination, &import.requirements))
+            else {
+                return Ok(None);
+            };
+            first
+        }
+        _ => {
+            let Some(original_next) = next(source, &import.requirements, catalog, cancel)? else {
+                return Ok(None);
+            };
+            result.obligations.push(original_next);
+            let Some(first) = inner(&import.signature.result, &import.requirements) else {
+                return Ok(None);
+            };
+            first
+        }
     };
     let mut pending = vec![first];
-    while let Some((destination, source)) = pending.pop() {
+    while let Some(Request {
+        destination,
+        source,
+        item,
+    }) = pending.pop()
+    {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if result.applications.len() >= MAX_TYPE_NODES {
             return Ok(None);
         }
-        let item = match &source {
-            AbiType::Array(item, _) => item.as_ref(),
-            _ => return Ok(None),
-        };
         let Some((index, witness)) = import.witnesses.iter().enumerate().find(|(_, witness)| {
             witness.receiver == destination
                 && StandardTrait::from_id(&witness.interface.declaration)
                     == Some(StandardTrait::FromIterator)
-                && witness.interface.arguments.as_slice() == slice::from_ref(item)
+                && witness.interface.arguments.as_slice() == slice::from_ref(&item)
         }) else {
             return Ok(None);
         };

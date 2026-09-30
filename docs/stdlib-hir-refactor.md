@@ -6,7 +6,7 @@ and engine/host integration. The workspace builds; compiler and VM library suite
 and selected embedding integration suites pass. Runtime-owned native continuations
 execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
-Twenty iterator terminals also execute natively with selected static protocol
+Twenty-three iterator terminals also execute natively with selected static protocol
 witnesses, including search, reduction, callback comparisons, Ord extrema, join
 and numeric/user-defined aggregation. Checked scalar implementations also own
 direct Iterable-based Sum/Product entrypoints through the same native traversal.
@@ -37,6 +37,8 @@ to selected FromStr/PartialEq implementations on the same execution frames.
 Option/Result FromIterator providers also execute rooted native short-circuit
 traversal and bounded selected inner constructors, preserving error identity/origin
 and sharing existing Array/Map/Set construction and key lookup.
+Public Iterator collect delegates its original source to the selected constructor;
+partition owns native once-only predicate traversal and ordered buffered construction.
 Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -569,8 +571,12 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   equality, once-only evaluated arguments and the original final assertion charge/trap.
 - [x] Migrate Option/Result FromIterator providers with native short-circuit traversal,
   checked nested/script destinations, exact logical charges and original error origins.
-- [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
-  lazy adapters, including generic/user protocol witnesses.
+- [x] Migrate public Iterator `collect` with selected FromIterator applications, original
+  iterator delegation and shared native/script destination construction.
+- [x] Migrate Iterator `partition` with once-only predicates, rooted shallow buffers,
+  selected left-before-right factories and shared construction/lookup states.
+- [ ] Migrate remaining iterator defaults and lazy adapters, including generic/user
+  protocol witnesses.
 - [ ] Migrate remaining collection/set operations, plus lazy
   windows/chunks with their existing observable contracts.
 - [ ] Remove corresponding compiler algorithm expansions and standard source
@@ -864,6 +870,64 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 native collect/partition checkpoint (2026-10-01): completes two cohesive
+  family checklists. Public collect now invokes a checked native entry and delegates
+  its original iterator to the selected FromIterator application. Public partition
+  owns native next/predicate traversal, two shallow buffers and matching-before-other
+  construction. Removed compiler collect forwarding and the entire partition loop
+  expansion/module; no transitional dispatch, synthetic imports or Kagari algorithm
+  copies were introduced.
+- Factory selection is shared by collect, partition and fallible construction.
+  Native Array/Map/Set destinations reuse existing source construction/key lookup;
+  Option/Result destinations reuse bounded fallible continuations; script factories
+  run on ordinary generation-pinned frames. Checked applications distinguish the
+  original iterator source for collect from ArrayList<Item> for partition and nested
+  factories. Linking verifies constructor arguments, bounds, output types, source
+  next, predicate signatures, selected private dependencies and consumed witnesses.
+- Partition evaluates each predicate once, stops next at the first None, releases
+  native source guards, then calls the selected factory once per side, including
+  empty buffers. Failure in traversal/predicate skips both factories; left failure
+  skips the right factory. Collect leaves consumption to its selected constructor,
+  including custom factories that consume only one item. Remaining cursor progress,
+  shallow identity, duplicate order and completed effects retain their contracts.
+- The recorded `66ea900` baseline passes all 175 scenarios and 22,031 instruction
+  limits for both source and decoded KBC, with every original charge and host effect
+  retained. This includes 60 plain collect, 10 direct FromIterator, 60 fallible and
+  45 partition scenarios across native/custom/lazy sources and Array/Bag/Total/Set/Map
+  destinations. The baseline now also requires the actual public Collect/Partition
+  native binding instead of merely testing the delegated constructor.
+- Nine partition routes cover every allocation cut, cancellation at every effect,
+  forced GC and successful/failed synchronous reentry, including custom next,
+  script factories, duplicate keys, fallible/nested outputs and empty input. Added
+  original-iterator partial consumption, non-fused termination, readonly-source
+  alias mutation, shallow element mutation, constructor ordering, source/predicate/
+  left/right traps and exact error categories/traces. Foreign generic collect and
+  partition pin private FromIterator, next, Hash/Eq and predicates; deleting their
+  required dependency is rejected. 280 forged source/factory/predicate/output
+  applications are rejected directly and through encoded loader validation.
+- Initial new fixtures used nonexistent ReadonlyList/readonly declarations and
+  expected a direct RuntimeError for guarded native structural mutation. Corrected
+  them to the existing List upcast and traced BuiltinError carrying ScriptTrap;
+  retained exact effects, error message, trace and cleanup assertions. The nested
+  script factory forgery also now changes its actual source argument rather than
+  rewriting ArrayList<Item> to the same type. No production semantics or budget
+  goldens were adjusted for these fixture errors.
+- Focused boundary/foreign/forgery and baseline tests pass. Complete library suites
+  passed ABI 46, bytecode 27, compiler 191, HIR 414, MIR 1, runtime 71 and stdlib 7
+  tests; the complete VM suite passed all 242 tests (999 library tests combined).
+  Reproduction: `cargo test --lib -p kagari-abi -p kagari-bytecode -p kagari-compiler
+  -p kagari-hir -p kagari-mir -p kagari-runtime -p kagari-stdlib`, then
+  `cargo test --lib -p kagari-vm`. Compiler source_programs
+  passed all 10 tests; embedding lazy_iterators, iteration_traits, result_option,
+  error_traces, collection_access, prepared_collections and collection_interfaces
+  passed all 92 tests. Workspace/all-target Clippy with warnings denied, format and
+  diff checks pass. Structure review checks 807 Rust files with no debt/exceptions;
+  explicit imports/private ownership and bounded scratch roots remain intact.
+  No production build or test error is carried. Runtime ABI is v131; binding v2, KBC v109, KMIR v7 and helper ABI v6 remain unchanged.
+  Older runtime ABI artifacts require rebuilding. Remaining ST05 lazy adapters,
+  windows/chunks and residual route audit, plus ST06 integration, fixtures,
+  measurement and full acceptance remain pending.
 
 - ST05 native fallible destination checkpoint (2026-10-01): removes the compiler's
   `lower_fallible_collect` algorithm and its standard-protocol shortcut. Option and

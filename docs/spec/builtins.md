@@ -727,9 +727,12 @@ extended format options are separate features.
 
 `FromIterator<T>` declares `fn from_iter<I: Iterable<Item = T>>(source: I) -> Self`.
 `Iterator::collect<C: FromIterator<Self::Item>>(self) -> C` selects the destination
-from the expected result type. It consumes remaining progress through the first
-None; calling iter on a collection starts independent progress. Both protocols are
-static-only. The same generic contract applies to user-defined destinations.
+from the expected result type and invokes the selected constructor once with the
+original iterator. The constructor owns consumption: native Array/Map/Set
+constructors stop at the first None, fallible constructors stop at the first failed
+item or None, and script constructors may consume fewer items. Remaining progress is shared
+with aliases; calling iter on a collection starts independent progress. Both
+protocols are static-only. The same generic contract applies to user-defined destinations.
 
 ArrayList<T> preserves traversal order. LinkedHashSet<T> deduplicates with Eq/Hash;
 LinkedHashMap<K,V> accepts (K,V) pairs and keeps the last value for equal keys.
@@ -758,11 +761,25 @@ inspect, enumerate and zip do not add a fused guarantee to a custom source. Alia
 find, any and all stop at the decisive item; empty any is false and empty all is
 true. count uses checked usize accumulation. fold starts with the supplied value
 and applies its callback from left to right; for_each requires a unit callback.
-All terminals stop at the first None and release native source guards on exit.
+Traversal terminals stop at the first None or their specified short-circuit
+condition and release native source guards on exit.
 collect and partition select their destination through FromIterator. partition
 buffers matching and nonmatching items in two shallow arrays, then constructs
-the two destinations in that order; `(ArrayList<T>, ArrayList<T>)` and user destinations
-are supported. Each predicate is evaluated once per visited item.
+the two destinations once each in that order, including empty sides;
+`(ArrayList<T>, ArrayList<T>)`, fallible wrappers and user destinations are supported.
+Each predicate is evaluated once per visited item. A source or predicate trap skips
+both constructors; failure in the first constructor skips the second. Native source
+guards are released before either constructor is invoked.
+
+Public collect and partition execute through checked native entries. Carried
+FromIterator applications use the original iterator type for collect and the
+prepared ArrayList item type for partition. Selected script constructors, next
+methods and predicates run on ordinary generation-pinned frames in the same
+execution session; native destinations share the existing constructor and key
+lookup states. Linking checks concrete source/output types, private callable
+dependencies, generic obligations and nested fallible applications. Rooting,
+instruction charges, allocation limits, cancellation and reentry follow the same
+execution driver as other native continuations.
 
 group_by is a Kagari extension that groups the entire remaining input, rather
 than only adjacent runs. Its result is LinkedHashMap<K, ArrayList<Item>> with

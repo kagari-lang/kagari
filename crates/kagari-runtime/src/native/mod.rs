@@ -2,6 +2,7 @@
 mod array_copy;
 mod array_initialization;
 mod array_ranges;
+mod destination_factory;
 mod destinations;
 mod enums;
 mod iterators;
@@ -10,6 +11,7 @@ mod list_equality;
 mod list_join;
 mod lists;
 mod map_snapshots;
+mod partition;
 mod prepared_arrays;
 mod protocol_entries;
 mod protocols;
@@ -25,6 +27,7 @@ use crate::{
         array_copy::ArrayCopy,
         array_initialization::ArrayInitialization,
         array_ranges::ArrayRange,
+        destination_factory::Factory,
         destinations::Fallible,
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
@@ -33,6 +36,7 @@ use crate::{
         list_join::ListJoin,
         lists::ListInvocation,
         map_snapshots::SnapshotInvocation,
+        partition::Partition,
         prepared_arrays::PreparedArray,
         protocol_entries::ProtocolEntry,
         retention::Retention,
@@ -105,6 +109,8 @@ enum NativeState {
     StringIterator(StringIterator),
     ProtocolEntry(ProtocolEntry),
     Fallible(Fallible),
+    Factory(Factory),
+    Partition(Partition),
     Forward,
 }
 
@@ -151,6 +157,12 @@ impl NativeInvocation {
                 NativeState::Key(KeyInvocation::construct(contract, arguments)?)
             }
 
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Collect,
+            ))) => NativeState::Factory(Factory::collect(&implementation, contract, arguments)?),
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Partition,
+            ))) => NativeState::Partition(Partition::start(&implementation, contract, arguments)?),
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Protocol(
                 NativeProtocolMethod::OptionFromIterator | NativeProtocolMethod::ResultFromIterator,
             ))) => NativeState::Fallible(Fallible::start(&implementation, contract, arguments)?),
@@ -352,6 +364,8 @@ impl NativeInvocation {
                         NativeState::ProtocolEntry(_) => {
                             vec![Value::Unit; protocol_entries::SCRATCH_ROOTS]
                         }
+                        NativeState::Factory(state) => vec![Value::Unit; state.scratch_roots()],
+                        NativeState::Partition(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Fallible(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Forward => vec![],
                         NativeState::ArrayInitialization(_) => {
@@ -391,6 +405,10 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
+            NativeState::Factory(state) => {
+                Some(state.initialize(runtime, &implementation, contract, &roots)?)
+            }
+            NativeState::Partition(state) => Some(state.initialize(runtime, &roots)?),
             NativeState::Fallible(state) => {
                 Some(state.initialize(runtime, &implementation, contract, &roots)?)
             }
@@ -432,6 +450,12 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Factory(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
+            NativeState::Partition(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::Fallible(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
@@ -494,6 +518,12 @@ impl NativeInvocation {
     ) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::Factory(state) => {
+                state.receive(runtime, &self.implementation, contract, &self.roots, value)
+            }
+            NativeState::Partition(state) => {
+                state.receive(runtime, &self.implementation, contract, &self.roots, value)
+            }
             NativeState::Fallible(state) => {
                 state.receive(runtime, &self.implementation, contract, &self.roots, value)
             }

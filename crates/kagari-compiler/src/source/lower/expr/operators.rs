@@ -17,7 +17,7 @@ use kagari_abi::{
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
 use kagari_hir::{
     aggregates::MethodDefault,
-    builtin::traits::{self, StandardTraitSemantics},
+    builtin::traits,
     hir,
     native::NativeBinding,
     typeck::{CallTarget as HirCallTarget, FunctionImplementation},
@@ -28,7 +28,6 @@ use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, InterfaceCallContract, MirValue, SourceFunctionContract,
     Terminator, ValueBuffer,
 };
-use std::slice;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn check_integer_range(&mut self, value: MirValue, target: &TypeId) {
@@ -323,6 +322,8 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
                     | NativeDefaultMethod::GroupBy
+                    | NativeDefaultMethod::Collect
+                    | NativeDefaultMethod::Partition
                     | NativeDefaultMethod::ListJoin
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
@@ -349,25 +350,7 @@ impl FunctionLowerer<'_, '_> {
             ) {
                 return self.lower_list_windows(operation, &ty, args);
             }
-            if matches!(operation, NativeDefaultMethod::Partition) {
-                return self.lower_iterator_partition(&ty, &method_arguments, args);
-            }
-            if operation != NativeDefaultMethod::Collect {
-                return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
-            }
-            let target = method_arguments
-                .first()
-                .ok_or(MirLoweringError::MissingBinding("collect destination"))?;
-            let item = self.iterator_item(&ty)?;
-            let mut contract = StandardTrait::FromIterator.nominal();
-            contract.arguments.push(item);
-            return self.lower_applied_method(
-                contract,
-                target.clone(),
-                &self.protocol_method(StandardTrait::FromIterator, 0)?,
-                slice::from_ref(&ty),
-                args,
-            );
+            return self.lower_iterator_adapter(operation, &ty, &method_arguments, args);
         }
         if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
             let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");

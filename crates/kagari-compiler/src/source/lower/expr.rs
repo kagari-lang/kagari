@@ -34,7 +34,6 @@ mod native_keys;
 mod native_sets;
 mod operators;
 mod standard;
-mod terminals;
 
 use kagari_abi::{representation::ValueType, standard::StandardIntrinsic};
 use kagari_hir::hir;

@@ -1,14 +1,15 @@
 //! Delegate one checked constructor on the current frame and shared root set.
-use super::{Fallible, invalid};
+
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     gc::RootSet,
     native::{
         NativeAction,
         array_copy::{self, ArrayCopy},
+        destinations::Fallible,
         keys::KeyInvocation,
         protocols,
-        sources::SourceSelection,
+        sources::{IteratorSelection, SourceSelection},
     },
     value::Value,
 };
@@ -29,7 +30,24 @@ pub(super) enum Factory {
     Keys(Box<KeyInvocation>),
     Fallible(Box<Fallible>),
 }
+fn invalid() -> RuntimeError {
+    RuntimeError::module_validation("native constructor selection mismatch")
+}
 impl Factory {
+    pub(super) fn collect(
+        owner: &LoadedModule,
+        contract: &EngineNativeImport,
+        arguments: &[Value],
+    ) -> Result<Self, RuntimeError> {
+        Self::select(
+            owner,
+            contract,
+            &contract.signature.result,
+            &contract.signature.params[0],
+            0,
+            arguments.len(),
+        )
+    }
     // Each lifted child is a strict subtree of its parent's checked output type;
     // portable type limits bound both recursion and the registered scratch roots.
     pub(super) fn select(
@@ -40,8 +58,10 @@ impl Factory {
         root: usize,
         scratch: usize,
     ) -> Result<Self, RuntimeError> {
-        let AbiType::Array(item, _) = source else {
-            return Err(invalid());
+        let item = if let AbiType::Array(item, _) = source {
+            item.as_ref()
+        } else {
+            IteratorSelection::select(contract, source)?.item(contract)?
         };
         let index = contract
             .witnesses
@@ -50,7 +70,7 @@ impl Factory {
                 witness.receiver == *destination
                     && StandardTrait::from_id(&witness.interface.declaration)
                         == Some(StandardTrait::FromIterator)
-                    && witness.interface.arguments.as_slice() == slice::from_ref(item.as_ref())
+                    && witness.interface.arguments.as_slice() == slice::from_ref(item)
             })
             .ok_or_else(invalid)?;
         match protocols::provider(owner, &contract.witnesses[index]) {
@@ -60,7 +80,11 @@ impl Factory {
                 root,
             }),
             Some(provider) => {
-                let iterator = AbiType::Iter(item.clone());
+                let iterator = if matches!(source, AbiType::Array(..)) {
+                    AbiType::Iter(Box::new(item.clone()))
+                } else {
+                    source.clone()
+                };
                 let source = SourceSelection::select(contract, source, Some(&iterator), root)?;
                 match provider {
                     NativeProtocolMethod::CollectionFromIterator => match destination {

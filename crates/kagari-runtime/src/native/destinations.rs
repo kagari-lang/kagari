@@ -1,11 +1,10 @@
 //! Rooted fallible traversal and selected nested destination construction.
-mod factory;
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     gc::{CollectionIteration, RootSet},
     native::{
         NativeAction,
-        destinations::factory::Factory,
+        destination_factory::Factory,
         protocols::{self, ProtocolStep},
         sources::SourceSelection,
     },
@@ -82,7 +81,7 @@ impl Fallible {
             arguments.len(),
         )
     }
-    fn for_source(
+    pub(super) fn for_source(
         owner: &LoadedModule,
         contract: &EngineNativeImport,
         source: SourceSelection,

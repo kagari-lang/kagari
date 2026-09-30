@@ -14,7 +14,10 @@ use kagari_abi::{
         ConcreteFunctionIdentity, ConstraintAbi, substitution::TypeSubstitution as AbiSubstitution,
     },
 };
-use kagari_common::identity::{DefinitionId, associated_type_id};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionId, associated_type_id},
+};
 use kagari_hir::{
     aggregates::MethodDefault,
     builtin::traits::StandardTraitSemantics,
@@ -138,17 +141,27 @@ impl FunctionLowerer<'_, '_> {
                         witness.receiver == bound.ty
                             && witness.interface == lower_nominal_type(&interface)
                     }) {
-                        let method_arguments = if StandardTrait::from_id(&interface.declaration)
-                            .is_some_and(StandardTrait::aggregation)
+                        let kind = StandardTrait::from_id(&interface.declaration);
+                        let method_arguments = if kind.is_some_and(StandardTrait::aggregation)
+                            || binding == NativeDefaultMethod::Collect
+                                && kind == Some(StandardTrait::FromIterator)
                         {
-                            &params[..1]
+                            params[..1].to_vec()
+                        } else if kind == Some(StandardTrait::FromIterator) {
+                            let [item] = interface.arguments.as_slice() else {
+                                return Err(invalid());
+                            };
+                            vec![TypeId::Array(
+                                Box::new(item.clone()),
+                                CollectionAccess::Mutable,
+                            )]
                         } else {
-                            &[]
+                            vec![]
                         };
                         witnesses.push(self.lower_native_witness(
                             &receiver,
                             &interface,
-                            method_arguments,
+                            &method_arguments,
                         )?);
                     }
                 }
@@ -226,6 +239,7 @@ impl FunctionLowerer<'_, '_> {
             }
         }
         let engine_binding = EngineNativeBinding::TraitDefault(binding);
+        self.native_destinations(engine_binding, &params, &result, &mut witnesses)?;
         self.native_set_sources(engine_binding, &params, &mut witnesses)?;
         self.native_key_witnesses(engine_binding, &params, &result, &mut witnesses)?;
         let contract = EngineNativeImport {

@@ -11,7 +11,7 @@ use kagari_common::identity::associated_type_id;
 pub(super) struct SourceSelection {
     pub root: usize,
     iterable: usize,
-    next: usize,
+    next: IteratorSelection,
 }
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("native source selection mismatch")
@@ -41,24 +41,7 @@ impl SourceSelection {
                 "Item",
             ))
             .ok_or_else(invalid)?;
-        let mut choices = contract
-            .witnesses
-            .iter()
-            .enumerate()
-            .filter(|(_, witness)| {
-                StandardTrait::from_id(&witness.interface.declaration)
-                    == Some(StandardTrait::Iterator)
-                    && iterator.is_none_or(|iterator| witness.receiver == *iterator)
-                    && witness
-                        .interface
-                        .associated_types
-                        .get(&associated_type_id(&witness.interface.declaration, "Item"))
-                        == Some(item)
-            });
-        let next = choices.next().ok_or_else(invalid)?.0;
-        if choices.next().is_some() {
-            return Err(invalid());
-        }
+        let next = IteratorSelection::matching(contract, iterator, item)?;
         Ok(Self {
             root,
             iterable,
@@ -69,18 +52,78 @@ impl SourceSelection {
         &contract.witnesses[self.iterable]
     }
     pub(super) fn next(self, contract: &EngineNativeImport) -> &NativeWitness {
-        &contract.witnesses[self.next]
+        self.next.witness(contract)
     }
     pub(super) fn optional(self, contract: &EngineNativeImport) -> Result<AbiType, RuntimeError> {
-        let next = self.next(contract);
-        let item = next
+        self.next.optional(contract)
+    }
+}
+
+/// Select next independently of source conversion for public Iterator terminals.
+#[derive(Clone, Copy)]
+pub(super) struct IteratorSelection {
+    index: usize,
+}
+impl IteratorSelection {
+    pub(super) fn select(
+        contract: &EngineNativeImport,
+        receiver: &AbiType,
+    ) -> Result<Self, RuntimeError> {
+        let mut choices = contract
+            .witnesses
+            .iter()
+            .enumerate()
+            .filter(|(_, witness)| {
+                witness.receiver == *receiver
+                    && StandardTrait::from_id(&witness.interface.declaration)
+                        == Some(StandardTrait::Iterator)
+            });
+        let index = choices.next().ok_or_else(invalid)?.0;
+        if choices.next().is_some() {
+            return Err(invalid());
+        }
+        Ok(Self { index })
+    }
+    fn matching(
+        contract: &EngineNativeImport,
+        receiver: Option<&AbiType>,
+        item: &AbiType,
+    ) -> Result<Self, RuntimeError> {
+        let mut choices = contract
+            .witnesses
+            .iter()
+            .enumerate()
+            .filter(|(_, witness)| {
+                StandardTrait::from_id(&witness.interface.declaration)
+                    == Some(StandardTrait::Iterator)
+                    && receiver.is_none_or(|receiver| witness.receiver == *receiver)
+                    && witness
+                        .interface
+                        .associated_types
+                        .get(&associated_type_id(&witness.interface.declaration, "Item"))
+                        == Some(item)
+            });
+        let index = choices.next().ok_or_else(invalid)?.0;
+        if choices.next().is_some() {
+            return Err(invalid());
+        }
+        Ok(Self { index })
+    }
+    pub(super) fn witness(self, contract: &EngineNativeImport) -> &NativeWitness {
+        &contract.witnesses[self.index]
+    }
+    pub(super) fn item(self, contract: &EngineNativeImport) -> Result<&AbiType, RuntimeError> {
+        let witness = self.witness(contract);
+        witness
             .interface
             .associated_types
-            .get(&associated_type_id(&next.interface.declaration, "Item"))
-            .ok_or_else(invalid)?;
+            .get(&associated_type_id(&witness.interface.declaration, "Item"))
+            .ok_or_else(invalid)
+    }
+    pub(super) fn optional(self, contract: &EngineNativeImport) -> Result<AbiType, RuntimeError> {
         Ok(AbiType::StandardEnum {
             kind: StandardEnum::Option,
-            args: vec![item.clone()],
+            args: vec![self.item(contract)?.clone()],
         })
     }
 }

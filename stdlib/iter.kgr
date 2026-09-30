@@ -52,12 +52,14 @@ pub trait Iterator {
 
     /// Collect remaining items into the destination selected by the result type.
     ///
-    /// This terminal operation drives next until its first None. The destination's
-    /// FromIterator implementation determines storage and duplicate handling.
+    /// This terminal operation invokes the selected FromIterator once with this
+    /// original iterator. The constructor determines how much progress to consume,
+    /// as well as storage and duplicate handling. Native Array/Map/Set constructors
+    /// drive next until its first None; a custom constructor may consume fewer items.
     /// Array targets preserve order, Set targets deduplicate with Eq/Hash, and Map
     /// targets collect (key, value) pairs with the last value winning for equal keys.
     /// Native targets allocate fresh shallow storage. Annotate the result to choose
-    /// read-only or mutable access. Earlier callback effects remain after a trap.
+    /// the concrete destination. Earlier callback effects remain after a trap.
     ///
     /// # Examples
     ///
@@ -396,7 +398,9 @@ pub trait Iterator {
     ///
     /// The first destination contains matching items; the second contains the
     /// others. The result type selects C. Predicate effects precede destination
-    /// construction, which runs for the matching side before the other side.
+    /// construction, which runs once for the matching side before the other side,
+    /// including empty sides. The predicate runs once per visited item. A failure
+    /// constructing the matching side skips construction of the other side.
     ///
     /// # Panics
     ///

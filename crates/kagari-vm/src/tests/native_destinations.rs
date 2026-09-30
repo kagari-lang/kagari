@@ -1,5 +1,8 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::bindings::NativeProtocolMethod};
+use kagari_abi::{
+    callable::EngineNativeBinding,
+    standard::bindings::{NativeDefaultMethod, NativeProtocolMethod},
+};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -39,6 +42,7 @@ mod boundaries;
 mod cases;
 mod failures;
 mod foreign;
+mod terminals;
 #[test]
 fn destinations_preserve_every_budget_cut() {
     let cases = cases::cases();
@@ -48,19 +52,34 @@ fn destinations_preserve_every_budget_cut() {
             .find(|baseline| baseline.name == name)
             .unwrap();
         let program = compile_test_bytecode(&source);
-        if name.starts_with("fallible_") {
+        let expected = if name.starts_with("collect_")
+            || name.starts_with("fallible_") && name.ends_with("_false")
+        {
+            Some(EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Collect,
+            ))
+        } else if name.starts_with("partition_") {
+            Some(EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Partition,
+            ))
+        } else if name.starts_with("fallible_option_") {
+            Some(EngineNativeBinding::Protocol(
+                NativeProtocolMethod::OptionFromIterator,
+            ))
+        } else if name.starts_with("fallible_result_") {
+            Some(EngineNativeBinding::Protocol(
+                NativeProtocolMethod::ResultFromIterator,
+            ))
+        } else {
+            None
+        };
+        if let Some(binding) = expected {
             assert!(
                 program
                     .modules
                     .iter()
                     .flat_map(|module| &module.engine_imports)
-                    .any(|import| matches!(
-                        import.binding,
-                        EngineNativeBinding::Protocol(
-                            NativeProtocolMethod::OptionFromIterator
-                                | NativeProtocolMethod::ResultFromIterator
-                        )
-                    )),
+                    .any(|import| import.binding == binding),
                 "{name}"
             );
         }

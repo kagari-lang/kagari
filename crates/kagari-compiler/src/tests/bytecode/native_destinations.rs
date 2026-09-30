@@ -56,7 +56,7 @@ struct Bag<T>{{val items:ArrayList<T>}}
 impl<T> FromIterator<T> for Bag<T>{{fn from_iter<I:Iterable<Item=T>>(source:I)->Self{{Bag{{items:source.iter().collect::<ArrayList<T>>()}}}}}}
 struct Key{{val value:i32}}
 impl PartialEq for Key{{fn eq(self,other:Self)->bool{{self.value==other.value}}}}impl Eq for Key{{}}impl Hash for Key{{fn hash(self)->i64{{0i64}}}}
-fn main(){{val items:ArrayList<{item}> =[{values}];val result:{output} = items.iter().collect();}}
+fn main(){{val items:ArrayList<{item}> =[{values}];val result:{output} = <{output} as FromIterator<{item}>>::from_iter(items.iter());}}
 "#
         ));
         let root = program.root.index();

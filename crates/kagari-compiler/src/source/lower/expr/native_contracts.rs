@@ -109,7 +109,7 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
-        self.native_fallible_destinations(binding, &mut witnesses)?;
+        self.native_destinations(binding, &params, &result[0], &mut witnesses)?;
         self.native_collection_source(binding, &params, &mut witnesses)?;
         self.native_key_witnesses(binding, &params, &result[0], &mut witnesses)?;
         if matches!(
@@ -298,7 +298,7 @@ impl FunctionLowerer<'_, '_> {
             )
             .map_err(|_| invalid())?;
         let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
-        self.native_fallible_destinations(binding, &mut witnesses)?;
+        self.native_destinations(binding, &params, result, &mut witnesses)?;
         self.native_collection_source(binding, &params, &mut witnesses)?;
         self.native_key_witnesses(binding, &params, result, &mut witnesses)?;
         if matches!(

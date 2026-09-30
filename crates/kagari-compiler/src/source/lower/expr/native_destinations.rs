@@ -6,7 +6,10 @@ use crate::source::{
 use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::NativeWitness,
-    standard::{bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        traits::StandardTrait,
+    },
     types::substitution::TypeSubstitution,
 };
 use kagari_common::collection::CollectionAccess;
@@ -17,15 +20,19 @@ use kagari_hir::{
 };
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn native_fallible_destinations(
+    pub(super) fn native_destinations(
         &mut self,
         binding: EngineNativeBinding,
+        params: &[TypeId],
+        result: &TypeId,
         witnesses: &mut Vec<NativeWitness>,
     ) -> Result<(), MirLoweringError> {
         if !matches!(
             binding,
             EngineNativeBinding::Protocol(
                 NativeProtocolMethod::OptionFromIterator | NativeProtocolMethod::ResultFromIterator
+            ) | EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Collect | NativeDefaultMethod::Partition
             )
         ) {
             return Ok(());
@@ -56,7 +63,7 @@ impl FunctionLowerer<'_, '_> {
             let Some(function) = self.planner.native_function(&declaration).cloned() else {
                 continue;
             };
-            let FunctionImplementation::Native(NativeBinding::Engine(binding)) =
+            let FunctionImplementation::Native(NativeBinding::Engine(provider)) =
                 function.implementation
             else {
                 return Err(invalid());
@@ -64,7 +71,14 @@ impl FunctionLowerer<'_, '_> {
             let [item] = interface.arguments.as_slice() else {
                 return Err(invalid());
             };
-            let source = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
+            let source = if binding
+                == EngineNativeBinding::TraitDefault(NativeDefaultMethod::Collect)
+                && witness.receiver == lower_type(result)
+            {
+                params.first().ok_or_else(invalid)?.clone()
+            } else {
+                TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable)
+            };
             arguments.push(source.clone());
             if arguments.len() != function.generic_params.len() {
                 return Err(invalid());
@@ -80,12 +94,12 @@ impl FunctionLowerer<'_, '_> {
                     &self.planner.options.cancel,
                 )
                 .map_err(|_| invalid())?;
-            for witness in self.native_requirement_witnesses(binding, &requirements)? {
+            for witness in self.native_requirement_witnesses(provider, &requirements)? {
                 if !witnesses.contains(&witness) {
                     witnesses.push(witness);
                 }
             }
-            self.native_key_witnesses(binding, &[source], &receiver, witnesses)?;
+            self.native_key_witnesses(provider, &[source], &receiver, witnesses)?;
         }
         Ok(())
     }

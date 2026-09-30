@@ -244,6 +244,8 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
                     | NativeDefaultMethod::GroupBy
+                    | NativeDefaultMethod::Collect
+                    | NativeDefaultMethod::Partition
                     | NativeDefaultMethod::ListJoin
                     | NativeDefaultMethod::ListFirst
                     | NativeDefaultMethod::ListLast
