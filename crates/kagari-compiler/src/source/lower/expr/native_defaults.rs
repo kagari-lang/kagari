@@ -127,7 +127,7 @@ impl FunctionLowerer<'_, '_> {
             });
             applied.associated_types.insert(id.clone(), output);
         }
-        let mut witnesses = vec![self.lower_native_witness(receiver, &applied)?];
+        let mut witnesses = vec![self.lower_native_witness(receiver, &applied, &[])?];
         for bound in &requirements {
             for constraint in &bound.constraints {
                 if let ConstraintAbi::Trait(interface) = constraint {
@@ -137,7 +137,18 @@ impl FunctionLowerer<'_, '_> {
                         witness.receiver == bound.ty
                             && witness.interface == lower_nominal_type(&interface)
                     }) {
-                        witnesses.push(self.lower_native_witness(&receiver, &interface)?);
+                        let method_arguments = if StandardTrait::from_id(&interface.declaration)
+                            .is_some_and(StandardTrait::aggregation)
+                        {
+                            &params[..1]
+                        } else {
+                            &[]
+                        };
+                        witnesses.push(self.lower_native_witness(
+                            &receiver,
+                            &interface,
+                            method_arguments,
+                        )?);
                     }
                 }
             }
@@ -175,6 +186,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
+        method_arguments: &[TypeId],
     ) -> Result<NativeWitness, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked native protocol witness");
         let owner = self
@@ -184,6 +196,7 @@ impl FunctionLowerer<'_, '_> {
             .ok_or_else(invalid)?
             .clone();
         let span = self.function.debug.source_span;
+        let mut methods = Vec::new();
         let implementation = if let Some((declaration, table_arguments)) = self
             .planner
             .catalog
@@ -200,21 +213,23 @@ impl FunctionLowerer<'_, '_> {
             let native_iterator = matches!(receiver, TypeId::Iter(_))
                 && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Iterator);
             if !native_iterator {
-                self.planner
-                    .record_interface(&declaration, &table_arguments, span)?;
                 for required in &owner.methods {
                     if required.default.is_none() {
-                        let (target, method_arguments) = self
+                        let (target, mut arguments) = self
                             .planner
                             .catalog
                             .implementation_method(&required.id, interface, receiver)
                             .ok_or_else(invalid)?;
+                        arguments.extend_from_slice(method_arguments);
+                        methods.push(ConcreteFunctionIdentity {
+                            declaration: target.clone(),
+                            arguments: arguments.iter().map(lower_type).collect(),
+                        });
                         if target.module == *self.planner.owner().lowered.source.module_identity() {
-                            self.planner
-                                .enqueue_declaration(&target, method_arguments, span)?;
+                            self.planner.enqueue_declaration(&target, arguments, span)?;
                         }
-                        // Foreign instances are demanded from their defining
-                        // module by the recorded interface instance above.
+                        // Foreign instances are demanded in their defining
+                        // module from the carried method application.
                     }
                 }
             }
@@ -232,6 +247,7 @@ impl FunctionLowerer<'_, '_> {
             receiver: lower_type(receiver),
             interface: lower_nominal_type(interface),
             implementation,
+            methods,
         })
     }
 }

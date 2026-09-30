@@ -386,7 +386,8 @@ pub struct InterfaceTableAbi {
 
 impl InterfaceTableAbi {
     /// Substitute a selected impl's concrete arguments into its call contract.
-    /// The verifier separately proves template validity, bounds and method slots.
+    /// Method-owned generics remain scoped templates until their application is
+    /// selected. The verifier proves template validity, bounds and method slots.
     pub fn instantiate(&self, arguments: &[AbiType]) -> Option<Self> {
         if arguments.len() != self.generic_params.len()
             || !arguments.iter().all(AbiType::is_concrete)
@@ -406,8 +407,13 @@ impl InterfaceTableAbi {
                 Some(FunctionAbi {
                     name: method.name.clone(),
                     implementation: method.implementation.clone(),
-                    generic_params: method.generic_params.clone(),
-                    bounds: method.bounds.clone(),
+                    generic_params: method
+                        .generic_params
+                        .iter()
+                        .filter(|parameter| !self.generic_params.contains(parameter))
+                        .cloned()
+                        .collect(),
+                    bounds: substitution.apply_bounds(&method.bounds, &cancel).ok()?,
                     params: method
                         .params
                         .iter()
@@ -415,11 +421,11 @@ impl InterfaceTableAbi {
                             Some(ParameterAbi {
                                 name: param.name.clone(),
                                 mutable: param.mutable,
-                                ty: apply(&param.ty)?,
+                                ty: substitution.apply(&param.ty, &cancel).ok()?,
                             })
                         })
                         .collect::<Option<_>>()?,
-                    return_type: apply(&method.return_type)?,
+                    return_type: substitution.apply(&method.return_type, &cancel).ok()?,
                 })
             })
             .collect::<Option<Vec<_>>>()?;

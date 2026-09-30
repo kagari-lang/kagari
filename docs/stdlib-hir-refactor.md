@@ -6,8 +6,9 @@ and engine/host integration. The workspace builds; compiler and VM library suite
 and selected embedding integration suites pass. Runtime-owned native continuations
 execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
-Eighteen iterator terminals also execute natively with selected static protocol
-witnesses, including search, reduction, callback comparisons, Ord extrema and join.
+Twenty iterator terminals also execute natively with selected static protocol
+witnesses, including search, reduction, callback comparisons, Ord extrema, join
+and numeric/user-defined aggregation.
 Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final
 acceptance remain pending.
 
@@ -501,6 +502,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   item/key witnesses, concrete comparison targets and once-only key callbacks.
 - [x] Migrate iterator string joining, including the traversal used by custom and
   dynamic List joining, with selected `next`, rooted accumulation and exact charges.
+- [x] Migrate Iterator `sum`/`product` defaults with checked numeric behavior and
+  concrete generic/user destination methods on shared frames.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -796,6 +799,61 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 iterator aggregation checkpoint (2026-09-30): completes the Iterator
+  `sum`/`product` checklist. Public defaults now enter runtime-owned native
+  aggregation instead of compiler delegation. Primitive numeric destinations use
+  existing Rust arithmetic, preserve zero/one identities and narrow integer range
+  assertions, and retain the original logical charge sequence. User destinations
+  invoke their selected `Sum::sum<I>` or `Product::product<I>` application directly
+  on the ordinary frame stack; entry and return add no synthetic frame or charge.
+  Direct primitive `Sum`/`Product` trait entrypoints accepting arbitrary Iterable
+  sources still use `lower_numeric_aggregate` and remain ST05 numeric-provider
+  work. No claim of completing that provider migration is made.
+- Native witnesses carry selected concrete required-method identities, including
+  both impl and method arguments. The linker substitutes receiver, trait and
+  method parameters in their separate scopes, proves carried method obligations
+  and validates the exact materialized callable and physical consumer shape.
+  Interface-table instantiation substitutes impl arguments while retaining
+  method-owned generics and their substituted bounds. Native static witnesses
+  demand those applications in their defining modules without requesting a
+  dynamic interface instance. Existing ordinary interface demands retain their
+  nongeneric targets; method-generic targets require concrete call applications.
+  This replaces the earlier interface-demand mechanism for static native calls.
+- Recorded 36 native/custom/lazy iterator and user-destination cases at `9825550`,
+  plus 72 scalar cases against the unchanged direct numeric trait lowering.
+  The 108 cases cover empty, singleton and multiple elements and all 12 numeric
+  scalar types. All 11,396 source/decoded budget cuts match results, charges and
+  completed next/lazy/entry/combine/done effects. Eighteen narrow/wide integer
+  overflow cases compare every cut with direct trait execution, preserving
+  upper/lower assertion timing, error category/message and caller trace. Native
+  driver failures retain builtin provenance instead of converting assertion
+  failures to arithmetic errors. The initial test incorrectly assumed both
+  categories were RuntimeError; comparison now checks their actual distinct
+  causes. GC threshold 1 checks session cleanup, roots and retained heap objects.
+- Additional tests cover foreign generic Iterator and aggregation impls, generic
+  destination methods that consume custom sources, successful/failed synchronous
+  host reentry, cancellation after completed callback effects and post-failure
+  execution. Twenty-four contract corruptions reject deleted/forged/duplicate
+  witnesses, method applications and impl arguments, missing required targets,
+  obligations and result mismatches, in memory and decoded artifacts. The initial
+  foreign-provider failures exposed method-owned generic capture and unnecessary
+  dynamic interface materialization; both are resolved by the final boundaries
+  above. No compatibility catalog, adapter or duplicate public entrypoint is added.
+- Runtime ABI v113, KBC v108 and KMIR v6 require freshly produced artifacts for the
+  selected-method witness schema. Native binding v1 and helper ABI v6 are unchanged.
+  ST06 owns fixture regeneration and final workspace/matrix acceptance. Validation:
+  `cargo test -p kagari-abi -p kagari-bytecode -p kagari-compiler -p kagari-hir
+  -p kagari-mir -p kagari-runtime -p kagari-vm --lib` passes 875 tests (44 ABI,
+  27 bytecode, 169 compiler, 413 HIR, 1 MIR, 71 runtime and 150 VM). Embedding
+  `iteration_traits`, `lazy_iterators`, `default_methods`, `error_traces` and
+  `numeric_operations` pass 74 tests (949 total). Workspace all-target Clippy with
+  warnings denied, formatting, structure and diff checks pass. Structure covers
+  578 Rust files with zero violations/exceptions. Changed native protocol and
+  caller-frame responsibilities, public surface, imports, generic scope and
+  cleanup were manually reviewed; no new structural debt or carried integration
+  errors remain. Remaining destinations, numeric providers, adapters and
+  collection algorithms stay pending in ST05; final acceptance stays in ST06.
 
 - ST05 iterator string joining checkpoint (2026-09-30): completes the joining
   checklist and removes join's array construction, traversal, insertion, close

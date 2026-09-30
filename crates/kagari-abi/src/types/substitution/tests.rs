@@ -157,3 +157,73 @@ fn associated_output_cycles_fail_instead_of_recursing_indefinitely() {
         Err(TypeTransformError::LimitExceeded)
     );
 }
+
+#[test]
+fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
+    use crate::{
+        callable::CallableImplementation,
+        types::{FunctionAbi, InterfaceTableAbi, ParameterAbi},
+    };
+    let implementation = owner("Impl");
+    let method = associated_type_id(&implementation, "construct");
+    let interface = owner("Iterable");
+    let item = associated_type_id(&interface, "Item");
+    let outer = GenericParameterAbi {
+        owner: implementation.clone(),
+        position: 0,
+    };
+    let local = GenericParameterAbi {
+        owner: method.clone(),
+        position: 0,
+    };
+    let source = parameter(&method, 0);
+    let input = parameter(&implementation, 0);
+    let table = InterfaceTableAbi {
+        associated_type_families: vec![],
+        associated_consts: vec![],
+        host_bridge: false,
+        native_bridge: false,
+        declaration: implementation.clone(),
+        name: "Impl".into(),
+        generic_params: vec![outer.clone()],
+        bounds: vec![],
+        trait_type: AbiType::Trait(NominalAbiType {
+            declaration: interface.clone(),
+            arguments: vec![],
+            associated_types: BTreeMap::new(),
+        }),
+        for_type: AbiType::Tuple(vec![input.clone()]),
+        methods: vec![FunctionAbi {
+            name: "construct".into(),
+            implementation: CallableImplementation::Script,
+            generic_params: vec![local.clone()],
+            bounds: vec![GenericBoundAbi {
+                ty: source.clone(),
+                constraints: vec![ConstraintAbi::Trait(NominalAbiType {
+                    declaration: interface,
+                    arguments: vec![],
+                    associated_types: BTreeMap::from([(item.clone(), input.clone())]),
+                })],
+            }],
+            params: vec![ParameterAbi {
+                name: "source".into(),
+                mutable: false,
+                ty: source.clone(),
+            }],
+            return_type: AbiType::Tuple(vec![input]),
+        }],
+    };
+    let number = AbiType::Builtin(BuiltinType::I32);
+    let applied = table.instantiate(std::slice::from_ref(&number)).unwrap();
+    assert_eq!(applied.for_type, AbiType::Tuple(vec![number.clone()]));
+    assert!(applied.generic_params.is_empty());
+    let method = &applied.methods[0];
+    assert_eq!(method.generic_params, [local]);
+    assert_eq!(method.params[0].ty, source);
+    assert_eq!(method.return_type, AbiType::Tuple(vec![number.clone()]));
+    assert_eq!(method.bounds[0].ty, source);
+    let ConstraintAbi::Trait(bound) = &method.bounds[0].constraints[0] else {
+        panic!("Iterable bound")
+    };
+    assert_eq!(bound.associated_types[&item], number);
+}

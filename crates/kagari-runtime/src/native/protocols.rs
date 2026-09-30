@@ -11,6 +11,7 @@ use kagari_abi::{
     types::{self as abi, AbiType, PublicAbiItem},
 };
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use std::slice;
 
 pub(super) enum ProtocolStep {
     Value(Value),
@@ -43,7 +44,14 @@ pub(super) fn next(
             .iter_operation(owner, &source, &witness.receiver, IterOp::Next)
             .map(ProtocolStep::Value);
     }
-    table_call(runtime, owner, witness, vec![source], output)
+    table_call(
+        runtime,
+        owner,
+        witness,
+        vec![source],
+        slice::from_ref(&witness.receiver),
+        output,
+    )
 }
 
 pub(super) fn compare(
@@ -70,7 +78,34 @@ pub(super) fn compare(
         kind: StandardEnum::Ordering,
         args: vec![],
     };
-    table_call(runtime, owner, witness, arguments, &output)
+    table_call(
+        runtime,
+        owner,
+        witness,
+        arguments,
+        &[witness.receiver.clone(), witness.receiver.clone()],
+        &output,
+    )
+}
+
+pub(super) fn aggregate(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    source: Value,
+    source_type: &AbiType,
+) -> Result<NativeCallback, RuntimeError> {
+    match table_call(
+        runtime,
+        owner,
+        witness,
+        vec![source],
+        slice::from_ref(source_type),
+        &witness.receiver,
+    )? {
+        ProtocolStep::Call(request) => Ok(request),
+        ProtocolStep::Value(_) => Err(invalid()),
+    }
 }
 
 fn table_call(
@@ -78,6 +113,7 @@ fn table_call(
     owner: &LoadedModule,
     witness: &NativeWitness,
     arguments: Vec<Value>,
+    parameters: &[AbiType],
     output: &AbiType,
 ) -> Result<ProtocolStep, RuntimeError> {
     match &witness.implementation {
@@ -127,25 +163,31 @@ fn table_call(
                 name: method.name.clone(),
                 occurrence: 0,
             });
+            let [target] = witness.methods.as_slice() else {
+                return Err(invalid());
+            };
+            if target.declaration != declaration {
+                return Err(invalid());
+            }
             let function = implementation
                 .bytecode
                 .functions
                 .iter()
-                .find(|function| {
-                    function.identity.as_ref().is_some_and(|identity| {
-                        identity.declaration == declaration
-                            && identity.arguments == instance.arguments
-                    })
-                })
+                .find(|function| function.identity.as_ref() == Some(target))
                 .ok_or_else(invalid)?;
             let function = function.id;
             runtime.validate_loaded_module(&implementation)?;
             let metadata = &implementation.bytecode.functions[function.index()].metadata;
             if metadata.params.len() != arguments.len()
-                || arguments.iter().enumerate().any(|(slot, value)| {
-                    metadata.semantic.params.get(&slot) != Some(&witness.receiver)
-                        || !runtime.matches_interface_method_abi(value, &witness.receiver, owner)
-                })
+                || parameters.len() != arguments.len()
+                || arguments
+                    .iter()
+                    .zip(parameters)
+                    .enumerate()
+                    .any(|(slot, (value, ty))| {
+                        metadata.semantic.params.get(&slot) != Some(ty)
+                            || !runtime.matches_interface_method_abi(value, ty, owner)
+                    })
                 || metadata.semantic.result.as_ref() != Some(output)
             {
                 return Err(invalid());

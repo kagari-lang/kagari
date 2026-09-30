@@ -4,6 +4,7 @@ mod iterators;
 mod protocols;
 use crate::{
     LoadedModule, Runtime, RuntimeError,
+    builtin::BuiltinError,
     gc::{ClosureValueSnapshot, RootSet},
     native::{
         enums::{EnumInvocation, SCRATCH_ROOTS},
@@ -12,7 +13,10 @@ use crate::{
     value::Value,
 };
 use kagari_abi::{
-    callable::EngineNativeBinding, ids::FunctionRef, native_import::EngineNativeOperation,
+    callable::EngineNativeBinding,
+    ids::FunctionRef,
+    native_import::{EngineNativeOperation, NativeWitnessImplementation},
+    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_bytecode::{EngineImportId, Register};
@@ -38,6 +42,7 @@ pub enum NativeProgress {
     Continue,
     Callback(NativeCallback),
     Finished,
+    BuiltinFailure(BuiltinError),
 }
 
 pub(crate) enum NativeAction {
@@ -46,11 +51,13 @@ pub(crate) enum NativeAction {
     Publish(Value),
     Finish,
     Complete(Value),
+    BuiltinFailure(BuiltinError),
 }
 
 enum NativeState {
     Enum(EnumInvocation),
     Iterator(IteratorInvocation),
+    Forward,
 }
 
 pub(crate) struct NativeInvocation {
@@ -59,6 +66,7 @@ pub(crate) struct NativeInvocation {
     import: EngineImportId,
     roots: RootSet,
     state: NativeState,
+    entry: Option<NativeCallback>,
 }
 
 impl NativeInvocation {
@@ -79,6 +87,7 @@ impl NativeInvocation {
                 "native continuation argument count",
             ));
         }
+        let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation))) => {
                 NativeState::Enum(EnumInvocation::start(
@@ -90,9 +99,48 @@ impl NativeInvocation {
             }
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
                 operation,
-            ))) => NativeState::Iterator(IteratorInvocation::start(
-                runtime, operation, contract, arguments,
-            )?),
+            ))) => {
+                let target = if matches!(
+                    operation,
+                    NativeDefaultMethod::Sum | NativeDefaultMethod::Product
+                ) {
+                    Some(
+                        contract
+                            .witnesses
+                            .iter()
+                            .find(|witness| {
+                                witness.receiver == contract.signature.result
+                                    && StandardTrait::from_id(&witness.interface.declaration)
+                                        == Some(if operation == NativeDefaultMethod::Sum {
+                                            StandardTrait::Sum
+                                        } else {
+                                            StandardTrait::Product
+                                        })
+                            })
+                            .ok_or_else(|| {
+                                RuntimeError::module_validation("missing aggregation witness")
+                            })?,
+                    )
+                } else {
+                    None
+                };
+                if let Some(witness) = target.filter(|witness| {
+                    witness.implementation != NativeWitnessImplementation::Primitive
+                }) {
+                    entry = Some(protocols::aggregate(
+                        runtime,
+                        &implementation,
+                        witness,
+                        arguments[0].clone(),
+                        &contract.signature.params[0],
+                    )?);
+                    NativeState::Forward
+                } else {
+                    NativeState::Iterator(IteratorInvocation::start(
+                        runtime, operation, contract, arguments,
+                    )?)
+                }
+            }
             _ => {
                 return Err(RuntimeError::module_validation(
                     "invalid native continuation binding",
@@ -110,6 +158,7 @@ impl NativeInvocation {
                         NativeState::Iterator(state) => state.initial.take().ok_or_else(|| {
                             RuntimeError::module_validation("missing terminal initial roots")
                         })?,
+                        NativeState::Forward => vec![],
                     })
                     .collect(),
             )
@@ -122,7 +171,14 @@ impl NativeInvocation {
             destination,
             roots,
             state,
+            entry,
         })
+    }
+
+    pub(crate) fn take_entry(&mut self) -> NativeProgress {
+        self.entry
+            .take()
+            .map_or(NativeProgress::Continue, NativeProgress::Callback)
     }
 
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
@@ -137,13 +193,37 @@ impl NativeInvocation {
             NativeState::Iterator(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
+            NativeState::Forward => Err(RuntimeError::module_validation(
+                "aggregation callback is pending",
+            )),
         }
     }
 
-    pub(crate) fn receive(&mut self, runtime: &Runtime, value: Value) -> Result<(), RuntimeError> {
+    pub(crate) fn receive(
+        &mut self,
+        runtime: &Runtime,
+        value: Value,
+    ) -> Result<NativeAction, RuntimeError> {
         match &mut self.state {
-            NativeState::Enum(state) => state.receive(runtime, &self.roots, value),
-            NativeState::Iterator(state) => state.receive(runtime, &self.roots, value),
+            NativeState::Enum(state) => state
+                .receive(runtime, &self.roots, value)
+                .map(|()| NativeAction::Continue),
+            NativeState::Iterator(state) => state
+                .receive(runtime, &self.roots, value)
+                .map(|()| NativeAction::Continue),
+            NativeState::Forward => {
+                let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
+                if !runtime.matches_interface_method_abi(
+                    &value,
+                    &contract.signature.result,
+                    &self.implementation,
+                ) {
+                    return Err(RuntimeError::module_validation(
+                        "aggregation callback result mismatch",
+                    ));
+                }
+                Ok(NativeAction::Complete(value))
+            }
         }
     }
 }

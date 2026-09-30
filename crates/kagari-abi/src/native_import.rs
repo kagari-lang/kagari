@@ -62,6 +62,10 @@ pub struct NativeWitness {
     pub receiver: AbiType,
     pub interface: NominalAbiType,
     pub implementation: NativeWitnessImplementation,
+    /// Concrete required-method applications selected by the source producer.
+    /// Signatures and obligations remain in the carried trait declarations.
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub methods: Vec<ConcreteFunctionIdentity>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +113,12 @@ impl EngineNativeImport {
             })
             || self.witnesses.iter().any(|witness| {
                 !valid(&witness.receiver)
+                    || witness.methods.len() > MAX_TYPE_NODES
+                    || witness.methods.iter().any(|method| {
+                        !method.declaration.within_path_limit()
+                            || method.arguments.len() > MAX_TYPE_NODES
+                            || !method.arguments.iter().all(&valid)
+                    })
                     || !nominal(&witness.interface)
                     || match &witness.implementation {
                         NativeWitnessImplementation::Table(instance) => {
@@ -151,6 +161,8 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::MinByKey
                     | NativeDefaultMethod::MaxByKey
                     | NativeDefaultMethod::Join
+                    | NativeDefaultMethod::Sum
+                    | NativeDefaultMethod::Product
             )
         ) {
             let mut bounds = self.requirements.clone();

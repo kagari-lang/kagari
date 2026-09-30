@@ -16,6 +16,98 @@ use kagari_bytecode as bytecode;
 use kagari_bytecode::verify_program;
 
 #[test]
+fn native_aggregation_rejects_forged_generic_method_applications() {
+    for (operation, method) in [
+        (NativeDefaultMethod::Sum, "sum"),
+        (NativeDefaultMethod::Product, "product"),
+    ] {
+        let declarations = r#"
+struct Bucket<T> {val items:ArrayList<T>}
+impl<T> Sum<T> for Bucket<T> {fn sum<I:Iterable<Item=T>>(source:I)->Self {val items:ArrayList<T> = ArrayList::new();for item in source {items.push(item);}Bucket{items}}}
+impl<T> Product<T> for Bucket<T> {fn product<I:Iterable<Item=T>>(source:I)->Self {val items:ArrayList<T> = ArrayList::new();for item in source {items.push(item);}Bucket{items}}}
+"#;
+        let program = common::bytecode_ok(&format!(
+            "{declarations}\nfn main()->Bucket<i32> {{[20,22].iter().{method}()}}"
+        ));
+        let root = program.root.index();
+        let import = program.modules[root]
+            .engine_imports
+            .iter()
+            .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
+            .unwrap();
+        let destination = program.modules[root].engine_imports[import]
+            .witnesses
+            .iter()
+            .position(|witness| {
+                StandardTrait::from_id(&witness.interface.declaration)
+                    .is_some_and(StandardTrait::aggregation)
+            })
+            .unwrap();
+        verify_program(&program).unwrap();
+        let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+        for mutation in 0..12 {
+            let mut forged = artifact.clone();
+            let contract = &mut forged.program.modules[root].engine_imports[import];
+            let witness = &mut contract.witnesses[destination];
+            match mutation {
+                0 => {
+                    contract.witnesses.remove(destination);
+                }
+                1 => witness.implementation = NativeWitnessImplementation::Primitive,
+                2 => witness.methods.clear(),
+                3 => {
+                    witness.methods[0].arguments.pop();
+                }
+                4 => witness.methods[0].arguments[1] = AbiType::Builtin(BuiltinType::I32),
+                5 => {
+                    witness.methods[0].declaration.path.last_mut().unwrap().name = "missing".into()
+                }
+                6 => witness.methods.push(witness.methods[0].clone()),
+                7 => {
+                    let NativeWitnessImplementation::Table(instance) = &mut witness.implementation
+                    else {
+                        unreachable!()
+                    };
+                    instance.arguments[0] = AbiType::Builtin(BuiltinType::U32);
+                }
+                8 => contract.requirements.clear(),
+                9 => contract.signature.result = AbiType::Builtin(BuiltinType::I32),
+                10 => {
+                    let target = witness.methods[0].clone();
+                    let module = &mut forged.program.modules[root];
+                    let function = module
+                        .functions
+                        .iter_mut()
+                        .find(|function| function.identity.as_ref() == Some(&target))
+                        .unwrap();
+                    let id = function.id;
+                    function.identity = None;
+                    module.function_table[id.index()].identity = None;
+                    for table in &mut module.interface_tables {
+                        table.methods.retain(|method| method.function != id);
+                    }
+                }
+                _ => witness.methods[0].arguments[0] = AbiType::Builtin(BuiltinType::U32),
+            }
+            assert!(
+                verify_program(&forged.program).is_err(),
+                "{operation:?} mutation {mutation}"
+            );
+            let bytes = DefaultOptions::new()
+                .with_fixint_encoding()
+                .with_little_endian()
+                .serialize(&forged)
+                .unwrap();
+            assert!(
+                !KbcArtifact::from_bytes(&bytes)
+                    .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
+                "encoded {operation:?} mutation {mutation}"
+            );
+        }
+    }
+}
+
+#[test]
 fn native_extrema_reject_forged_ordering_witnesses_and_missing_targets() {
     let program = common::bytecode_ok(
         r#"

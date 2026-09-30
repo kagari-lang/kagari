@@ -1,7 +1,9 @@
 use kagari_abi::{callable::NativeCall, native_import::EngineNativeOperation};
 use kagari_abi::{operations::IterOp, standard::StandardIntrinsic};
 use kagari_bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
-use kagari_runtime::{HostPathDescriptorId, numeric, range::RangeValue, value::Value};
+use kagari_runtime::{
+    HostPathDescriptorId, NativeProgress, numeric, range::RangeValue, value::Value,
+};
 use std::iter;
 
 use crate::{error::VmError, executor::Executor};
@@ -486,7 +488,15 @@ impl<'a> Executor<'a> {
                     EngineNativeOperation::Resumable(_) => self
                         .stack
                         .begin_native(self.runtime, import, &arg_values, dst)
-                        .map_err(VmError::RuntimeError),
+                        .map_err(VmError::RuntimeError)
+                        .and_then(|progress| match progress {
+                            NativeProgress::Continue | NativeProgress::Finished => Ok(()),
+                            NativeProgress::Callback(request) => self
+                                .stack
+                                .push_native_callback(self.runtime, request)
+                                .map_err(VmError::RuntimeError),
+                            NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
+                        }),
                 }
             }
             CallTarget::Native(NativeCall::Host(import)) => {

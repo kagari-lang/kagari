@@ -1,0 +1,144 @@
+//! Validate selected required-method applications against carried declarations.
+use crate::{
+    callable::EngineNativeBinding,
+    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
+    standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
+    types::{
+        AbiType, ConcreteFunctionIdentity, InterfaceTableAbi,
+        proofs::ProofCatalog,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
+};
+use std::slice;
+
+pub(super) fn valid<'a>(
+    import: &EngineNativeImport,
+    catalog: &ProofCatalog<'_>,
+    table: impl Fn(&DefinitionId) -> Option<&'a InterfaceTableAbi>,
+    callable: impl Fn(&ConcreteFunctionIdentity) -> Option<NativeSignature>,
+    cancel: &CancellationToken,
+) -> Result<bool, TypeTransformError> {
+    for witness in &import.witnesses {
+        let protocol = StandardTrait::from_id(&witness.interface.declaration);
+        let aggregate = matches!(
+            import.binding,
+            EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Sum | NativeDefaultMethod::Product
+            )
+        ) && protocol.is_some_and(StandardTrait::aggregation);
+        let invoked = matches!(import.binding, EngineNativeBinding::TraitDefault(_))
+            && (matches!(protocol, Some(StandardTrait::Iterator | StandardTrait::Ord))
+                || aggregate);
+        if !invoked
+            || (protocol == Some(StandardTrait::Iterator)
+                && matches!(witness.receiver, AbiType::Iter(_)))
+            || ((protocol == Some(StandardTrait::Ord) || aggregate)
+                && witness.implementation == NativeWitnessImplementation::Primitive)
+        {
+            if !witness.methods.is_empty() {
+                return Ok(false);
+            }
+            continue;
+        }
+        let NativeWitnessImplementation::Table(instance) = &witness.implementation else {
+            return Ok(false);
+        };
+        let Some(declared) = catalog.method(&witness.interface.declaration, 0) else {
+            return Ok(false);
+        };
+        let Some(table) =
+            table(&instance.declaration).and_then(|table| table.instantiate(&instance.arguments))
+        else {
+            return Ok(false);
+        };
+        if !table
+            .methods
+            .iter()
+            .any(|method| method.name == declared.name)
+        {
+            return Ok(false);
+        }
+        let mut target = instance.clone();
+        target.declaration.path.push(DefinitionPathSegment {
+            kind: DefinitionKind::Method,
+            name: declared.name.clone(),
+            occurrence: 0,
+        });
+        let method_arguments = if aggregate {
+            &import.signature.params[..1]
+        } else {
+            &[]
+        };
+        target.arguments.extend_from_slice(method_arguments);
+        if witness.methods.as_slice() != slice::from_ref(&target)
+            || declared.generic_params.len() != method_arguments.len()
+        {
+            return Ok(false);
+        }
+        let mut substitution = TypeSubstitution::default();
+        substitution.bind_receiver(&witness.interface.declaration, &witness.receiver);
+        let Some(parameters) = catalog.parameters(&witness.interface.declaration) else {
+            return Ok(false);
+        };
+        if parameters.len() != witness.interface.arguments.len() {
+            return Ok(false);
+        }
+        for (parameter, argument) in parameters.iter().zip(&witness.interface.arguments) {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
+        for (parameter, argument) in declared.generic_params.iter().zip(method_arguments) {
+            substitution.bind(&parameter.owner, parameter.position, argument);
+        }
+        let normalize = |ty: &AbiType| catalog.normalize(&substitution.apply(ty, cancel)?, cancel);
+        let expected = NativeSignature {
+            params: declared
+                .params
+                .iter()
+                .map(|parameter| normalize(&parameter.ty))
+                .collect::<Result<_, _>>()?,
+            result: normalize(&declared.return_type)?,
+        };
+        for bound in substitution.apply_bounds(&declared.bounds, cancel)? {
+            if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
+                return Ok(false);
+            }
+        }
+        // Declarations supply semantic contracts; consumers guard the physical
+        // arguments and results they actually pass across the callback boundary.
+        let valid = match protocol {
+            Some(StandardTrait::Iterator) => {
+                let item_id = associated_type_id(&witness.interface.declaration, "Item");
+                expected.params.as_slice() == slice::from_ref(&witness.receiver)
+                    && witness
+                        .interface
+                        .associated_types
+                        .get(&item_id)
+                        .is_some_and(|item| {
+                            matches!(&expected.result, AbiType::StandardEnum {
+                            kind: StandardEnum::Option, args
+                        } if args.as_slice() == slice::from_ref(item))
+                        })
+            }
+            Some(StandardTrait::Ord) => {
+                expected.params.as_slice() == [witness.receiver.clone(), witness.receiver.clone()]
+                    && matches!(&expected.result, AbiType::StandardEnum {
+                        kind: StandardEnum::Ordering, args
+                    } if args.is_empty())
+            }
+            Some(StandardTrait::Sum | StandardTrait::Product) if aggregate => {
+                expected.params == import.signature.params
+                    && expected.result == witness.receiver
+                    && expected.result == import.signature.result
+            }
+            _ => false,
+        };
+        if !valid || callable(&target).as_ref() != Some(&expected) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}

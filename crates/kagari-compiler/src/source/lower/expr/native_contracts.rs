@@ -126,6 +126,7 @@ impl FunctionLowerer<'_, '_> {
                     receiver: bound.ty.clone(),
                     interface: interface.clone(),
                     implementation,
+                    methods: vec![],
                 };
                 if !witnesses.contains(&witness) {
                     witnesses.push(witness);

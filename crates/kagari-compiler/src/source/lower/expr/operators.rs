@@ -310,6 +310,8 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::MinByKey
                     | NativeDefaultMethod::MaxByKey
                     | NativeDefaultMethod::Join
+                    | NativeDefaultMethod::Sum
+                    | NativeDefaultMethod::Product
             ) {
                 return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
@@ -389,26 +391,6 @@ impl FunctionLowerer<'_, '_> {
                     &method,
                     &[],
                     &[iterator, args[1]],
-                );
-            }
-            if matches!(
-                operation,
-                NativeDefaultMethod::Sum | NativeDefaultMethod::Product
-            ) {
-                let protocol = if operation == NativeDefaultMethod::Sum {
-                    StandardTrait::Sum
-                } else {
-                    StandardTrait::Product
-                };
-                let target = &method_arguments[0];
-                let mut contract = protocol.nominal();
-                contract.arguments.push(self.iterator_item(&ty)?);
-                return self.lower_applied_method(
-                    contract,
-                    target.clone(),
-                    &self.protocol_method(protocol, 0)?,
-                    slice::from_ref(&ty),
-                    args,
                 );
             }
             if matches!(

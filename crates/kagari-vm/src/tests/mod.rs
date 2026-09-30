@@ -8,6 +8,7 @@ mod jit;
 mod mutation_resources;
 mod native_continuations;
 mod native_enum_families;
+mod native_iterator_aggregates;
 mod native_iterator_decisions;
 mod native_iterator_extrema;
 mod native_iterator_join;

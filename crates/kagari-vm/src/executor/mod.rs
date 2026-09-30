@@ -64,13 +64,16 @@ impl<'a> Executor<'a> {
                 let result = self
                     .stack
                     .advance_native(self.runtime)
+                    .map_err(VmError::RuntimeError)
                     .and_then(|progress| match progress {
                         NativeProgress::Continue | NativeProgress::Finished => Ok(()),
-                        NativeProgress::Callback(request) => {
-                            self.stack.push_native_callback(self.runtime, request)
-                        }
+                        NativeProgress::Callback(request) => self
+                            .stack
+                            .push_native_callback(self.runtime, request)
+                            .map_err(VmError::RuntimeError),
+                        NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
                     });
-                self.report_operation(result.map_err(VmError::RuntimeError))?;
+                self.report_operation(result)?;
                 continue;
             }
             self.current_frame_mut()?.prepare_instruction();

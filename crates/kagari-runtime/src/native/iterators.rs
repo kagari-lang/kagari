@@ -6,17 +6,21 @@ use crate::{
         NativeAction, callback,
         protocols::{self, ProtocolStep},
     },
+    numeric,
     value::{EnumTag, Value},
 };
 use kagari_abi::{
     native_import::{EngineNativeImport, NativeWitness},
     operations::IterOp,
+    representation::ValueType,
+    scalar::BuiltinType,
     standard::{
         StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum,
         traits::StandardTrait,
     },
     types::AbiType,
 };
+use kagari_bytecode::BinaryOp;
 use kagari_common::identity::associated_type_id;
 const RESULT: usize = 0;
 const NEXT: usize = 1;
@@ -55,6 +59,17 @@ enum DecisionPhase {
     Compare,
 }
 
+#[derive(Clone, Copy)]
+enum RangeCheck {
+    Message,
+    Minimum,
+    MinimumCompare,
+    MinimumAssert,
+    Maximum,
+    MaximumCompare,
+    MaximumAssert,
+}
+
 enum Phase {
     DecisionStep(DecisionPhase),
     Begin,
@@ -81,6 +96,8 @@ enum Phase {
     End,
     Append,
     Join,
+    Aggregate,
+    RangeCheck(RangeCheck),
 }
 
 pub(super) struct IteratorInvocation {
@@ -105,6 +122,20 @@ impl IteratorInvocation {
         arguments: &[Value],
     ) -> Result<Self, RuntimeError> {
         let initial = match operation {
+            NativeDefaultMethod::Sum | NativeDefaultMethod::Product => {
+                let AbiType::Builtin(scalar) = contract.signature.result else {
+                    return Err(invalid());
+                };
+                let one = operation == NativeDefaultMethod::Product;
+                match AbiType::Builtin(scalar).representation() {
+                    ValueType::I32 => Value::I32(i32::from(one)),
+                    ValueType::I64 => Value::I64(i64::from(one)),
+                    ValueType::U64 => Value::U64(u64::from(one)),
+                    ValueType::F32 => Value::F32(if one { 1.0 } else { 0.0 }),
+                    ValueType::F64 => Value::F64(if one { 1.0 } else { 0.0 }),
+                    _ => return Err(invalid()),
+                }
+            }
             NativeDefaultMethod::Join => runtime
                 .invoke_standard_builtin(StandardIntrinsic::ArrayListNew, &[])
                 .map_err(|error| error.into_runtime_error())?,
@@ -562,6 +593,7 @@ impl IteratorInvocation {
                     NativeDefaultMethod::Count => Phase::One,
                     NativeDefaultMethod::Last => Phase::Move,
                     NativeDefaultMethod::Join => Phase::Append,
+                    NativeDefaultMethod::Sum | NativeDefaultMethod::Product => Phase::Aggregate,
                     NativeDefaultMethod::Nth => Phase::DecisionStep(DecisionPhase::CounterZero),
                     NativeDefaultMethod::Reduce
                     | NativeDefaultMethod::MinBy
@@ -680,7 +712,12 @@ impl IteratorInvocation {
             Phase::Move => {
                 let slot = if self.operation == NativeDefaultMethod::Last {
                     NEXT
-                } else if self.operation == NativeDefaultMethod::Fold {
+                } else if matches!(
+                    self.operation,
+                    NativeDefaultMethod::Fold
+                        | NativeDefaultMethod::Sum
+                        | NativeDefaultMethod::Product
+                ) {
                     CALLBACK
                 } else {
                     ITEM
@@ -714,6 +751,61 @@ impl IteratorInvocation {
                     .map_err(|error| error.into_runtime_error())?;
                 self.phase = Phase::BodyJump;
             }
+            Phase::Aggregate => {
+                let value = numeric::binary(
+                    if self.operation == NativeDefaultMethod::Sum {
+                        BinaryOp::Add
+                    } else {
+                        BinaryOp::Mul
+                    },
+                    self.get(roots, RESULT)?,
+                    self.get(roots, ITEM)?,
+                )?;
+                self.set(runtime, roots, CALLBACK, value)?;
+                self.phase = if self.integer_bounds(contract).is_some() {
+                    Phase::RangeCheck(RangeCheck::Message)
+                } else {
+                    Phase::Move
+                };
+            }
+            Phase::RangeCheck(step) => {
+                let (minimum, maximum) = self.integer_bounds(contract).ok_or_else(invalid)?;
+                self.phase = match step {
+                    RangeCheck::Message => Phase::RangeCheck(RangeCheck::Minimum),
+                    RangeCheck::Minimum => Phase::RangeCheck(RangeCheck::MinimumCompare),
+                    RangeCheck::Maximum => Phase::RangeCheck(RangeCheck::MaximumCompare),
+                    RangeCheck::MinimumCompare | RangeCheck::MaximumCompare => {
+                        let value = match self.get(roots, CALLBACK)? {
+                            Value::I32(value) => i64::from(value),
+                            Value::I64(value) => value,
+                            _ => return Err(invalid()),
+                        };
+                        self.present = match step {
+                            RangeCheck::MinimumCompare => value >= minimum,
+                            _ => value <= maximum,
+                        };
+                        Phase::RangeCheck(match step {
+                            RangeCheck::MinimumCompare => RangeCheck::MinimumAssert,
+                            _ => RangeCheck::MaximumAssert,
+                        })
+                    }
+                    RangeCheck::MinimumAssert | RangeCheck::MaximumAssert => {
+                        if let Err(error) = runtime.invoke_standard_builtin(
+                            StandardIntrinsic::DebugAssert,
+                            &[
+                                Value::Bool(self.present),
+                                Value::Str("integer overflow".into()),
+                            ],
+                        ) {
+                            return Ok(NativeAction::BuiltinFailure(error));
+                        }
+                        match step {
+                            RangeCheck::MinimumAssert => Phase::RangeCheck(RangeCheck::Maximum),
+                            _ => Phase::Move,
+                        }
+                    }
+                };
+            }
             Phase::Join => {
                 let value = runtime
                     .invoke_standard_builtin(
@@ -730,6 +822,16 @@ impl IteratorInvocation {
             | Phase::WaitingComparison => return Err(invalid()),
         }
         Ok(NativeAction::Continue)
+    }
+    fn integer_bounds(&self, contract: &EngineNativeImport) -> Option<(i64, i64)> {
+        match contract.signature.result {
+            AbiType::Builtin(BuiltinType::I8) => Some((i64::from(i8::MIN), i64::from(i8::MAX))),
+            AbiType::Builtin(BuiltinType::I16) => Some((i64::from(i16::MIN), i64::from(i16::MAX))),
+            AbiType::Builtin(BuiltinType::U8) => Some((0, i64::from(u8::MAX))),
+            AbiType::Builtin(BuiltinType::U16) => Some((0, i64::from(u16::MAX))),
+            AbiType::Builtin(BuiltinType::U32) => Some((0, i64::from(u32::MAX))),
+            _ => None,
+        }
     }
     pub(super) fn receive(
         &mut self,

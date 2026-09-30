@@ -1,5 +1,5 @@
 use crate::{MirLoweringError, MirLoweringOptions, source::lower};
-use kagari_abi::types::ConcreteFunctionIdentity;
+use kagari_abi::{callable::NativeCall, types::ConcreteFunctionIdentity};
 use kagari_common::{DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_mir::{
@@ -88,27 +88,35 @@ pub fn lower_program_to_mir(
             modules.push(lowered.into_unverified());
         }
         let mut changed = false;
-        for contract in modules
+        for instance in modules
             .iter()
             .flat_map(|module| &module.functions)
             .flat_map(|function| &function.blocks)
             .flat_map(|block| &block.instructions)
-            .filter_map(|instruction| match instruction {
+            .flat_map(|instruction| match instruction {
                 Instruction::Call {
                     callee: CallTarget::SourceFunction(contract),
                     ..
-                } if !contract.arguments.is_empty() => Some(contract),
-                _ => None,
+                } if !contract.arguments.is_empty() => vec![ConcreteFunctionIdentity {
+                    declaration: contract.declaration.clone(),
+                    arguments: contract.arguments.clone(),
+                }],
+                Instruction::Call {
+                    callee: CallTarget::Native(NativeCall::Engine(contract)),
+                    ..
+                } => contract
+                    .witnesses
+                    .iter()
+                    .flat_map(|witness| &witness.methods)
+                    .cloned()
+                    .collect(),
+                _ => vec![],
             })
         {
             options.cancel.check().map_err(|_| ProgramError {
                 module: Box::new(root.clone()),
                 kind: ProgramErrorKind::Cancelled,
             })?;
-            let instance = ConcreteFunctionIdentity {
-                declaration: contract.declaration.clone(),
-                arguments: contract.arguments.clone(),
-            };
             if seen.insert(instance.clone()) {
                 requests
                     .entry(instance.declaration.module.clone())
@@ -171,6 +179,20 @@ pub fn lower_program_to_mir(
                     kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
                 })?;
             for method in owner.aggregates.implementation_methods(signature) {
+                if owner
+                    .aggregates
+                    .trait_(&signature.trait_type.declaration)
+                    .is_some_and(|contract| {
+                        contract.methods.iter().any(|required| {
+                            required.id.path.last() == method.path.last()
+                                && required.generic_params.len() > contract.generic_params.len()
+                        })
+                    })
+                {
+                    // Method generics need the concrete application carried by
+                    // a source call or native witness, not just impl arguments.
+                    continue;
+                }
                 let instance = ConcreteFunctionIdentity {
                     declaration: method.clone(),
                     arguments: arguments.clone(),

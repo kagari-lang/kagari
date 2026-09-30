@@ -27,10 +27,10 @@ impl ExecutionStack {
         import: EngineImportId,
         arguments: &[Value],
         destination: Option<Register>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<NativeProgress, RuntimeError> {
         self.validate_native_runtime(runtime)?;
         let implementation = self.current()?.loaded().clone();
-        let invocation =
+        let mut invocation =
             NativeInvocation::start(runtime, implementation, import, arguments, destination)?;
         let mut frame = self.current_mut()?;
         if frame.native.is_some() {
@@ -39,8 +39,9 @@ impl ExecutionStack {
                 .resources
                 .quarantine("native invocation replaced its continuation"));
         }
+        let progress = invocation.take_entry();
         frame.native = Some(invocation);
-        Ok(())
+        Ok(progress)
     }
 
     pub fn has_native_continuation(&self) -> Result<bool, RuntimeError> {
@@ -63,6 +64,7 @@ impl ExecutionStack {
         match action? {
             NativeAction::Continue => Ok(NativeProgress::Continue),
             NativeAction::Callback(request) => Ok(NativeProgress::Callback(request)),
+            NativeAction::BuiltinFailure(error) => Ok(NativeProgress::BuiltinFailure(error)),
             NativeAction::Publish(value) => {
                 if let Some(destination) = destination {
                     frame.write_register(destination, value)?;
@@ -127,11 +129,26 @@ impl ExecutionStack {
                 frame.write_register(destination, value)?
             }
             ReturnDestination::Register(None) => {}
-            ReturnDestination::Native => frame
-                .native
-                .as_mut()
-                .ok_or_else(|| RuntimeError::module_validation("native callback lost its caller"))?
-                .receive(runtime, value)?,
+            ReturnDestination::Native => {
+                let invocation = frame.native.as_mut().ok_or_else(|| {
+                    RuntimeError::module_validation("native callback lost its caller")
+                })?;
+                let destination = invocation.destination;
+                match invocation.receive(runtime, value)? {
+                    NativeAction::Continue => {}
+                    NativeAction::Complete(value) => {
+                        if let Some(destination) = destination {
+                            frame.write_register(destination, value)?;
+                        }
+                        frame.native = None;
+                    }
+                    _ => {
+                        return Err(RuntimeError::module_validation(
+                            "invalid native callback return action",
+                        ));
+                    }
+                }
+            }
         }
         Ok(None)
     }

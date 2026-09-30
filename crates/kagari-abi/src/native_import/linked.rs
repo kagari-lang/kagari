@@ -2,7 +2,7 @@
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
-    standard::{intrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::{intrinsic, traits::StandardTrait},
     types::{
         AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi,
         NativeDeclaration, matching,
@@ -12,9 +12,11 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
+    identity::{DefinitionId, DefinitionKind},
 };
-use std::{collections::HashSet, iter, slice};
+use std::{collections::HashSet, iter};
+
+mod protocols;
 
 impl EngineNativeImport {
     pub fn matches_declaration<'a>(
@@ -179,85 +181,6 @@ impl EngineNativeImport {
         if consumed.len() != self.witnesses.len() {
             return Ok(false);
         }
-        if matches!(self.binding, EngineNativeBinding::TraitDefault(_)) {
-            for witness in &self.witnesses {
-                let protocol = StandardTrait::from_id(&witness.interface.declaration);
-                if !matches!(protocol, Some(StandardTrait::Iterator | StandardTrait::Ord))
-                    || (protocol == Some(StandardTrait::Iterator)
-                        && matches!(witness.receiver, AbiType::Iter(_)))
-                    || (protocol == Some(StandardTrait::Ord)
-                        && witness.implementation == NativeWitnessImplementation::Primitive)
-                {
-                    continue;
-                }
-                let NativeWitnessImplementation::Table(instance) = &witness.implementation else {
-                    return Ok(false);
-                };
-                let Some(declared) = catalog.method(&witness.interface.declaration, 0) else {
-                    return Ok(false);
-                };
-                let Some(table) = table(&instance.declaration)
-                    .and_then(|table| table.instantiate(&instance.arguments))
-                else {
-                    return Ok(false);
-                };
-                if !table
-                    .methods
-                    .iter()
-                    .any(|method| method.name == declared.name)
-                {
-                    return Ok(false);
-                }
-                let mut target = instance.clone();
-                target.declaration.path.push(DefinitionPathSegment {
-                    kind: DefinitionKind::Method,
-                    name: declared.name.clone(),
-                    occurrence: 0,
-                });
-                if declared.generic_params.len() != witness.interface.arguments.len() {
-                    return Ok(false);
-                }
-                let mut substitution = TypeSubstitution::default();
-                substitution.bind_receiver(&witness.interface.declaration, &witness.receiver);
-                for (parameter, argument) in declared
-                    .generic_params
-                    .iter()
-                    .zip(&witness.interface.arguments)
-                {
-                    substitution.bind(&parameter.owner, parameter.position, argument);
-                }
-                let normalize =
-                    |ty: &AbiType| catalog.normalize(&substitution.apply(ty, cancel)?, cancel);
-                let expected = NativeSignature {
-                    params: declared
-                        .params
-                        .iter()
-                        .map(|parameter| normalize(&parameter.ty))
-                        .collect::<Result<_, _>>()?,
-                    result: normalize(&declared.return_type)?,
-                };
-                // The declaration supplies the signature; the native consumer
-                // additionally checks the storage/callback shape it actually uses.
-                let valid = match protocol {
-                    Some(StandardTrait::Iterator) => {
-                        expected.params.as_slice() == [witness.receiver.clone()]
-                            && witness.interface.associated_types.get(&associated_type_id(&witness.interface.declaration, "Item")).is_some_and(|item| matches!(&expected.result, AbiType::StandardEnum {kind:StandardEnum::Option,args} if args.as_slice() == slice::from_ref(item)))
-                    }
-                    Some(StandardTrait::Ord) => {
-                        expected.params.as_slice()
-                            == [witness.receiver.clone(), witness.receiver.clone()]
-                            && matches!(&expected.result, AbiType::StandardEnum {kind:StandardEnum::Ordering,args} if args.is_empty())
-                    }
-                    _ => false,
-                };
-                if !valid {
-                    return Ok(false);
-                }
-                if callable(&target).as_ref() != Some(&expected) {
-                    return Ok(false);
-                }
-            }
-        }
-        Ok(true)
+        protocols::valid(self, catalog, table, callable, cancel)
     }
 }
