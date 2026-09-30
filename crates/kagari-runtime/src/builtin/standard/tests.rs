@@ -1,10 +1,7 @@
 use super::*;
 use kagari_abi::standard::StandardIntrinsic;
 
-use crate::{
-    gc::{GcHeap, GcHeapConfig},
-    value::EphemeralValue,
-};
+use crate::gc::{GcHeap, GcHeapConfig};
 
 #[test]
 fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
@@ -37,43 +34,8 @@ fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
     );
 }
 
-#[derive(Default)]
-struct TestCallbacks {
-    seen: Vec<Value>,
-    result_value: Option<Value>,
-}
-
-impl BuiltinCallbacks for TestCallbacks {
-    fn call(&mut self, id: EphemeralValueId, args: &[Value]) -> Result<Value, BuiltinError> {
-        match id.0 {
-            1 => {
-                let [Value::I32(value)] = args else {
-                    return Err(BuiltinError::new("expected i32 callback input"));
-                };
-                Ok(Value::I32(value + 1))
-            }
-            2 => {
-                let [value] = args else {
-                    return Err(BuiltinError::new("expected callback input"));
-                };
-                self.seen.push(value.clone());
-                Ok(Value::Unit)
-            }
-            3 => self
-                .result_value
-                .clone()
-                .ok_or_else(|| BuiltinError::new("missing result callback value")),
-            _ => Err(BuiltinError::new("unknown callback")),
-        }
-    }
-}
-
 fn call(gc: &GcHeap, intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Value, BuiltinError> {
     invoke(gc, intrinsic, args)
-}
-
-fn callback(id: u64) -> Value {
-    Value::Ephemeral(EphemeralValue::Runtime(EphemeralValueId(id)))
 }
 
 fn option_variant(gc: &GcHeap, value: &Value) -> (String, Vec<Value>) {
@@ -82,15 +44,6 @@ fn option_variant(gc: &GcHeap, value: &Value) -> (String, Vec<Value>) {
     };
     let snapshot = gc.enum_snapshot(*handle).unwrap();
     assert_eq!(snapshot.tag.type_name(), "Option");
-    (snapshot.tag.variant_name().to_owned(), snapshot.fields)
-}
-
-fn result_variant(gc: &GcHeap, value: &Value) -> (String, Vec<Value>) {
-    let Value::Enum(handle) = value else {
-        panic!("expected enum value");
-    };
-    let snapshot = gc.enum_snapshot(*handle).unwrap();
-    assert_eq!(snapshot.tag.type_name(), "Result");
     (snapshot.tag.variant_name().to_owned(), snapshot.fields)
 }
 
@@ -264,8 +217,8 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
     );
     let some = option_some(&gc, Value::I32(10)).unwrap();
     let none = option_none(&gc).unwrap();
-    let ok = result_ok(&gc, Value::I32(7)).unwrap();
-    let err = result_err(&gc, Value::Str("no".to_owned())).unwrap();
+    let ok = enum_value(&gc, EnumTag::ResultOk, vec![Value::I32(7)]).unwrap();
+    let err = enum_value(&gc, EnumTag::ResultErr, vec![Value::Str("no".to_owned())]).unwrap();
 
     assert_eq!(
         call(
@@ -304,33 +257,10 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
         Value::Bool(true)
     );
 
-    let mut callbacks = TestCallbacks {
-        result_value: Some(result_ok(&gc, Value::I32(99)).unwrap()),
-        ..TestCallbacks::default()
-    };
-    let mapped = invoke_with_callbacks(
-        &gc,
-        StandardIntrinsic::OptionMap,
-        &[some, callback(1)],
-        &mut callbacks,
-    )
-    .unwrap();
-    assert_eq!(
-        option_variant(&gc, &mapped),
-        ("Some".to_owned(), vec![Value::I32(11)])
-    );
-
-    let chained = invoke_with_callbacks(
-        &gc,
-        StandardIntrinsic::ResultAndThen,
-        &[ok, callback(3)],
-        &mut callbacks,
-    )
-    .unwrap();
-    assert_eq!(
-        result_variant(&gc, &chained),
-        ("Ok".to_owned(), vec![Value::I32(99)])
-    );
+    // Callback semantics are covered by the source/decoded native family matrix.
+    // Unvalidated physical calls cannot select the resumable implementation.
+    assert!(call(&gc, StandardIntrinsic::OptionMap, &[some, Value::Unit]).is_err());
+    assert!(call(&gc, StandardIntrinsic::ResultAndThen, &[ok, Value::Unit]).is_err());
 }
 
 #[test]

@@ -511,7 +511,7 @@ fn mapped_result_error_rejects_invalid_contracts_and_registers() {
         scalar::BuiltinType, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
     };
     let module = common::bytecode_ok(
-        "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");r.map_err(|e|e)}",
+        "fn main()->Result<i32,String>{val r:Result<i32,String> = Err(\"error\");Ok(r?)}",
     );
     verify_program(&module).unwrap();
     for mutation in 0..4 {

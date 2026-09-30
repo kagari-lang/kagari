@@ -132,7 +132,34 @@ impl EngineNativeImport {
         }
         if matches!(
             self.binding,
-            EngineNativeBinding::Intrinsic(StandardIntrinsic::OptionUnwrapOrElse)
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::OptionUnwrapOrElse
+                    | StandardIntrinsic::OptionOrElse
+                    | StandardIntrinsic::OptionMapOr
+                    | StandardIntrinsic::OptionMapOrElse
+                    | StandardIntrinsic::OptionFilter
+                    | StandardIntrinsic::OptionIsSomeAnd
+                    | StandardIntrinsic::OptionZip
+                    | StandardIntrinsic::OptionFlatten
+                    | StandardIntrinsic::OptionTranspose
+                    | StandardIntrinsic::ResultUnwrapOrElse
+                    | StandardIntrinsic::ResultOrElse
+                    | StandardIntrinsic::ResultMapOr
+                    | StandardIntrinsic::ResultMapOrElse
+                    | StandardIntrinsic::ResultOk
+                    | StandardIntrinsic::ResultErr
+                    | StandardIntrinsic::ResultIsOkAnd
+                    | StandardIntrinsic::ResultIsErrAnd
+                    | StandardIntrinsic::ResultFlatten
+                    | StandardIntrinsic::ResultTranspose
+                    | StandardIntrinsic::OptionMap
+                    | StandardIntrinsic::OptionAndThen
+                    | StandardIntrinsic::OptionOkOr
+                    | StandardIntrinsic::OptionOkOrElse
+                    | StandardIntrinsic::ResultMap
+                    | StandardIntrinsic::ResultMapErr
+                    | StandardIntrinsic::ResultAndThen
+            )
         ) && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
         {
             return Some(EngineNativeOperation::Resumable(self.binding));

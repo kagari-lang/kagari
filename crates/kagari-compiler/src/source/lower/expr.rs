@@ -18,8 +18,8 @@ use kagari_hir::{
     types::abi::{lower_nominal_type, lower_type},
 };
 mod adapters;
+mod branches;
 mod collections;
-mod enum_extensions;
 mod equality;
 mod iterators;
 mod keys;

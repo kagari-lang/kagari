@@ -198,7 +198,7 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_state() {
         .unwrap();
     for corrupt in 0..3 {
         let mut program = artifact.program.clone();
-        let function = &mut program.modules[0].functions[0];
+        let function = &mut program.modules[program.root.index()].functions[0];
         if corrupt == 2 {
             let register = *function
                 .metadata
@@ -403,7 +403,7 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
             Default::default(),
         )
         .unwrap();
-    let read = artifact.program.modules[0]
+    let read = artifact.program.modules[artifact.program.root.index()]
         .functions
         .iter()
         .find(|f| f.name == "read")

@@ -49,13 +49,18 @@ impl ExecutionStack {
 
     pub fn advance_native(&self, runtime: &Runtime) -> Result<NativeProgress, RuntimeError> {
         self.validate_native_runtime(runtime)?;
-        let mut frame = self.current_mut()?;
-        let invocation = frame
+        let mut invocation = self
+            .current_mut()?
             .native
-            .as_mut()
+            .take()
             .ok_or_else(|| RuntimeError::module_validation("missing native continuation"))?;
         let destination = invocation.destination;
-        match invocation.advance(runtime)? {
+        // Rooted state remains owned here while allocations capture the caller
+        // stack. A frame borrow would hide its origin from Result error traces.
+        let action = invocation.advance(runtime);
+        let mut frame = self.current_mut()?;
+        frame.native = Some(invocation);
+        match action? {
             NativeAction::Continue => Ok(NativeProgress::Continue),
             NativeAction::Callback(request) => Ok(NativeProgress::Callback(request)),
             NativeAction::Publish(value) => {

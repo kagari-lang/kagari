@@ -7,6 +7,7 @@ mod helpers;
 mod jit;
 mod mutation_resources;
 mod native_continuations;
+mod native_enum_families;
 mod reentry_debug;
 mod security;
 mod sessions;

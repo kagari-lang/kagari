@@ -219,16 +219,6 @@ pub(super) fn verify(
             Intrinsic::OptionUnwrapOr | Intrinsic::ResultUnwrapOr,
             [ValueType::HeapObject, fallback],
         ) => *fallback,
-        (
-            Intrinsic::OptionOkOr
-            | Intrinsic::OptionOkOrElse
-            | Intrinsic::OptionMap
-            | Intrinsic::OptionAndThen
-            | Intrinsic::ResultMap
-            | Intrinsic::ResultMapErr
-            | Intrinsic::ResultAndThen,
-            [ValueType::HeapObject, _],
-        ) => ValueType::HeapObject,
         (Intrinsic::MathMin | Intrinsic::MathMax, [left, right])
             if numeric(*left) && left == right =>
         {

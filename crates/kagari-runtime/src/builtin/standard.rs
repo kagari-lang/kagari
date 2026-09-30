@@ -13,39 +13,16 @@ use crate::{
     error::RuntimeError,
     gc::{GcHeap, HeapObjectId},
     numeric, parsing, range,
-    value::{EnumTag, EnumValueSnapshot, EphemeralValue, EphemeralValueId, MapKey, Value},
+    value::{EnumTag, EnumValueSnapshot, MapKey, Value},
     value_semantics,
 };
 use kagari_abi::standard::StandardIntrinsic;
 use std::cmp::Ordering;
 
-pub trait BuiltinCallbacks {
-    fn call(&mut self, id: EphemeralValueId, args: &[Value]) -> Result<Value, BuiltinError>;
-}
-
-pub struct NoBuiltinCallbacks;
-
-impl BuiltinCallbacks for NoBuiltinCallbacks {
-    fn call(&mut self, _id: EphemeralValueId, _args: &[Value]) -> Result<Value, BuiltinError> {
-        Err(BuiltinError::new(
-            "standard helper callback is not available in this execution context",
-        ))
-    }
-}
-
 pub fn invoke(
     gc: &GcHeap,
     intrinsic: StandardIntrinsic,
     args: &[Value],
-) -> Result<Value, BuiltinError> {
-    invoke_with_callbacks(gc, intrinsic, args, &mut NoBuiltinCallbacks)
-}
-
-pub fn invoke_with_callbacks(
-    gc: &GcHeap,
-    intrinsic: StandardIntrinsic,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
 ) -> Result<Value, BuiltinError> {
     match intrinsic {
         StandardIntrinsic::MapContainsKey
@@ -316,26 +293,22 @@ pub fn invoke_with_callbacks(
         | StandardIntrinsic::ResultIsOkAnd
         | StandardIntrinsic::ResultIsErrAnd
         | StandardIntrinsic::ResultFlatten
-        | StandardIntrinsic::ResultTranspose => {
-            Err(BuiltinError::new("enum combinators require frame lowering"))
-        }
+        | StandardIntrinsic::ResultTranspose
+        | StandardIntrinsic::OptionMap
+        | StandardIntrinsic::OptionAndThen
+        | StandardIntrinsic::OptionOkOr
+        | StandardIntrinsic::OptionOkOrElse
+        | StandardIntrinsic::ResultMap
+        | StandardIntrinsic::ResultMapErr
+        | StandardIntrinsic::ResultAndThen => Err(BuiltinError::new(
+            "resumable engine binding requires a checked native call",
+        )),
         StandardIntrinsic::OptionIsSome => option_is_some(gc, args),
         StandardIntrinsic::OptionIsNone => option_is_none(gc, args),
         StandardIntrinsic::OptionUnwrapOr => option_unwrap_or(gc, args),
-        StandardIntrinsic::OptionMap => option_map(gc, args, callbacks),
-        StandardIntrinsic::OptionAndThen => option_and_then(gc, args, callbacks),
-        StandardIntrinsic::OptionOkOr | StandardIntrinsic::OptionOkOrElse => option_ok_or(
-            gc,
-            args,
-            callbacks,
-            intrinsic == StandardIntrinsic::OptionOkOrElse,
-        ),
         StandardIntrinsic::ResultIsOk => result_is_ok(gc, args),
         StandardIntrinsic::ResultIsErr => result_is_err(gc, args),
         StandardIntrinsic::ResultUnwrapOr => result_unwrap_or(gc, args),
-        StandardIntrinsic::ResultMap => result_map(gc, args, callbacks),
-        StandardIntrinsic::ResultMapErr => result_map_err(gc, args, callbacks),
-        StandardIntrinsic::ResultAndThen => result_and_then(gc, args, callbacks),
         StandardIntrinsic::MathMin => math_min(args),
         StandardIntrinsic::MathMax => math_max(args),
         StandardIntrinsic::MathClamp => math_clamp(args),
@@ -780,48 +753,6 @@ fn option_unwrap_or(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> 
     }
 }
 
-fn option_map(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    let [value, mapper] = args else {
-        return Err(BuiltinError::new("option.map expects option and mapper"));
-    };
-    let callback = callback_id(mapper, "option.map")?;
-    match option_snapshot(gc, value, "option.map")?.tag {
-        EnumTag::OptionSome => {
-            let next = callbacks.call(callback, &[option_payload(gc, value, "option.map")?])?;
-            option_some(gc, next)
-        }
-        EnumTag::OptionNone => option_none(gc),
-        _ => unreachable!(),
-    }
-}
-
-fn option_and_then(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    let [value, mapper] = args else {
-        return Err(BuiltinError::new(
-            "option.and_then expects option and mapper",
-        ));
-    };
-    let callback = callback_id(mapper, "option.and_then")?;
-    match option_snapshot(gc, value, "option.and_then")?.tag {
-        EnumTag::OptionSome => {
-            let next =
-                callbacks.call(callback, &[option_payload(gc, value, "option.and_then")?])?;
-            option_snapshot(gc, &next, "option.and_then mapper result")?;
-            Ok(next)
-        }
-        EnumTag::OptionNone => option_none(gc),
-        _ => unreachable!(),
-    }
-}
-
 fn result_is_ok(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> {
     let result = result_value(gc, args, "result.is_ok")?;
     Ok(Value::Bool(result.tag == EnumTag::ResultOk))
@@ -841,71 +772,6 @@ fn result_unwrap_or(gc: &GcHeap, args: &[Value]) -> Result<Value, BuiltinError> 
     match result_snapshot(gc, value, "result.unwrap_or")?.tag {
         EnumTag::ResultOk => result_payload(gc, value, "result.unwrap_or"),
         EnumTag::ResultErr => Ok(fallback.clone()),
-        _ => unreachable!(),
-    }
-}
-
-fn result_map(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    let [value, mapper] = args else {
-        return Err(BuiltinError::new("result.map expects result and mapper"));
-    };
-    let callback = callback_id(mapper, "result.map")?;
-    match result_snapshot(gc, value, "result.map")?.tag {
-        EnumTag::ResultOk => {
-            let next = callbacks.call(callback, &[result_payload(gc, value, "result.map")?])?;
-            result_ok(gc, next)
-        }
-        EnumTag::ResultErr => Ok(value.clone()),
-        _ => unreachable!(),
-    }
-}
-
-fn result_map_err(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    let [value, mapper] = args else {
-        return Err(BuiltinError::new(
-            "result.map_err expects result and mapper",
-        ));
-    };
-    let callback = callback_id(mapper, "result.map_err")?;
-    match result_snapshot(gc, value, "result.map_err")?.tag {
-        EnumTag::ResultOk => result_ok(gc, result_payload(gc, value, "result.map_err")?),
-        EnumTag::ResultErr => {
-            let next = callbacks.call(callback, &[result_payload(gc, value, "result.map_err")?])?;
-            gc.map_result_error(value, next)
-                .map(Value::Enum)
-                .map_err(Into::into)
-        }
-        _ => unreachable!(),
-    }
-}
-
-fn result_and_then(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    let [value, mapper] = args else {
-        return Err(BuiltinError::new(
-            "result.and_then expects result and mapper",
-        ));
-    };
-    let callback = callback_id(mapper, "result.and_then")?;
-    match result_snapshot(gc, value, "result.and_then")?.tag {
-        EnumTag::ResultOk => {
-            let next =
-                callbacks.call(callback, &[result_payload(gc, value, "result.and_then")?])?;
-            result_snapshot(gc, &next, "result.and_then mapper result")?;
-            Ok(next)
-        }
-        EnumTag::ResultErr => Ok(value.clone()),
         _ => unreachable!(),
     }
 }
@@ -1017,14 +883,6 @@ fn option_none(gc: &GcHeap) -> Result<Value, BuiltinError> {
     enum_value(gc, EnumTag::OptionNone, Vec::new())
 }
 
-fn result_ok(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
-    enum_value(gc, EnumTag::ResultOk, vec![value])
-}
-
-fn result_err(gc: &GcHeap, value: Value) -> Result<Value, BuiltinError> {
-    enum_value(gc, EnumTag::ResultErr, vec![value])
-}
-
 fn enum_value(gc: &GcHeap, tag: EnumTag, fields: Vec<Value>) -> Result<Value, BuiltinError> {
     gc.alloc_enum(tag, fields)
         .map(Value::Enum)
@@ -1101,40 +959,6 @@ fn result_payload(gc: &GcHeap, value: &Value, name: &'static str) -> Result<Valu
         .into_iter()
         .next()
         .ok_or_else(|| BuiltinError::new(format!("{name} result has no payload")))
-}
-
-fn callback_id(value: &Value, name: &'static str) -> Result<EphemeralValueId, BuiltinError> {
-    match value {
-        Value::Ephemeral(EphemeralValue::Runtime(id)) => Ok(*id),
-        _ => Err(BuiltinError::new(format!(
-            "{name} expects runtime callback token"
-        ))),
-    }
-}
-
-fn option_ok_or(
-    gc: &GcHeap,
-    args: &[Value],
-    callbacks: &mut dyn BuiltinCallbacks,
-    lazy: bool,
-) -> Result<Value, BuiltinError> {
-    let [value, error] = args else {
-        return Err(BuiltinError::new(
-            "option conversion expects option and error",
-        ));
-    };
-    match option_snapshot(gc, value, "option.ok_or")?.tag {
-        EnumTag::OptionSome => result_ok(gc, option_payload(gc, value, "option.ok_or")?),
-        EnumTag::OptionNone => {
-            let error = if lazy {
-                callbacks.call(callback_id(error, "option.ok_or_else")?, &[])?
-            } else {
-                error.clone()
-            };
-            result_err(gc, error)
-        }
-        _ => unreachable!(),
-    }
 }
 
 fn custom_key_operation(

@@ -1,16 +1,16 @@
 //! Bounded native method state retained by the caller's execution frame.
-mod option;
+mod enums;
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     gc::{ClosureValueSnapshot, RootSet},
-    native::option::OptionFallback,
+    native::enums::{EnumInvocation, SCRATCH_ROOTS},
     value::Value,
 };
 use kagari_abi::{
-    callable::EngineNativeBinding, native_import::EngineNativeOperation,
-    standard::StandardIntrinsic, types::AbiType,
+    callable::EngineNativeBinding, native_import::EngineNativeOperation, types::AbiType,
 };
 use kagari_bytecode::{EngineImportId, Register};
+use std::iter;
 
 /// A checked callback request. Its callable and arguments stay rooted by the
 /// suspended native invocation until the callback's frame has been entered.
@@ -35,7 +35,7 @@ pub(crate) enum NativeAction {
 }
 
 enum NativeState {
-    OptionFallback(OptionFallback),
+    Enum(EnumInvocation),
 }
 
 pub(crate) struct NativeInvocation {
@@ -65,9 +65,14 @@ impl NativeInvocation {
             ));
         }
         let state = match implementation.engine_binding(import) {
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::OptionUnwrapOrElse,
-            ))) => NativeState::OptionFallback(OptionFallback::start(runtime, &arguments[0])?),
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation))) => {
+                NativeState::Enum(EnumInvocation::start(
+                    runtime,
+                    operation,
+                    &contract.signature,
+                    arguments,
+                )?)
+            }
             _ => {
                 return Err(RuntimeError::module_validation(
                     "invalid native continuation binding",
@@ -76,7 +81,13 @@ impl NativeInvocation {
         };
         let roots = runtime
             .gc()
-            .root_execution_values(arguments.iter().cloned().chain([Value::Unit]).collect())
+            .root_execution_values(
+                arguments
+                    .iter()
+                    .cloned()
+                    .chain(iter::repeat_n(Value::Unit, SCRATCH_ROOTS))
+                    .collect(),
+            )
             .ok_or_else(|| {
                 RuntimeError::module_validation("invalid native continuation argument")
             })?;
@@ -92,7 +103,7 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
-            NativeState::OptionFallback(state) => state.advance(
+            NativeState::Enum(state) => state.advance(
                 runtime,
                 &self.implementation,
                 &contract.signature,
@@ -103,7 +114,7 @@ impl NativeInvocation {
 
     pub(crate) fn receive(&mut self, runtime: &Runtime, value: Value) -> Result<(), RuntimeError> {
         match &mut self.state {
-            NativeState::OptionFallback(state) => state.receive(runtime, &self.roots, value),
+            NativeState::Enum(state) => state.receive(runtime, &self.roots, value),
         }
     }
 }

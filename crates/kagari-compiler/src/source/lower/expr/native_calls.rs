@@ -393,45 +393,6 @@ impl FunctionLowerer<'_, '_> {
                 return self.lower_key_operation(intrinsic, key, &lowered);
             }
         }
-        if matches!(
-            intrinsic,
-            StandardIntrinsic::OptionOrElse
-                | StandardIntrinsic::OptionMapOr
-                | StandardIntrinsic::OptionMapOrElse
-                | StandardIntrinsic::OptionFilter
-                | StandardIntrinsic::OptionIsSomeAnd
-                | StandardIntrinsic::OptionZip
-                | StandardIntrinsic::OptionFlatten
-                | StandardIntrinsic::OptionTranspose
-                | StandardIntrinsic::ResultUnwrapOrElse
-                | StandardIntrinsic::ResultOrElse
-                | StandardIntrinsic::ResultMapOr
-                | StandardIntrinsic::ResultMapOrElse
-                | StandardIntrinsic::ResultOk
-                | StandardIntrinsic::ResultErr
-                | StandardIntrinsic::ResultIsOkAnd
-                | StandardIntrinsic::ResultIsErrAnd
-                | StandardIntrinsic::ResultFlatten
-                | StandardIntrinsic::ResultTranspose
-                | StandardIntrinsic::OptionMap
-                | StandardIntrinsic::OptionAndThen
-                | StandardIntrinsic::OptionOkOr
-                | StandardIntrinsic::OptionOkOrElse
-                | StandardIntrinsic::ResultMap
-                | StandardIntrinsic::ResultMapErr
-                | StandardIntrinsic::ResultAndThen
-        ) {
-            let base = receiver
-                .or_else(|| args.first().copied())
-                .ok_or(MirLoweringError::MissingBinding("standard receiver"))?;
-            let base_ty = self
-                .analyzed
-                .typed
-                .type_table
-                .expr_type(base)
-                .ok_or(MirLoweringError::MissingExprType(base))?;
-            return self.lower_standard_combinator(expr, intrinsic, &base_ty, &lowered);
-        }
         let contract = self.engine_native_contract(
             application.target,
             application.signature,

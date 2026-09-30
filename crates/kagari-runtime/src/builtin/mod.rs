@@ -57,16 +57,6 @@ pub fn invoke_standard(
         .map_err(|err| err.with_context(&standard_intrinsic_name(intrinsic)))
 }
 
-pub fn invoke_standard_with_callbacks(
-    gc: &GcHeap,
-    intrinsic: StandardIntrinsic,
-    args: &[Value],
-    callbacks: &mut dyn standard::BuiltinCallbacks,
-) -> Result<Value, BuiltinError> {
-    standard::invoke_with_callbacks(gc, intrinsic, args, callbacks)
-        .map_err(|err| err.with_context(&standard_intrinsic_name(intrinsic)))
-}
-
 fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> Cow<'static, str> {
     let name = match intrinsic {
         StandardIntrinsic::Integer(method, receiver) => {

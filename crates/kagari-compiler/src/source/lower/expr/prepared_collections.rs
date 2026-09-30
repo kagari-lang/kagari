@@ -184,7 +184,7 @@ impl FunctionLowerer<'_, '_> {
         let zero = self.usize_constant(0);
         self.prepared_indices(len, |this, index| {
             let first = this.query_binary(BinaryOp::Eq, index, zero, ValueType::Bool);
-            let keep = this.branch_enum_value(
+            let keep = this.branch_value(
                 first,
                 &boolean,
                 |this| Ok(this.lower_constant(Constant::Bool(true), ValueType::Bool)),
@@ -197,7 +197,7 @@ impl FunctionLowerer<'_, '_> {
                     Ok(this.query_binary(BinaryOp::Eq, equal, no, ValueType::Bool))
                 },
             )?;
-            this.branch_enum_value(
+            this.branch_value(
                 keep,
                 &TypeId::Builtin(BuiltinType::Unit),
                 |this| {
@@ -222,7 +222,7 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<MirValue, MirLoweringError> {
         let remaining = self.query_binary(BinaryOp::Sub, len, start, ValueType::U64);
         let short = self.query_binary(BinaryOp::Lt, remaining, width, ValueType::Bool);
-        self.branch_enum_value(
+        self.branch_value(
             short,
             &TypeId::Builtin(BuiltinType::USize),
             |_| Ok(len),
@@ -298,7 +298,7 @@ impl FunctionLowerer<'_, '_> {
                                     this.query_binary(BinaryOp::Lt, left, middle, ValueType::Bool);
                                 let b =
                                     this.query_binary(BinaryOp::Lt, right, end, ValueType::Bool);
-                                this.branch_enum_value(
+                                this.branch_value(
                                     a,
                                     &boolean,
                                     |this| {
@@ -311,7 +311,7 @@ impl FunctionLowerer<'_, '_> {
                             |this| {
                                 let left_available =
                                     this.query_binary(BinaryOp::Lt, left, middle, ValueType::Bool);
-                                let take_left = this.branch_enum_value(
+                                let take_left = this.branch_value(
                                     left_available,
                                     &boolean,
                                     |this| {
@@ -321,7 +321,7 @@ impl FunctionLowerer<'_, '_> {
                                             end,
                                             ValueType::Bool,
                                         );
-                                        this.branch_enum_value(
+                                        this.branch_value(
                                             right_done,
                                             &boolean,
                                             |this| {
@@ -387,7 +387,7 @@ impl FunctionLowerer<'_, '_> {
                                             .lower_constant(Constant::Bool(false), ValueType::Bool))
                                     },
                                 )?;
-                                let selected = this.branch_enum_value(
+                                let selected = this.branch_value(
                                     take_left,
                                     &decorated,
                                     |this| {

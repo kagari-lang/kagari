@@ -41,7 +41,7 @@ impl FunctionLowerer<'_, '_> {
             prepare(self, &[previous])
         } else {
             let present = self.standard_enum_op(&optional, Op::Test(0), Some(previous))?;
-            self.branch_enum_value(
+            self.branch_value(
                 present,
                 value,
                 |this| {

@@ -4,8 +4,9 @@ Status: active; ST00-ST04 implementation scope complete. Whole checked programs
 now retain their dependency closure through portable validation, artifact loading
 and engine/host integration. The workspace builds; compiler and VM library suites
 and selected embedding integration suites pass. Runtime-owned native continuations
-execute the representative Option fallback through the shared frame/session driver.
-ST05-ST06 remain pending: remaining algorithm migration, encoded fixtures and final acceptance.
+execute all migrated Option/Result algorithms through the shared frame/session
+driver, preserving the original logical charge schedule and error provenance.
+ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -488,7 +489,7 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
 
 ### ST05 — Migrate all standard execution families
 
-- [ ] Migrate Option/Result combinators and preserve original error provenance.
+- [x] Migrate Option/Result combinators and preserve original error provenance.
 - [ ] Migrate iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -784,6 +785,59 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 Option/Result family checkpoint (2026-09-30): completes the first phase
+  checklist as one producer-to-consumer migration. All 26 formerly expanded
+  Option/Result methods resolve their checked native import to the runtime enum
+  continuation. Source lowering emits the native call; the enum algorithm
+  expansions and duplicate synchronous callback implementations are removed.
+  Remaining direct predicates and eager unwrap helpers retain their existing Rust
+  implementation. No operand-count/signature catalog or compatibility route is
+  introduced; declaration applications, callback signatures and imported versions
+  still come from the carried checked facts.
+- Runtime `native/enums.rs` owns branch selection, payload access, callback
+  requests, construction and nested joins. Each original Test, Branch, Read,
+  Call, Make, Tuple, Move and Jump retains its individual driver charge and
+  safepoint. State roots arguments and intermediate values, and checked callback
+  entry validates the exact callable contract and pinned implementation. The
+  compiler's surviving generic value-join helper now lives in `expr/branches.rs`;
+  its collection callers remain owned by the pending family migration.
+- Result passthrough, `map_err`, flatten and transpose reuse the runtime's
+  provenance-preserving error mapping. New errors from Option conversion capture
+  the original public call location. Native advancement temporarily owns its
+  rooted state outside the frame borrow while allocations capture the caller
+  stack, then restores it before returning an action or error. This fixes the
+  empty error trace exposed by the existing conversion integration test without
+  holding a dynamic frame borrow across allocation. Core enum storage operations
+  and `MapResultError` remain language primitives for construction/propagation,
+  rather than another implementation of the public methods.
+- Before replacing the algorithms, recorded 59 branch cases at commit `0257db5`.
+  The durable VM matrix checks their exact results, eager argument effects,
+  callback selection and host-effect step positions. Source and decoded routes
+  pass all 2,716 executions at every budget cut through successful completion,
+  with collection threshold 1, zero retained roots/call depth, no quarantine and
+  no remaining heap objects after each session. Each case also checks that its
+  producer selects the resumable native import. Existing native continuation
+  coverage retains nested calls, traps, cancellation, debugger origins, reentry,
+  divergent callbacks and generation-pinned execution.
+- Removed `BuiltinCallbacks`, `NoBuiltinCallbacks` and the synchronous callback
+  entrypoints. Resumable methods require their checked native contract; forged
+  low-level standard calls reject rather than bypass it. Runtime ABI is now v108;
+  KBC v107, KMIR v5, helper ABI v6 and native binding v1 retain their schemas and
+  method contracts. ST06 owns encoded fixture regeneration. The low-level
+  error-mapping corruption test now uses actual language propagation. Two lazy
+  iterator corruption tests now select the complete program's root by identity,
+  preserving their forged-state and retained-callable assertions.
+- Validation: ABI 43, bytecode 27, MIR 1, runtime 71, compiler 166 and VM 130
+  library tests pass (438). Embedding `enum_combinators`, `error_traces`,
+  `result_option`, `callable_traits`, `enum_payloads`, `lazy_iterators` and `never`
+  pass 72 tests, including decoded and supported JIT/fallback routes (510 total).
+  Workspace all-target check, Clippy with warnings denied, formatting and diff
+  checks pass. Structure covers 567 Rust files with zero violations or documented
+  exceptions; changed imports, module ownership and public API removals were
+  manually reviewed. No new structural debt or carried integration errors.
+  This is family acceptance, not the ST06 workspace/matrix exit. Iterator defaults,
+  custom protocol destinations, lazy adapters, collections and final audits remain.
 
 - ST04 native continuation checkpoint (2026-09-30): completes all three phase
   checklists with `Option::unwrap_or_else` as the representative method. Checked

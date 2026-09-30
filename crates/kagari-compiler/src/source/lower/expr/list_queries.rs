@@ -100,7 +100,7 @@ impl FunctionLowerer<'_, '_> {
         let one = self.usize_constant(1);
         if operation == NativeDefaultMethod::ListLast {
             let empty = self.query_binary(BinaryOp::Eq, length, zero, ValueType::Bool);
-            let result = self.branch_enum_value(
+            let result = self.branch_value(
                 empty,
                 &optional,
                 |this| this.standard_enum_op(&optional, Op::Make(1), None),
