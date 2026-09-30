@@ -23,7 +23,12 @@ pub(super) fn valid(
         return false;
     };
     let AbiType::SelfType(owner) = receiver else {
-        return false;
+        if matches!(receiver, AbiType::Host(_) | AbiType::Trait(_)) {
+            return false;
+        }
+        return bound(bounds, receiver, StandardTrait::Iterator)
+            .and_then(|interface| member(interface, "Item"))
+            .is_some_and(|item| iterator(method, signature, bounds, item));
     };
     let Some(kind) = StandardTrait::from_id(owner) else {
         return false;

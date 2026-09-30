@@ -4,7 +4,7 @@ use crate::{
     callable::EngineNativeBinding,
     effects::{EffectSet, standard_intrinsic_effects},
     native_import::signature::validate,
-    standard::StandardIntrinsic,
+    standard::{StandardIntrinsic, bindings::NativeDefaultMethod},
     types::{
         AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, NominalAbiType,
         substitution::MAX_TYPE_NODES, verify::concrete_type_valid,
@@ -129,6 +129,27 @@ impl EngineNativeImport {
         }
         if let Some(operation) = validate(self.binding, &self.signature) {
             return Some(EngineNativeOperation::Direct(operation));
+        }
+        if matches!(
+            self.binding,
+            EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::Count
+                    | NativeDefaultMethod::Fold
+                    | NativeDefaultMethod::ForEach
+                    | NativeDefaultMethod::Find
+                    | NativeDefaultMethod::Any
+                    | NativeDefaultMethod::All
+                    | NativeDefaultMethod::Last
+            )
+        ) {
+            let mut bounds = self.requirements.clone();
+            bounds.extend(self.witnesses.iter().map(|witness| GenericBoundAbi {
+                ty: witness.receiver.clone(),
+                constraints: vec![ConstraintAbi::Trait(witness.interface.clone())],
+            }));
+            if contract::binding_signature_valid(self.binding, &self.signature, &bounds) {
+                return Some(EngineNativeOperation::Resumable(self.binding));
+            }
         }
         if matches!(
             self.binding,

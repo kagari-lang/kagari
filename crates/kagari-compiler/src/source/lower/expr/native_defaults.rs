@@ -1,0 +1,201 @@
+//! Lower native trait defaults from their checked method application.
+use crate::source::{
+    lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer},
+    types::{raise_nominal_type, raise_type},
+};
+use kagari_abi::{
+    callable::{EngineNativeBinding, NativeCall},
+    native_import::{
+        ENGINE_NATIVE_BINDING_VERSION, EngineNativeImport, NativeSignature, NativeWitness,
+        NativeWitnessImplementation,
+    },
+    types::{
+        ConcreteFunctionIdentity, ConstraintAbi, substitution::TypeSubstitution as AbiSubstitution,
+    },
+};
+use kagari_common::identity::DefinitionId;
+use kagari_hir::{
+    aggregates::MethodDefault,
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        abi::{lower_nominal_type, lower_type},
+    },
+};
+use kagari_mir::instruction::{CallTarget, Instruction, MirValue};
+
+impl FunctionLowerer<'_, '_> {
+    pub(super) fn lower_native_default(
+        &mut self,
+        receiver: &TypeId,
+        interface: &NominalType,
+        method: &DefinitionId,
+        arguments: &[TypeId],
+        values: &[MirValue],
+    ) -> Result<MirValue, MirLoweringError> {
+        let invalid = || MirLoweringError::MissingBinding("checked native trait default");
+        let signature = self
+            .planner
+            .catalog
+            .trait_method(method)
+            .ok_or_else(invalid)?
+            .clone();
+        let owner = self
+            .planner
+            .catalog
+            .trait_(&signature.owner)
+            .ok_or_else(invalid)?
+            .clone();
+        let Some(MethodDefault::Native { binding, .. }) = signature.default else {
+            return Err(invalid());
+        };
+        let all_arguments: Vec<_> = interface
+            .arguments
+            .iter()
+            .chain(arguments)
+            .cloned()
+            .collect();
+        if all_arguments.len() != signature.generic_params.len() {
+            return Err(invalid());
+        }
+        let mut substitution: TypeSubstitution = signature
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(all_arguments.iter().cloned())
+            .collect();
+        substitution.insert_receiver(owner.id.clone(), receiver.clone());
+        let instantiate = |ty: &TypeId| {
+            ty.with_self(&owner.id, receiver)
+                .instantiate(&substitution)
+                .with_associated_types(interface)
+        };
+        let span = self.function.debug.source_span;
+        let params = self.planner.arguments(
+            &signature
+                .params
+                .iter()
+                .map(|param| instantiate(&param.ty))
+                .collect::<Vec<_>>(),
+            &Default::default(),
+            span,
+        )?;
+        let result = self
+            .planner
+            .arguments(
+                &[instantiate(&signature.return_type)],
+                &Default::default(),
+                span,
+            )?
+            .remove(0);
+        let mut abi_substitution = AbiSubstitution::default();
+        let abi_receiver = lower_type(receiver);
+        let abi_arguments: Vec<_> = all_arguments.iter().map(lower_type).collect();
+        abi_substitution.bind_receiver(&owner.id, &abi_receiver);
+        for (parameter, argument) in signature.generic_params.iter().zip(&abi_arguments) {
+            abi_substitution.bind(&parameter.owner, parameter.position, argument);
+        }
+        let mut requirements = abi_substitution
+            .apply_bounds(
+                &checked_bounds(&signature.bounds),
+                &self.planner.options.cancel,
+            )
+            .map_err(|_| invalid())?;
+        // Resolve associated outputs while still consuming checked HIR facts.
+        for bound in &mut requirements {
+            bound.ty = lower_type(&self.planner.catalog.normalize_type(&raise_type(&bound.ty)));
+            for constraint in &mut bound.constraints {
+                if let ConstraintAbi::Trait(applied) = constraint {
+                    let TypeId::Trait(ty) = self
+                        .planner
+                        .catalog
+                        .normalize_type(&TypeId::Trait(raise_nominal_type(applied)))
+                    else {
+                        return Err(invalid());
+                    };
+                    *applied = lower_nominal_type(&ty);
+                }
+            }
+        }
+        let mut applied = interface.clone();
+        for id in owner.associated_types.keys() {
+            let output = self.planner.catalog.normalize_type(&TypeId::Projection {
+                receiver: Box::new(receiver.clone()),
+                interface: Box::new(interface.clone()),
+                member: id.clone(),
+                arguments: vec![],
+            });
+            applied.associated_types.insert(id.clone(), output);
+        }
+        let implementation = if let Some((declaration, table_arguments)) = self
+            .planner
+            .catalog
+            .concrete_interface_implementation(
+                &applied,
+                receiver,
+                &Default::default(),
+                self.planner.options.max_type_nodes,
+                self.planner.options.max_type_depth,
+                &self.planner.options.cancel,
+            )
+            .map_err(|_| invalid())?
+        {
+            if !matches!(receiver, TypeId::Iter(_)) {
+                self.planner
+                    .record_interface(&declaration, &table_arguments, span)?;
+                for required in &owner.methods {
+                    if required.default.is_none()
+                        && let Some((target, method_arguments)) = self
+                            .planner
+                            .catalog
+                            .implementation_method(&required.id, &applied, receiver)
+                    {
+                        self.planner
+                            .enqueue_declaration(&target, method_arguments, span)?;
+                    }
+                }
+            }
+            NativeWitnessImplementation::Table(ConcreteFunctionIdentity {
+                declaration,
+                arguments: table_arguments.iter().map(lower_type).collect(),
+            })
+        } else {
+            match receiver {
+                TypeId::Trait(_) | TypeId::Host(_) => return Err(invalid()),
+                _ => NativeWitnessImplementation::Primitive,
+            }
+        };
+        let witness = NativeWitness {
+            receiver: lower_type(receiver),
+            interface: lower_nominal_type(&applied),
+            implementation,
+        };
+        let contract = EngineNativeImport {
+            instance: ConcreteFunctionIdentity {
+                declaration: method.clone(),
+                arguments: all_arguments.iter().map(lower_type).collect(),
+            },
+            binding: EngineNativeBinding::TraitDefault(binding),
+            binding_version: ENGINE_NATIVE_BINDING_VERSION,
+            signature: NativeSignature {
+                params: params.iter().map(lower_type).collect(),
+                result: lower_type(&result),
+            },
+            requirements,
+            witnesses: vec![witness],
+        };
+        if contract.resolve().is_none() {
+            return Err(invalid());
+        }
+        let dst = self.alloc_temp(self.value_type(&result)?);
+        self.function
+            .semantic
+            .registers
+            .insert(dst.temp.index(), lower_type(&result));
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee: CallTarget::Native(NativeCall::Engine(Box::new(contract))),
+            args: values.iter().copied().collect(),
+        });
+        Ok(dst)
+    }
+}

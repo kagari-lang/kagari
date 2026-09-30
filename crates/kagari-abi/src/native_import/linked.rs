@@ -1,17 +1,18 @@
 //! Link a concrete import to its checked declaration and selected protocol facts.
 use crate::{
-    callable::{CallableImplementation, NativeBinding},
-    native_import::{EngineNativeImport, NativeWitnessImplementation},
-    standard::{intrinsic, traits::StandardTrait},
+    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
+    native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
+    standard::{intrinsic, surface::StandardEnum, traits::StandardTrait},
     types::{
-        AbiType, ConstraintAbi, InterfaceTableAbi, NativeDeclaration, matching,
+        AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi,
+        NativeDeclaration, matching,
         proofs::ProofCatalog,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionId, DefinitionKind},
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
 };
 use std::{collections::HashSet, iter};
 
@@ -21,6 +22,7 @@ impl EngineNativeImport {
         declaration: &NativeDeclaration,
         catalog: &ProofCatalog<'_>,
         table: impl Fn(&DefinitionId) -> Option<&'a InterfaceTableAbi>,
+        callable: impl Fn(&ConcreteFunctionIdentity) -> Option<NativeSignature>,
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let function = &declaration.function;
@@ -92,8 +94,35 @@ impl EngineNativeImport {
                 }
             }
         }
+        // A native default also consumes the selected implementation of its
+        // declaring trait. This is the implicit Self obligation of the checked
+        // trait method, independently of its written where-clause.
+        let mut obligations = requirements;
+        if matches!(self.binding, EngineNativeBinding::TraitDefault(_)) {
+            let Some(receiver) = self.signature.params.first() else {
+                return Ok(false);
+            };
+            let owner_arguments: Vec<_> = function
+                .generic_params
+                .iter()
+                .zip(&self.instance.arguments)
+                .filter(|(parameter, _)| parameter.owner == receiver_owner)
+                .map(|(_, argument)| argument.clone())
+                .collect();
+            let Some(witness) = self.witnesses.iter().find(|witness| {
+                witness.receiver == *receiver
+                    && witness.interface.declaration == receiver_owner
+                    && witness.interface.arguments == owner_arguments
+            }) else {
+                return Ok(false);
+            };
+            obligations.push(GenericBoundAbi {
+                ty: receiver.clone(),
+                constraints: vec![ConstraintAbi::Trait(witness.interface.clone())],
+            });
+        }
         let mut consumed = HashSet::new();
-        for bound in &requirements {
+        for bound in &obligations {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)? {
                 return Ok(false);
             }
@@ -147,6 +176,61 @@ impl EngineNativeImport {
                 }
             }
         }
-        Ok(consumed.len() == self.witnesses.len())
+        if consumed.len() != self.witnesses.len() {
+            return Ok(false);
+        }
+        if matches!(self.binding, EngineNativeBinding::TraitDefault(_)) {
+            for witness in &self.witnesses {
+                if witness.receiver != self.signature.params[0]
+                    || StandardTrait::from_id(&witness.interface.declaration)
+                        != Some(StandardTrait::Iterator)
+                    || matches!(witness.receiver, AbiType::Iter(_))
+                {
+                    continue;
+                }
+                let NativeWitnessImplementation::Table(instance) = &witness.implementation else {
+                    return Ok(false);
+                };
+                let Some(declared) = catalog.method(&witness.interface.declaration, 0) else {
+                    return Ok(false);
+                };
+                let Some(table) = table(&instance.declaration)
+                    .and_then(|table| table.instantiate(&instance.arguments))
+                else {
+                    return Ok(false);
+                };
+                if !table
+                    .methods
+                    .iter()
+                    .any(|method| method.name == declared.name)
+                {
+                    return Ok(false);
+                }
+                let Some(item) = witness
+                    .interface
+                    .associated_types
+                    .get(&associated_type_id(&witness.interface.declaration, "Item"))
+                else {
+                    return Ok(false);
+                };
+                let mut target = instance.clone();
+                target.declaration.path.push(DefinitionPathSegment {
+                    kind: DefinitionKind::Method,
+                    name: declared.name.clone(),
+                    occurrence: 0,
+                });
+                let expected = NativeSignature {
+                    params: vec![witness.receiver.clone()],
+                    result: AbiType::StandardEnum {
+                        kind: StandardEnum::Option,
+                        args: vec![item.clone()],
+                    },
+                };
+                if callable(&target).as_ref() != Some(&expected) {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(true)
     }
 }

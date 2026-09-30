@@ -1,7 +1,7 @@
 use crate::{
     NativeCallback, NativeProgress, Runtime, RuntimeError,
     frame::{ExecutionStack, ReturnDestination},
-    native::{NativeAction, NativeInvocation},
+    native::{NativeAction, NativeCallbackTarget, NativeInvocation},
     value::Value,
 };
 use kagari_bytecode::{EngineImportId, Register};
@@ -73,6 +73,13 @@ impl ExecutionStack {
                 frame.native = None;
                 Ok(NativeProgress::Finished)
             }
+            NativeAction::Complete(value) => {
+                if let Some(destination) = destination {
+                    frame.write_register(destination, value)?;
+                }
+                frame.native = None;
+                Ok(NativeProgress::Finished)
+            }
         }
     }
 
@@ -82,7 +89,15 @@ impl ExecutionStack {
         request: NativeCallback,
     ) -> Result<(), RuntimeError> {
         self.validate_native_runtime(runtime)?;
-        self.push_closure(runtime, request.closure, &request.arguments, None)?;
+        match request.target {
+            NativeCallbackTarget::Closure(closure) => {
+                self.push_closure(runtime, closure, &request.arguments, None)?
+            }
+            NativeCallbackTarget::Function {
+                implementation,
+                function,
+            } => self.push_resolved(implementation, function, &request.arguments, None, None)?,
+        }
         self.current_mut()?.return_to = ReturnDestination::Native;
         Ok(())
     }

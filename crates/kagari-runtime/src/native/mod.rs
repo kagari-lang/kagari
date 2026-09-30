@@ -1,22 +1,35 @@
 //! Bounded native method state retained by the caller's execution frame.
 mod enums;
+mod iterators;
+mod protocols;
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     gc::{ClosureValueSnapshot, RootSet},
-    native::enums::{EnumInvocation, SCRATCH_ROOTS},
+    native::{
+        enums::{EnumInvocation, SCRATCH_ROOTS},
+        iterators::IteratorInvocation,
+    },
     value::Value,
 };
 use kagari_abi::{
-    callable::EngineNativeBinding, native_import::EngineNativeOperation, types::AbiType,
+    callable::EngineNativeBinding, ids::FunctionRef, native_import::EngineNativeOperation,
+    types::AbiType,
 };
 use kagari_bytecode::{EngineImportId, Register};
-use std::iter;
 
 /// A checked callback request. Its callable and arguments stay rooted by the
 /// suspended native invocation until the callback's frame has been entered.
 pub struct NativeCallback {
-    pub(crate) closure: ClosureValueSnapshot,
+    pub(crate) target: NativeCallbackTarget,
     pub(crate) arguments: Vec<Value>,
+}
+
+pub(crate) enum NativeCallbackTarget {
+    Closure(ClosureValueSnapshot),
+    Function {
+        implementation: LoadedModule,
+        function: FunctionRef,
+    },
 }
 
 /// Driver actions contain no library policy. Each advance is one charged logical
@@ -32,10 +45,12 @@ pub(crate) enum NativeAction {
     Callback(NativeCallback),
     Publish(Value),
     Finish,
+    Complete(Value),
 }
 
 enum NativeState {
     Enum(EnumInvocation),
+    Iterator(IteratorInvocation),
 }
 
 pub(crate) struct NativeInvocation {
@@ -64,7 +79,7 @@ impl NativeInvocation {
                 "native continuation argument count",
             ));
         }
-        let state = match implementation.engine_binding(import) {
+        let mut state = match implementation.engine_binding(import) {
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation))) => {
                 NativeState::Enum(EnumInvocation::start(
                     runtime,
@@ -73,6 +88,11 @@ impl NativeInvocation {
                     arguments,
                 )?)
             }
+            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
+                operation,
+            ))) => NativeState::Iterator(IteratorInvocation::start(
+                runtime, operation, contract, arguments,
+            )?),
             _ => {
                 return Err(RuntimeError::module_validation(
                     "invalid native continuation binding",
@@ -85,7 +105,20 @@ impl NativeInvocation {
                 arguments
                     .iter()
                     .cloned()
-                    .chain(iter::repeat_n(Value::Unit, SCRATCH_ROOTS))
+                    .chain(match &mut state {
+                        NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
+                        NativeState::Iterator(state) => {
+                            vec![
+                                state.initial.take().ok_or_else(|| {
+                                    RuntimeError::module_validation(
+                                        "missing terminal initial value",
+                                    )
+                                })?,
+                                Value::Unit,
+                                Value::Unit,
+                            ]
+                        }
+                    })
                     .collect(),
             )
             .ok_or_else(|| {
@@ -109,12 +142,16 @@ impl NativeInvocation {
                 &contract.signature,
                 &self.roots,
             ),
+            NativeState::Iterator(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
         }
     }
 
     pub(crate) fn receive(&mut self, runtime: &Runtime, value: Value) -> Result<(), RuntimeError> {
         match &mut self.state {
             NativeState::Enum(state) => state.receive(runtime, &self.roots, value),
+            NativeState::Iterator(state) => state.receive(runtime, &self.roots, value),
         }
     }
 }
@@ -145,5 +182,8 @@ fn callback(
             "native callback contract mismatch",
         ));
     }
-    Ok(NativeCallback { closure, arguments })
+    Ok(NativeCallback {
+        target: NativeCallbackTarget::Closure(closure),
+        arguments,
+    })
 }

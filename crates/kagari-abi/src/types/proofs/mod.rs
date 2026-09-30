@@ -10,8 +10,8 @@ mod structural;
 use crate::{
     layout::EnumLayout,
     types::{
-        AbiType, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi, NominalAbiType, TraitAbi,
-        inheritance,
+        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, InterfaceTableAbi, NominalAbiType,
+        TraitAbi, inheritance,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -160,6 +160,11 @@ impl<'a> ProofCatalog<'a> {
         inheritance::trait_closure(interface, receiver, cancel, &|id| {
             self.contracts.get(id).copied()
         })
+    }
+
+    /// A protocol slot from a validated carried trait declaration.
+    pub fn method(&self, interface: &DefinitionId, slot: usize) -> Option<&FunctionAbi> {
+        self.contracts.get(interface)?.methods.get(slot)
     }
 
     pub fn expand_bounds(

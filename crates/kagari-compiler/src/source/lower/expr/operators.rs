@@ -292,6 +292,18 @@ impl FunctionLowerer<'_, '_> {
         {
             if matches!(
                 operation,
+                NativeDefaultMethod::Count
+                    | NativeDefaultMethod::Fold
+                    | NativeDefaultMethod::ForEach
+                    | NativeDefaultMethod::Find
+                    | NativeDefaultMethod::Any
+                    | NativeDefaultMethod::All
+                    | NativeDefaultMethod::Last
+            ) {
+                return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
+            }
+            if matches!(
+                operation,
                 NativeDefaultMethod::SetUnion
                     | NativeDefaultMethod::SetIntersection
                     | NativeDefaultMethod::SetDifference
@@ -372,18 +384,11 @@ impl FunctionLowerer<'_, '_> {
             if matches!(
                 operation,
                 NativeDefaultMethod::Join
-                    | NativeDefaultMethod::Find
-                    | NativeDefaultMethod::Any
-                    | NativeDefaultMethod::All
-                    | NativeDefaultMethod::Count
-                    | NativeDefaultMethod::Fold
-                    | NativeDefaultMethod::ForEach
                     | NativeDefaultMethod::Partition
                     | NativeDefaultMethod::GroupBy
                     | NativeDefaultMethod::FindMap
                     | NativeDefaultMethod::Position
                     | NativeDefaultMethod::Nth
-                    | NativeDefaultMethod::Last
                     | NativeDefaultMethod::Reduce
                     | NativeDefaultMethod::MinBy
                     | NativeDefaultMethod::MaxBy

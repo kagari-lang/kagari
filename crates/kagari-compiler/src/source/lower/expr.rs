@@ -1,6 +1,7 @@
 use crate::source::{lower::support::lower_scalar, types::raise_type};
 mod aggregates;
 mod calls;
+mod native_defaults;
 mod patterns;
 use crate::source::lower::{instances::CallableInstance, state::LoopScope};
 use hir::{BinaryOp as HirBinaryOp, Condition, ExprKind};

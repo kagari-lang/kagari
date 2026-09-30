@@ -4,12 +4,107 @@ use kagari_abi::{
     budget::LogicalBudgetCharge,
     callable::{EngineNativeBinding, NativeCall},
     effects::EffectSet,
-    native_import::EngineNativeOperation,
+    native_import::{EngineNativeOperation, NativeWitnessImplementation},
     scalar::BuiltinType,
+    standard::bindings::NativeDefaultMethod,
     types::AbiType,
 };
 use kagari_bytecode as bytecode;
 use kagari_bytecode::verify_program;
+
+#[test]
+fn native_terminal_imports_reject_forged_receiver_witnesses() {
+    let program = common::bytecode_ok(
+        r#"
+struct Counter<T> {val item:T,var done:bool}
+impl<T> Iterator for Counter<T> {type Item=T;fn next(self)->Option<T>{if self.done {None}else{self.done=true;Some(self.item)}}}
+fn main()->i32 {Counter{item:42,done:false}.fold(0,|a,n|a+n)}
+"#,
+    );
+    let root = program.root.index();
+    let import = program.modules[root]
+        .engine_imports
+        .iter()
+        .position(|import| {
+            matches!(
+                import.binding,
+                EngineNativeBinding::TraitDefault(NativeDefaultMethod::Fold)
+            )
+        })
+        .unwrap();
+    verify_program(&program).unwrap();
+    let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+    for mutation in 0..8 {
+        let mut forged = artifact.clone();
+        let contract = &mut forged.program.modules[root].engine_imports[import];
+        match mutation {
+            0 => contract.witnesses.clear(),
+            1 => contract.witnesses[0].implementation = NativeWitnessImplementation::Primitive,
+            2 => contract.witnesses[0].receiver = AbiType::Builtin(BuiltinType::I32),
+            3 => {
+                *contract.witnesses[0]
+                    .interface
+                    .associated_types
+                    .values_mut()
+                    .next()
+                    .unwrap() = AbiType::Builtin(BuiltinType::I64)
+            }
+            4 => {
+                let NativeWitnessImplementation::Table(instance) =
+                    &mut contract.witnesses[0].implementation
+                else {
+                    unreachable!()
+                };
+                instance.arguments[0] = AbiType::Builtin(BuiltinType::I64);
+            }
+            5 => contract.witnesses.push(contract.witnesses[0].clone()),
+            6 => {
+                let AbiType::Function { result, .. } = &mut contract.signature.params[2] else {
+                    unreachable!()
+                };
+                **result = AbiType::Builtin(BuiltinType::Bool);
+            }
+            _ => {
+                // Leave the implementation declaration intact while removing
+                // its compiled next target from the linked callable identities.
+                let module = &mut forged.program.modules[root];
+                let function = module
+                    .functions
+                    .iter_mut()
+                    .find(|function| {
+                        function.identity.as_ref().is_some_and(|instance| {
+                            instance
+                                .declaration
+                                .path
+                                .last()
+                                .is_some_and(|part| part.name == "next")
+                        })
+                    })
+                    .unwrap();
+                let id = function.id;
+                function.identity = None;
+                module.function_table[id.index()].identity = None;
+                for table in &mut module.interface_tables {
+                    table.methods.retain(|method| method.function != id);
+                }
+            }
+        }
+        assert!(
+            verify_program(&forged.program).is_err(),
+            "mutation {mutation}"
+        );
+        let bytes = DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(&forged)
+            .unwrap();
+        assert!(
+            !KbcArtifact::from_bytes(&bytes)
+                .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
+            "encoded mutation {mutation}"
+        );
+    }
+}
 
 #[test]
 fn resumable_native_calls_reject_forged_callback_contracts_and_arity() {

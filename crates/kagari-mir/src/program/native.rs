@@ -2,6 +2,7 @@
 use crate::{CallTarget, Instruction, MirModule, VerifiedMirModule};
 use kagari_abi::{
     callable::NativeCall,
+    native_import::NativeSignature,
     types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError},
 };
 use kagari_common::{
@@ -111,6 +112,20 @@ pub(super) fn validate(
                             None
                         }
                     })
+            },
+            |instance| {
+                let function = closure
+                    .iter()
+                    .find(|owner| owner.identity == instance.declaration.module)?
+                    .functions
+                    .iter()
+                    .find(|function| function.instance == *instance)?;
+                Some(NativeSignature {
+                    params: (0..function.params.len())
+                        .map(|slot| function.semantic.params.get(&slot).cloned())
+                        .collect::<Option<Vec<_>>>()?,
+                    result: function.semantic.result.clone()?,
+                })
             },
             cancel,
         )? {

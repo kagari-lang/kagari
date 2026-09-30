@@ -6,7 +6,9 @@ and engine/host integration. The workspace builds; compiler and VM library suite
 and selected embedding integration suites pass. Runtime-owned native continuations
 execute all migrated Option/Result algorithms through the shared frame/session
 driver, preserving the original logical charge schedule and error provenance.
-ST05 iterator/collection migration and ST06 encoded fixtures/final acceptance remain pending.
+Seven basic iterator terminals also execute natively with selected static protocol
+witnesses. Remaining ST05 iterator/collection migration and ST06 encoded
+fixtures/final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -490,7 +492,9 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
 ### ST05 — Migrate all standard execution families
 
 - [x] Migrate Option/Result combinators and preserve original error provenance.
-- [ ] Migrate iterator defaults, terminal operations, custom destinations and
+- [x] Migrate basic iterator terminals (`count`, `fold`, `for_each`, `find`, `any`,
+  `all`, `last`) with checked static receiver witnesses and shared frame execution.
+- [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
   map updates and lazy windows/chunks with their existing observable contracts.
@@ -785,6 +789,59 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 basic iterator terminal checkpoint (2026-09-30): completes the new basic
+  terminal checklist with `count`, `fold`, `for_each`, `find`, `any`, `all` and
+  `last`. Each checked native default application now emits its native import;
+  the seven compiler algorithms and their old expansion selector are removed.
+  Remaining terminal/default/adapter/destination algorithms stay explicitly
+  pending in ST05. This is one complete producer-to-consumer family checkpoint,
+  rather than a temporary protocol adapter or a signature/operand-count catalog.
+- Checked trait method signatures supply parameters, result, substitutions and
+  written bounds. The import additionally carries the implicit Self obligation's
+  selected Iterator implementation and concrete Item. Linking checks that witness
+  against the declaring trait and actual impl, and rejects duplicate, missing or
+  substituted providers. MIR and bytecode validation also require the selected
+  script `next` instance to exist with its exact concrete receiver/Option result
+  contract. Engine iterator storage uses its existing closed native implementation;
+  it does not require a generated script bridge.
+- Runtime `native/iterators.rs` owns terminal traversal and `native/protocols.rs`
+  invokes the selected target from the retained executable graph. Ordinary user
+  methods enter the shared frame stack alongside closure callbacks; native Iter
+  storage and retained lazy adapter steps use their existing runtime contracts.
+  Function identity, substitutions, semantic arguments/result and loaded generation
+  are checked before callback entry. Generic VM policy remains unchanged: the
+  driver advances the requested logical operation and handles ordinary returns.
+  A native completion can publish at the last original operation without adding a
+  synthetic frame or extra completion charge. Host standard protocol eligibility
+  and static-only Iterator dispatch retain their existing language boundaries.
+- Arguments, yielded Option/item, accumulator and callback results stay rooted.
+  Native structural guards are owned by the continuation and released on completion
+  or suffix cleanup; early terminals close the existing iterator tree. Direct-call
+  guards from an iterator created before terminal entry still end with the root
+  session, including a budget cut before entry. Callbacks preserve completed side
+  effects and aliases preserve consumed progress; nested native enum/terminal calls
+  run through the same session without recursive Rust VM execution.
+- Recorded 28 native/custom, empty/nonempty branch cases at `5f6ca83` before
+  replacing their algorithms. Source and decoded products pass 3,106 executions
+  at every budget cut, preserving exact host-effect positions and total charges.
+  Each case asserts its native import route, zero call depth/quarantine and complete
+  root/heap cleanup after ending the session, with collection threshold 1. Added
+  generic heap-item receivers, explicit default overrides, nested heap callbacks
+  and protocol/callback traps with the original two-frame trace. Eight in-memory
+  and encoded corruptions reject receiver/provider/Item/substitution/callback
+  forgery, duplicate or missing witnesses and absent compiled protocol targets.
+- Runtime ABI is now v109 for native function callback requests and completion.
+  Native binding v1, KBC v107, KMIR v5 and helper ABI v6 retain their schemas and
+  observable method contracts. ST06 owns fixture regeneration and final audits.
+  Validation: ABI 43, bytecode 27, MIR 1, runtime 71, compiler 167 and VM 133 library
+  tests pass (442). Embedding `default_methods`, `error_traces`, `iteration_traits`,
+  `lazy_iterators` and `never` pass 66 tests, including decoded and supported
+  JIT/fallback routes (508 total). Workspace all-target check, Clippy with warnings
+  denied, formatting, structure and diff checks pass. Structure covers 571 Rust
+  files with zero violations or documented exceptions. Changed imports, module
+  ownership, static witness consumption and native frame cleanup were manually
+  reviewed; no new structural debt or carried integration errors.
 
 - ST05 Option/Result family checkpoint (2026-09-30): completes the first phase
   checklist as one producer-to-consumer migration. All 26 formerly expanded

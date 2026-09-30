@@ -7,6 +7,7 @@ use crate::{
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
 };
 use kagari_abi::{
+    native_import::NativeSignature,
     standard::traits::StandardTrait,
     types::{
         self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
@@ -192,6 +193,20 @@ fn linked_bounds_match(
                             None
                         }
                     })
+            },
+            |instance| {
+                let function = closure
+                    .iter()
+                    .find(|owner| owner.identity == instance.declaration.module)?
+                    .functions
+                    .iter()
+                    .find(|function| function.identity.as_ref() == Some(instance))?;
+                Some(NativeSignature {
+                    params: (0..function.metadata.params.len())
+                        .map(|slot| function.metadata.semantic.params.get(&slot).cloned())
+                        .collect::<Option<Vec<_>>>()?,
+                    result: function.metadata.semantic.result.clone()?,
+                })
             },
             &cancel,
         )? {

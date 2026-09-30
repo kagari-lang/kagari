@@ -10,9 +10,8 @@ use kagari_abi::{
     types::AbiType,
 };
 use kagari_common::collection::CollectionAccess::Mutable;
-use kagari_hir::types::abi::lower_type;
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
-use kagari_mir::instruction::{Constant, Instruction, MirValue, Terminator};
+use kagari_mir::instruction::{Instruction, MirValue, Terminator};
 use std::slice;
 
 impl FunctionLowerer<'_, '_> {
@@ -30,7 +29,6 @@ impl FunctionLowerer<'_, '_> {
         };
         let array_type = TypeId::Array(Box::new(item_type.clone()), Mutable);
         let bool_type = TypeId::Builtin(BuiltinType::Bool);
-        let unit_type = TypeId::Builtin(BuiltinType::Unit);
         let result_optional = TypeId::StandardEnum {
             kind: StandardEnum::Option,
             args: vec![match operation {
@@ -62,11 +60,9 @@ impl FunctionLowerer<'_, '_> {
             None
         };
         let result = match operation {
-            NativeDefaultMethod::Find
-            | NativeDefaultMethod::FindMap
+            NativeDefaultMethod::FindMap
             | NativeDefaultMethod::Position
             | NativeDefaultMethod::Nth
-            | NativeDefaultMethod::Last
             | NativeDefaultMethod::Reduce
             | NativeDefaultMethod::MinBy
             | NativeDefaultMethod::MaxBy
@@ -76,24 +72,6 @@ impl FunctionLowerer<'_, '_> {
             | NativeDefaultMethod::MaxByKey => {
                 self.standard_enum_op(&result_optional, StandardEnumOp::Make(1), None)?
             }
-            NativeDefaultMethod::Any | NativeDefaultMethod::All => self.lower_constant(
-                Constant::Bool(operation == NativeDefaultMethod::All),
-                ValueType::Bool,
-            ),
-            NativeDefaultMethod::Count => self.usize_constant(0),
-            NativeDefaultMethod::Fold => {
-                let result = self.alloc_temp(values[1].ty);
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: values[1],
-                });
-                self.function
-                    .semantic
-                    .registers
-                    .insert(result.temp.index(), lower_type(&arguments[0]));
-                result
-            }
-            NativeDefaultMethod::ForEach => self.lower_constant(Constant::Unit, ValueType::Unit),
             NativeDefaultMethod::Join | NativeDefaultMethod::Partition => {
                 self.collection_new(&array_type)?
             }
@@ -215,13 +193,6 @@ impl FunctionLowerer<'_, '_> {
                 });
                 self.ensure_jump(head);
             }
-            NativeDefaultMethod::Last => {
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: next,
-                });
-                self.ensure_jump(head);
-            }
             NativeDefaultMethod::Reduce
             | NativeDefaultMethod::MinBy
             | NativeDefaultMethod::MaxBy
@@ -329,61 +300,6 @@ impl FunctionLowerer<'_, '_> {
                     dst: result,
                     src: next,
                 });
-                self.ensure_jump(head);
-            }
-            NativeDefaultMethod::Find | NativeDefaultMethod::Any | NativeDefaultMethod::All => {
-                let predicate = self.call_function_value(values[1], &bool_type, &[item])?;
-                let found = self.new_block();
-                let (then_block, else_block) = if operation == NativeDefaultMethod::All {
-                    (head, found)
-                } else {
-                    (found, head)
-                };
-                self.set_terminator(Terminator::Branch {
-                    cond: predicate,
-                    then_block,
-                    else_block,
-                });
-                self.switch_to_block(found);
-                let value = if operation == NativeDefaultMethod::Find {
-                    next
-                } else {
-                    self.lower_constant(
-                        Constant::Bool(operation == NativeDefaultMethod::Any),
-                        ValueType::Bool,
-                    )
-                };
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: value,
-                });
-                self.ensure_jump(done);
-            }
-            NativeDefaultMethod::Count => {
-                let one = self.usize_constant(1);
-                let next = self.alloc_temp(ValueType::U64);
-                self.emit(Instruction::Binary {
-                    dst: next,
-                    op: BinaryOp::Add,
-                    lhs: result,
-                    rhs: one,
-                });
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: next,
-                });
-                self.ensure_jump(head);
-            }
-            NativeDefaultMethod::Fold => {
-                let next = self.call_function_value(values[2], &arguments[0], &[result, item])?;
-                self.emit(Instruction::Move {
-                    dst: result,
-                    src: next,
-                });
-                self.ensure_jump(head);
-            }
-            NativeDefaultMethod::ForEach => {
-                self.call_function_value(values[1], &unit_type, &[item])?;
                 self.ensure_jump(head);
             }
             NativeDefaultMethod::Partition => {
