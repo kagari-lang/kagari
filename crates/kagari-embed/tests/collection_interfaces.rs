@@ -526,3 +526,17 @@ fn renamed_copy_has_no_legacy_alias_and_snapshots_are_readonly() {
         );
     }
 }
+
+#[test]
+fn positional_defaults_use_selected_list_and_ordering_implementations() {
+    execute(
+        r#"
+struct Sequence<T> {val items:ArrayList<T>}
+impl<T> Iterable for Sequence<T> {type Item=T;type Iter=Iter<T>;fn iter(self)->Iter<T>{self.items.iter()}}
+impl<T> Index<usize> for Sequence<T> {type Output=T;fn index(self,index:usize)->T{self.items[index]}}
+impl<T> List<T> for Sequence<T> {fn len(self)->usize{self.items.len()}fn is_empty(self)->bool{self.items.is_empty()}fn get(self,index:usize)->Option<T>{self.items.get(index)}}
+fn positions<L:List<i32>>(source:L)->i32{std::debug::assert_eq(source.binary_search(22),Ok(1usize),"match");std::debug::assert_eq(source.binary_search(21),Err(1usize),"insertion");source.first().unwrap_or(0)+source.last().unwrap_or(0)}
+fn main()->i32{val values=[20,22];val source=Sequence{items:values};val dynamic:List<i32> =source;std::debug::assert_eq(dynamic.binary_search(22),Ok(1usize),"dynamic index");std::debug::assert_eq(dynamic.first().unwrap_or(0)+dynamic.last().unwrap_or(0),42,"dynamic");std::debug::assert_eq(positions(source),42,"custom");val result=positions(values);values.push(0);result}
+"#,
+    );
+}

@@ -1,6 +1,7 @@
 //! Bounded native method state retained by the caller's execution frame.
 mod enums;
 mod iterators;
+mod lists;
 mod protocols;
 use crate::{
     LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
@@ -9,6 +10,7 @@ use crate::{
     native::{
         enums::{EnumInvocation, SCRATCH_ROOTS},
         iterators::IteratorInvocation,
+        lists::ListInvocation,
     },
     value::Value,
 };
@@ -47,6 +49,7 @@ pub enum NativeProgress {
     Callback(NativeCallback),
     Finished,
     BuiltinFailure(BuiltinError),
+    TypeMismatch(&'static str),
 }
 
 pub(crate) enum NativeAction {
@@ -56,11 +59,13 @@ pub(crate) enum NativeAction {
     Finish,
     Complete(Value),
     BuiltinFailure(BuiltinError),
+    TypeMismatch(&'static str),
 }
 
 enum NativeState {
     Enum(EnumInvocation),
     Iterator(IteratorInvocation),
+    List(ListInvocation),
     Forward,
 }
 
@@ -104,45 +109,54 @@ impl NativeInvocation {
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
                 operation,
             ))) => {
-                let target = if matches!(
+                if matches!(
                     operation,
-                    NativeDefaultMethod::Sum | NativeDefaultMethod::Product
+                    NativeDefaultMethod::ListFirst
+                        | NativeDefaultMethod::ListLast
+                        | NativeDefaultMethod::ListBinarySearch
                 ) {
-                    Some(
-                        contract
-                            .witnesses
-                            .iter()
-                            .find(|witness| {
-                                witness.receiver == contract.signature.result
-                                    && StandardTrait::from_id(&witness.interface.declaration)
-                                        == Some(if operation == NativeDefaultMethod::Sum {
-                                            StandardTrait::Sum
-                                        } else {
-                                            StandardTrait::Product
-                                        })
-                            })
-                            .ok_or_else(|| {
-                                RuntimeError::module_validation("missing aggregation witness")
-                            })?,
-                    )
+                    NativeState::List(ListInvocation::start(operation, arguments)?)
                 } else {
-                    None
-                };
-                if let Some(witness) = target.filter(|witness| {
-                    !protocols::numeric_destination(&implementation, witness, operation)
-                }) {
-                    entry = Some(protocols::aggregate(
-                        runtime,
-                        &implementation,
-                        witness,
-                        arguments[0].clone(),
-                        &contract.signature.params[0],
-                    )?);
-                    NativeState::Forward
-                } else {
-                    NativeState::Iterator(IteratorInvocation::start(
-                        runtime, operation, contract, arguments,
-                    )?)
+                    let target = if matches!(
+                        operation,
+                        NativeDefaultMethod::Sum | NativeDefaultMethod::Product
+                    ) {
+                        Some(
+                            contract
+                                .witnesses
+                                .iter()
+                                .find(|witness| {
+                                    witness.receiver == contract.signature.result
+                                        && StandardTrait::from_id(&witness.interface.declaration)
+                                            == Some(if operation == NativeDefaultMethod::Sum {
+                                                StandardTrait::Sum
+                                            } else {
+                                                StandardTrait::Product
+                                            })
+                                })
+                                .ok_or_else(|| {
+                                    RuntimeError::module_validation("missing aggregation witness")
+                                })?,
+                        )
+                    } else {
+                        None
+                    };
+                    if let Some(witness) = target.filter(|witness| {
+                        !protocols::numeric_destination(&implementation, witness, operation)
+                    }) {
+                        entry = Some(protocols::aggregate(
+                            runtime,
+                            &implementation,
+                            witness,
+                            arguments[0].clone(),
+                            &contract.signature.params[0],
+                        )?);
+                        NativeState::Forward
+                    } else {
+                        NativeState::Iterator(IteratorInvocation::start(
+                            runtime, operation, contract, arguments,
+                        )?)
+                    }
                 }
             }
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Protocol(
@@ -174,6 +188,9 @@ impl NativeInvocation {
                         NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
                         NativeState::Iterator(state) => state.initial.take().ok_or_else(|| {
                             RuntimeError::module_validation("missing terminal initial roots")
+                        })?,
+                        NativeState::List(state) => state.initial.take().ok_or_else(|| {
+                            RuntimeError::module_validation("missing List initial roots")
                         })?,
                         NativeState::Forward => vec![],
                     })
@@ -210,6 +227,9 @@ impl NativeInvocation {
             NativeState::Iterator(state) => {
                 state.advance(runtime, &self.implementation, contract, &self.roots)
             }
+            NativeState::List(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
             NativeState::Forward => Err(RuntimeError::module_validation(
                 "aggregation callback is pending",
             )),
@@ -234,6 +254,13 @@ impl NativeInvocation {
                     value,
                 )
                 .map(|()| NativeAction::Continue),
+            NativeState::List(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()],
+                &self.roots,
+                value,
+            ),
             NativeState::Forward => {
                 let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
                 if !runtime.matches_interface_method_abi(

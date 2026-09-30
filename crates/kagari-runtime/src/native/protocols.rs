@@ -1,6 +1,7 @@
 //! Invoke carried protocol selections without a source lookup or a nested VM.
 use crate::{
     LoadedModule, Runtime, RuntimeError,
+    builtin::BuiltinError,
     native::{NativeCallback, NativeCallbackTarget, callback},
     value::Value,
 };
@@ -8,6 +9,7 @@ use kagari_abi::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{NativeWitness, NativeWitnessImplementation},
     operations::IterOp,
+    scalar::BuiltinType,
     standard::{
         StandardIntrinsic,
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
@@ -21,6 +23,7 @@ use std::slice;
 pub(super) enum ProtocolStep {
     Value(Value),
     Call(NativeCallback),
+    BuiltinFailure(BuiltinError),
 }
 
 fn invalid() -> RuntimeError {
@@ -110,6 +113,7 @@ pub(super) fn iter(
         runtime,
         owner,
         witness,
+        0,
         vec![source],
         slice::from_ref(&witness.receiver),
         output,
@@ -142,6 +146,7 @@ pub(super) fn next(
         runtime,
         owner,
         witness,
+        0,
         vec![source],
         slice::from_ref(&witness.receiver),
         output,
@@ -176,6 +181,7 @@ pub(super) fn compare(
         runtime,
         owner,
         witness,
+        0,
         arguments,
         &[witness.receiver.clone(), witness.receiver.clone()],
         &output,
@@ -193,19 +199,106 @@ pub(super) fn aggregate(
         runtime,
         owner,
         witness,
+        0,
         vec![source],
         slice::from_ref(source_type),
         &witness.receiver,
     )? {
         ProtocolStep::Call(request) => Ok(request),
-        ProtocolStep::Value(_) => Err(invalid()),
+        ProtocolStep::Value(_) | ProtocolStep::BuiltinFailure(_) => Err(invalid()),
     }
+}
+
+/// Required List ordinals are len, is_empty and get; the validated trait
+/// declaration supplies their actual dynamic slots and canonical identities.
+pub(super) fn list(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    witness: &NativeWitness,
+    required_slot: usize,
+    arguments: Vec<Value>,
+    output: &AbiType,
+) -> Result<ProtocolStep, RuntimeError> {
+    if required_slot > 2
+        || arguments.first().is_none_or(|value| {
+            !runtime.matches_interface_method_abi(value, &witness.receiver, owner)
+        })
+    {
+        return Err(invalid());
+    }
+    if witness.implementation == NativeWitnessImplementation::Interface {
+        let declaration = owner
+            .members()
+            .find(|module| module.bytecode.identity == witness.interface.declaration.module)
+            .and_then(|module| {
+                abi::trait_contract(
+                    &module.bytecode.identity,
+                    &module.bytecode.public_items,
+                    &module.bytecode.trait_contracts,
+                    &witness.interface.declaration,
+                )
+                .cloned()
+            })
+            .ok_or_else(invalid)?;
+        let (slot, _) = declaration
+            .methods
+            .iter()
+            .enumerate()
+            .filter(|(_, method)| method.implementation == CallableImplementation::Required)
+            .nth(required_slot)
+            .ok_or_else(invalid)?;
+        let method =
+            runtime.resolve_interface_method_slot(&arguments[0], &witness.interface, slot)?;
+        let mut arguments = arguments;
+        arguments[0] = method.receiver().clone();
+        if method.return_type() != output {
+            return Err(invalid());
+        }
+        runtime.validate_interface_method_arguments(&method, &arguments)?;
+        return Ok(ProtocolStep::Call(NativeCallback {
+            target: NativeCallbackTarget::Interface(Box::new(method)),
+            arguments,
+        }));
+    }
+    // Native storage has no generated script methods. Its selected table is
+    // checked against these exact storage bindings by the portable linker.
+    if matches!(witness.receiver, AbiType::Array(_, _))
+        && matches!(
+            witness.implementation,
+            NativeWitnessImplementation::Table(_)
+        )
+        && witness.methods.is_empty()
+    {
+        let binding = [
+            StandardIntrinsic::ArrayLen,
+            StandardIntrinsic::ArrayIsEmpty,
+            StandardIntrinsic::ArrayGet,
+        ][required_slot];
+        return match runtime.invoke_standard_builtin(binding, &arguments) {
+            Ok(value) => Ok(ProtocolStep::Value(value)),
+            Err(error) => Ok(ProtocolStep::BuiltinFailure(error)),
+        };
+    }
+    let mut parameters = vec![witness.receiver.clone()];
+    if required_slot == 2 {
+        parameters.push(AbiType::Builtin(BuiltinType::USize));
+    }
+    table_call(
+        runtime,
+        owner,
+        witness,
+        required_slot,
+        arguments,
+        &parameters,
+        output,
+    )
 }
 
 fn table_call(
     runtime: &Runtime,
     owner: &LoadedModule,
     witness: &NativeWitness,
+    required_slot: usize,
     arguments: Vec<Value>,
     parameters: &[AbiType],
     output: &AbiType,
@@ -244,7 +337,13 @@ fn table_call(
                     )
                     .cloned()
                 })
-                .and_then(|contract| contract.methods.into_iter().next())
+                .and_then(|contract| {
+                    contract
+                        .methods
+                        .into_iter()
+                        .filter(|method| method.implementation == CallableImplementation::Required)
+                        .nth(required_slot)
+                })
                 .ok_or_else(invalid)?;
             let method = table
                 .methods
@@ -257,12 +356,11 @@ fn table_call(
                 name: method.name.clone(),
                 occurrence: 0,
             });
-            let [target] = witness.methods.as_slice() else {
-                return Err(invalid());
-            };
-            if target.declaration != declaration {
-                return Err(invalid());
-            }
+            let target = witness
+                .methods
+                .iter()
+                .find(|target| target.declaration == declaration)
+                .ok_or_else(invalid)?;
             let function = implementation
                 .bytecode
                 .functions

@@ -10,8 +10,10 @@ Twenty iterator terminals also execute natively with selected static protocol
 witnesses, including search, reduction, callback comparisons, Ord extrema, join
 and numeric/user-defined aggregation. Checked scalar implementations also own
 direct Iterable-based Sum/Product entrypoints through the same native traversal.
-Remaining ST05 iterator/collection migration and ST06 encoded fixtures/final
-acceptance remain pending.
+List first/last/binary_search queries execute natively across storage, selected
+script implementations and declared dynamic views with checked multi-method
+witnesses. Remaining ST05 iterator/collection migration and ST06 encoded fixtures/
+final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -507,6 +509,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   concrete generic/user destination methods on shared frames.
 - [x] Migrate direct numeric Sum/Product providers for all scalar types, including
   static/dynamic Iterable conversion, generic sources and checked error categories.
+- [x] Migrate List positional queries (`first`, `last`, `binary_search`) with selected
+  List/Iterable/Ord witnesses across storage, script implementations and dynamic views.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -802,6 +806,59 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
+
+- ST05 List positional-query checkpoint (2026-09-30): completes first, last and
+  binary_search as one native execution family. Removed their compiler algorithm
+  branches and the binary-search expansion. Runtime owns the full original
+  constant/call/branch/read/update/close charge schedule; first remains unguarded,
+  while last and binary_search retain the source's structural guard through all
+  selected len/get/comparison callbacks. Returned object payloads remain shared.
+- Native defaults carry the complete selected List requirement set. The linker
+  validates all three required method signatures and canonical script applications,
+  or the exact native ArrayLen/ArrayIsEmpty/ArrayGet storage bindings. It checks
+  dynamic requirement shapes and the exact Iterable Item/Iter parent outputs too.
+  Iterable conversion is derived independently
+  from the carried List parent contract and consumes exactly the selected witness.
+  Runtime resolves required ordinals from that contract, invokes native storage
+  directly and enters script/dynamic methods through the ordinary shared stack.
+  Static foreign generic List and Ord applications are materialized in their
+  defining modules; dynamic and inherited MutableList views retain their own
+  rooted method metadata and execution generations.
+- Recorded 144 cases at 9a9dc93: empty/singleton/multiple inputs; first/last; search
+  matches, missing values and insertion positions; native storage, user List,
+  dynamic user/native views and custom Ord. All 19,888 source/decoded budget cuts
+  preserve totals, iter/len/get/cmp/done positions, results and GC/session cleanup.
+  Additional checks cover heap results and nested native callbacks, duplicates,
+  string/enum ordering, guard release before subsequent mutation, failed alias
+  mutation, conversion/access/comparison traps and script trace origins. Successful
+  and failed host reentry and cancellation at each dynamic protocol callback pass
+  at GC threshold 1, including clean subsequent execution.
+- Inconsistent user List len/get implementations retain the original payload
+  TypeMismatch cause and trace. The generic continuation driver carries that error
+  category without List policy or an artificial native frame. Native storage
+  failures retain their builtin category. A test initially attempted to pass a
+  dynamic List into a generic List parameter, which the existing HIR rejects;
+  explicit dynamic calls now test the same required methods and result assertions.
+  Initial test source spacing and a trait identity accessor were corrected; no
+  production fallback or weaker behavioral assertion was introduced.
+- All 152 selected List import/declaration corruptions reject missing/duplicate
+  witnesses, altered item/receiver/result/application types, reordered or extra script
+  targets, forged primitive selections and substituted bindings, in memory and
+  decoded artifacts, including altered required signatures and parent outputs.
+  Runtime ABI is v115 for the newly executable List family; binding v1, KBC v108, KMIR v6 and helper ABI v6 retain their schemas. ABI 45,
+  bytecode 27, compiler 171, HIR 414, MIR 1, runtime 71, stdlib 7 and VM 161 library
+  tests pass (897), followed by the new inherited-view and carried-declaration
+  rejection tests (899 cumulative). Embedding collection_interfaces/default_methods/error_traces/iteration_traits/
+  lazy_iterators/numeric_operations pass 90 tests (989 cumulative), including
+  source, decoded and supported JIT/fallback execution of this family.
+- Workspace all-target Clippy with warnings denied, formatting, structure and
+  diff checks pass. Structure covers 590 Rust files with zero violations/exceptions.
+  Manual review covered native table ownership, canonical multi-method selections,
+  exact parent outputs, script/interface generation pinning, scoped imports,
+  effective LOC, budget phases and guard/root cleanup; no new structural debt or
+  carried integration errors remain. Remaining List equality queries, iterator
+  destinations/adapters, custom keys and mutation algorithms stay in ST05; ST06 still owns encoded
+  fixture regeneration and the final workspace/feature/behavior acceptance.
 
 - ST05 direct numeric aggregation checkpoint (2026-09-30): completes the numeric
   provider checklist for all 12 scalar types and both Sum/Product constructors.

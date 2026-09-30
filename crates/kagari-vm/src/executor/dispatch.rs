@@ -496,6 +496,9 @@ impl<'a> Executor<'a> {
                                 .push_native_callback(self.runtime, request)
                                 .map_err(VmError::RuntimeError),
                             NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
+                            NativeProgress::TypeMismatch(detail) => {
+                                Err(VmError::TypeMismatch(detail))
+                            }
                         }),
                 }
             }

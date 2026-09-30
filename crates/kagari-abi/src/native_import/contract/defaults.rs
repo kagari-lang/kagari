@@ -23,6 +23,30 @@ pub(super) fn valid(
         return false;
     };
     let AbiType::SelfType(owner) = receiver else {
+        if matches!(
+            method,
+            NativeDefaultMethod::ListFirst
+                | NativeDefaultMethod::ListLast
+                | NativeDefaultMethod::ListBinarySearch
+        ) {
+            return bound(bounds, receiver, StandardTrait::List).is_some_and(|interface| {
+                let [item] = interface.arguments.as_slice() else {
+                    return false;
+                };
+                let index = builtin(BuiltinType::USize);
+                match (method, signature.params.as_slice()) {
+                    (NativeDefaultMethod::ListFirst | NativeDefaultMethod::ListLast, [_]) => {
+                        signature.result == option(item)
+                    }
+                    (NativeDefaultMethod::ListBinarySearch, [_, value]) => {
+                        value == item
+                            && signature.result == result(&index, &index)
+                            && bound(bounds, item, StandardTrait::Ord).is_some()
+                    }
+                    _ => false,
+                }
+            });
+        }
         if matches!(receiver, AbiType::Host(_) | AbiType::Trait(_)) {
             return false;
         }

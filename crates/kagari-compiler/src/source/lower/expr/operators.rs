@@ -312,6 +312,9 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::Join
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
+                    | NativeDefaultMethod::ListFirst
+                    | NativeDefaultMethod::ListLast
+                    | NativeDefaultMethod::ListBinarySearch
             ) {
                 return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
@@ -343,12 +346,9 @@ impl FunctionLowerer<'_, '_> {
             }
             if matches!(
                 operation,
-                NativeDefaultMethod::ListFirst
-                    | NativeDefaultMethod::ListLast
-                    | NativeDefaultMethod::ListContains
+                NativeDefaultMethod::ListContains
                     | NativeDefaultMethod::ListStartsWith
                     | NativeDefaultMethod::ListEndsWith
-                    | NativeDefaultMethod::ListBinarySearch
             ) {
                 return self.lower_list_query(operation, &ty, args);
             }

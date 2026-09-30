@@ -9,14 +9,15 @@ use kagari_abi::{
         ENGINE_NATIVE_BINDING_VERSION, EngineNativeImport, NativeSignature, NativeWitness,
         NativeWitnessImplementation,
     },
-    standard::traits::StandardTrait,
+    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
     types::{
         ConcreteFunctionIdentity, ConstraintAbi, substitution::TypeSubstitution as AbiSubstitution,
     },
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::{DefinitionId, associated_type_id};
 use kagari_hir::{
     aggregates::MethodDefault,
+    builtin::traits::StandardTraitSemantics,
     types::{
         NominalType, TypeId, TypeSubstitution,
         abi::{lower_nominal_type, lower_type},
@@ -152,6 +153,19 @@ impl FunctionLowerer<'_, '_> {
                     }
                 }
             }
+        }
+        if matches!(
+            binding,
+            NativeDefaultMethod::ListLast | NativeDefaultMethod::ListBinarySearch
+        ) {
+            let mut iterable = StandardTrait::Iterable.nominal();
+            for name in ["Item", "Iter"] {
+                let output = self.iteration_output(StandardTrait::Iterable, receiver, name)?;
+                iterable
+                    .associated_types
+                    .insert(associated_type_id(&iterable.declaration, name), output);
+            }
+            witnesses.push(self.lower_native_witness(receiver, &iterable, &[])?);
         }
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {

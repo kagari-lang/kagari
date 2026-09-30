@@ -2,7 +2,11 @@
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
-    standard::{bindings::NativeProtocolMethod, intrinsic, traits::StandardTrait},
+    standard::{
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
+        intrinsic,
+        traits::StandardTrait,
+    },
     types::{
         AbiType, ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, InterfaceTableAbi,
         NativeDeclaration, matching,
@@ -121,6 +125,32 @@ impl EngineNativeImport {
             obligations.push(GenericBoundAbi {
                 ty: receiver.clone(),
                 constraints: vec![ConstraintAbi::Trait(witness.interface.clone())],
+            });
+        }
+        if matches!(
+            self.binding,
+            EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::ListLast | NativeDefaultMethod::ListBinarySearch
+            )
+        ) {
+            let Some(list) = self.witnesses.iter().find(|witness| {
+                StandardTrait::from_id(&witness.interface.declaration) == Some(StandardTrait::List)
+                    && self.signature.params.first() == Some(&witness.receiver)
+            }) else {
+                return Ok(false);
+            };
+            let Some(iterable) = catalog
+                .ancestry(&list.interface, &list.receiver, cancel)?
+                .into_iter()
+                .find(|interface| {
+                    StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Iterable)
+                })
+            else {
+                return Ok(false);
+            };
+            obligations.push(GenericBoundAbi {
+                ty: list.receiver.clone(),
+                constraints: vec![ConstraintAbi::Trait(iterable)],
             });
         }
         if matches!(

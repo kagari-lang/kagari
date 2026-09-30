@@ -181,6 +181,9 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::Join
                     | NativeDefaultMethod::Sum
                     | NativeDefaultMethod::Product
+                    | NativeDefaultMethod::ListFirst
+                    | NativeDefaultMethod::ListLast
+                    | NativeDefaultMethod::ListBinarySearch
             )
         ) {
             let mut bounds = self.requirements.clone();

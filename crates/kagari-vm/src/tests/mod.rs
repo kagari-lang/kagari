@@ -19,3 +19,4 @@ mod sessions;
 mod source_programs;
 
 mod native_fixtures;
+mod native_list_queries;

@@ -65,6 +65,7 @@ impl ExecutionStack {
             NativeAction::Continue => Ok(NativeProgress::Continue),
             NativeAction::Callback(request) => Ok(NativeProgress::Callback(request)),
             NativeAction::BuiltinFailure(error) => Ok(NativeProgress::BuiltinFailure(error)),
+            NativeAction::TypeMismatch(detail) => Ok(NativeProgress::TypeMismatch(detail)),
             NativeAction::Publish(value) => {
                 if let Some(destination) = destination {
                     frame.write_register(destination, value)?;

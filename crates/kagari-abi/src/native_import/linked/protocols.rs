@@ -27,6 +27,23 @@ pub(super) fn valid<'a>(
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     for witness in &import.witnesses {
+        let list_query = matches!(
+            import.binding,
+            EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::ListFirst
+                    | NativeDefaultMethod::ListLast
+                    | NativeDefaultMethod::ListBinarySearch
+            )
+        );
+        if list_query
+            && StandardTrait::from_id(&witness.interface.declaration) == Some(StandardTrait::List)
+        {
+            if !lists::valid(witness, catalog, &table, &callable, cancel)? {
+                return Ok(false);
+            }
+            continue;
+        }
+
         let protocol = StandardTrait::from_id(&witness.interface.declaration);
         let aggregate = matches!(
             import.binding,
@@ -40,7 +57,8 @@ pub(super) fn valid<'a>(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
         );
-        let invoked = (numeric
+        let conversion = numeric || list_query;
+        let invoked = (conversion
             && matches!(
                 protocol,
                 Some(StandardTrait::Iterable | StandardTrait::Iterator)
@@ -53,7 +71,7 @@ pub(super) fn valid<'a>(
                 && matches!(witness.receiver, AbiType::Iter(_)))
             || ((protocol == Some(StandardTrait::Ord) || aggregate)
                 && witness.implementation == NativeWitnessImplementation::Primitive)
-            || (numeric
+            || (conversion
                 && protocol == Some(StandardTrait::Iterable)
                 && matches!(
                     witness.implementation,
@@ -90,7 +108,9 @@ pub(super) fn valid<'a>(
             _ => None,
         };
         let consumed_native = match (protocol, native) {
-            (Some(StandardTrait::Iterable), Some(NativeProtocolMethod::CollectionIter)) => numeric,
+            (Some(StandardTrait::Iterable), Some(NativeProtocolMethod::CollectionIter)) => {
+                conversion
+            }
             (Some(StandardTrait::Sum), Some(NativeProtocolMethod::NumericSum))
             | (Some(StandardTrait::Product), Some(NativeProtocolMethod::NumericProduct)) => {
                 aggregate
@@ -164,7 +184,7 @@ pub(super) fn valid<'a>(
                         } if args.as_slice() == slice::from_ref(item))
                         })
             }
-            Some(StandardTrait::Iterable) if numeric => {
+            Some(StandardTrait::Iterable) if conversion => {
                 let iterator = catalog.normalize(
                     &AbiType::Projection {
                         receiver: Box::new(witness.receiver.clone()),
@@ -196,3 +216,5 @@ pub(super) fn valid<'a>(
     }
     Ok(true)
 }
+
+mod lists;

@@ -545,6 +545,9 @@ impl IteratorInvocation {
                         self.set(runtime, roots, CALLBACK, value)?;
                         self.phase = Phase::DecisionStep(DecisionPhase::GreaterTest);
                     }
+                    ProtocolStep::BuiltinFailure(error) => {
+                        return Ok(NativeAction::BuiltinFailure(error));
+                    }
                     ProtocolStep::Call(request) => {
                         self.phase = Phase::WaitingComparison;
                         return Ok(NativeAction::Callback(request));
@@ -589,6 +592,9 @@ impl IteratorInvocation {
                     ProtocolStep::Value(value) => {
                         self.receive_iterator(runtime, owner, contract, roots, value)?
                     }
+                    ProtocolStep::BuiltinFailure(error) => {
+                        return Ok(NativeAction::BuiltinFailure(error));
+                    }
                     ProtocolStep::Call(request) => {
                         self.phase = Phase::WaitingIterator;
                         return Ok(NativeAction::Callback(request));
@@ -616,6 +622,9 @@ impl IteratorInvocation {
                     ProtocolStep::Value(value) => {
                         self.set(runtime, roots, NEXT, value)?;
                         self.phase = Phase::Test;
+                    }
+                    ProtocolStep::BuiltinFailure(error) => {
+                        return Ok(NativeAction::BuiltinFailure(error));
                     }
                     ProtocolStep::Call(request) => {
                         self.phase = Phase::WaitingNext;

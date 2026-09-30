@@ -2,7 +2,6 @@ use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp as Op},
     representation::ValueType,
-    scalar::BuiltinType,
     standard::{bindings::NativeDefaultMethod, surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_hir::{builtin::traits::StandardTraitSemantics, types::TypeId};
@@ -87,36 +86,10 @@ impl FunctionLowerer<'_, '_> {
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
         let item = self.iteration_output(StandardTrait::Iterable, source, "Item")?;
-        let optional = TypeId::StandardEnum {
-            kind: StandardEnum::Option,
-            args: vec![item.clone()],
-        };
-        let zero = self.usize_constant(0);
-        if operation == NativeDefaultMethod::ListFirst {
-            return self.list_call(source, &item, "get", &[args[0], zero]);
-        }
+        self.usize_constant(0);
         let guard = self.query_guard(source, args[0])?;
         let length = self.list_call(source, &item, "len", &[args[0]])?;
         let one = self.usize_constant(1);
-        if operation == NativeDefaultMethod::ListLast {
-            let empty = self.query_binary(BinaryOp::Eq, length, zero, ValueType::Bool);
-            let result = self.branch_value(
-                empty,
-                &optional,
-                |this| this.standard_enum_op(&optional, Op::Make(1), None),
-                |this| {
-                    let index = this.query_binary(BinaryOp::Sub, length, one, ValueType::U64);
-                    this.list_call(source, &item, "get", &[args[0], index])
-                },
-            )?;
-            self.end_query_guard(guard);
-            return Ok(result);
-        }
-        if operation == NativeDefaultMethod::ListBinarySearch {
-            let result = self.list_binary_search(source, &item, args, length)?;
-            self.end_query_guard(guard);
-            return Ok(result);
-        }
         let needle_source = if matches!(
             operation,
             NativeDefaultMethod::ListStartsWith | NativeDefaultMethod::ListEndsWith
@@ -217,101 +190,6 @@ impl FunctionLowerer<'_, '_> {
             self.end_query_guard(guard);
         }
         self.end_query_guard(guard);
-        Ok(result)
-    }
-
-    fn list_binary_search(
-        &mut self,
-        source: &TypeId,
-        item: &TypeId,
-        args: &[MirValue],
-        length: MirValue,
-    ) -> Result<MirValue, MirLoweringError> {
-        let ty = TypeId::StandardEnum {
-            kind: StandardEnum::Result,
-            args: vec![TypeId::Builtin(BuiltinType::USize); 2],
-        };
-        let order = TypeId::StandardEnum {
-            kind: StandardEnum::Ordering,
-            args: vec![],
-        };
-        let low = self.usize_constant(0);
-        let high = self.alloc_temp(ValueType::U64);
-        self.emit(Instruction::Move {
-            dst: high,
-            src: length,
-        });
-        let result = self.alloc_temp(ValueType::HeapObject);
-        let head = self.new_block();
-        let body = self.new_block();
-        let found = self.new_block();
-        let compare = self.new_block();
-        let less = self.new_block();
-        let greater = self.new_block();
-        let missing = self.new_block();
-        let done = self.new_block();
-        self.ensure_jump(head);
-        self.switch_to_block(head);
-        let more = self.query_binary(BinaryOp::Lt, low, high, ValueType::Bool);
-        self.set_terminator(Terminator::Branch {
-            cond: more,
-            then_block: body,
-            else_block: missing,
-        });
-        self.switch_to_block(body);
-        let distance = self.query_binary(BinaryOp::Sub, high, low, ValueType::U64);
-        let two = self.usize_constant(2);
-        let half = self.query_binary(BinaryOp::Div, distance, two, ValueType::U64);
-        let middle = self.query_binary(BinaryOp::Add, low, half, ValueType::U64);
-        let value = self.list_value(source, item, args[0], middle)?;
-        let comparison = self.lower_applied_operator(
-            StandardTrait::Ord.nominal(),
-            item.clone(),
-            &self.protocol_method(StandardTrait::Ord, 0)?,
-            &[value, args[1]],
-        )?;
-        let equal = self.standard_enum_op(&order, Op::Test(1), Some(comparison))?;
-        self.set_terminator(Terminator::Branch {
-            cond: equal,
-            then_block: found,
-            else_block: compare,
-        });
-        self.switch_to_block(found);
-        let ok = self.standard_enum_op(&ty, Op::Make(0), Some(middle))?;
-        self.emit(Instruction::Move {
-            dst: result,
-            src: ok,
-        });
-        self.ensure_jump(done);
-        self.switch_to_block(compare);
-        let is_less = self.standard_enum_op(&order, Op::Test(0), Some(comparison))?;
-        self.set_terminator(Terminator::Branch {
-            cond: is_less,
-            then_block: less,
-            else_block: greater,
-        });
-        self.switch_to_block(less);
-        let one = self.usize_constant(1);
-        let next = self.query_binary(BinaryOp::Add, middle, one, ValueType::U64);
-        self.emit(Instruction::Move {
-            dst: low,
-            src: next,
-        });
-        self.ensure_jump(head);
-        self.switch_to_block(greater);
-        self.emit(Instruction::Move {
-            dst: high,
-            src: middle,
-        });
-        self.ensure_jump(head);
-        self.switch_to_block(missing);
-        let error = self.standard_enum_op(&ty, Op::Make(1), Some(low))?;
-        self.emit(Instruction::Move {
-            dst: result,
-            src: error,
-        });
-        self.ensure_jump(done);
-        self.switch_to_block(done);
         Ok(result)
     }
 }
