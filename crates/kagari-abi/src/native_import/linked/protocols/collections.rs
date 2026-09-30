@@ -1,4 +1,4 @@
-//! Validate the complete selected List requirement set, including native storage.
+//! Validate the complete selected List/Map requirement sets, including native storage.
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     native_import::{NativeSignature, NativeWitness, NativeWitnessImplementation},
@@ -34,8 +34,13 @@ pub(super) fn valid<'a>(
         }
         _ => return Ok(false),
     };
-    let [item] = witness.interface.arguments.as_slice() else {
-        return Ok(false);
+    let protocol = StandardTrait::from_id(&witness.interface.declaration);
+    let item = match (protocol, witness.interface.arguments.as_slice()) {
+        (Some(StandardTrait::List), [item]) => item.clone(),
+        (Some(StandardTrait::Map), [key, value]) => {
+            AbiType::Tuple(vec![key.clone(), value.clone()])
+        }
+        _ => return Ok(false),
     };
     let Some(iterable) = catalog
         .ancestry(&witness.interface, &witness.receiver, cancel)?
@@ -49,7 +54,7 @@ pub(super) fn valid<'a>(
     if iterable
         .associated_types
         .get(&associated_type_id(&iterable.declaration, "Item"))
-        != Some(item)
+        != Some(&item)
         || iterable
             .associated_types
             .get(&associated_type_id(&iterable.declaration, "Iter"))
@@ -62,10 +67,12 @@ pub(super) fn valid<'a>(
     let Some(parameters) = catalog.parameters(&witness.interface.declaration) else {
         return Ok(false);
     };
-    let [parameter] = parameters else {
+    if parameters.len() != witness.interface.arguments.len() {
         return Ok(false);
-    };
-    substitution.bind(&parameter.owner, parameter.position, item);
+    }
+    for (parameter, argument) in parameters.iter().zip(&witness.interface.arguments) {
+        substitution.bind(&parameter.owner, parameter.position, argument);
+    }
     let mut consumed = Vec::new();
     let mut required = 0;
     let mut slot = 0;
@@ -89,6 +96,26 @@ pub(super) fn valid<'a>(
             1 => {
                 expected.params == [witness.receiver.clone()]
                     && expected.result == AbiType::Builtin(BuiltinType::Bool)
+            }
+            2 if protocol == Some(StandardTrait::Map) => {
+                expected.params
+                    == [
+                        witness.receiver.clone(),
+                        witness.interface.arguments[0].clone(),
+                    ]
+                    && expected.result == AbiType::Builtin(BuiltinType::Bool)
+            }
+            3 if protocol == Some(StandardTrait::Map) => {
+                expected.params
+                    == [
+                        witness.receiver.clone(),
+                        witness.interface.arguments[0].clone(),
+                    ]
+                    && expected.result
+                        == AbiType::StandardEnum {
+                            kind: StandardEnum::Option,
+                            args: vec![witness.interface.arguments[1].clone()],
+                        }
             }
             2 => {
                 expected.params == [witness.receiver.clone(), index]
@@ -123,14 +150,27 @@ pub(super) fn valid<'a>(
             EngineNativeBinding::Intrinsic(binding),
         )) = method.implementation
         {
-            let operation = [
-                StandardIntrinsic::ArrayLen,
-                StandardIntrinsic::ArrayIsEmpty,
-                StandardIntrinsic::ArrayGet,
-            ][required];
-            if binding != operation
-                || !matches!(&witness.receiver,AbiType::Array(element,_) if element.as_ref()==item)
-            {
+            let (operation, storage) = if protocol == Some(StandardTrait::List) {
+                (
+                    [
+                        StandardIntrinsic::ArrayLen,
+                        StandardIntrinsic::ArrayIsEmpty,
+                        StandardIntrinsic::ArrayGet,
+                    ][required],
+                    matches!(&witness.receiver,AbiType::Array(element,_) if element.as_ref()==&item),
+                )
+            } else {
+                (
+                    [
+                        StandardIntrinsic::MapLen,
+                        StandardIntrinsic::MapIsEmpty,
+                        StandardIntrinsic::MapContainsKey,
+                        StandardIntrinsic::MapGet,
+                    ][required],
+                    matches!(&witness.receiver,AbiType::Map {key,value,..} if witness.interface.arguments==[key.as_ref().clone(),value.as_ref().clone()]),
+                )
+            };
+            if binding != operation || !storage {
                 return Ok(false);
             }
         } else {
@@ -150,5 +190,11 @@ pub(super) fn valid<'a>(
         }
         required += 1;
     }
-    Ok(required == 3 && witness.methods == consumed)
+    Ok(required
+        == if protocol == Some(StandardTrait::List) {
+            3
+        } else {
+            4
+        }
+        && witness.methods == consumed)
 }

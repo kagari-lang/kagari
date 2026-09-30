@@ -192,6 +192,28 @@ impl FunctionLowerer<'_, '_> {
                 }
             }
         }
+        if matches!(
+            binding,
+            NativeDefaultMethod::MapKeysView
+                | NativeDefaultMethod::MapValuesView
+                | NativeDefaultMethod::MapEntriesView
+        ) {
+            let mut iterable = StandardTrait::Iterable.nominal();
+            for name in ["Item", "Iter"] {
+                let output = self.iteration_output(StandardTrait::Iterable, receiver, name)?;
+                iterable
+                    .associated_types
+                    .insert(associated_type_id(&iterable.declaration, name), output);
+            }
+            witnesses.push(self.lower_native_witness(receiver, &iterable, &[])?);
+            let iterator = self.iteration_output(StandardTrait::Iterable, receiver, "Iter")?;
+            let mut next = StandardTrait::Iterator.nominal();
+            let item = self.iteration_output(StandardTrait::Iterable, receiver, "Item")?;
+            next.associated_types
+                .insert(associated_type_id(&next.declaration, "Item"), item);
+            witnesses.push(self.lower_native_witness(&iterator, &next, &[])?);
+            witnesses.push(self.native_list_result(&result)?);
+        }
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {
                 declaration: method.clone(),

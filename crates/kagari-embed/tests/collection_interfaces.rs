@@ -316,30 +316,36 @@ fn map_snapshot_return_types_reject_writes_without_annotations() {
 }
 
 #[test]
-fn map_snapshot_bindings_must_be_lowered_before_execution() {
-    use kagari_abi::standard::StandardIntrinsic as S;
+fn map_snapshots_reject_calls_that_bypass_native_contracts() {
+    use kagari_abi::{
+        callable::{EngineNativeBinding, NativeCall},
+        standard::StandardIntrinsic,
+    };
     use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(
         SourceFile::new("snapshot-wire.kgr", "fn main() { val map = LinkedHashMap::from([(1,2)]); map.keys(); map.values(); map.entries(); }"),
         Default::default(), Default::default()).unwrap();
     verify_program(&artifact.program).unwrap();
-    for (storage, public) in [
-        (S::MapKeysStorage, S::MapKeys),
-        (S::MapValuesStorage, S::MapValues),
-        (S::MapEntriesStorage, S::MapEntries),
+    for public in [
+        StandardIntrinsic::MapKeys,
+        StandardIntrinsic::MapValues,
+        StandardIntrinsic::MapEntries,
     ] {
         let mut forged = artifact.program.clone();
+        let root = &mut forged.modules[artifact.program.root.index()];
+        let import = root
+            .engine_imports
+            .iter()
+            .position(|import| import.binding == EngineNativeBinding::Intrinsic(public))
+            .unwrap();
         let mut replaced = false;
-        for function in &mut forged.modules[artifact.program.root.index()].functions {
+        for function in &mut root.functions {
             for instruction in &mut function.instructions {
-                if let BytecodeInstruction::Call {
-                    callee: CallTarget::StandardIntrinsic(intrinsic),
-                    ..
-                } = instruction
-                    && *intrinsic == storage
+                if let BytecodeInstruction::Call { callee, .. } = instruction
+                    && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
                 {
-                    *intrinsic = public;
+                    *callee = CallTarget::StandardIntrinsic(public);
                     replaced = true;
                 }
             }

@@ -25,6 +25,25 @@ pub(super) fn valid(
     let AbiType::SelfType(owner) = receiver else {
         if matches!(
             method,
+            NativeDefaultMethod::MapKeysView
+                | NativeDefaultMethod::MapValuesView
+                | NativeDefaultMethod::MapEntriesView
+        ) {
+            return bound(bounds, receiver, StandardTrait::Map).is_some_and(|interface| {
+                let [key, value] = interface.arguments.as_slice() else {
+                    return false;
+                };
+                let item = match method {
+                    NativeDefaultMethod::MapKeysView => key.clone(),
+                    NativeDefaultMethod::MapValuesView => value.clone(),
+                    _ => AbiType::Tuple(vec![key.clone(), value.clone()]),
+                };
+                signature.params.len() == 1
+                    && readonly_collection(&signature.result, StandardTrait::List, &[item])
+            });
+        }
+        if matches!(
+            method,
             NativeDefaultMethod::ListFirst
                 | NativeDefaultMethod::ListLast
                 | NativeDefaultMethod::ListBinarySearch

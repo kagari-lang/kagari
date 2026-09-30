@@ -3,6 +3,7 @@ mod enums;
 mod iterators;
 mod list_equality;
 mod lists;
+mod map_snapshots;
 mod protocols;
 use crate::{
     LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
@@ -13,6 +14,7 @@ use crate::{
         iterators::IteratorInvocation,
         list_equality::EqualityInvocation,
         lists::ListInvocation,
+        map_snapshots::SnapshotInvocation,
     },
     value::Value,
 };
@@ -21,6 +23,7 @@ use kagari_abi::{
     ids::FunctionRef,
     native_import::EngineNativeOperation,
     standard::{
+        StandardIntrinsic,
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         traits::StandardTrait,
     },
@@ -69,6 +72,7 @@ enum NativeState {
     Iterator(IteratorInvocation),
     List(ListInvocation),
     ListEquality(EqualityInvocation),
+    MapSnapshot(SnapshotInvocation),
     Forward,
 }
 
@@ -78,7 +82,7 @@ pub(crate) struct NativeInvocation {
     import: EngineImportId,
     roots: RootSet,
     state: NativeState,
-    entry: Option<NativeCallback>,
+    entry: Option<NativeProgress>,
 }
 
 impl NativeInvocation {
@@ -101,6 +105,18 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(
+                EngineNativeBinding::Intrinsic(
+                    StandardIntrinsic::MapKeys
+                    | StandardIntrinsic::MapValues
+                    | StandardIntrinsic::MapEntries,
+                )
+                | EngineNativeBinding::TraitDefault(
+                    NativeDefaultMethod::MapKeysView
+                    | NativeDefaultMethod::MapValuesView
+                    | NativeDefaultMethod::MapEntriesView,
+                ),
+            )) => NativeState::MapSnapshot(SnapshotInvocation::start(contract, arguments)?),
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation))) => {
                 NativeState::Enum(EnumInvocation::start(
                     runtime,
@@ -154,13 +170,13 @@ impl NativeInvocation {
                     if let Some(witness) = target.filter(|witness| {
                         !protocols::numeric_destination(&implementation, witness, operation)
                     }) {
-                        entry = Some(protocols::aggregate(
+                        entry = Some(NativeProgress::Callback(protocols::aggregate(
                             runtime,
                             &implementation,
                             witness,
                             arguments[0].clone(),
                             &contract.signature.params[0],
-                        )?);
+                        )?));
                         NativeState::Forward
                     } else {
                         NativeState::Iterator(IteratorInvocation::start(
@@ -210,12 +226,24 @@ impl NativeInvocation {
                             })?
                         }
                         NativeState::Forward => vec![],
+                        NativeState::MapSnapshot(state) => {
+                            state.initial.take().ok_or_else(|| {
+                                RuntimeError::module_validation(
+                                    "missing Map snapshot initial roots",
+                                )
+                            })?
+                        }
                     })
                     .collect(),
             )
             .ok_or_else(|| {
                 RuntimeError::module_validation("invalid native continuation argument")
             })?;
+        if let NativeState::MapSnapshot(state) = &state {
+            entry = state
+                .initialize(runtime, arguments, &roots)?
+                .map(NativeProgress::BuiltinFailure);
+        }
         Ok(Self {
             implementation,
             import,
@@ -227,9 +255,7 @@ impl NativeInvocation {
     }
 
     pub(crate) fn take_entry(&mut self) -> NativeProgress {
-        self.entry
-            .take()
-            .map_or(NativeProgress::Continue, NativeProgress::Callback)
+        self.entry.take().unwrap_or(NativeProgress::Continue)
     }
 
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
@@ -253,6 +279,9 @@ impl NativeInvocation {
             NativeState::Forward => Err(RuntimeError::module_validation(
                 "aggregation callback is pending",
             )),
+            NativeState::MapSnapshot(state) => {
+                state.advance(runtime, &self.implementation, contract, &self.roots)
+            }
         }
     }
 
@@ -301,6 +330,13 @@ impl NativeInvocation {
                 }
                 Ok(NativeAction::Complete(value))
             }
+            NativeState::MapSnapshot(state) => state.receive(
+                runtime,
+                &self.implementation,
+                &self.implementation.bytecode.engine_imports[self.import.index()],
+                &self.roots,
+                value,
+            ),
         }
     }
 }

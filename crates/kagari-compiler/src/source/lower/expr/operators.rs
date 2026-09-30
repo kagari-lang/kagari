@@ -318,6 +318,9 @@ impl FunctionLowerer<'_, '_> {
                     | NativeDefaultMethod::ListContains
                     | NativeDefaultMethod::ListStartsWith
                     | NativeDefaultMethod::ListEndsWith
+                    | NativeDefaultMethod::MapKeysView
+                    | NativeDefaultMethod::MapValuesView
+                    | NativeDefaultMethod::MapEntriesView
             ) {
                 return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
             }
@@ -338,14 +341,6 @@ impl FunctionLowerer<'_, '_> {
                 NativeDefaultMethod::ListWindows | NativeDefaultMethod::ListChunks
             ) {
                 return self.lower_list_windows(operation, &ty, args);
-            }
-            if matches!(
-                operation,
-                NativeDefaultMethod::MapKeysView
-                    | NativeDefaultMethod::MapValuesView
-                    | NativeDefaultMethod::MapEntriesView
-            ) {
-                return self.lower_map_view_snapshot(operation, &ty, args[0]);
             }
             if operation == NativeDefaultMethod::ListJoin {
                 if matches!(ty, TypeId::Array(_, _)) {

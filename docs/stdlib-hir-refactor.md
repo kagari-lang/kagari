@@ -12,7 +12,9 @@ and numeric/user-defined aggregation. Checked scalar implementations also own
 direct Iterable-based Sum/Product entrypoints through the same native traversal.
 All six List queries execute natively across storage, selected script
 implementations and declared dynamic views with checked multi-method witnesses
-and selected primitive, nominal or core composed equality. Remaining ST05 iterator/collection migration and ST06 encoded fixtures/
+and selected primitive, nominal or core composed equality. Native storage and
+static/dynamic Map snapshots execute through checked runtime traversal and result
+construction. Remaining ST05 iterator/collection migration and ST06 encoded fixtures/
 final acceptance remain pending.
 
 This plan defines the next standard-library architecture migration. It follows
@@ -513,6 +515,8 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   List/Iterable/Ord witnesses across storage, script implementations and dynamic views.
 - [x] Migrate List equality queries (`contains`, `starts_with`, `ends_with`) with
   selected equality composition, dual guards and storage/script/dynamic traversal.
+- [x] Migrate Map keys/values/entries snapshots across native storage, generic/user
+  traversal and dynamic views, with checked readonly result construction.
 - [ ] Migrate remaining iterator defaults, terminal operations, custom destinations and
   lazy adapters, including generic/user protocol witnesses.
 - [ ] Migrate collection queries, custom keys, prepared mutation, sort/retain/dedup,
@@ -809,6 +813,61 @@ textual references; renaming an import is not removal of the dependency.
 
 ## Progress ledger
 
+- ST05 Map snapshot checkpoint (2026-09-30): completes one checklist covering
+  keys, values and entries on concrete native maps and on generic/static/dynamic
+  Map implementations. Deleted both compiler snapshot lowering functions and
+  their routing branches. Concrete maps retain the existing direct Rust snapshot
+  helpers; traversal defaults own their array construction, Iterable conversion,
+  guarded next/read/projection/append loop, close and List construction in runtime.
+  Native defaults do not impose Eq/Hash on custom Map interfaces.
+- Imports carry the selected source Map/Iterable/Iterator applications and a
+  checked ArrayList-to-List result construction witness. The factory reuses the
+  ordinary native interface table already required by language coercions. It
+  carries canonical concrete required-method targets, without a new compatibility
+  model, forwarding layer or second snapshot algorithm. Portable validation checks
+  its exact mutable ArrayList storage and readonly List interface, native bridge
+  ownership, empty instantiation arguments, callable signatures and linked table.
+  Map/List witnesses validate all required physical signatures and exact Iterable
+  parent Item/Iter outputs. Altered or missing factories cannot grant writable
+  script access or construct an unvalidated interface.
+- Runtime resolves result tables in the pinned dependency closure and publishes
+  independent shallow slots in the selected iteration order. Key/value objects
+  remain shared. Construction registers argument/scratch roots before the already
+  charged allocation; initialization failures are carried through the generic
+  entry action. A focused resource test exposed the earlier ordering's incorrect
+  ModuleValidation error after allocation failure; it now preserves the original
+  ResourceLimitExceeded category, two entry steps, trace and cleanup. Readonly
+  snapshot rejection tests retain their assertions, and the former raw-binding
+  test now rejects bypass of the complete native contract.
+- Recorded 108 cases at 6eaf7e3: empty/singleton/multiple maps, all three projections,
+  concrete storage, generic native/custom sources, native/custom dynamic views,
+  selected custom-key protocols, heap payloads and non-hashable floating keys on
+  custom maps. All 28,480 source/decoded budget cuts preserve totals, iter/next/
+  hash/eq/snapshot/done positions, results and GC/session cleanup. Additional tests
+  cover nested successful/failed host reentry, cancellation at every callback
+  occurrence, source conversion/traversal traps, structural alias mutation,
+  foreign generic methods and result tables, subsequent clean execution and every
+  direct snapshot allocation limit through successful publication at GC threshold 1.
+  All 192 selected import corruptions reject in memory and encoded loading.
+- Runtime ABI is v117 for the newly executable Map bindings and result-construction
+  contract; binding v2, KBC v109, KMIR v7 and helper ABI v6 keep their schemas.
+- ABI 46, bytecode 27, compiler 174, HIR 414, MIR 1, runtime 71, stdlib 7 and
+  VM 172 library tests pass (912 cumulative). Embedding collection_interfaces/
+  default_methods/error_traces/iteration_traits/lazy_iterators/numeric_operations
+  pass 91 tests (1003 combined). The final focused Map budget/boundary suite and
+  compiler forgery suite also pass after the obligation-policy module extraction.
+  Workspace all-target Clippy with warnings denied, formatting, structure and
+  diff checks pass. Structure covers 614 Rust files with zero violations/exceptions.
+  Manual review covered module ownership, imports, canonical method targets,
+  mutable storage versus readonly exposure, pinned result construction, root
+  registration and cleanup. No build or test error is carried by this checkpoint.
+  Corrected the preceding equality-checkpoint test total's arithmetic to 906
+  library and 997 combined tests; its individual crate counts and results are
+  unchanged.
+  Remaining destinations/adapters, set/custom-key operations and prepared collection
+  mutations stay in ST05. ST06 still owns encoded fixtures, current specifications,
+  source-free feature/behavior acceptance and measurements.
+
 - ST05 List equality-query checkpoint (2026-09-30): completes contains,
   starts_with and ends_with as one native family. Deleted their compiler control
   flow expansion. Runtime owns traversal, both List/Iterable conversions, lengths,
@@ -848,9 +907,9 @@ textual references; renaming an import is not removal of the dependency.
   and KMIR v7 for the explicit derived-witness schema; helper ABI remains v6.
   Previous formats/bindings are rejected rather than read through an old model.
 - ABI 46, bytecode 27, compiler 173, HIR 414, MIR 1, runtime 71, stdlib 7
-  and VM 167 library tests pass (907 cumulative, including the final ABI suite).
+  and VM 167 library tests pass (906 cumulative, including the final ABI suite).
   Embedding collection_interfaces/default_methods/error_traces/iteration_traits/
-  lazy_iterators/numeric_operations pass 91 tests (998 cumulative). Workspace
+  lazy_iterators/numeric_operations pass 91 tests (997 cumulative). Workspace
   all-target Clippy with warnings denied, formatting, structure and diff checks
   pass. Structure covers 603 Rust files with zero violations/exceptions. Manual
   review covered core/native ownership, canonical applications, required-method

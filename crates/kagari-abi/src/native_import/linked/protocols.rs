@@ -4,6 +4,7 @@ use crate::{
     native_import::{EngineNativeImport, NativeSignature, NativeWitnessImplementation},
     scalar::BuiltinType,
     standard::{
+        StandardIntrinsic,
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         surface::StandardEnum,
         traits::StandardTrait,
@@ -39,10 +40,23 @@ pub(super) fn valid<'a>(
                     | NativeDefaultMethod::ListEndsWith
             )
         );
-        if list_query
-            && StandardTrait::from_id(&witness.interface.declaration) == Some(StandardTrait::List)
+        let snapshot = matches!(
+            import.binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::MapKeys
+                    | StandardIntrinsic::MapValues
+                    | StandardIntrinsic::MapEntries
+            ) | EngineNativeBinding::TraitDefault(
+                NativeDefaultMethod::MapKeysView
+                    | NativeDefaultMethod::MapValuesView
+                    | NativeDefaultMethod::MapEntriesView
+            )
+        );
+        let collection = StandardTrait::from_id(&witness.interface.declaration);
+        if (list_query || snapshot) && collection == Some(StandardTrait::List)
+            || snapshot && collection == Some(StandardTrait::Map)
         {
-            if !lists::valid(witness, catalog, &table, &callable, cancel)? {
+            if !collections::valid(witness, catalog, &table, &callable, cancel)? {
                 return Ok(false);
             }
             continue;
@@ -61,7 +75,7 @@ pub(super) fn valid<'a>(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
         );
-        let conversion = numeric || list_query;
+        let conversion = numeric || list_query || snapshot;
         let equality = list_query && protocol == Some(StandardTrait::PartialEq);
         if equality
             && witness.implementation == NativeWitnessImplementation::Interface
@@ -270,4 +284,4 @@ pub(super) fn valid<'a>(
     Ok(true)
 }
 
-mod lists;
+mod collections;

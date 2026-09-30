@@ -226,14 +226,6 @@ impl FunctionLowerer<'_, '_> {
 
         if matches!(
             intrinsic,
-            StandardIntrinsic::MapKeys
-                | StandardIntrinsic::MapValues
-                | StandardIntrinsic::MapEntries
-        ) {
-            return self.lower_map_snapshot(expr, intrinsic, lowered[0]);
-        }
-        if matches!(
-            intrinsic,
             StandardIntrinsic::ArrayCopyFrom | StandardIntrinsic::ArrayExtend
         ) {
             let source_expr = *args

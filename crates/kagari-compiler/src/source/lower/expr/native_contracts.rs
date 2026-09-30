@@ -9,7 +9,7 @@ use kagari_abi::{
         ENGINE_NATIVE_BINDING_VERSION, EngineNativeImport, NativeSignature, NativeWitness,
         NativeWitnessImplementation,
     },
-    standard::{bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
     types::{
         ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, substitution::TypeSubstitution,
     },
@@ -99,7 +99,7 @@ impl FunctionLowerer<'_, '_> {
                 &self.planner.options.cancel,
             )
             .map_err(|_| invalid())?;
-        let witnesses = self.native_requirement_witnesses(binding, &requirements)?;
+        let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
         let params =
             self.planner
                 .arguments(&application.params, &self.instance.substitution, span)?;
@@ -108,6 +108,16 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
+        if matches!(
+            binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::MapKeys
+                    | StandardIntrinsic::MapValues
+                    | StandardIntrinsic::MapEntries
+            )
+        ) {
+            witnesses.push(self.native_list_result(&result[0])?);
+        }
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {
                 declaration,
@@ -251,7 +261,17 @@ impl FunctionLowerer<'_, '_> {
                 &self.planner.options.cancel,
             )
             .map_err(|_| invalid())?;
-        let witnesses = self.native_requirement_witnesses(binding, &requirements)?;
+        let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
+        if matches!(
+            binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::MapKeys
+                    | StandardIntrinsic::MapValues
+                    | StandardIntrinsic::MapEntries
+            )
+        ) {
+            witnesses.push(self.native_list_result(result)?);
+        }
         let contract = EngineNativeImport {
             instance: ConcreteFunctionIdentity {
                 declaration: declaration.clone(),

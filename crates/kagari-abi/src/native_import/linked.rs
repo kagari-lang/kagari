@@ -21,6 +21,7 @@ use kagari_common::{
 use std::{collections::HashSet, iter};
 
 mod protocols;
+mod snapshots;
 
 impl EngineNativeImport {
     pub fn matches_declaration<'a>(
@@ -157,6 +158,11 @@ impl EngineNativeImport {
                 constraints: vec![ConstraintAbi::Trait(iterable)],
             });
         }
+        let Some(snapshot_obligations) = snapshots::obligations(self, catalog, &table, cancel)?
+        else {
+            return Ok(false);
+        };
+        obligations.extend(snapshot_obligations);
         if matches!(
             self.binding,
             EngineNativeBinding::Protocol(

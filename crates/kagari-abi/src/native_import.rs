@@ -148,6 +148,17 @@ impl EngineNativeImport {
         }
         if matches!(
             self.binding,
+            EngineNativeBinding::Intrinsic(
+                StandardIntrinsic::MapKeys
+                    | StandardIntrinsic::MapValues
+                    | StandardIntrinsic::MapEntries
+            )
+        ) && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
+        {
+            return Some(EngineNativeOperation::Resumable(self.binding));
+        }
+        if matches!(
+            self.binding,
             EngineNativeBinding::Protocol(
                 NativeProtocolMethod::NumericSum | NativeProtocolMethod::NumericProduct
             )
@@ -190,6 +201,9 @@ impl EngineNativeImport {
                     | NativeDefaultMethod::ListContains
                     | NativeDefaultMethod::ListStartsWith
                     | NativeDefaultMethod::ListEndsWith
+                    | NativeDefaultMethod::MapKeysView
+                    | NativeDefaultMethod::MapValuesView
+                    | NativeDefaultMethod::MapEntriesView
             )
         ) {
             let mut bounds = self.requirements.clone();

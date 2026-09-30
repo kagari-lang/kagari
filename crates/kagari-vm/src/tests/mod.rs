@@ -21,3 +21,4 @@ mod source_programs;
 mod native_fixtures;
 mod native_list_equality;
 mod native_list_queries;
+mod native_map_snapshots;
