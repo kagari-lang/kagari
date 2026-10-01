@@ -425,6 +425,78 @@ dependency generations. No heap/table borrow or host lease crosses a callback.
 Cleanup releases the native suffix without executing script. Preserve current
 logical charges and failure positions until the separate execution-policy track.
 
+#### Persistent native state and lazy iterators
+
+Invocation state lasts until one call completes; iterator state remains reachable
+between calls. The common invocation factory alone does not express that second
+lifetime. Provide a runtime-managed, traceable native state cell and checked method
+entries. This is one reusable state facility, not one GC or driver variant per
+iterator adapter. Its concrete representation and access API are NR00 decisions.
+
+```rust
+struct NativeStateCell {
+    state_contract: InstalledStateContractId,
+    values: TracedValues,
+    payload: OwnedNativePayload,
+    callables: PinnedCallableSet,
+    owner: PinnedProviderGeneration,
+}
+```
+
+`TracedValues` holds all retained script values, including source iterators,
+closure captures, intermediate items and a current flat-map inner iterator. These
+are GC graph edges while idle, rather than permanent independent roots. Permanent
+roots can keep unreachable cycles alive. Active invocations root their iterator
+and temporary values; state updates pass through the heap's validation/barrier
+interface. The opaque Rust payload contains owned algorithm data such as counters
+and phases, without untraced script handles or escaped host borrows. Its storage
+and tracing work remain subject to resource limits. Host domain state continues
+to live outside the script heap behind existing typed handles.
+
+`PinnedCallableSet` retains entry metadata and dependency owners. Callable value
+captures reference traced slots rather than owning permanent roots independently
+of the cell's reachability.
+
+The installed state contract bounds the state representation and its checked entry
+signatures; artifacts cannot manufacture state-layout or execution authority.
+`Iter<T>` may retain its core representation and carry a native state cell plus
+a pinned checked stepping entry returning `Option<T>`. Ordinary script-defined
+Iterator implementations continue through their selected methods. Constructors
+bind concrete output types and entries through the common native context. Runtime
+checks the produced iterator's item type and owner, and every stepping result.
+HIR sees the declared iterator type and callable application; MIR sees ordinary
+constructor/next calls. Neither layer needs a Map/Filter/FlatMap target variant.
+
+For `map`, construction retains the source and callback without advancing the
+source or invoking the callback. Each `next` creates a bounded invocation that
+requests source `next`, requests the callback for a yielded item, then returns
+`Some(mapped)` or `None`. Each call releases temporary invocation state while
+preserving the managed captures and source cursor for later calls. Aliases share
+the same iterator state. Provider entries and selected source/callback dependency
+generations remain pinned after the constructor frame returns and across reload.
+
+`filter` can request several source/callback pairs during one `next`; every pair
+must consume the existing logical work and poll cancellation. Returning no match
+must not create an unbudgeted loop. `flat_map` additionally retains its active
+inner iterator in the state cell, replacing that traced edge when moving to the
+next outer element. Do not infer fused exhaustion for an arbitrary source;
+adapter-specific exhaustion policy remains in its implementation and specification.
+
+State access releases heap/table/Rust borrows before callbacks. Managed invocation
+ownership and the existing guard contracts govern alias/reentrant access; define
+and test conflicting active accesses before freezing this API. Idle cells cannot
+retain execution frames, an active session or scoped host leases. Iteration guards
+remain execution-scoped: early closure and terminal failure release the appropriate
+dependency tree, and later resumption validates revisions and reacquires guards.
+Cleanup performs no script callbacks or business finalization. No async wait or
+cross-thread execution is introduced by persistent iterator state.
+
+Extend the initial slice with `Iterator::map`: return it from a script factory,
+invoke `next` repeatedly through aliases, force GC and reload between calls, and
+verify pinned callback behavior and unreachable-state collection. Preserve existing
+filter work-limit, non-fused, flat-map inner-state and early-close tests during
+restoration. A frame-only callback test cannot establish persistent-state support.
+
 #### Minimal slice and removal boundary
 
 Use a small `std::array` slice: `len` tests a direct generic receiver; `from_fn`
@@ -497,6 +569,9 @@ not membership in a standard-method list.
   scoped, rooted callable handles through the existing offline-to-runtime path.
 - [ ] Expose common direct/resumable entry registration and continuation lifecycle
   with frame-owned roots/guards, validated outcomes and bounded progress.
+- [ ] Provide managed traceable state that survives calls; verify a returned lazy
+  iterator through repeated steps, aliasing, GC and pinned generations without
+  retaining an execution frame or scoped host borrow.
 - [ ] Migrate a built-in callback operation and an external host implementation
   onto the same driver, including cross-provider nested callbacks.
 - [ ] Verify ordinary failure, sticky termination, GC, borrow conflicts, synchronous
@@ -548,7 +623,7 @@ method-specific infrastructure debt is waived as merely "metadata".
 | Failure/resources | Callback trap, allocation failure, every relevant budget cut, cancellation, quarantine and reentry release the correct roots/guards/scopes; no successful recovery from sticky termination |
 | GC and borrows | GC threshold one, rooted callback captures, escaped/foreign callable handles, borrow conflicts and repeated suspend/resume do not expose invalid values or retained Rust borrows |
 | Reload | Old callbacks and native entries keep their implementation/dependency generations alive; replacement registrations do not change active calls |
-| Collections/lazy state | Preserve stable ordering, callback counts, alias visibility, structural guards, commit guarantees and early iterator cleanup |
+| Collections/lazy state | Preserve stable ordering, callback counts, alias visibility, structural guards, commit guarantees and early iterator cleanup; prove returned-state tracing/collection, bounded filter traversal and pinned stepping across calls |
 | Backends/features | Existing source/artifact routes, supported direct JIT cases and verified fallback remain valid; offline and source-disabled SDK consumers retain dependency boundaries |
 
 Reuse existing native continuation/iterator, prepared collection, host interface,
@@ -587,6 +662,16 @@ resolved. Do not reopen completed ST phase ledgers for this follow-up.
 
 ## Progress ledger
 
+- 2026-10-01: Follow-up design review for lazy iterators separates one-call native
+  invocation from persistent GC-reachable state. Added managed traced value edges,
+  owned Rust payload limits, pinned callable/provider generations and checked
+  stepping entries. Extended the initial proof with a returned `Iterator::map` and
+  retained filter/flat-map/early-close coverage. Current `gc/lazy_iter.rs` already
+  separates captures from temporary stepping state, but `native/lazy_iterators.rs`
+  still selects adapters from `NativeDefaultMethod`; the replacement removes that
+  identity dependency. State representation and reentrant access remain explicit
+  NR00 design decisions. Checked all 27 local documentation links and the diff;
+  no Rust tests were run. This is documentation only, not an implementation claim.
 - 2026-10-01: At clean revision `b42c35a`, the user requested HIR/MIR data design
   first, removal of old standard implementation paths and a small standard-library
   integration before restoring the rest. Replaced the ST06 entry gate with carried
