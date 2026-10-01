@@ -1,5 +1,6 @@
 //! Expansion support for `#[native_module]`; registered ABI records remain authoritative.
 //! The public surface here is used by generated code in embedding consumers.
+mod defaults;
 mod selection;
 pub mod types;
 
@@ -46,6 +47,15 @@ pub struct Selected {
     pub interface: TypeExpression,
     pub member: &'static str,
     pub signature: TypeExpression,
+}
+
+/// Explicit correspondence from template generics to the owning trait's binders.
+#[doc(hidden)]
+pub struct DefaultMember {
+    pub receiver: TypeExpression,
+    pub interface: TypeExpression,
+    pub member: &'static str,
+    pub final_method: bool,
 }
 
 #[doc(hidden)]

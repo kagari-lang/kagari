@@ -55,6 +55,8 @@ pub struct NativeModule {
     pub traits: Vec<TraitAbi>,
     pub implementations: Vec<NativeImplementation>,
     pub functions: Vec<FunctionAbi>,
+    /// Registered templates remain addressable by identity without public exports.
+    pub private_functions: BTreeSet<DefinitionId>,
     pub documentation: BTreeMap<DefinitionId, String>,
     /// Ordered callback slots owned by each native declaration. The compiler
     /// specializes these requirements; generated source does not select targets.
@@ -69,6 +71,7 @@ impl NativeModule {
             traits: vec![],
             implementations: vec![],
             functions: vec![],
+            private_functions: BTreeSet::new(),
             documentation: BTreeMap::new(),
             callable_requirements: BTreeMap::new(),
         }
@@ -317,6 +320,15 @@ impl NativeModule {
                 return Err(fail());
             }
             items.push(PublicAbiItem::Function(function.clone()));
+        }
+        if self.private_functions.len() > self.functions.len()
+            || self.private_functions.iter().any(|id| {
+                !self.functions.iter().any(|function| {
+                    self.definition(DefinitionKind::Function, &function.name) == *id
+                })
+            })
+        {
+            return Err(fail());
         }
         for (index, implementation) in self.implementations.iter().enumerate() {
             let owner = self.implementation_id(index);

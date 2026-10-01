@@ -70,8 +70,9 @@ resolves concrete native slots on the shared execution driver. Registered record
 now enter HIR directly and source compilation materializes direct, generic, dynamic
 and selected calls without synthetic script bodies. Final override checks, returned
 GC objects, budget cleanup and generation-pinned callbacks pass source-to-encoded
-proofs. Typed Rust default authoring and complete external template catalogs remain
-NR02 prerequisites.
+proofs. Typed Rust templates now add owned default members and final policies
+without duplicate Rust trait signatures; helper templates stay private. Complete
+external default/template catalogs and projected requirements remain NR02 work.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
 refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;

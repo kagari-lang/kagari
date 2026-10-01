@@ -252,7 +252,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] External typed trait catalogs and foreign native implementation signatures, with actual provider installation and portable contract matching.
   - [x] Portable native default template applications, inherited obligations and encoded dynamic execution.
   - [x] Registered native default import and checked-source call/slot materialization.
-  - [ ] Typed Rust default authoring and complete external template dependencies.
+  - [x] Typed Rust owned default authoring from real function templates and private helper identities.
+  - [ ] Complete external default/template dependency closure and concrete default obligations.
   - [ ] Projected receivers and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
@@ -2408,3 +2409,82 @@ signatures, complete external declaration/template closure and projected
 requirements, then restore Ord/Ordering and sort_by/sort. Managed iterator state,
 full library restoration, legacy retirement and combined acceptance remain in the
 active goal.
+
+
+### NR02 checkpoint: typed Rust owned default templates (2026-10-01)
+
+Checkpoint 2 now derives owned default members from actual Rust free functions.
+This accepts bounded owned-trait authoring, not complete external default/template
+closure, projected requirements, Ord/sorting or managed returned state. No NR phase
+is accepted.
+
+- Add `#[native_default(T: Source<P, Output = U>::echo, final)]`. The Rust trait
+  contains required members only. Derive the new script member's complete signature
+  from its real Rust template; explicitly invert the receiver, trait argument and
+  ordinary associated-output roles into the checked NativeDefault application.
+  Reordered template binders work without name guessing or repeated signatures.
+- Require distinct mapped template parameters and a first receiver argument.
+  Reject duplicate/unknown members, ambiguous/unmapped roles, absent associated
+  types and unproved template obligations before publication. Keep member-local
+  generics, associated families and generalized constraint authoring queued.
+- Declare all owned default members before selected dependency resolution, native
+  implementation binding and ordinary entry registration. A default can call a
+  later-declared default. Native Rust implementations bind required members only;
+  no fake Rust default method, generated script body or compatibility entry exists.
+- Retain auxiliary templates as private registered declarations. NativeModule
+  carries a bounded checked private-function identity set; HIR and generated text
+  preserve that visibility while portable native declarations still carry the full
+  executable contract. Templates do not grow the public free-function inventory.
+- Build a new exact-emission encoded product from a real generic Source<P> trait,
+  its Output slot, a required native bool implementation, final echo and overridable
+  alternate defaults, and an application entry selecting alternate. It exercises
+  nested default callbacks over script/native/generic receivers and returned GC
+  objects under threshold one. Every budget cut cleans roots, frames and objects.
+  Final/private import diagnostics, overridable script dispatch and generated member
+  navigation/documentation/completion pass the source proof.
+- Keep runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 unchanged. Private
+  visibility is registration/source metadata; existing portable native declaration
+  records already represent private templates. Old products still require the
+  preceding ABI rebuild; no new wire version or legacy reader is needed here.
+
+Validation actually performed: 100 SDK tests across thirteen focused targets and
+three macro tests pass. Eight new typed-default tests include independent invalid
+mapping/obligation rejection, offline nested calls, every budget cut, exact source
+emission, specific final/private diagnostics, overriding and generated tooling.
+All four standalone native-proof consumers, eight production boundaries and the
+source-free ABI graph pass; source routes include the new default target. Workspace
+library and focused test/example Clippy pass with warnings denied. Format,
+structure (841 Rust files, zero findings/exceptions) and diff checks pass. Manual
+review covers actual imports/empty re-export whitelist, generated runtime-path
+hygiene, bounded private identities, template ownership, ordinary proof reuse,
+independent binder roles, evaluation order, root cleanup and retained contracts.
+The preceding NR04-owned obsolete full-workspace/all-target failures remain open;
+unchanged failures were neither rerun nor disabled, and no complete-library
+acceptance is claimed.
+
+Concrete next-step reproduction (not accepted external behavior): a separate Rust
+consumer declares `game::parent::Parent::read(&self) -> i32`, exports its catalog,
+and authors `game::child::Child: game::parent::Parent` with an owned default
+`#[native_default(T: Child::extra)] fn extra<T: NativeValue>(value: T) -> i32`.
+Without a selected parameter, child API construction and composition without the
+actual parent both succeed: declaration-owned parent dependencies are not retained.
+Adding `#[selected(T: game::parent::Parent::read)] read: NativeSelected<(T,), i32>`
+to that same template rejects API construction with "native default differs from
+its registered template", even when the complete parent catalog is provided.
+The builder's selected resolver retains the expected parent, but NativeApi::new
+checks owned defaults before require_traits publishes that expected closure.
+
+The observed probe command is
+`cargo run --offline --manifest-path target/native-default-parent-probe/Cargo.toml --target-dir target`;
+its two printed outcomes are in target/native-default-parent-probe.log. Recreate
+it from the definitions above after ignored cache cleanup. The next NR02 step must
+retain owned trait parents regardless of callback usage, validate defaults against
+the complete expected declaration/template closure, and require actual providers
+at composition/install. No unknown parent/template may become installation
+authority. This is a supported-scope limitation to resolve before library closure,
+not a completed external API or a reason to waive portable proof.
+
+Next: close required external default/template contracts and concrete obligations,
+then complete projected requirements and restore Ord/Ordering and sort_by/sort.
+Managed iterator state, remaining library restoration, legacy retirement and
+NR05/ST06 behavior/measurement acceptance remain in the active goal.

@@ -8,10 +8,10 @@ use syn::{
     parse::{Parse, ParseStream},
 };
 
-struct Selected {
-    receiver: Type,
-    contract: Path,
-    member: Ident,
+pub(crate) struct Selected {
+    pub receiver: Type,
+    pub contract: Path,
+    pub member: Ident,
 }
 impl Parse for Selected {
     fn parse(input: ParseStream<'_>) -> SyntaxResult<Self> {

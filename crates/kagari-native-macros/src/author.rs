@@ -1,5 +1,5 @@
 //! Attribute expansion keeps original Rust definitions and emits checked adapters.
-use crate::{selected, signature};
+use crate::{defaults, selected, signature};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
@@ -322,6 +322,7 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
     };
     let mut declarations = vec![];
     let mut functions = vec![];
+    let mut defaults = vec![];
     let mut implementations = vec![];
     let mut value_impls = vec![];
     let mut expansion = Expansion {
@@ -467,11 +468,30 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                 implementations.push(expansion.implementation(implementation, contract)?);
             }
             Item::Fn(function)
-                if function
+                if function.attrs.iter().any(|attr| {
+                    attr.path().is_ident("native") || attr.path().is_ident("native_default")
+                }) =>
+            {
+                let count = function
                     .attrs
                     .iter()
-                    .any(|attr| attr.path().is_ident("native")) =>
-            {
+                    .filter(|attr| attr.path().is_ident("native_default"))
+                    .count();
+                if count > 1
+                    || (count == 1
+                        && function
+                            .attrs
+                            .iter()
+                            .any(|attr| attr.path().is_ident("native")))
+                {
+                    return Err(SyntaxError::new_spanned(
+                        function,
+                        "native defaults require one native_default marker and no native marker",
+                    ));
+                }
+                let default_mapping = signature::marker(&mut function.attrs, "native_default")
+                    .map(|attr| attr.parse_args::<defaults::Default>())
+                    .transpose()?;
                 let names = signature::generics(&function.sig.generics)?;
                 let original = function.sig.clone();
                 let default = function.sig.ident.to_string();
@@ -493,7 +513,20 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     quote!(::std::option::Option::Some(#binding)),
                 )?;
                 let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
-                functions.push(quote!(__builder.free_function(&[#(#generic_names),*], #method)?;));
+                if let Some(mapping) = default_mapping {
+                    let mapping = mapping.descriptor(&names, runtime)?;
+                    let template = format_ident!("__kagari_default_{}", defaults.len());
+                    defaults.push(quote! {
+                        let #template = #method;
+                        __builder.default_member(&[#(#generic_names),*], #mapping, &#template)?;
+                    });
+                    functions.push(
+                        quote!(__builder.default_template(&[#(#generic_names),*], #template)?;),
+                    );
+                } else {
+                    functions
+                        .push(quote!(__builder.free_function(&[#(#generic_names),*], #method)?;));
+                }
             }
             _ => {}
         }
@@ -516,7 +549,7 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
         /// Build the validated executable API and its generated tooling declarations.
         pub fn native_api(#catalog_argument) -> ::std::result::Result<#runtime::native::api::NativeApi, #runtime::error::RuntimeError> {
             let mut __builder = #runtime::native_module::NativeModuleBuilder::new(&[#(#path),*], #catalog_value)?;
-            #(#declarations)* #(#implementations)* #(#functions)*
+            #(#declarations)* #(#defaults)* #(#implementations)* #(#functions)*
             __builder.finish()
         }
     })?;

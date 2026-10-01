@@ -327,10 +327,12 @@ impl Importer<'_> {
             let generic_params = self.generics(&owner, &function.generic_params);
             let id = self.function(&owner, function, FunctionKind::User, generic_params, None)?;
             self.lowerer.module.items.push(Item::Function(id));
-            self.lowerer.module.exports.push(Export {
-                name: function.name.clone(),
-                item: ExportItem::Function(id),
-            });
+            if !definition.private_functions.contains(&owner) {
+                self.lowerer.module.exports.push(Export {
+                    name: function.name.clone(),
+                    item: ExportItem::Function(id),
+                });
+            }
         }
         Ok(())
     }
@@ -407,7 +409,9 @@ impl Importer<'_> {
         self.lowerer.module.functions.push(Function {
             id,
             kind,
-            visibility: if kind == FunctionKind::TraitMethod {
+            visibility: if kind == FunctionKind::TraitMethod
+                || self.definition.private_functions.contains(owner)
+            {
                 Visibility::Private
             } else {
                 Visibility::Public

@@ -1,0 +1,33 @@
+use game::typed_defaults::{Source, invoke_default};
+
+struct Item { val value: i32 }
+impl Source<i32> for Item {
+    type Output = i32;
+    fn read(self, by: i32) -> i32 { self.value + by }
+}
+struct Payload { val value: i32 }
+struct Boxed<T> { val value: T }
+impl<T> Source<i32> for Boxed<T> {
+    type Output = T;
+    fn read(self, by: i32) -> T { val scratch = Payload { value: by }; self.value }
+}
+fn generic<T: Source<i32, Output = i32>>(value: T) -> i32 { value.echo(2) }
+fn dynamic(value: Source<i32, Output = i32>) -> i32 { value.alternate(2) }
+fn heap_dynamic(value: Source<i32, Output = Payload>) -> Payload { value.alternate(2) }
+fn direct_main() -> i32 { Item { value: 40 }.echo(2) }
+fn generic_main() -> i32 { generic(Item { value: 40 }) }
+fn dynamic_main() -> i32 { dynamic(Item { value: 40 }) }
+fn selected_main() -> i32 { invoke_default(Item { value: 40 }, 2) }
+fn native_main() -> i32 { true.echo(2) }
+fn native_dynamic_main() -> i32 { dynamic(true) }
+fn native_selected_main() -> i32 { invoke_default(true, 2) }
+fn heap_main() -> i32 {
+    val result: Payload = invoke_default(Boxed { value: Payload { value: 42 } }, 2);
+    val scratch = Payload { value: 0 };
+    result.value
+}
+fn heap_dynamic_main() -> i32 {
+    val result = heap_dynamic(Boxed { value: Payload { value: 42 } });
+    val scratch = Payload { value: 0 };
+    result.value
+}

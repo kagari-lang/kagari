@@ -13,7 +13,8 @@ adapters from Rust functions, native array wrappers, traits and implementations.
 `NativeValue` supplies type metadata and conversions, including resolved aliases;
 Rust checks function bodies and trait signatures. Generic script values use rooted
 checked proxies. `#[native]`, `#[native_type]`, `#[native_trait]` and `#[native_impl]`
-mark the exported items. Low-level factories declare scratch roots and own resumable
+mark the exported items. `#[native_default]` adds a trait default from its executable
+Rust function template, retaining that template as a private registration. Low-level factories declare scratch roots and own resumable
 state; ordinary typed functions do not manage scratch slots themselves. The
 current adapter supports a bounded set of values and declarations, rather than
 arbitrary Rust/opaque types. See [the typed authoring checkpoint](../native-provider-refactor.md#typed-rust-authoring-implementation).
@@ -42,8 +43,8 @@ Typed authoring accepts `type Item: NativeValue;` on an exported Rust trait and
 projection, nested value forms and ordinary `Self` arguments/results produce the
 same registered signatures. Rust checks the actual associated method signatures;
 adapters use qualified concrete Rust impl types. NativeValue is a Rust conversion
-requirement, not a script trait bound. Associated families, defaults, inherited
-slot authoring and broader script constraint authoring remain later work. General
+requirement, not a script trait bound. Associated families, member-local generics
+and broader script constraint authoring remain later work. General
 application-native interface slots and selected-member callbacks share ordinary
 checked target applications, including dynamic calls and retained dependency versions.
 
@@ -75,6 +76,43 @@ does not pretend that a runtime script type implements a Rust trait. The typed
 authoring supports generic receiver parameters and local or explicitly cataloged
 registered traits. Projected receivers and member-local generics remain queued.
 Required Rust trait signatures do not inject implementation handles.
+
+Owned trait defaults are attached to executable Rust free functions. The Rust
+trait declares only its required members; no duplicate Rust method signature or
+placeholder default body is needed. For a trait `Source<P>` with associated
+`Output`, a real generic template can declare:
+
+```rust
+#[native_default(T: Source<P, Output = U>::echo, final)]
+fn echo_template<U: NativeValue, T: NativeValue, P: NativeValue>(
+    #[context] call: &NativeCall,
+    value: T,
+    by: P,
+    #[selected(T: Source<P, Output = U>::read)] read: NativeSelected<(T, P), U>,
+) -> NativeContinuation<U> {
+    invoke(call, value, by, read)
+}
+```
+
+The ordinary `invoke` continuation helper is implemented in the
+[compiling fixture](../../crates/kagari-embed/tests/fixtures/native_default_typed_api.rs).
+The annotation explicitly maps T to Self, P to the trait parameter and U to
+Self::Output, regardless of template generic order. The script member's parameters
+and return type come from the real Rust signature; injected context and selected
+handles are excluded. A default takes its receiver as its first script parameter.
+The current mapping requires distinct template parameters for these roles and
+rejects unmapped parameters, unknown associated types or additional unproved
+obligations. Method-local generics and associated families remain queued.
+
+The macro declares all owned default members before resolving template selections,
+so defaults can depend on one another independently of Rust item order. Templates
+remain private registered declarations and private generated `.kgr` functions;
+only their trait members are public. Required Rust trait implementations bind only
+required members. `final` rejects script/native overrides; omitting it allows an
+explicit script body to replace the default. Generated member locations, docs and
+completion use the same registered signatures and real Rust documentation.
+Complete foreign parent/default/template dependency closure remains later NR02
+work; the current authoring extends owned traits.
 
 External authoring requests a declaration catalog explicitly:
 
@@ -237,8 +275,9 @@ get through registered native entries. MutableList extends List and adds set.
 Portable native default applications name an ordinary registered template and
 explicit generic arguments. Their checked signatures and bounds replace
 method-specific traversal and conversion catalogs. Registered records enter HIR
-and produce ordinary native calls and interface slots. Rust attribute authoring
-and complete external default-template dependencies remain NR02 work.
+and produce ordinary native calls and interface slots. Typed Rust authoring adds
+owned default members from real function templates. Complete external default-template
+dependencies remain NR02 work.
 
 Installed native defaults that forbid replacement explicitly carry
 `#[method_policy(Final)]` in their declaration. Unannotated defaults remain
@@ -282,8 +321,8 @@ execution for direct, generic, dynamic and selected calls, including native and
 script receivers. Source implementations may omit inherited defaults; final
 methods reject overrides. Native template callback targets are materialized in
 their actual owning module and retain script generations across reload. Typed Rust
-default authoring, complete external template catalogs and associated families
-remain open.
+owned defaults share these contracts. Complete external default/template catalogs,
+projected requirements and associated families remain open.
 
 Portable verification validates each native application against its carried source
 declaration. Runtime linking resolves its ID and checks the applied signature against

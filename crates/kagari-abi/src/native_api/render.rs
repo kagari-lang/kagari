@@ -356,13 +356,16 @@ impl Renderer<'_> {
     ) -> Result<(), NativeApiError> {
         self.doc(&id);
         let start = self.text.len();
-        self.text.push_str(if !method {
-            "pub fn "
-        } else if id.path[0].kind == DefinitionKind::Trait {
-            "    fn "
-        } else {
-            "    pub fn "
-        });
+        self.text
+            .push_str(if self.module.private_functions.contains(&id) {
+                "fn "
+            } else if !method {
+                "pub fn "
+            } else if id.path[0].kind == DefinitionKind::Trait {
+                "    fn "
+            } else {
+                "    pub fn "
+            });
         let name_span = self.name(&function.name);
         let own = if method {
             &[][..]

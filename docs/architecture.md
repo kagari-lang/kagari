@@ -49,8 +49,10 @@ uses the existing native driver and retained dependency generation. Registration
 validates default templates before publication. HIR imports their records directly;
 source lowering applies checked substitutions and materializes ordinary native
 calls, selected callbacks and interface slots. No implementation-owned script body
-is synthesized. Rust attribute authoring and complete external template catalogs
-remain open under NR02; raw registered defaults pass source and encoded execution.
+is synthesized. Native-module authoring adds owned default members from actual Rust
+function templates with explicit binder correspondences. Templates retain private
+registered identities; only the generated trait members are public. Complete
+external default/template closure and projected requirements remain open under NR02.
 Portable Native implementations carry a binding DefinitionId; registered Rust
 factories supply execution. Source-free runtimes receive the same checked native
 records directly from installed packages. Host adapters retain passing styles,

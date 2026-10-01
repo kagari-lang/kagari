@@ -1,5 +1,6 @@
 //! Compile-time adapters from checked Rust definitions to native API records.
 mod author;
+mod defaults;
 mod selected;
 mod signature;
 
@@ -11,6 +12,9 @@ use syn::{Error as SyntaxError, ItemMod, parse_macro_input};
 /// The `catalog` option generates `native_api(&NativeCatalog)` for external trait
 /// dependencies. A trait impl may declare an explicit `contract = "pkg::mod::Trait"`
 /// mapping while preserving its actual Rust trait path and conformance checks.
+/// `#[native_default(T: Trait<Output = U>::member, final)]` derives a new owned
+/// script trait member from an actual Rust template, with explicit binder roles.
+/// The helper is private; omitting `final` permits an explicit script override.
 #[proc_macro_attribute]
 pub fn native_module(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as author::Arguments);
