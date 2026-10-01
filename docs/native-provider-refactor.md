@@ -126,7 +126,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Boundary | Current evidence | Required before dependent families |
 | --- | --- | --- |
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
-| Static checking and tooling | Minimal array records go directly to HIR; generated array.kgr supports tooling | Extend records to remaining types, enums, associated declarations, bounds, method generics, defaults and namespace/prelude bindings |
+| Static checking and tooling | Minimal array records and free-function named trait bounds go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, associated declarations, other declaration bounds, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
 | Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver | Complete checked selected trait-call targets and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
@@ -1843,3 +1843,53 @@ fixture debt remains in NR04, and wire versions/fixture bytes remain unchanged.
 Next: declaration bounds/associated outputs and selected trait-call requirements
 for sorting, followed by the application-owned managed iterator proof. Goal remains
 active; aggregate checkpoint 2 and complete NR phase acceptance remain open.
+
+## 2026-10-01 registered free-function bounds checkpoint
+
+Checkpoint 2 advances NR01/NR02's ordinary constraint records; selected callable
+dependencies, associated outputs and managed returned state remain incomplete.
+
+- Accept existing named trait constraints on registered free-function ABI records,
+  including generic arguments referring to the function's binder. Keep canonical
+  ordering, exact owners/slots and declaration validation; reject unnamed legacy
+  operation predicates in NativeModule records. Other declaration bounds and the
+  typed macro's bounded NativeValue generic syntax remain unchanged.
+- Render where clauses with target/constraint spans and import ABI constraints
+  directly into ordinary HIR bounds. Fix zero-argument nominal traits to use named
+  HIR types, matching their declaration arity. Generated text remains presentation.
+- Carry concrete substituted requirements using the existing executable schema.
+  Dependency-closure validation proves them before VerifiedProgram construction.
+  Runtime registration retains bounded contract validation; linking consumes the
+  sealed VerifiedProgram and requires complete installed/carried declaration
+  equality, including bounds and passing metadata. Replace the empty runtime proof
+  catalog, which could not prove nonempty bounds, without waiving signature, handle,
+  permission, output or product validation. Apply the same check on reload paths.
+- Add an independent application fixture with two generic parameters and both
+  Container<T1> and Marker constraints. Source, encoded and source-free execution
+  preserve a heap-backed Token through a native identity call under GC threshold
+  one. Offline execution also works with default native installation disabled.
+  Malformed binders/constraints, missing or wrong applied implementations, tampered
+  product requirements and weaker/different installed templates are rejected;
+  failed linking and static checks execute no native factory.
+- Share the fixture registration between its integration test and source-only
+  generator using justified test/cross-target path modules. Reproduce the checked
+  product with cargo run -p kagari-embed --example regenerate_native_bounds_artifact;
+  source emission must exactly match its encoded fixture. NativeDeclarationSite
+  adds explicit bound coordinates, a breaking Rust record-shape change; executable
+  wire versions remain runtime ABI v136, KBC v113, KMIR v11 and helper ABI v6.
+
+Validation actually performed: 52 SDK tests pass across native_bounds,
+native_values, native_callbacks, native_math, native_registration,
+native_provider_artifact, native_provider_reset and host_interfaces. All four
+independent native-proof feature consumers, eight production boundaries and the
+source-free ABI graph pass. Workspace library and affected SDK Clippy pass with
+-D warnings; format, structure (813 Rust files, zero findings/exceptions) and diff
+checks pass. The unchanged native-provider fixture still matches source emission.
+Review covers exact template authority, verified dependency proofs, reload linking,
+module ownership, shared path justification and the empty re-export whitelist.
+Full-workspace legacy fixture debt remains owned by NR04 and is not repeated here.
+
+Next: associated declarations/output projections and checked selected callable
+requirements, then sorting and the managed iterator proof. Free-function bounds
+prove applicability; they do not identify or execute a required trait member.
+No complete NR phase is accepted; goal mode remains active.

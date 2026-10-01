@@ -1,0 +1,8 @@
+use game::bounds::{echo, Container, Marker};
+struct Token { val values: ArrayList<i32> }
+impl Container<usize> for Token {}
+impl Marker for Token {}
+fn main() -> i32 {
+    val value = echo(Token { values: [21, 21] }, 0usize);
+    value.values[0usize] + value.values[1usize]
+}

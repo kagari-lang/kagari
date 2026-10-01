@@ -27,6 +27,7 @@ impl Runtime {
     fn link_native_module(
         &self,
         module: &BytecodeModule,
+        program: &VerifiedProgram,
     ) -> Result<LinkedHostBindings, RuntimeError> {
         let mut bindings = self.host.link_module(module, &self.types)?;
         bindings.native = module
@@ -47,7 +48,7 @@ impl Runtime {
                     })?;
                     Ok(host_registration(import, binding))
                 } else {
-                    self.native_entries.link(import)
+                    self.native_entries.link(import, program)
                 }
             })
             .collect::<Result<_, _>>()?;
@@ -92,7 +93,7 @@ impl Runtime {
         let bindings = program
             .modules()
             .iter()
-            .map(|module| self.link_native_module(module))
+            .map(|module| self.link_native_module(module, &program))
             .collect::<Result<Vec<_>, _>>()?;
         let epoch = self.epochs.reserve(&name)?;
         let module = self
@@ -167,7 +168,7 @@ impl Runtime {
         let bindings = program
             .modules()
             .iter()
-            .map(|module| self.link_native_module(module))
+            .map(|module| self.link_native_module(module, &program))
             .collect::<Result<Vec<_>, _>>()
             .map_err(ReloadValidationError::Runtime)?;
         Ok(PreparedReload {
@@ -194,7 +195,7 @@ impl Runtime {
         validate_verified_reload_candidate(&baseline, &name, &program, latest.as_ref())?;
         for (module, prepared) in program.modules().iter().zip(&bindings) {
             let current = self
-                .link_native_module(module)
+                .link_native_module(module, &program)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.functions != prepared.functions || current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(
@@ -270,7 +271,7 @@ impl Runtime {
                 ));
             }
             let current = self
-                .link_native_module(&member.bytecode)
+                .link_native_module(&member.bytecode, member.verified_program())
                 .map_err(ReloadValidationError::Runtime)?;
             if current.functions != member.host_bindings.functions
                 || current.paths != member.host_bindings.paths

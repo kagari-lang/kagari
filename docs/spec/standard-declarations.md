@@ -18,6 +18,18 @@ state; ordinary typed functions do not manage scratch slots themselves. The
 current adapter supports a bounded set of values and declarations, rather than
 arbitrary Rust/opaque types. See [the typed authoring checkpoint](../native-provider-refactor.md#typed-rust-authoring-implementation).
 
+Registered free-function ABI records may carry ordinary named trait bounds,
+including applied generic trait arguments. Direct HIR import checks these bounds;
+generated declarations render matching where clauses and tooling coordinates.
+Concrete native imports carry their substituted requirements, which source-free
+verification proves against the executable dependency closure. Runtime linking
+uses the sealed VerifiedProgram and requires exact equality of the complete
+carried declaration with an installed registration, including bounds and passing
+metadata. A weaker installed signature cannot authorize a stronger product.
+The typed macro still accepts only its bounded NativeValue generic form; Rust
+constraint authoring, associated declarations and selected trait-member callbacks
+remain later steps. Applicability bounds alone do not declare a callable dependency.
+
 Typed callback parameters use `NativeFn<A, R>` from the continuation owner module.
 `A` is an explicit outer tuple implementing NativeArguments: `()` means no
 arguments, `(T,)` means one and `(A, B)` means two. Built-in packs support zero

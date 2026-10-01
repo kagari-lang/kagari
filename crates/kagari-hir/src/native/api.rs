@@ -6,7 +6,8 @@ use crate::{
             Item,
             adt::OpaqueType,
             behavior::{
-                GenericParam, Impl, ImplMethod, ReceiverKind, TraitDef, TraitMethod, TraitRef,
+                GenericParam, Impl, ImplMethod, ReceiverKind, TraitBound, TraitDef, TraitMethod,
+                TraitRef,
             },
             function::{Function, FunctionKind, Param},
             storage::{Export, ExportItem, Visibility},
@@ -21,7 +22,7 @@ use kagari_abi::{
     callable::CallableImplementation,
     native_api::{NativeApiError, NativeModule, render::NativeApiSource},
     standard::surface::builtin_type_spec,
-    types::{AbiType, FunctionAbi, GenericParameterAbi, NominalAbiType},
+    types::{AbiType, ConstraintAbi, FunctionAbi, GenericParameterAbi, NominalAbiType},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -307,6 +308,30 @@ impl Importer<'_> {
             });
         }
         let return_type = Some(self.ty(&function.return_type, site.name_span)?);
+        let mut bounds = vec![];
+        for (bound, site) in function.bounds.iter().zip(&site.bounds) {
+            let target_ref = self.ty(&bound.ty, site.target)?;
+            let traits = bound
+                .constraints
+                .iter()
+                .zip(&site.constraints)
+                .map(|(constraint, span)| {
+                    let ConstraintAbi::Trait(trait_type) = constraint else {
+                        return Err(NativeApiError("native bound requires a named trait".into()));
+                    };
+                    self.nominal_type(trait_type, *span)
+                        .map(|ty| TraitRef { ty })
+                })
+                .collect::<Result<_, _>>()?;
+            bounds.push(TraitBound {
+                target: match &bound.ty {
+                    AbiType::Parameter { position, .. } => format!("T{position}"),
+                    _ => String::new(),
+                },
+                target_ref,
+                traits,
+            });
+        }
         self.lowerer.source_map.set_owner(old);
         if let CallableImplementation::Native(binding) = &function.implementation {
             self.native_functions.insert(id, binding.clone());
@@ -321,7 +346,7 @@ impl Importer<'_> {
             },
             name: function.name.clone(),
             generic_params,
-            bounds: vec![],
+            bounds,
             params,
             return_type,
             body: None,
@@ -367,6 +392,14 @@ impl Importer<'_> {
                 Ok((name, self.ty(ty, span)?))
             })
             .collect::<Result<_, NativeApiError>>()?;
+        if nominal.arguments.is_empty() && nominal.associated_types.is_empty() {
+            return Ok(self.lowerer.alloc_type(
+                span,
+                TypeData {
+                    kind: TypeKind::Named(name),
+                },
+            ));
+        }
         Ok(self.lowerer.alloc_type(
             span,
             TypeData {

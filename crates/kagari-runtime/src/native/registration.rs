@@ -2,6 +2,7 @@
 use crate::{
     error::RuntimeError,
     host::HostFunctionId,
+    module::VerifiedProgram,
     native::{NativeAction, NativeContext, NativeInvocationState},
 };
 use kagari_abi::{
@@ -10,7 +11,6 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{
         AbiType, NativeDeclaration,
-        proofs::ProofCatalog,
         substitution::TypeSubstitution,
         verify::{concrete_type_valid, validate_native_declarations},
     },
@@ -96,10 +96,11 @@ impl NativeRegistry {
                 || !seen.insert(&declaration.declaration)
                 || function.generic_params.len() > 4096
                 || function.params.len() > 4096
+                || function.bounds.len() > 4096
                 || function
                     .bounds
                     .iter()
-                    .any(|bound| !bound.constraints.is_empty())
+                    .any(|bound| bound.constraints.len() > 4096)
             {
                 return Err(invalid());
             }
@@ -129,20 +130,32 @@ impl NativeRegistry {
     pub(crate) fn link(
         &self,
         import: &NativeImport,
+        program: &VerifiedProgram,
     ) -> Result<Rc<NativeRegistration>, RuntimeError> {
         let entry = self
             .entries
             .get(&import.binding)
             .ok_or_else(|| RuntimeError::module_validation("native entry is not installed"))?;
-        let cancel = CancellationToken::default();
-        let catalog = ProofCatalog::new(vec![], vec![], [], [], &cancel)
-            .map_err(|_| RuntimeError::module_validation("native declaration catalog"))?;
-        if !import.structurally_valid()
-            || !entry.declarations.iter().any(|declaration| {
-                import
-                    .matches_declaration(declaration, &catalog, &cancel)
-                    .unwrap_or(false)
+        let declaration = program
+            .modules()
+            .iter()
+            .find(|owner| owner.identity == import.instance.declaration.module)
+            .and_then(|owner| {
+                owner
+                    .native_declarations
+                    .iter()
+                    .find(|declaration| declaration.declaration == import.instance.declaration)
             })
+            .ok_or_else(|| {
+                RuntimeError::module_validation("missing verified native declaration")
+            })?;
+        // The sealed VerifiedProgram already checks applied signatures and bounds
+        // against its dependency closure. Installation must match the complete
+        // template, including bounds; an empty catalog cannot prove those facts.
+        if !import.structurally_valid()
+            || import.instance.declaration != declaration.declaration
+            || entry_id(declaration) != Some(&import.binding)
+            || !entry.declarations.contains(declaration)
         {
             return Err(RuntimeError::module_validation(
                 "native import differs from its installed declaration",

@@ -3,8 +3,8 @@ use super::{NativeApiError, NativeModule};
 use crate::{
     scalar::BuiltinType,
     types::{
-        AbiType, FunctionAbi, GenericParameterAbi, NominalAbiType, TypeAbiKind,
-        native::NativeTypeConstructor,
+        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
+        TypeAbiKind, native::NativeTypeConstructor,
     },
 };
 use kagari_common::{
@@ -20,6 +20,13 @@ pub struct NativeDeclarationSite {
     pub name_span: Span,
     pub generics: Vec<Span>,
     pub parameters: Vec<Span>,
+    pub bounds: Vec<NativeBoundSite>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeBoundSite {
+    pub target: Span,
+    pub constraints: Vec<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -272,6 +279,7 @@ impl Renderer<'_> {
                 name_span,
                 generics,
                 parameters,
+                bounds: vec![],
             },
         );
     }
@@ -316,8 +324,45 @@ impl Renderer<'_> {
             self.text
                 .push_str(&self.module.type_spelling(&function.return_type)?);
         }
+        let bounds = self.bounds(&function.bounds)?;
         self.text.push_str(";\n");
-        self.site(id, start, name_span, generics, parameters);
+        self.site(id.clone(), start, name_span, generics, parameters);
+        self.sites
+            .get_mut(&id)
+            .expect("rendered declaration")
+            .bounds = bounds;
         Ok(())
+    }
+
+    fn bounds(
+        &mut self,
+        bounds: &[GenericBoundAbi],
+    ) -> Result<Vec<NativeBoundSite>, NativeApiError> {
+        let mut sites = vec![];
+        if !bounds.is_empty() {
+            self.text.push_str(" where ");
+        }
+        for (index, bound) in bounds.iter().enumerate() {
+            if index != 0 {
+                self.text.push_str(", ");
+            }
+            let target = self.name(&self.module.type_spelling(&bound.ty)?);
+            self.text.push_str(": ");
+            let mut constraints = vec![];
+            for (index, constraint) in bound.constraints.iter().enumerate() {
+                if index != 0 {
+                    self.text.push_str(" + ");
+                }
+                let ConstraintAbi::Trait(trait_type) = constraint else {
+                    return Err(NativeApiError("native bound requires a named trait".into()));
+                };
+                constraints.push(self.name(&self.module.nominal_spelling(trait_type)?));
+            }
+            sites.push(NativeBoundSite {
+                target,
+                constraints,
+            });
+        }
+        Ok(sites)
     }
 }

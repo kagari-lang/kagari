@@ -2,8 +2,8 @@
 use crate::{
     callable::CallableImplementation,
     types::{
-        AbiType, FunctionAbi, GenericParameterAbi, NativeDeclaration, NominalAbiType,
-        PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
+        AbiType, ConstraintAbi, FunctionAbi, GenericParameterAbi, NativeDeclaration,
+        NominalAbiType, PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
         native::NativeTypeConstructor,
         substitution::TypeSubstitution,
         verify::{validate, validate_native_declarations},
@@ -41,7 +41,8 @@ pub struct NativeImplementation {
 
 /// Rust registration definitions own these records. Generated text is a projection.
 /// The initial API supports native storage, traits, generic impls and free functions;
-/// associated declarations and nonempty bounds remain a separate migration step.
+/// Free functions retain ordinary checked trait bounds; associated declarations
+/// and implementation-level bounds remain separate migration steps.
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     pub identity: ModuleIdentity,
@@ -235,10 +236,7 @@ impl NativeModule {
             items.push(PublicAbiItem::Trait(item.clone()));
         }
         for function in &self.functions {
-            if !identifier(&function.name)
-                || !names.insert(&function.name)
-                || !function.bounds.is_empty()
-            {
+            if !identifier(&function.name) || !names.insert(&function.name) {
                 return Err(fail());
             }
             items.push(PublicAbiItem::Function(function.clone()));
@@ -306,6 +304,17 @@ impl NativeModule {
             supported_type(&function.return_type)?;
             for parameter in &function.params {
                 supported_type(&parameter.ty)?;
+            }
+            for bound in &function.bounds {
+                supported_type(&bound.ty)?;
+                for constraint in &bound.constraints {
+                    let ConstraintAbi::Trait(trait_type) = constraint else {
+                        return Err(NativeApiError(
+                            "native declarations require named trait constraints".into(),
+                        ));
+                    };
+                    supported_type(&AbiType::Trait(trait_type.clone()))?;
+                }
             }
         }
         Ok(())
