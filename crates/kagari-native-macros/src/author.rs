@@ -13,21 +13,35 @@ use syn::{
 pub(crate) struct Arguments {
     module: LitStr,
     runtime: Path,
+    catalog: bool,
 }
 impl Parse for Arguments {
     fn parse(input: ParseStream<'_>) -> SyntaxResult<Self> {
         let module = input.parse()?;
         let mut runtime = parse_quote!(::kagari_runtime);
-        if !input.is_empty() {
+        let mut catalog = false;
+        let mut has_runtime = false;
+        while !input.is_empty() {
             input.parse::<Token![,]>()?;
             let ident: Ident = input.parse()?;
-            if ident != "runtime" {
-                return Err(SyntaxError::new_spanned(ident, "expected runtime = path"));
+            if ident == "catalog" && !catalog {
+                catalog = true;
+            } else if ident == "runtime" && !has_runtime {
+                has_runtime = true;
+                input.parse::<Token![=]>()?;
+                runtime = input.parse()?;
+            } else {
+                return Err(SyntaxError::new_spanned(
+                    ident,
+                    "expected unique runtime = path or catalog",
+                ));
             }
-            input.parse::<Token![=]>()?;
-            runtime = input.parse()?;
         }
-        Ok(Self { module, runtime })
+        Ok(Self {
+            module,
+            runtime,
+            catalog,
+        })
     }
 }
 
@@ -182,14 +196,17 @@ impl Expansion<'_> {
         Ok(quote!(#runtime::native_module::Binding { name: #binding, factory: #adapter }))
     }
 
-    fn implementation(&mut self, implementation: &mut ItemImpl) -> SyntaxResult<TokenStream> {
+    fn implementation(
+        &mut self,
+        implementation: &mut ItemImpl,
+        contract_path: Option<Path>,
+    ) -> SyntaxResult<TokenStream> {
         let names = signature::generics(&implementation.generics)?;
         let runtime = self.runtime;
         let receiver = &*implementation.self_ty;
         let receiver_expression = signature::value_type(receiver, &names, runtime, None);
         let contract = implementation.trait_.as_ref().map(|(_, path, _)| path);
         let mut methods = vec![];
-        let mut bindings = vec![];
         let mut associated = vec![];
         let Type::Path(receiver_path) = receiver else {
             return Err(SyntaxError::new_spanned(
@@ -249,25 +266,40 @@ impl Expansion<'_> {
                 contract,
                 default,
             )?;
-            if contract.is_some() {
-                let name = method.sig.ident.to_string();
-                bindings.push(quote!((#name, #binding)));
-            } else {
-                methods.push(signature::method(
-                    &original,
-                    &method.attrs,
-                    &names,
-                    runtime,
-                    Some(receiver),
-                    quote!(::std::option::Option::Some(#binding)),
-                )?);
-            }
+            methods.push(signature::method(
+                &original,
+                &method.attrs,
+                &names,
+                runtime,
+                Some(receiver),
+                contract,
+                quote!(::std::option::Option::Some(#binding)),
+            )?);
         }
         let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
         Ok(if let Some(contract) = contract {
-            let contract = signature::nominal(contract, &names, runtime)?;
-            quote!(__builder.trait_impl(&[#(#generic_names),*], #receiver_expression, #contract, ::std::vec![#(#associated),*], ::std::vec![#(#bindings),*])?;)
+            let contract = if let Some(mut path) = contract_path {
+                path.segments
+                    .last_mut()
+                    .expect("parsed contract path")
+                    .arguments = contract
+                    .segments
+                    .last()
+                    .expect("Rust trait path")
+                    .arguments
+                    .clone();
+                signature::nominal(&path, &names, runtime)?
+            } else {
+                signature::nominal(contract, &names, runtime)?
+            };
+            quote!(__builder.trait_impl(&[#(#generic_names),*], #receiver_expression, #contract, ::std::vec![#(#associated),*], ::std::vec![#(#methods),*])?;)
         } else {
+            if contract_path.is_some() {
+                return Err(SyntaxError::new_spanned(
+                    implementation,
+                    "contract mapping requires a Rust trait impl",
+                ));
+            }
             quote!(__builder.inherent_impl(&[#(#generic_names),*], #receiver_expression, ::std::vec![#(#methods),*])?;)
         })
     }
@@ -407,7 +439,7 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     }
                     signature::validate(&method.sig)?;
                     let sig = signature::trait_signature(&method.sig, &ty.ident, &names, &associated_names, runtime);
-                    signature::method(&sig, &method.attrs, &names, runtime, None, quote!(::std::option::Option::None))
+                    signature::method(&sig, &method.attrs, &names, runtime, None, None, quote!(::std::option::Option::None))
                 }).collect::<SyntaxResult<Vec<_>>>()?;
                 declarations.push(quote!(__builder.required_trait(#name, &[#(#generic_names),*], #doc, ::std::vec![#(#parents),*], ::std::vec![#(#associated),*], ::std::vec![#(#methods),*])?;));
             }
@@ -417,8 +449,22 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     .iter()
                     .any(|attr| attr.path().is_ident("native_impl")) =>
             {
-                signature::marker(&mut implementation.attrs, "native_impl");
-                implementations.push(expansion.implementation(implementation)?);
+                let marker = signature::marker(&mut implementation.attrs, "native_impl")
+                    .expect("native impl marker");
+                let mut contract = None;
+                if matches!(marker.meta, Meta::List(_)) {
+                    marker.parse_nested_meta(|meta| {
+                        if !meta.path.is_ident("contract") || contract.is_some() { return Err(meta.error("expected one contract = \"package::module::Trait\" mapping")); }
+                        let path: LitStr = meta.value()?.parse()?;
+                        let parsed: Path = parse_str(&path.value())?;
+                        if parsed.segments.len() < 3 || parsed.segments.iter().any(|segment| !segment.arguments.is_empty()) {
+                            return Err(SyntaxError::new_spanned(path, "native contract mapping requires a fully qualified declaration path"));
+                        }
+                        contract = Some(parsed);
+                        Ok(())
+                    })?;
+                }
+                implementations.push(expansion.implementation(implementation, contract)?);
             }
             Item::Fn(function)
                 if function
@@ -443,6 +489,7 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     &names,
                     runtime,
                     None,
+                    None,
                     quote!(::std::option::Option::Some(#binding)),
                 )?;
                 let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
@@ -452,12 +499,23 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
         }
     }
     let adapters = expansion.adapters;
+    let (catalog_argument, catalog_value) = if args.catalog {
+        (
+            quote!(__catalog: &#runtime::native::catalog::NativeCatalog),
+            quote!(__catalog.clone()),
+        )
+    } else {
+        (
+            quote!(),
+            quote!(#runtime::native::catalog::NativeCatalog::default()),
+        )
+    };
     let generated: File = parse2(quote! {
         #(#value_impls)*
         #(#adapters)*
         /// Build the validated executable API and its generated tooling declarations.
-        pub fn native_api() -> ::std::result::Result<#runtime::native::api::NativeApi, #runtime::error::RuntimeError> {
-            let mut __builder = #runtime::native_module::NativeModuleBuilder::new(&[#(#path),*])?;
+        pub fn native_api(#catalog_argument) -> ::std::result::Result<#runtime::native::api::NativeApi, #runtime::error::RuntimeError> {
+            let mut __builder = #runtime::native_module::NativeModuleBuilder::new(&[#(#path),*], #catalog_value)?;
             #(#declarations)* #(#implementations)* #(#functions)*
             __builder.finish()
         }
@@ -470,8 +528,59 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
 mod tests {
     use super::*;
     #[test]
+    fn catalog_and_runtime_options_are_explicit_and_unique() {
+        for args in [
+            quote!("game::native", catalog, runtime = crate::runtime),
+            quote!("game::native", runtime = crate::runtime, catalog),
+        ] {
+            let parsed: Arguments = parse2(args).unwrap();
+            assert!(parsed.catalog);
+            let runtime = parsed.runtime;
+            assert_eq!(quote!(#runtime).to_string(), "crate :: runtime");
+        }
+        for args in [
+            quote!("game::native", catalog, catalog),
+            quote!("game::native", runtime = crate::runtime, runtime = other),
+            quote!("game::native", catalog = true),
+            quote!("game::native", implicit_catalog),
+        ] {
+            assert!(parse2::<Arguments>(args).is_err());
+        }
+    }
+
+    #[test]
     fn unsupported_rust_contracts_report_errors() {
         for module in [
+            quote!(
+                mod native {
+                    #[native_impl(contract = "game::provider::Trait")]
+                    impl bool {
+                        #[native]
+                        fn value(&self) {}
+                    }
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_impl(contract = "provider::Trait")]
+                    impl rust::Trait for bool {}
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_impl(
+                        contract = "game::provider::Trait",
+                        contract = "game::other::Trait"
+                    )]
+                    impl rust::Trait for bool {}
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_impl(contract = "game::provider::Trait<i32>")]
+                    impl rust::Trait for bool {}
+                }
+            ),
             quote!(
                 mod native {
                     #[native]
@@ -559,7 +668,8 @@ mod tests {
                 expand(
                     Arguments {
                         module: parse_quote!("game::native"),
-                        runtime: parse_quote!(::kagari_runtime)
+                        runtime: parse_quote!(::kagari_runtime),
+                        catalog: false
                     },
                     syn::parse2(module).unwrap()
                 )

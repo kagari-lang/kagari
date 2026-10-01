@@ -10,6 +10,7 @@ use crate::{
                 TraitMethod, TraitRef,
             },
             function::{Function, FunctionKind, Param},
+            module::Import,
             storage::{Export, ExportItem, Visibility},
         },
         ty::{TypeData, TypeKind},
@@ -76,6 +77,7 @@ pub(crate) fn import(
         lowerer: Lowerer::new(cancel.clone()),
         native_types: HashMap::new(),
         native_functions: HashMap::new(),
+        external_imports: HashSet::new(),
     };
     importer.import_types()?;
     importer.import_traits()?;
@@ -107,6 +109,7 @@ struct Importer<'a> {
     lowerer: Lowerer,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     native_functions: HashMap<FunctionId, DefinitionId>,
+    external_imports: HashSet<String>,
 }
 
 impl Importer<'_> {
@@ -457,6 +460,20 @@ impl Importer<'_> {
             };
             format!("{}::{}::{}", package, module.path.join("::"), name.name)
         };
+        if nominal.declaration.module != self.definition.identity
+            && self.external_imports.insert(name.clone())
+        {
+            // Registered references establish normal checked dependencies. The
+            // complete path stays the name of the direct record; generated text
+            // is not parsed to infer an import or authorize a declaration.
+            self.lowerer.module.imports.push(Import {
+                visibility: Visibility::Private,
+                alias: name.clone(),
+                path: name.clone(),
+                span,
+                glob: false,
+            });
+        }
         let args = nominal
             .arguments
             .iter()

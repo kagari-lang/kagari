@@ -2,6 +2,7 @@
 pub mod api;
 pub(crate) mod array;
 mod array_api;
+pub mod catalog;
 pub mod factory;
 mod math_api;
 pub mod packages;

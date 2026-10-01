@@ -1,5 +1,70 @@
 //! Independent typed authoring for selected trait dependencies and heap results.
 use kagari_native_macros::native_module;
+use kagari_runtime::{error::RuntimeError, native::api::NativeApi};
+
+pub fn api() -> Result<NativeApi, RuntimeError> {
+    let provider = selected::native_api()?;
+    let consumer = consumer::native_api(&provider.catalog())?;
+    NativeApi::combine(vec![provider, consumer])
+}
+
+#[native_module("game::external_selected", catalog)]
+pub mod consumer {
+    use super::selected;
+    use kagari_runtime::native_value::{
+        NativeCall, NativeResult, NativeValue,
+        array::{NativeArray, NativeIndex},
+        continuation::NativeContinuation,
+        selected::NativeSelected,
+    };
+
+    #[native_type]
+    pub struct ExternalBag<T: NativeValue>(NativeArray<T>);
+
+    #[native_impl(contract = "game::selected::Echo")]
+    impl selected::Echo for bool {
+        type Output = i32;
+        fn echo(&self) -> NativeResult<Self::Output> {
+            Ok(if *self { 42 } else { 0 })
+        }
+        fn offset(&self, _: i32) -> NativeResult<Self::Output> {
+            Ok(if *self { 42 } else { 0 })
+        }
+    }
+
+    #[native]
+    pub fn external_scalar<T: NativeValue>(
+        #[context] call: &NativeCall,
+        value: T,
+        #[selected(T: game::selected::Echo<Output = i32>::echo)] echo: NativeSelected<(T,), i32>,
+    ) -> NativeContinuation<i32> {
+        selected::invoke_checked(call, value, echo)
+    }
+
+    #[native]
+    pub fn external_echo<T: NativeValue>(
+        #[context] call: &NativeCall,
+        value: T,
+        #[selected(T: game::selected::Echo<Output = NativeArray<i32>>::echo)] echo: NativeSelected<
+            (T,),
+            NativeArray<i32>,
+        >,
+    ) -> NativeContinuation<NativeArray<i32>> {
+        selected::invoke(call, value, echo)
+    }
+
+    #[native_impl]
+    impl<T: NativeValue> ExternalBag<T> {
+        pub fn external_first(
+            &self,
+            #[context] call: &NativeCall,
+            #[selected(T: game::selected::Echo<Output = NativeArray<i32>>::echo)]
+            echo: NativeSelected<(T,), NativeArray<i32>>,
+        ) -> NativeResult<NativeContinuation<NativeArray<i32>>> {
+            Ok(selected::invoke(call, self.0.index(0)?, echo))
+        }
+    }
+}
 
 #[native_module("game::selected")]
 pub mod selected {
@@ -46,6 +111,14 @@ pub mod selected {
             NativeArray<i32>,
         >,
     ) -> NativeContinuation<NativeArray<i32>> {
+        invoke_checked(call, value, echo)
+    }
+
+    pub fn invoke_checked<T: NativeValue, R: NativeValue>(
+        call: &NativeCall,
+        value: T,
+        echo: NativeSelected<(T,), R>,
+    ) -> NativeContinuation<R> {
         NativeContinuation::new(Invoke {
             call: call.clone(),
             value: Some(value),
@@ -89,10 +162,10 @@ pub mod selected {
         }
     }
 
-    struct Invoke<T: NativeValue> {
+    struct Invoke<T: NativeValue, R: NativeValue> {
         call: NativeCall,
         value: Option<T>,
-        echo: NativeSelected<(T,), NativeArray<i32>>,
+        echo: NativeSelected<(T,), R>,
     }
 
     struct Both<T: NativeValue> {
@@ -133,7 +206,7 @@ pub mod selected {
             }
         }
     }
-    impl<T: NativeValue> NativeInvocationState for Invoke<T> {
+    impl<T: NativeValue, R: NativeValue> NativeInvocationState for Invoke<T, R> {
         fn advance(&mut self, context: &mut NativeContext<'_>) -> NativeResult<NativeAction> {
             let value = self
                 .value

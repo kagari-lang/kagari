@@ -1,6 +1,7 @@
 //! Resolve typed dependency descriptors under the registered declaration binder.
 use crate::{
     error::RuntimeError,
+    native::catalog::NativeCatalog,
     native_module::{Method, invalid, nominal, types::Scope},
 };
 use kagari_abi::{
@@ -17,11 +18,13 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct Selection {
     pub bounds: Vec<GenericBoundAbi>,
     pub requirements: Vec<NativeCallableRequirement>,
+    pub dependencies: NativeCatalog,
 }
 
 pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, RuntimeError> {
     let mut bounds = BTreeMap::<AbiType, BTreeSet<ConstraintAbi>>::new();
     let mut requirements = vec![];
+    let mut dependencies = NativeCatalog::default();
     let cancel = CancellationToken::default();
     for selected in &method.selected {
         let receiver = scope.resolve(&selected.receiver)?;
@@ -31,17 +34,22 @@ pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, R
             ));
         }
         let interface = nominal(scope.resolve(&selected.interface)?)?;
-        let contract = scope
-            .module
-            .traits
-            .iter()
-            .find(|contract| {
-                scope
-                    .module
-                    .definition(DefinitionKind::Trait, &contract.name)
-                    == interface.declaration
-            })
-            .ok_or_else(|| invalid("typed selection requires a registered local trait"))?;
+        let local = scope.module.traits.iter().find(|contract| {
+            scope
+                .module
+                .definition(DefinitionKind::Trait, &contract.name)
+                == interface.declaration
+        });
+        let contract = if let Some(local) = local {
+            local
+        } else {
+            let selected = scope.catalog.selected(&interface.declaration)?;
+            dependencies.merge(&selected)?;
+            scope
+                .catalog
+                .get(&interface.declaration)
+                .ok_or_else(|| invalid("typed selection requires a registered trait"))?
+        };
         let member = contract
             .methods
             .iter()
@@ -97,5 +105,6 @@ pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, R
             })
             .collect(),
         requirements,
+        dependencies,
     })
 }

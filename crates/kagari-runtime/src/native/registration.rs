@@ -3,13 +3,14 @@ use crate::{
     error::RuntimeError,
     host::HostFunctionId,
     module::VerifiedProgram,
-    native::{NativeAction, NativeContext, NativeInvocationState},
+    native::{NativeAction, NativeContext, NativeInvocationState, catalog::NativeCatalog},
 };
 use kagari_abi::{
     callable::CallableImplementation,
+    native_api::NativeModule,
     native_import::NativeImport,
     types::{
-        NativeDeclaration,
+        NativeDeclaration, PublicAbiItem,
         verify::{concrete_type_valid, validate_native_declarations},
     },
 };
@@ -30,6 +31,7 @@ pub struct NativeRegistration {
     pub declarations: Vec<NativeDeclaration>,
     pub(crate) scratch_slots: usize,
     pub(crate) entry: Rc<NativeEntry>,
+    pub(crate) required_traits: NativeCatalog,
 }
 impl NativeRegistration {
     pub fn new(
@@ -42,6 +44,7 @@ impl NativeRegistration {
             declarations,
             scratch_slots,
             entry: Rc::new(entry),
+            required_traits: NativeCatalog::default(),
         }
     }
 }
@@ -61,8 +64,36 @@ fn entry_id(declaration: &NativeDeclaration) -> Option<&DefinitionId> {
 #[derive(Debug, Default, Clone)]
 pub struct NativeRegistry {
     entries: HashMap<DefinitionId, Rc<NativeRegistration>>,
+    traits: NativeCatalog,
 }
 impl NativeRegistry {
+    pub(crate) fn check_implementations<'a>(
+        &self,
+        modules: impl IntoIterator<Item = &'a NativeModule>,
+    ) -> Result<(), RuntimeError> {
+        self.traits.check_implementations(modules)
+    }
+    pub(crate) fn install_traits(&mut self, catalog: NativeCatalog) -> Result<(), RuntimeError> {
+        if catalog
+            .traits
+            .keys()
+            .any(|id| self.traits.get(id).is_some())
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "duplicate native trait declaration",
+            ));
+        }
+        self.traits.merge(&catalog)
+    }
+    pub(crate) fn require_traits(&self, required: &NativeCatalog) -> Result<(), RuntimeError> {
+        if required.satisfied_by(&self.traits) {
+            Ok(())
+        } else {
+            Err(RuntimeError::metadata_conflict(
+                "missing or changed native trait dependency",
+            ))
+        }
+    }
     pub fn install(&mut self, registration: NativeRegistration) -> Result<(), RuntimeError> {
         let invalid =
             || RuntimeError::metadata_conflict("duplicate or invalid native registration");
@@ -129,6 +160,17 @@ impl NativeRegistry {
             .entries
             .get(&import.binding)
             .ok_or_else(|| RuntimeError::module_validation("native entry is not installed"))?;
+        if entry.required_traits.traits.iter().any(|(id, expected)| {
+            !program.modules().iter().any(|module| {
+                module.identity == id.module && module.public_items.iter().any(|item| {
+                    matches!(item, PublicAbiItem::Trait(contract) if contract == expected)
+                })
+            })
+        }) {
+            return Err(RuntimeError::module_validation(
+                "native dependency differs from its registered trait contract",
+            ));
+        }
         let declaration = program
             .modules()
             .iter()

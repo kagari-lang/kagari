@@ -72,9 +72,50 @@ callable requirement; it is absent from the script parameter list. The registere
 trait owns the member signature. Registration rejects a mismatched argument pack
 or result type before publication. The Rust receiver remains `T: NativeValue` and
 does not pretend that a runtime script type implements a Rust trait. The typed
-authoring checkpoint supports generic receiver parameters and local registered
-traits; external trait catalogs, projected receivers and member-local generics
-remain queued. Required Rust trait signatures do not inject implementation handles.
+authoring supports generic receiver parameters and local or explicitly cataloged
+registered traits. Projected receivers and member-local generics remain queued.
+Required Rust trait signatures do not inject implementation handles.
+
+External authoring requests a declaration catalog explicitly:
+
+```rust
+#[native_module("game::consumer", catalog)]
+```
+
+This generates `native_api(&NativeCatalog)` instead of the zero-argument entry.
+`NativeApi::catalog()` supplies immutable owned trait contracts and retained
+authoring dependencies; `NativeCatalog::from_apis(&[&provider])` combines views.
+Identical views may be shared, while different contracts for the same identity
+are rejected. Selected annotations use the complete script declaration path,
+such as `#[selected(T: game::provider::Echo<Output = i32>::echo)]`.
+The consumer retains the exact selected contract and its declared parent closure.
+A missing parent is an error. Catalogs do not install handlers: combine the actual
+provider and consumer APIs, or install the provider before the consumer.
+Composition and installation reject missing or changed contracts and validate
+foreign native implementation signatures. Failed installation publishes neither
+partial handlers nor partial trait declarations.
+
+An actual Rust trait implementation can map its Rust path to an external script
+identity explicitly:
+
+```rust
+#[native_impl(contract = "game::provider::Echo")]
+impl provider::Echo for bool {
+    // Implement the actual Rust trait methods and associated types here.
+}
+```
+
+The mapping preserves the actual Rust trait path and arguments for Rust checks and
+generated invocation adapters. Registered methods derive from the authoritative
+trait contract; their types must also match the actual Rust method descriptors.
+Parameter names in an implementation do not redefine the trait signature.
+An incorrect catalog cannot authorize an incompatible Rust implementation.
+Direct HIR import establishes ordinary dependencies for foreign record references;
+it does not parse generated text or guess script identities from Rust aliases.
+Portable loading additionally requires retained contract snapshots to match the
+registered package, even when the product is otherwise well formed and sealed.
+Generic applicability and parent witnesses retain ordinary HIR and portable
+proofs; catalog signature validation does not replace those checks.
 
 NativeSelected.request converts its full argument pack and enters the common
 callback driver. NativeSelected.result decodes the resumed value under the checked

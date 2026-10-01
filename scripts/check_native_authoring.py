@@ -61,6 +61,17 @@ def run() -> None:
                 #[native] fn selected<T: NativeValue>(value: T,
                     #[selected(T: Check::check)] check: NativeFn<(T,), ()>) { }
             }''', "E0599"),
+        "foreign-trait-contract": ('''#[native_module("game::provider")]
+            mod provider {
+                #[native_trait] pub trait Check { fn check(&self, value: usize) -> usize; }
+            }
+            #[native_module("game::consumer", catalog)]
+            mod consumer {
+                #[native_impl(contract = "game::provider::Check")]
+                impl super::provider::Check for bool {
+                    fn check(&self, value: bool) -> usize { 0 }
+                }
+            }''', "E0053"),
     }
     positive = """use kagari_runtime as renamed_runtime;
         #[native_module("game::math", runtime = crate::renamed_runtime)]
@@ -75,6 +86,21 @@ def run() -> None:
             pub fn verify() {
                 let _: (Box, Result, Option) = (0, 0, 0);
                 native_api().unwrap();
+            }
+        }
+        #[native_module("game::provider", runtime = crate::renamed_runtime)]
+        pub mod provider {
+            #[native_trait] pub trait Check { fn check(&self, value: usize) -> usize; }
+        }
+        #[native_module("game::consumer", catalog, runtime = crate::renamed_runtime)]
+        pub mod consumer {
+            #[native_impl(contract = "game::provider::Check")]
+            impl super::provider::Check for bool {
+                fn check(&self, _: usize) -> usize { usize::from(*self) }
+            }
+            pub fn verify() {
+                let provider = super::provider::native_api().unwrap();
+                native_api(&provider.catalog()).unwrap();
             }
         }
     """

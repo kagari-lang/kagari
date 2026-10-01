@@ -212,6 +212,7 @@ fn trait_implementations_cannot_change_signatures_or_omit_supertraits() {
     assert!(
         changed
             .implement_trait(
+                &module.traits[1],
                 implementation.trait_type.unwrap(),
                 implementation.for_type,
                 implementation.generic_params,

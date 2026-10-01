@@ -136,6 +136,7 @@ pub fn module() -> NativeModule {
         .insert(item.clone(), generic.as_type());
     module
         .implement_trait(
+            &module.traits[0].clone(),
             applied,
             AbiType::Array(Box::new(generic.as_type()), CollectionAccess::Mutable),
             vec![generic],

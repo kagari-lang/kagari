@@ -128,7 +128,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function/impl/inherent-method named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered requirements select script/native targets; injected NativeSelected handles derive local-trait requirements for free/inherent entries | External trait catalogs, projected receivers, native defaults and remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered requirements select script/native targets; injected NativeSelected handles derive local or cataloged external requirements for free/inherent entries, with exact provider contracts checked at composition/install/link | Projected receivers, native defaults and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -249,7 +249,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Named free-function bounds, associated outputs and checked selected trait-member callback proof.
   - [x] Impl/inherent-method bounds, native method requirements and checked MIR target materialization.
   - [x] Typed local-trait selected handles, generated bounds and registration signature checks for free/inherent entries.
-  - [ ] External typed trait catalogs, projected receivers, native default requirements and Ord/sort_by/sort.
+  - [x] External typed trait catalogs and foreign native implementation signatures, with actual provider installation and portable contract matching.
+  - [ ] Projected receivers, native default requirements and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
@@ -2213,3 +2214,64 @@ Next: provide the checked external trait catalog and native default contracts
 needed by Ord/Ordering and sort_by/sort, then prove managed iterator state. Keep
 NR04 integration failures and the full NR05/ST06 behavior/measurement obligations
 in scope. Goal mode remains active.
+
+### NR02 checkpoint: external native trait catalogs (2026-10-01)
+
+Checkpoint 2 extends typed selected authoring and native impl registration across
+package boundaries. Projected receivers, member-local generics, native defaults,
+Ord/sorting and managed returned state remain open; this does not accept an NR
+phase or complete the restoration goal.
+
+- Add an immutable NativeCatalog declaration view, obtained from validated APIs.
+  Explicit `#[native_module("game::consumer", catalog)]` generates one
+  `native_api(&NativeCatalog)` entry. External selected annotations use exact
+  fully qualified script identities. Retain the selected trait and its declared
+  parent closure; missing parent declarations cannot acquire implicit authority.
+  Identical shared views deduplicate; conflicting contracts reject composition.
+- Map external Rust trait impls with an explicit
+  `#[native_impl(contract = "game::provider::Echo")]`. Preserve actual Rust trait
+  calls, arguments and associated types. Derive signatures from the authoritative
+  TraitAbi and compare types against actual Rust method descriptors before API
+  publication. Parameter names do not redefine the contract, and a fabricated
+  catalog cannot authorize incompatible Rust methods.
+- Make the low-level NativeModule.implement_trait take the explicit TraitAbi.
+  Reuse its existing signature derivation to validate local and foreign impls.
+  Standalone records defer unavailable foreign contracts to closed composition or
+  installation, which requires actual owning providers. Generic applicability and
+  parent witnesses retain ordinary HIR and portable proofs; this signature check
+  does not introduce a second type resolver. Catalogs currently contain registered
+  native declarations, not the remaining legacy primitive/source trait contracts.
+- Stage owned trait records, required contract checks and handlers together during
+  installation. Missing, changed or duplicate providers reject without partial
+  publication. Retain package contracts with installed entries and compare them
+  with the verified product's public trait declarations before executable linking.
+  A well-formed, sealed product cannot silently replace a registered dependency.
+- Establish ordinary private HIR imports for foreign record references. Generated
+  declaration text stays a tooling view. Exercise external generic selections
+  against script and native receivers, a foreign native bool impl, dynamic calls,
+  inherent entries, forced GC, every budget cut and retained script generations.
+  Array representation coherence still rejects overlapping wrapper impls; the
+  proof uses distinct bool and array receiver shapes without waiving that rule.
+- Regenerate only the selected fixture and preserve its exact source emission.
+  ABI v138, KBC v115, KMIR v13 and helper ABI v6 remain unchanged because the
+  executable contract schema is unchanged. All actual owners and call sites use
+  the new raw and generated APIs; no compatibility alias or re-export is added.
+
+Validation actually performed: 83 SDK tests pass across ten focused targets, including 13
+selected tests and 26 associated tests. Macro option/rejection tests pass. The
+separate Rust consumer rejects seven invalid contracts and compiles runtime-path,
+alias and external trait-mapping hygiene. Workspace library and focused SDK/example
+Clippy pass with -D warnings. Format, structure (830 Rust files, zero findings or
+exceptions) and diff checks pass. All four standalone native-proof feature
+consumers, eight production crate boundaries and the source-free ABI build graph
+pass. Manual review
+covers import ownership, generated paths, the empty re-export whitelist, immutable
+catalog authority, staged installation, actual Rust/registered signature agreement,
+public/private contract ownership, callback roots and retained generations.
+Full-workspace/all-target obsolete fixture failures remain NR04-owned; unchanged
+failures were not rerun or disabled. Final acceptance remains open.
+
+Next: complete native default contracts and projected requirements needed by
+Ord/Ordering and sort_by/sort, then prove managed iterator state. Preserve NR04
+integration errors and NR05/ST06 combined behavior and measurement obligations.
+Goal mode remains active.

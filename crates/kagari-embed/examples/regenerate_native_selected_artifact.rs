@@ -2,14 +2,13 @@
 // Test/cross-target sharing keeps the registration authoritative.
 #[path = "../tests/fixtures/native_selected_api.rs"]
 mod fixture_api;
-use fixture_api::selected;
 use kagari_common::source::SourceFile;
 use kagari_embed::engine::KagariEngine;
 use std::{fs, path::Path};
 
 fn main() {
     let engine = KagariEngine::builder()
-        .install(selected::native_api())
+        .install(fixture_api::api())
         .build()
         .unwrap();
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");

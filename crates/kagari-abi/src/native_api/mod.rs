@@ -104,18 +104,25 @@ impl NativeModule {
     /// Bind implementations to an existing trait contract without repeating signatures.
     pub fn implement_trait(
         &mut self,
+        contract: &TraitAbi,
         trait_type: NominalAbiType,
         for_type: AbiType,
         generic_params: Vec<GenericParameterAbi>,
         bindings: &[(&str, DefinitionId)],
     ) -> Result<(), NativeApiError> {
-        let contract = self
-            .traits
-            .iter()
-            .find(|item| {
-                self.definition(DefinitionKind::Trait, &item.name) == trait_type.declaration
-            })
-            .ok_or_else(|| NativeApiError("trait is absent from this native module".into()))?;
+        let owner = NativeModule::new(trait_type.declaration.module.clone())
+            .definition(DefinitionKind::Trait, &contract.name);
+        if owner != trait_type.declaration {
+            return Err(NativeApiError(
+                "native trait contract has a different owner".into(),
+            ));
+        }
+        validate(
+            &[PublicAbiItem::Trait(contract.clone())],
+            &owner.module,
+            &CancellationToken::default(),
+        )
+        .map_err(|_| NativeApiError("invalid native trait contract".into()))?;
         if trait_type.arguments.len() != contract.generic_params.len()
             || bindings.len() != contract.methods.len()
             || trait_type.associated_types.len() != contract.associated_types.len()
@@ -413,11 +420,45 @@ impl NativeModule {
     }
 
     fn validate_implementations(&self) -> Result<(), NativeApiError> {
+        let contracts = self
+            .traits
+            .iter()
+            .map(|contract| {
+                (
+                    self.definition(DefinitionKind::Trait, &contract.name),
+                    contract.clone(),
+                )
+            })
+            .collect();
+        self.check_implementations(&contracts, false)
+    }
+
+    /// Validate method contracts against a complete installed native catalog.
+    /// Generic applicability and parent witnesses retain their ordinary checked
+    /// HIR/portable proofs; this check does not infer an implementation body.
+    pub fn validate_trait_implementations(
+        &self,
+        contracts: &BTreeMap<DefinitionId, TraitAbi>,
+    ) -> Result<(), NativeApiError> {
+        self.check_implementations(contracts, true)
+    }
+
+    fn check_implementations(
+        &self,
+        contracts: &BTreeMap<DefinitionId, TraitAbi>,
+        require_external: bool,
+    ) -> Result<(), NativeApiError> {
         let invalid =
             || NativeApiError("trait implementation differs from its registered contract".into());
         for (index, implementation) in self.implementations.iter().enumerate() {
             let Some(trait_type) = &implementation.trait_type else {
                 continue;
+            };
+            let Some(contract) = contracts.get(&trait_type.declaration) else {
+                if !require_external && trait_type.declaration.module != self.identity {
+                    continue;
+                }
+                return Err(invalid());
             };
             let bindings = implementation
                 .methods
@@ -432,6 +473,7 @@ impl NativeModule {
             let mut expected = self.clone();
             expected.implementations.truncate(index);
             expected.implement_trait(
+                contract,
                 trait_type.clone(),
                 implementation.for_type.clone(),
                 implementation.generic_params.clone(),
@@ -440,13 +482,6 @@ impl NativeModule {
             if expected.implementations[index].methods != implementation.methods {
                 return Err(invalid());
             }
-            let contract = self
-                .traits
-                .iter()
-                .find(|item| {
-                    self.definition(DefinitionKind::Trait, &item.name) == trait_type.declaration
-                })
-                .ok_or_else(invalid)?;
             let substitution =
                 TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
             for parent in &contract.supertraits {

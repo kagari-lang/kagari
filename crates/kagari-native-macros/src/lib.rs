@@ -8,6 +8,9 @@ use syn::{Error as SyntaxError, ItemMod, parse_macro_input};
 
 /// Export annotated Rust functions, native array types and trait implementations.
 /// Signatures come from `NativeValue`/`NativeReturn`, including Rust type aliases.
+/// The `catalog` option generates `native_api(&NativeCatalog)` for external trait
+/// dependencies. A trait impl may declare an explicit `contract = "pkg::mod::Trait"`
+/// mapping while preserving its actual Rust trait path and conformance checks.
 #[proc_macro_attribute]
 pub fn native_module(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as author::Arguments);

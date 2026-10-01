@@ -272,8 +272,13 @@ pub(crate) fn method(
     names: &[Ident],
     runtime: &Path,
     receiver: Option<&Type>,
+    contract: Option<&Path>,
     binding: TokenStream,
 ) -> SyntaxResult<TokenStream> {
+    let contract = contract.map(|path| {
+        let ty: Type = parse_quote!(#path);
+        ty
+    });
     let name = sig.ident.to_string();
     let doc = documentation(attrs);
     let mut params = vec![];
@@ -299,14 +304,19 @@ pub(crate) fn method(
                 {
                     continue;
                 }
-                let Pat::Ident(pattern) = &*arg.pat else {
-                    return Err(SyntaxError::new_spanned(
-                        arg,
-                        "native arguments require named identifiers",
-                    ));
+                let name = match &*arg.pat {
+                    Pat::Ident(pattern) => pattern.ident.to_string(),
+                    Pat::Wild(_) if contract.is_some() => format!("argument_{}", params.len()),
+                    _ => {
+                        return Err(SyntaxError::new_spanned(
+                            arg,
+                            "native arguments require named identifiers",
+                        ));
+                    }
                 };
-                let name = pattern.ident.to_string();
-                let ty = value_type(&arg.ty, names, runtime, receiver);
+                let ty = concrete_method(&arg.ty, names, runtime, receiver, contract.as_ref());
+                let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
+                let ty = quote!(<#ty as #runtime::native_value::NativeValue>::type_expression(&[#(#generic_names),*]));
                 params.push(quote!((#name, #ty)));
             }
         }
@@ -315,7 +325,7 @@ pub(crate) fn method(
         ReturnType::Default => parse_quote!(()),
         ReturnType::Type(_, ty) => *ty.clone(),
     };
-    let result = concrete(&result, names, runtime, receiver);
+    let result = concrete_method(&result, names, runtime, receiver, contract.as_ref());
     let selected = selected::descriptors(sig, names, runtime, receiver)?;
     let names: Vec<_> = names.iter().map(ToString::to_string).collect();
     Ok(quote!(#runtime::native_module::Method {

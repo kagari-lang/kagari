@@ -1,5 +1,5 @@
 //! Symbolic authoring types become ABI types under an explicit declaration binder.
-use crate::error::RuntimeError;
+use crate::{error::RuntimeError, native::catalog::NativeCatalog};
 
 use kagari_abi::{
     native_api::NativeModule,
@@ -34,6 +34,7 @@ pub enum TypeExpression {
 
 pub(super) struct Scope<'a> {
     pub module: &'a NativeModule,
+    pub catalog: &'a NativeCatalog,
     pub owner: DefinitionId,
     pub names: &'a [&'static str],
     pub receiver: Option<&'a AbiType>,

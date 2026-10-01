@@ -20,6 +20,15 @@ The bundled array and math modules compose the default, optional library using
 the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
 
+Cross-package Rust authoring uses explicit NativeCatalog declaration views and
+fully qualified script identities. Consumers retain exact expected trait contracts
+and declared parents. NativeApi composition and staged installation require actual
+owning providers, check foreign implementation signatures and publish atomically.
+Rust trait paths remain actual Rust paths; an explicit contract mapping names the
+script declaration without guessing aliases. Portable linking compares retained
+contracts with the verified dependency closure. Catalog views do not install
+handlers or replace ordinary generic applicability and parent-witness proofs.
+
 HIR imports registered declaration records directly, using ordinary declaration
 checking and selected implementations. Generated `.kgr` files are tooling views
 with syntax, documentation and navigation coordinates; they are never lowered to

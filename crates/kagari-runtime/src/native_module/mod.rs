@@ -7,6 +7,7 @@ use crate::{
     error::RuntimeError,
     native::{
         api::{NativeApi, NativeHandler},
+        catalog::NativeCatalog,
         factory::NativeFactory,
     },
     native_module::{
@@ -64,10 +65,12 @@ pub struct AssociatedType {
 pub struct NativeModuleBuilder {
     module: NativeModule,
     handlers: BTreeMap<DefinitionId, NativeHandler>,
+    catalog: NativeCatalog,
+    required_traits: NativeCatalog,
 }
 
 impl NativeModuleBuilder {
-    pub fn new(path: &[&str]) -> Result<Self, RuntimeError> {
+    pub fn new(path: &[&str], catalog: NativeCatalog) -> Result<Self, RuntimeError> {
         if path.len() < 2 {
             return Err(invalid("native module needs a package and module path"));
         }
@@ -84,6 +87,8 @@ impl NativeModuleBuilder {
                 path: path[1..].iter().map(|name| (*name).into()).collect(),
             }),
             handlers: BTreeMap::new(),
+            catalog,
+            required_traits: NativeCatalog::default(),
         })
     }
 
@@ -100,6 +105,7 @@ impl NativeModuleBuilder {
         let owner = self.module.definition(DefinitionKind::AssociatedType, name);
         let scope = Scope {
             module: &self.module,
+            catalog: &self.catalog,
             owner: owner.clone(),
             names,
             receiver: None,
@@ -134,6 +140,7 @@ impl NativeModuleBuilder {
             .collect::<Vec<_>>();
         let scope = Scope {
             module: &self.module,
+            catalog: &self.catalog,
             owner: owner.clone(),
             names,
             receiver: None,
@@ -150,7 +157,7 @@ impl NativeModuleBuilder {
                     return Err(invalid("required trait methods cannot bind a handler"));
                 }
                 function(&scope, method, CallableImplementation::Required, false)
-                    .map(|(function, _)| function)
+                    .map(|registered| registered.function)
             })
             .collect::<Result<_, _>>()?;
         self.module.traits.push(TraitAbi {
@@ -198,6 +205,7 @@ impl NativeModuleBuilder {
             .implementation_id(self.module.implementations.len());
         let for_type = Scope {
             module: &self.module,
+            catalog: &self.catalog,
             owner: owner.clone(),
             names,
             receiver: None,
@@ -214,18 +222,21 @@ impl NativeModuleBuilder {
             )?;
             let scope = Scope {
                 module: &self.module,
+                catalog: &self.catalog,
                 owner: owner.clone(),
                 names,
                 receiver: Some(&for_type),
                 associated: &[],
             };
-            let (function, requirements) = function(
+            let registered = function(
                 &scope,
                 method,
                 CallableImplementation::Native(binding),
                 true,
             )?;
-            functions.push(function);
+            functions.push(registered.function);
+            self.required_traits.merge(&registered.dependencies)?;
+            let requirements = registered.requirements;
             if !requirements.is_empty() {
                 self.module
                     .callable_requirements
@@ -234,6 +245,7 @@ impl NativeModuleBuilder {
         }
         let scope = Scope {
             module: &self.module,
+            catalog: &self.catalog,
             owner: owner.clone(),
             names,
             receiver: None,
@@ -261,7 +273,7 @@ impl NativeModuleBuilder {
         receiver: TypeExpression,
         contract: TypeExpression,
         associated: Vec<(&'static str, TypeExpression)>,
-        bindings: Vec<(&'static str, Binding)>,
+        methods: Vec<Method>,
     ) -> Result<(), RuntimeError> {
         self.check_names(names)?;
         let owner = self
@@ -269,6 +281,7 @@ impl NativeModuleBuilder {
             .implementation_id(self.module.implementations.len());
         let scope = Scope {
             module: &self.module,
+            catalog: &self.catalog,
             owner,
             names,
             receiver: None,
@@ -289,13 +302,79 @@ impl NativeModuleBuilder {
             }
         }
         let generics = scope.generics();
-        let entries = bindings
+        let declared = self
+            .module
+            .traits
             .iter()
-            .map(|(name, binding)| Ok((*name, self.bind(binding)?)))
+            .find(|contract| {
+                self.module
+                    .definition(DefinitionKind::Trait, &contract.name)
+                    == trait_type.declaration
+            })
+            .cloned();
+        let declared = if let Some(declared) = declared {
+            declared
+        } else {
+            self.required_traits
+                .merge(&self.catalog.selected(&trait_type.declaration)?)?;
+            self.catalog
+                .get(&trait_type.declaration)
+                .cloned()
+                .ok_or_else(|| invalid("native impl requires a registered trait contract"))?
+        };
+        let entries = methods
+            .iter()
+            .map(|method| {
+                Ok((
+                    method.name,
+                    self.bind(
+                        method
+                            .binding
+                            .as_ref()
+                            .ok_or_else(|| invalid("native method requires a handler"))?,
+                    )?,
+                ))
+            })
             .collect::<Result<Vec<_>, RuntimeError>>()?;
         self.module
-            .implement_trait(trait_type, for_type, generics, &entries)
-            .map_err(|error| invalid(error.to_string()))
+            .implement_trait(&declared, trait_type, for_type.clone(), generics, &entries)
+            .map_err(|error| invalid(error.to_string()))?;
+        let implementation = self
+            .module
+            .implementations
+            .last()
+            .expect("derived trait impl");
+        let scope = Scope {
+            module: &self.module,
+            catalog: &self.catalog,
+            owner: self
+                .module
+                .implementation_id(self.module.implementations.len() - 1),
+            names,
+            receiver: Some(&for_type),
+            associated: &[],
+        };
+        for method in &methods {
+            let expected = implementation
+                .methods
+                .iter()
+                .find(|expected| expected.name == method.name)
+                .ok_or_else(|| invalid("native Rust method is absent from its trait"))?;
+            let actual = function(&scope, method, expected.implementation.clone(), true)?.function;
+            if actual.params.len() != expected.params.len()
+                || actual
+                    .params
+                    .iter()
+                    .zip(&expected.params)
+                    .any(|(actual, expected)| actual.ty != expected.ty)
+                || actual.return_type != expected.return_type
+            {
+                return Err(invalid(
+                    "native Rust method signature differs from its registered trait",
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn free_function(
@@ -315,18 +394,21 @@ impl NativeModuleBuilder {
         )?;
         let scope = Scope {
             module: &self.module,
+            catalog: &self.catalog,
             owner: owner.clone(),
             names,
             receiver: None,
             associated: &[],
         };
-        let (function, requirements) = function(
+        let registered = function(
             &scope,
             &method,
             CallableImplementation::Native(binding),
             true,
         )?;
-        self.module.functions.push(function);
+        self.module.functions.push(registered.function);
+        self.required_traits.merge(&registered.dependencies)?;
+        let requirements = registered.requirements;
         if !requirements.is_empty() {
             self.module
                 .callable_requirements
@@ -337,7 +419,9 @@ impl NativeModuleBuilder {
     }
 
     pub fn finish(self) -> Result<NativeApi, RuntimeError> {
-        NativeApi::new(vec![self.module], self.handlers.into_values().collect())
+        let mut api = NativeApi::new(vec![self.module], self.handlers.into_values().collect())?;
+        api.require_traits(self.required_traits)?;
+        Ok(api)
     }
 
     fn bind(&mut self, binding: &Binding) -> Result<DefinitionId, RuntimeError> {
@@ -378,18 +462,25 @@ impl NativeModuleBuilder {
     }
 }
 
+struct RegisteredFunction {
+    function: FunctionAbi,
+    requirements: Vec<NativeCallableRequirement>,
+    dependencies: NativeCatalog,
+}
+
 fn function(
     scope: &Scope<'_>,
     method: &Method,
     implementation: CallableImplementation,
     include_generics: bool,
-) -> Result<(FunctionAbi, Vec<NativeCallableRequirement>), RuntimeError> {
+) -> Result<RegisteredFunction, RuntimeError> {
     let Selection {
         bounds,
         requirements,
+        dependencies,
     } = selection::resolve(scope, method)?;
-    Ok((
-        FunctionAbi {
+    Ok(RegisteredFunction {
+        function: FunctionAbi {
             name: method.name.into(),
             implementation,
             method_policy: Default::default(),
@@ -413,7 +504,8 @@ fn function(
             return_type: scope.resolve(&method.result)?,
         },
         requirements,
-    ))
+        dependencies,
+    })
 }
 
 fn nominal(ty: AbiType) -> Result<NominalAbiType, RuntimeError> {
