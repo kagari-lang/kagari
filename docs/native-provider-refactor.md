@@ -253,7 +253,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Portable native default template applications, inherited obligations and encoded dynamic execution.
   - [x] Registered native default import and checked-source call/slot materialization.
   - [x] Typed Rust owned default authoring from real function templates and private helper identities.
-  - [ ] Complete external default/template dependency closure and concrete default obligations.
+  - [x] Retain and validate external default/template declaration dependencies before publication, installation and portable linking.
+  - [ ] Complete concrete default obligations against actual registered implementation facts.
   - [ ] Projected receivers and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
@@ -1378,7 +1379,7 @@ Implementation boundaries:
 The registration flow is:
 
 ```rust
-let api = NativeApi::new(vec![module], handlers)?;
+let api = NativeApi::new(vec![module], handlers, NativeCatalog::default())?;
 let engine = KagariEngine::with_native_apis(
     EngineConfig {
         install_standard_library: false,
@@ -2488,3 +2489,115 @@ Next: close required external default/template contracts and concrete obligation
 then complete projected requirements and restore Ord/Ordering and sort_by/sort.
 Managed iterator state, remaining library restoration, legacy retirement and
 NR05/ST06 behavior/measurement acceptance remain in the active goal.
+
+### NR02 checkpoint: complete default declaration dependencies (2026-10-01)
+
+Checkpoint 2 closes the preceding external-parent/default-template reproduction.
+It does not accept concrete implementation obligations, projected receivers,
+sorting, managed returned state or a complete library. The default package now
+has an explicit carried registration failure described below; no NR phase passes.
+
+- NativeCatalog retains immutable copy-on-write trait contracts and actual native
+  declarations, including private templates and their selected requirements.
+  Collect referenced parents, bounds, associated constraints/projections, method
+  signatures and default applications through a cycle-safe declaration walk.
+  Referenced templates participate in the same walk. Retain the expected foreign
+  closure independently of callback use; unrelated functions are not added to an
+  entry's executable dependency set merely because they share its package.
+- Change the sole low-level constructor to
+  `NativeApi::new(modules, handlers, catalog)`. Collect the complete expected
+  declarations before running the shared portable default proof and checking
+  foreign native implementation signatures. Remove post-construction require_traits
+  and the separate selected-only dependency accumulator. Existing typed
+  `native_api()` / `native_api(&catalog)` authoring remains unchanged.
+- Composition and staged installation require the actual owning providers and
+  compare full expected trait/template records. Authoring views cannot publish
+  dependency handlers. Installation failure leaves no partial traits or entries.
+  Portable linking compares transitive private template declarations as well as
+  public trait contracts and the invoked entry's ordinary import signature.
+- Add `#[native_trait(parents("pkg::mod::Parent", ...))]` for actual Rust
+  supertraits imported through short paths or aliases. Mappings are explicit and
+  positional; generic arguments and associated bindings still come from the Rust
+  bounds. Reject mismatched counts, repeated options, abbreviated identities and
+  arguments authored again inside a mapping. This is declaration identity mapping,
+  not Rust signature inference or a library-specific resolver.
+- Add a real four-package Rust fixture with Parent<P>, Child<P>, Plain<P>, private
+  native defaults, and a separate provider of bool implementations. Its generated
+  product exercises inherited defaults and nested selected callbacks over two
+  script instantiations, native receivers and returned GC objects. A coherent
+  alternative Parent provider has identical public trait contracts and function
+  signatures but changes echo's checked selected target from read to shift.
+  Both alternatives publish independently; mixed catalogs/providers reject.
+  A product calling only Plain's constant default has no Parent native imports:
+  changing the transitive Parent template still rejects runtime loading, while
+  the coherent alternative provider/product pair executes correctly.
+- Fix ordinary compiler producers exposed by this fixture. Parent interfaces
+  materialize omitted native defaults as checked native targets before queuing
+  script functions. Uninstantiated generic interface rows no longer collect every
+  concrete script method into duplicate slots: slots match exact implementation
+  arguments. Verification keeps its existing uniqueness/signature checks. Rebuild
+  the typed-default fixture for the corrected canonical emission and add the new
+  external fixture and regeneration example. Other affected encoded products must
+  be refreshed once their required default packages build again.
+- Runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 remain unchanged. Existing
+  records already carry the retained contracts. The Rust constructor breaks API
+  callers; there is no compatibility alias or obsolete artifact reader.
+
+Validation actually performed:
+
+- 21 SDK tests across native_default_external, native_default_source and
+  native_default_typed pass. The eight external tests include absent parent/helper
+  rejection, independent template alternatives, atomic installation, source-free
+  execution, exact source emission, every nested-callback budget cut and the
+  constant-default transitive link proof. GC threshold one, roots, frames and
+  post-collection object counts retain meaningful assertions.
+- All three default targets pass as standalone artifact-only, source, native and
+  source+native consumers. These focused runs do not replace the complete feature
+  suite. Eight production crate boundaries and the source-independent ABI graph
+  pass in the full native-proof runner before the carried default-package error.
+- Three macro tests, the eight-case separate Rust-authoring consumer, workspace
+  library Clippy and focused test/example Clippy pass with warnings denied.
+  Format, whole-repository structure (846 Rust files, zero violations/exceptions)
+  and diff checks pass. Manual review covers module/import ownership, the empty
+  re-export whitelist, macro identity hygiene, bounded type walks, exact template
+  provenance, staged publication and ordinary proof reuse.
+
+New carried default-package error (immediate follow-up, NR03 declaration ownership):
+`std::array::List<T>` has a declared `std::ops::Index<usize, Output = T>` parent,
+but no native package currently owns Index's declaration. The old source-only ops
+module cannot supply executable registration authority. The new complete dependency
+check therefore rejects array API construction; the bundled package's existing
+expect currently panics. Default Engine construction and tests selecting the
+default library are broken at this intermediate checkpoint. The optional external
+and typed-default proofs above explicitly disable that package, as they already
+did before this checkpoint; existing default-enabled assertions remain intact.
+
+Reproductions and observed failures:
+
+```text
+cargo test -p kagari-embed --test native_registration
+# 2 pass / 11 fail: "native trait dependency is absent from the catalog"
+uv run python scripts/check_features.py --native-proof
+# production graphs pass; artifact-only native_associated has 15 pass / 5 fail
+# at the same bundled array initialization error
+```
+
+The commands' full outputs are under target/native-default-closure-focused.log and
+target/architecture-features/native-proof/artifact-only-tests.log. Existing NR04
+obsolete full-workspace/all-target consumers remain additional open obligations.
+No default-enabled test is disabled or made source-free to conceal the failure.
+The complete runner retains every prior target and adds native_default_external.
+
+Next, restore actual registration-owned ops declarations required by List before
+further algorithm restoration. Preserve the complete ops public declaration
+surface, including Range/Bound/RangeBounds/Fn; replacing its namespace with an
+Index-only package would silently delete the remaining declarations. Extend the
+existing native representation authoring/import/render path where needed, derive
+Index from its actual Rust contract, and install its owning provider before array.
+Do not bypass parent dependency checks, copy source-derived contract blobs, invent
+an implicit primitive catalog, or change List's declared parent identity. Restore
+default package initialization, re-emit affected current proof fixtures and rerun
+the full native-proof feature matrix. Then retain actual implementation facts for
+concrete default obligations and resume projected receivers, Ord/Ordering,
+sort_by/sort and managed iterator state. The complete library, legacy retirement
+and NR05/ST06 acceptance remain in the active unbounded goal.

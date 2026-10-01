@@ -76,7 +76,6 @@ pub struct NativeModuleBuilder {
     module: NativeModule,
     handlers: BTreeMap<DefinitionId, NativeHandler>,
     catalog: NativeCatalog,
-    required_traits: NativeCatalog,
 }
 
 impl NativeModuleBuilder {
@@ -98,7 +97,6 @@ impl NativeModuleBuilder {
             }),
             handlers: BTreeMap::new(),
             catalog,
-            required_traits: NativeCatalog::default(),
         })
     }
 
@@ -245,7 +243,6 @@ impl NativeModuleBuilder {
                 true,
             )?;
             functions.push(registered.function);
-            self.required_traits.merge(&registered.dependencies)?;
             let requirements = registered.requirements;
             if !requirements.is_empty() {
                 self.module
@@ -325,8 +322,6 @@ impl NativeModuleBuilder {
         let declared = if let Some(declared) = declared {
             declared
         } else {
-            self.required_traits
-                .merge(&self.catalog.selected(&trait_type.declaration)?)?;
             self.catalog
                 .get(&trait_type.declaration)
                 .cloned()
@@ -417,7 +412,6 @@ impl NativeModuleBuilder {
             true,
         )?;
         self.module.functions.push(registered.function);
-        self.required_traits.merge(&registered.dependencies)?;
         let requirements = registered.requirements;
         if !requirements.is_empty() {
             self.module
@@ -429,9 +423,11 @@ impl NativeModuleBuilder {
     }
 
     pub fn finish(self) -> Result<NativeApi, RuntimeError> {
-        let mut api = NativeApi::new(vec![self.module], self.handlers.into_values().collect())?;
-        api.require_traits(self.required_traits)?;
-        Ok(api)
+        NativeApi::new(
+            vec![self.module],
+            self.handlers.into_values().collect(),
+            self.catalog,
+        )
     }
 
     fn bind(&mut self, binding: &Binding) -> Result<DefinitionId, RuntimeError> {
@@ -475,7 +471,6 @@ impl NativeModuleBuilder {
 struct RegisteredFunction {
     function: FunctionAbi,
     requirements: Vec<NativeCallableRequirement>,
-    dependencies: NativeCatalog,
 }
 
 fn function(
@@ -487,7 +482,6 @@ fn function(
     let Selection {
         bounds,
         requirements,
-        dependencies,
     } = selection::resolve(scope, method)?;
     Ok(RegisteredFunction {
         function: FunctionAbi {
@@ -514,7 +508,6 @@ fn function(
             return_type: scope.resolve(&method.result)?,
         },
         requirements,
-        dependencies,
     })
 }
 

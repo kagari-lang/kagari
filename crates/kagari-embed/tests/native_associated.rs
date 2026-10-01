@@ -374,7 +374,7 @@ fn selected_callbacks_reject_invalid_slots_and_arguments_before_target_entry() {
         .collect();
         let engine = KagariEngine::builder()
             .install_standard_library(false)
-            .install(NativeApi::new(vec![module], handlers))
+            .install(NativeApi::new(vec![module], handlers, Default::default()))
             .install(fixture_api::typed::native_api())
             .build()
             .unwrap();

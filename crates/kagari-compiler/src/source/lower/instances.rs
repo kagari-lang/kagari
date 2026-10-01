@@ -652,7 +652,9 @@ impl<'a> InstancePlanner<'a> {
                 )?;
                 let methods = self.catalog.implementation_methods(signature);
                 for method in methods {
-                    if self.native_function(&method).is_some() {
+                    if self.prepare_native_target(&method, &arguments, span)?
+                        || self.native_function(&method).is_some()
+                    {
                         continue;
                     }
                     self.enqueue_declaration(&method, arguments.clone(), span)?;

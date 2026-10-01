@@ -11,7 +11,6 @@ use kagari_abi::{
     native_import::NativeImport,
     types::{
         NativeDeclaration, PublicAbiItem,
-        proofs::ProofCatalog,
         verify::{concrete_type_valid, validate_native_declarations},
     },
 };
@@ -32,7 +31,7 @@ pub struct NativeRegistration {
     pub declarations: Vec<NativeDeclaration>,
     pub(crate) scratch_slots: usize,
     pub(crate) entry: Rc<NativeEntry>,
-    pub(crate) required_traits: NativeCatalog,
+    pub(crate) required_catalog: NativeCatalog,
 }
 impl NativeRegistration {
     pub fn new(
@@ -45,7 +44,7 @@ impl NativeRegistration {
             declarations,
             scratch_slots,
             entry: Rc::new(entry),
-            required_traits: NativeCatalog::default(),
+            required_catalog: NativeCatalog::default(),
         }
     }
 }
@@ -65,64 +64,36 @@ fn entry_id(declaration: &NativeDeclaration) -> Option<&DefinitionId> {
 #[derive(Debug, Default, Clone)]
 pub struct NativeRegistry {
     entries: HashMap<DefinitionId, Rc<NativeRegistration>>,
-    traits: NativeCatalog,
+    catalog: NativeCatalog,
 }
 impl NativeRegistry {
     pub(crate) fn validate_defaults(&self) -> Result<(), RuntimeError> {
-        if !self
-            .traits
-            .traits
-            .values()
-            .flat_map(|contract| &contract.methods)
-            .any(|method| {
-                matches!(
-                    method.implementation,
-                    CallableImplementation::NativeDefault(_)
-                )
-            })
-        {
-            return Ok(());
-        }
-        ProofCatalog::new(
-            vec![],
-            vec![],
-            [],
-            self.traits
-                .traits
-                .iter()
-                .map(|(id, contract)| (id.clone(), contract)),
-            self.entries.values().flat_map(|entry| &entry.declarations),
-            &CancellationToken::default(),
-        )
-        .map_err(|_| {
-            RuntimeError::metadata_conflict("native default differs from its registered template")
-        })?;
-        Ok(())
+        self.catalog.validate_defaults()
     }
     pub(crate) fn check_implementations<'a>(
         &self,
         modules: impl IntoIterator<Item = &'a NativeModule>,
     ) -> Result<(), RuntimeError> {
-        self.traits.check_implementations(modules)
+        self.catalog.check_implementations(modules)
     }
-    pub(crate) fn install_traits(&mut self, catalog: NativeCatalog) -> Result<(), RuntimeError> {
+    pub(crate) fn install_catalog(&mut self, catalog: NativeCatalog) -> Result<(), RuntimeError> {
         if catalog
             .traits
             .keys()
-            .any(|id| self.traits.get(id).is_some())
+            .any(|id| self.catalog.get(id).is_some())
         {
             return Err(RuntimeError::metadata_conflict(
-                "duplicate native trait declaration",
+                "duplicate native declaration",
             ));
         }
-        self.traits.merge(&catalog)
+        self.catalog.merge(&catalog)
     }
-    pub(crate) fn require_traits(&self, required: &NativeCatalog) -> Result<(), RuntimeError> {
-        if required.satisfied_by(&self.traits) {
+    pub(crate) fn require_catalog(&self, required: &NativeCatalog) -> Result<(), RuntimeError> {
+        if required.satisfied_by(&self.catalog) {
             Ok(())
         } else {
             Err(RuntimeError::metadata_conflict(
-                "missing or changed native trait dependency",
+                "missing or changed native contract dependency",
             ))
         }
     }
@@ -180,6 +151,11 @@ impl NativeRegistry {
                 }
             }
         }
+        let mut catalog = self.catalog.clone();
+        for declaration in &registration.declarations {
+            catalog.insert_declaration(declaration.clone())?;
+        }
+        self.catalog = catalog;
         self.entries.insert(id, Rc::new(registration));
         Ok(())
     }
@@ -192,7 +168,7 @@ impl NativeRegistry {
             .entries
             .get(&import.binding)
             .ok_or_else(|| RuntimeError::module_validation("native entry is not installed"))?;
-        if entry.required_traits.traits.iter().any(|(id, expected)| {
+        if entry.required_catalog.traits.iter().any(|(id, expected)| {
             !program.modules().iter().any(|module| {
                 module.identity == id.module && module.public_items.iter().any(|item| {
                     matches!(item, PublicAbiItem::Trait(contract) if contract == expected)
@@ -201,6 +177,24 @@ impl NativeRegistry {
         }) {
             return Err(RuntimeError::module_validation(
                 "native dependency differs from its registered trait contract",
+            ));
+        }
+        if entry
+            .required_catalog
+            .declarations
+            .iter()
+            .any(|(id, expected)| {
+                !program.modules().iter().any(|module| {
+                    module.identity == id.module
+                        && module
+                            .native_declarations
+                            .iter()
+                            .any(|declaration| declaration == expected)
+                })
+            })
+        {
+            return Err(RuntimeError::module_validation(
+                "native dependency differs from its registered template contract",
             ));
         }
         let declaration = program

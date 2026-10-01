@@ -566,5 +566,5 @@ pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
         0,
         |_| Ok(Box::new(CheckFirst)),
     ));
-    NativeApi::new(vec![module], handlers).unwrap()
+    NativeApi::new(vec![module], handlers, Default::default()).unwrap()
 }

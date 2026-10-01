@@ -188,8 +188,7 @@ pub(super) fn collect_interface_tables(
                 } else {
                     for function in &ir.functions {
                         if function.instance.declaration == declaration
-                            && (instance.arguments.is_empty()
-                                || function.instance.arguments == instance.arguments)
+                            && function.instance.arguments == instance.arguments
                         {
                             methods.push(InterfaceMethodSlot {
                                 method: member.clone(),

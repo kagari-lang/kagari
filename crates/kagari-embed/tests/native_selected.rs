@@ -61,7 +61,7 @@ fn trait_only_provider(change_type: bool) -> NativeApi {
     } else {
         parameter.name = "adjustment".into();
     }
-    NativeApi::new(vec![module], vec![]).unwrap()
+    NativeApi::new(vec![module], vec![], Default::default()).unwrap()
 }
 
 #[test]

@@ -106,6 +106,7 @@ pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
                 RuntimeError::module_validation("missing bound native input")
             })?)))
         })],
+        Default::default(),
     )
     .unwrap()
 }

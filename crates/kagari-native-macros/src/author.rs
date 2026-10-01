@@ -1,5 +1,5 @@
 //! Attribute expansion keeps original Rust definitions and emits checked adapters.
-use crate::{defaults, selected, signature};
+use crate::{defaults, parents, selected, signature};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
@@ -393,24 +393,13 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     .iter()
                     .any(|attr| attr.path().is_ident("native_trait")) =>
             {
-                signature::marker(&mut ty.attrs, "native_trait");
+                let marker =
+                    signature::marker(&mut ty.attrs, "native_trait").expect("native trait marker");
                 let names = signature::generics(&ty.generics)?;
                 let name = ty.ident.to_string();
                 let doc = signature::documentation(&ty.attrs);
                 let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
-                let parents = ty
-                    .supertraits
-                    .iter()
-                    .map(|parent| {
-                        let TypeParamBound::Trait(bound) = parent else {
-                            return Err(SyntaxError::new_spanned(
-                                parent,
-                                "native parents must be declared traits",
-                            ));
-                        };
-                        signature::nominal(&bound.path, &names, runtime)
-                    })
-                    .collect::<SyntaxResult<Vec<_>>>()?;
+                let parents = parents::descriptors(marker, ty, &names, runtime)?;
                 let mut associated = vec![];
                 let mut associated_names = vec![];
                 for item in &ty.items {
@@ -694,6 +683,33 @@ mod tests {
                             panic!()
                         }
                     }
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_trait(parents("game::parent::Parent"))]
+                    trait Bad {}
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_trait(parents("game::parent::Parent<usize>"))]
+                    trait Bad: imported::Parent<usize> {}
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_trait(parents("Parent"))]
+                    trait Bad: imported::Parent {}
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_trait(
+                        parents("game::parent::Parent"),
+                        parents("game::parent::Parent")
+                    )]
+                    trait Bad: imported::Parent {}
                 }
             ),
         ] {

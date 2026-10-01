@@ -185,7 +185,7 @@ fn api(module: NativeModule) -> Result<NativeApi, RuntimeError> {
             Ok(Box::new(BoolRead(value)))
         },
     ));
-    NativeApi::new(vec![module], handlers)
+    NativeApi::new(vec![module], handlers, Default::default())
 }
 
 fn engine() -> KagariEngine {

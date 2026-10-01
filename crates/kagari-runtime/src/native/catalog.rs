@@ -1,13 +1,18 @@
-//! Immutable native trait contracts used for cross-package authoring and installation.
+//! Immutable native contracts used for cross-package authoring and installation.
+mod dependencies;
 use crate::{error::RuntimeError, native::api::NativeApi};
-use kagari_abi::{native_api::NativeModule, types::TraitAbi};
+use kagari_abi::{
+    native_api::NativeModule,
+    types::{NativeDeclaration, TraitAbi},
+};
 use kagari_common::identity::{DefinitionId, DefinitionKind};
-use std::collections::{BTreeMap, HashSet};
+use std::{collections::BTreeMap, sync::Arc};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone, Default)]
 pub struct NativeCatalog {
-    pub(crate) traits: BTreeMap<DefinitionId, TraitAbi>,
+    pub(crate) traits: Arc<BTreeMap<DefinitionId, TraitAbi>>,
+    pub(crate) declarations: Arc<BTreeMap<DefinitionId, NativeDeclaration>>,
 }
 
 impl NativeCatalog {
@@ -30,6 +35,9 @@ impl NativeCatalog {
                     contract.clone(),
                 )?;
             }
+            for declaration in module.native_declarations() {
+                result.insert_declaration(declaration)?;
+            }
         }
         Ok(result)
     }
@@ -50,48 +58,52 @@ impl NativeCatalog {
                 ));
             }
         } else {
-            self.traits.insert(declaration, contract);
+            Arc::make_mut(&mut self.traits).insert(declaration, contract);
         }
         Ok(())
     }
 
     pub(crate) fn merge(&mut self, other: &Self) -> Result<(), RuntimeError> {
-        for (declaration, contract) in &other.traits {
+        for (declaration, contract) in other.traits.iter() {
             self.insert(declaration.clone(), contract.clone())?;
+        }
+        for declaration in other.declarations.values() {
+            self.insert_declaration(declaration.clone())?;
         }
         Ok(())
     }
 
-    /// Retain the selected contract and its declared parent contracts. Missing
-    /// parents cannot become implicit installation authority.
-    pub(crate) fn selected(&self, declaration: &DefinitionId) -> Result<Self, RuntimeError> {
-        let mut result = Self::default();
-        let mut pending = vec![declaration.clone()];
-        let mut seen = HashSet::new();
-        while let Some(declaration) = pending.pop() {
-            if !seen.insert(declaration.clone()) {
-                continue;
+    pub(crate) fn insert_declaration(
+        &mut self,
+        declaration: NativeDeclaration,
+    ) -> Result<(), RuntimeError> {
+        let id = &declaration.declaration;
+        if let Some(previous) = self.declarations.get(id) {
+            if previous != &declaration {
+                return Err(RuntimeError::metadata_conflict(
+                    "conflicting native template declarations",
+                ));
             }
-            let contract = self.get(&declaration).ok_or_else(|| {
-                RuntimeError::metadata_conflict(
-                    "native trait dependency is absent from the catalog",
-                )
-            })?;
-            pending.extend(
-                contract
-                    .supertraits
-                    .iter()
-                    .map(|parent| parent.declaration.clone()),
-            );
-            result.insert(declaration, contract.clone())?;
+        } else {
+            Arc::make_mut(&mut self.declarations).insert(id.clone(), declaration);
         }
-        Ok(result)
+        Ok(())
     }
 
     pub(crate) fn satisfied_by(&self, installed: &Self) -> bool {
         self.traits
             .iter()
             .all(|(id, contract)| installed.get(id) == Some(contract))
+            && self
+                .declarations
+                .iter()
+                .all(|(id, declaration)| installed.declarations.get(id) == Some(declaration))
+    }
+
+    pub(crate) fn foreign_to(mut self, owned: &Self) -> Self {
+        Arc::make_mut(&mut self.traits).retain(|id, _| !owned.traits.contains_key(id));
+        Arc::make_mut(&mut self.declarations).retain(|id, _| !owned.declarations.contains_key(id));
+        self
     }
 
     pub(crate) fn check_implementations<'a>(

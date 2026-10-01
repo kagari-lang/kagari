@@ -1,0 +1,32 @@
+use game::parent::Parent;
+use game::child::{Child, invoke};
+use game::plain_default::Plain;
+use game::parent_values;
+struct Item<T> { val value: T }
+struct Payload { val value: i32 }
+impl<T> Parent<T> for Item<T> {
+    fn read(self, by: T) -> T { val scratch = Payload { value: 0 }; self.value }
+    fn shift(self, by: T) -> T { by }
+}
+impl<T> Child<T> for Item<T> { fn mark(self) -> i32 { 42 } }
+impl<T> Plain<T> for Item<T> { fn mark(self) -> i32 { 42 } }
+fn dynamic(value: Child<i32>) -> i32 { value.extra(2) }
+fn heap_dynamic(value: Child<Payload>, by: Payload) -> Payload { value.extra(by) }
+fn direct_main() -> i32 { Item { value: 42 }.extra(2) }
+fn parent_main() -> i32 { Item { value: 42 }.echo(2) }
+fn dynamic_main() -> i32 { dynamic(Item { value: 42 }) }
+fn selected_main() -> i32 { invoke(Item { value: 42 }, 2) }
+fn native_main() -> i32 { true.extra(2) }
+fn native_dynamic_main() -> i32 { dynamic(true) }
+fn native_selected_main() -> i32 { invoke(true, 2) }
+fn pure_main() -> i32 { Item { value: 42 }.constant(2) }
+fn heap_main() -> i32 {
+    val result = invoke(Item { value: Payload { value: 42 } }, Payload { value: 0 });
+    val scratch = Payload { value: 0 };
+    result.value
+}
+fn heap_dynamic_main() -> i32 {
+    val result = heap_dynamic(Item { value: Payload { value: 42 } }, Payload { value: 0 });
+    val scratch = Payload { value: 0 };
+    result.value
+}

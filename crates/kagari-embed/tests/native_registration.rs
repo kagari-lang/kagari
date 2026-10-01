@@ -161,17 +161,24 @@ fn different_rust_functions_cannot_silently_share_a_binding() {
 #[test]
 fn registration_rejects_missing_duplicate_unknown_and_invalid_contracts() {
     let module = application_module();
-    assert!(NativeApi::new(vec![module.clone()], vec![]).is_err());
+    assert!(NativeApi::new(vec![module.clone()], vec![], Default::default()).is_err());
     let handler = || {
         NativeHandler::new(binding_id(&module.identity, "answer"), 0, |_| {
             Ok(Box::new(Answer))
         })
     };
-    assert!(NativeApi::new(vec![module.clone()], vec![handler(), handler()]).is_err());
+    assert!(
+        NativeApi::new(
+            vec![module.clone()],
+            vec![handler(), handler()],
+            Default::default()
+        )
+        .is_err()
+    );
     let unknown = NativeHandler::new(binding_id(&module.identity, "other"), 0, |_| {
         Ok(Box::new(Answer))
     });
-    assert!(NativeApi::new(vec![module.clone()], vec![unknown]).is_err());
+    assert!(NativeApi::new(vec![module.clone()], vec![unknown], Default::default()).is_err());
     assert!(
         KagariEngine::with_native_apis(
             Default::default(),
@@ -320,6 +327,7 @@ mod source {
         let api = NativeApi::new(
             vec![module],
             vec![NativeHandler::new(id, 0, |_| Ok(Box::new(Answer)))],
+            Default::default(),
         )
         .unwrap();
         let engine = KagariEngine::with_native_apis(Default::default(), vec![api]).unwrap();
@@ -602,7 +610,7 @@ mod source {
             *captured.borrow_mut() = Some(id);
             Ok(Box::new(Seed))
         });
-        let api = NativeApi::new(vec![module], vec![handler]).unwrap();
+        let api = NativeApi::new(vec![module], vec![handler], Default::default()).unwrap();
         let mut config = EngineConfig::default();
         config.default_runtime.gc.collection_threshold = Some(1);
         let engine = KagariEngine::with_native_apis(config, vec![api]).unwrap();

@@ -52,7 +52,7 @@ impl NativeHandler {
 pub struct NativeApi {
     modules: Vec<Arc<NativeModule>>,
     registrations: Vec<NativeRegistration>,
-    required_traits: NativeCatalog,
+    required_catalog: NativeCatalog,
 }
 impl fmt::Debug for NativeApi {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -68,6 +68,7 @@ impl NativeApi {
     pub fn new(
         modules: Vec<NativeModule>,
         handlers: Vec<NativeHandler>,
+        catalog: NativeCatalog,
     ) -> Result<Self, RuntimeError> {
         let invalid =
             || RuntimeError::metadata_conflict("duplicate, missing or unknown native API binding");
@@ -99,7 +100,7 @@ impl NativeApi {
                 declarations: declared,
                 scratch_slots: handler.scratch_slots,
                 entry: handler.entry,
-                required_traits: NativeCatalog::default(),
+                required_catalog: NativeCatalog::default(),
             };
             registry.install(registration.clone())?;
             registrations.push(registration);
@@ -107,16 +108,24 @@ impl NativeApi {
         if !declarations.is_empty() {
             return Err(invalid());
         }
-        let declared_traits = NativeCatalog::declared(&modules)?;
-        registry.install_traits(declared_traits.clone())?;
-        registry.validate_defaults()?;
+        let owned = NativeCatalog::declared(&modules)?;
+        let mut available = owned.clone();
+        available.merge(&catalog)?;
+        let dependencies =
+            available.dependencies(owned.traits.keys(), owned.declarations.values(), &modules)?;
+        let mut checked = owned.clone();
+        checked.merge(&dependencies)?;
+        checked.check_implementations(&modules)?;
+        checked.validate_defaults()?;
         for registration in &mut registrations {
-            registration.required_traits = declared_traits.clone();
+            registration.required_catalog =
+                checked.dependencies(owned.traits.keys(), &registration.declarations, &modules)?;
         }
+        let required_catalog = dependencies.foreign_to(&owned);
         Ok(Self {
             modules: modules.into_iter().map(Arc::new).collect(),
             registrations,
-            required_traits: NativeCatalog::default(),
+            required_catalog,
         })
     }
     pub fn modules(&self) -> &[Arc<NativeModule>] {
@@ -128,19 +137,9 @@ impl NativeApi {
         let mut catalog = NativeCatalog::declared(self.modules.iter().map(AsRef::as_ref))
             .expect("validated native trait declarations");
         catalog
-            .merge(&self.required_traits)
+            .merge(&self.required_catalog)
             .expect("validated native trait dependencies");
         catalog
-    }
-    pub(crate) fn require_traits(&mut self, required: NativeCatalog) -> Result<(), RuntimeError> {
-        let declared = NativeCatalog::declared(self.modules.iter().map(AsRef::as_ref))?;
-        let mut checked = declared;
-        checked.merge(&required)?;
-        for registration in &mut self.registrations {
-            registration.required_traits = checked.clone();
-        }
-        self.required_traits = required;
-        Ok(())
     }
     /// Compose validated packages without constructing a runtime or executing factories.
     pub fn combine(packages: Vec<Self>) -> Result<Self, RuntimeError> {
@@ -148,9 +147,9 @@ impl NativeApi {
         let mut identities = HashSet::new();
         let mut modules = vec![];
         let mut registrations = vec![];
-        let mut required_traits = NativeCatalog::default();
+        let mut required_catalog = NativeCatalog::default();
         for package in packages {
-            required_traits.merge(&package.required_traits)?;
+            required_catalog.merge(&package.required_catalog)?;
             for module in package.modules {
                 if !identities.insert(module.identity.clone()) {
                     return Err(RuntimeError::metadata_conflict("duplicate native module"));
@@ -164,17 +163,17 @@ impl NativeApi {
         }
         let declared = NativeCatalog::declared(modules.iter().map(AsRef::as_ref))?;
         declared.check_implementations(modules.iter().map(AsRef::as_ref))?;
-        if !required_traits.satisfied_by(&declared) {
+        if !required_catalog.satisfied_by(&declared) {
             return Err(RuntimeError::metadata_conflict(
                 "missing or changed native trait dependency",
             ));
         }
-        registry.install_traits(declared.clone())?;
+        registry.install_catalog(declared.clone())?;
         registry.validate_defaults()?;
         Ok(Self {
             modules,
             registrations,
-            required_traits,
+            required_catalog,
         })
     }
     pub fn declaration_sources(&self) -> Vec<NativeApiSource> {
@@ -193,10 +192,10 @@ impl NativeApi {
     pub(crate) fn install_into(&self, registry: &mut NativeRegistry) -> Result<(), RuntimeError> {
         // Stage the registry so a conflicting package cannot partially publish handlers.
         let mut staged = registry.clone();
-        staged.install_traits(NativeCatalog::declared(
+        staged.install_catalog(NativeCatalog::declared(
             self.modules.iter().map(AsRef::as_ref),
         )?)?;
-        staged.require_traits(&self.required_traits)?;
+        staged.require_catalog(&self.required_catalog)?;
         staged.check_implementations(self.modules.iter().map(AsRef::as_ref))?;
         for registration in &self.registrations {
             staged.install(registration.clone())?;
