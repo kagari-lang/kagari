@@ -8,7 +8,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     standard::{
         StandardIntrinsic,
-        bindings::NativeDefaultMethod,
+        bindings::{NativeDefaultMethod, NativeProtocolMethod},
         traits::{self as standard_traits, StandardTrait},
     },
     types::AbiType,
@@ -891,38 +891,47 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             "range mutation {mutation}"
         );
     }
+    let root = module.root.index();
+    let import = module.modules[root]
+        .engine_imports
+        .iter()
+        .position(|import| {
+            import.binding == EngineNativeBinding::Protocol(NativeProtocolMethod::RangeStartBound)
+        })
+        .unwrap();
     for mutation in 0..4 {
         let mut invalid = module.clone();
-        let instruction = invalid.modules[invalid.root.index()]
-            .functions
-            .iter_mut()
-            .flat_map(|f| &mut f.instructions)
-            .find(|i| matches!(i, BytecodeInstruction::RangeBound { .. }))
-            .unwrap();
-        let BytecodeInstruction::RangeBound {
-            range,
-            bound,
-            value,
-            ..
-        } = instruction
-        else {
-            unreachable!()
-        };
+        let contract = &mut invalid.modules[root].engine_imports[import];
         match mutation {
-            0 => *bound = AbiType::Builtin(BuiltinType::Bool),
+            0 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
             1 => {
-                *bound = AbiType::StandardEnum {
+                contract.signature.result = AbiType::StandardEnum {
                     kind: StandardEnumKind::Bound,
                     args: vec![],
                 }
             }
             2 => {
-                *range = AbiType::Range(
+                contract.signature.params[0] = AbiType::Range(
                     Box::new(AbiType::Builtin(BuiltinType::I32)),
                     RangeKind::Exclusive,
                 )
             }
-            _ => *value = Register::new(usize::MAX),
+            _ => {
+                let instruction = invalid.modules[root]
+                    .functions
+                    .iter_mut()
+                    .flat_map(|function| &mut function.instructions)
+                    .find(|instruction| {
+                        matches!(instruction, BytecodeInstruction::Call {
+                        callee: CallTarget::Native(NativeCall::Engine(id)), ..
+                    } if id.index() == import)
+                    })
+                    .unwrap();
+                let BytecodeInstruction::Call { args, .. } = instruction else {
+                    unreachable!()
+                };
+                args[0] = Register::new(usize::MAX);
+            }
         }
         assert!(
             verify_program(&invalid).is_err(),

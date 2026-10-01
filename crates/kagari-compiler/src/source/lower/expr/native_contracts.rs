@@ -254,6 +254,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         declaration: &DefinitionId,
         arguments: &[TypeId],
+        receiver: &TypeId,
         result: &TypeId,
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
@@ -277,7 +278,7 @@ impl FunctionLowerer<'_, '_> {
             .cloned()
             .zip(arguments.iter().cloned())
             .collect();
-        let params = function
+        let mut params = function
             .params
             .iter()
             .map(|parameter| {
@@ -286,6 +287,13 @@ impl FunctionLowerer<'_, '_> {
                     .normalize_type(&parameter.ty.instantiate(&substitution))
             })
             .collect::<Vec<_>>();
+        // Selected readonly capabilities keep their outer storage access in the
+        // executable application; the declaration's generic payload stays invariant.
+        if let Some(parameter) = params.first_mut()
+            && lower_type(parameter).can_weaken_to(&lower_type(receiver))
+        {
+            *parameter = receiver.clone();
+        }
         let arguments: Vec<_> = arguments.iter().map(lower_type).collect();
         let mut substitution = TypeSubstitution::default();
         for (parameter, argument) in function.generic_params.iter().zip(&arguments) {

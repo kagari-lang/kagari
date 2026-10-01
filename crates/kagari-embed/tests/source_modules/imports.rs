@@ -373,7 +373,15 @@ fn reachable_cycles_compile_without_initialization() {
             &CancellationToken::default(),
         )
         .unwrap();
-    assert_eq!(artifact.program().modules().len(), 3);
+    let mut user_modules: Vec<_> = artifact
+        .program()
+        .modules()
+        .iter()
+        .filter(|module| module.lowered.source.module_identity().package == PackageId("pkg".into()))
+        .map(|module| module.lowered.source.module_identity().path.join("::"))
+        .collect();
+    user_modules.sort();
+    assert_eq!(user_modules, ["a", "b", "root"]);
     let independent = insert(&engine, "independent", "fn main() -> i32 { 42 }");
     assert!(
         engine

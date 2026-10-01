@@ -5,19 +5,17 @@ use crate::source::{
 use hir::BinaryOp as HirBinaryOp;
 use kagari_abi::{
     numeric::{NumericConversion, NumericOperation},
-    operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
+    operations::{BinaryOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
-    types::AbiType,
+    standard::{StandardIntrinsic, traits::StandardTrait},
 };
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
 use kagari_hir::{
     aggregates::MethodDefault,
     builtin::traits,
     hir,
-    native::NativeBinding,
-    typeck::{CallTarget as HirCallTarget, FunctionImplementation},
+    typeck::CallTarget as HirCallTarget,
     types::abi::{lower_nominal_type, lower_type},
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -227,31 +225,6 @@ impl FunctionLowerer<'_, '_> {
             });
             return Ok(dst);
         }
-        let selected_key_binding = self.planner.catalog.implementation_method(method, &interface, &ty)
-            .and_then(|(declaration,_)|self.planner.native_function(&declaration))
-            .is_some_and(|function|matches!(function.implementation, FunctionImplementation::Native(NativeBinding::Engine(binding)) if self.key_binding(binding)));
-        if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection)
-            && native_default.is_none()
-            && !selected_key_binding
-            && !(matches!(ty, TypeId::Array(_, _))
-                && method
-                    .path
-                    .last()
-                    .is_some_and(|segment| segment.name == "extend"))
-            && traits::native_interface_applies(
-                &interface,
-                &ty,
-                self.planner.catalog,
-                &Default::default(),
-            )
-        {
-            return self.lower_native_collection_method(
-                &ty,
-                method.path.last().unwrap().name.as_str(),
-                args,
-            );
-        }
-
         if let TypeId::Builtin(input) = &ty {
             let op = match StandardTrait::from_id(&interface.declaration) {
                 Some(StandardTrait::BitAnd) => Some(IntegerOp::BitAnd),
@@ -307,18 +280,6 @@ impl FunctionLowerer<'_, '_> {
                 args,
             );
         }
-        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromStr)
-            && let TypeId::Builtin(target) = &ty
-            && traits::parsing_error(&ty).is_some()
-        {
-            let dst = self.alloc_temp(ValueType::HeapObject);
-            self.emit(Instruction::Call {
-                dst: Some(dst),
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ParseNumber(*target)),
-                args: args.iter().copied().collect(),
-            });
-            return Ok(dst);
-        }
         if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::From)
             && interface.arguments.as_slice() == [ty.clone()]
         {
@@ -357,50 +318,6 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
 
-        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::RangeBounds)
-            && matches!(ty, TypeId::Range(_, _))
-        {
-            let upper = method.path.last().is_some_and(|p| p.name == "end_bound");
-            let bound = AbiType::StandardEnum {
-                kind: StandardEnum::Bound,
-                args: interface.arguments.iter().map(lower_type).collect(),
-            };
-            let dst = self.alloc_temp(ValueType::HeapObject);
-            self.emit(Instruction::RangeBound {
-                dst,
-                value: args[0],
-                range: lower_type(&ty),
-                bound,
-                upper,
-            });
-            return Ok(dst);
-        }
-        let iter_op = match StandardTrait::from_id(&interface.declaration) {
-            Some(StandardTrait::Iterable)
-                if matches!(
-                    ty,
-                    TypeId::Range(_, _)
-                        | TypeId::Array(_, _)
-                        | TypeId::Set(_, _)
-                        | TypeId::Map { .. }
-                        | TypeId::Builtin(BuiltinType::String)
-                ) =>
-            {
-                Some(IterOp::New)
-            }
-            Some(StandardTrait::Iterator) if matches!(ty, TypeId::Iter(_)) => Some(IterOp::Next),
-            _ => None,
-        };
-        if let Some(op) = iter_op {
-            let dst = self.alloc_temp(ValueType::HeapObject);
-            self.emit(Instruction::Iter {
-                dst,
-                value: Some(args[0]),
-                ty: lower_type(&ty),
-                op,
-            });
-            return Ok(dst);
-        }
         let contract = self
             .planner
             .catalog
@@ -441,7 +358,13 @@ impl FunctionLowerer<'_, '_> {
         {
             arguments.extend(method_arguments);
             if self.planner.native_function(&declaration).is_some() {
-                return self.lower_native_implementation(&declaration, &arguments, &result, args);
+                return self.lower_native_implementation(
+                    &declaration,
+                    &arguments,
+                    &ty,
+                    &result,
+                    args,
+                );
             }
             if declaration.module == *self.planner.owner().lowered.source.module_identity() {
                 CallTarget::Function(self.planner.enqueue_declaration(

@@ -37,26 +37,8 @@ pub fn binding_signature_valid(
             if signature::validate(binding, signature).is_some() {
                 return true;
             }
-            // Mutable trait methods discard the returned storage identity. The
-            // adapter still consumes the same invariant container and arguments.
-            if signature.result == builtin(BuiltinType::Unit)
-                && matches!(
-                    operation,
-                    StandardIntrinsic::ArrayPush
-                        | StandardIntrinsic::ArrayInsert
-                        | StandardIntrinsic::ArrayClear
-                        | StandardIntrinsic::MapInsert
-                        | StandardIntrinsic::MapClear
-                        | StandardIntrinsic::SetInsert
-                        | StandardIntrinsic::SetClear
-                )
-                && let Some(receiver) = signature.params.first()
-            {
-                let adapted = NativeSignature {
-                    params: signature.params.clone(),
-                    result: receiver.clone(),
-                };
-                return signature::validate(binding, &adapted).is_some();
+            if signature::discarded_storage(binding, signature).is_some() {
+                return true;
             }
             if matches!(
                 operation,

@@ -6,7 +6,7 @@ use crate::{
     native_import::{NativeSignature, keys},
     numeric::{self, method::IntegerMethodContract},
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, surface::StandardEnum},
+    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, surface::StandardEnum},
     types::AbiType,
 };
 
@@ -46,8 +46,20 @@ pub(super) fn validate(
             }
             StandardIntrinsic::ParseRadix(*scalar)
         }
-        // Defaults and protocol methods use the continuation registry rather than
-        // this direct storage-operation entrypoint.
+        EngineNativeBinding::Protocol(NativeProtocolMethod::NumericFromStr) => {
+            let AbiType::StandardEnum {
+                kind: StandardEnum::Result,
+                args,
+            } = &signature.result
+            else {
+                return None;
+            };
+            let [AbiType::Builtin(scalar), _] = args.as_slice() else {
+                return None;
+            };
+            StandardIntrinsic::ParseNumber(*scalar)
+        }
+        // Remaining protocols use typed primitives or the continuation registry.
         EngineNativeBinding::TraitDefault(_) | EngineNativeBinding::Protocol(_) => return None,
     };
     if keys::selected(binding) {
@@ -128,6 +140,40 @@ fn number(ty: &AbiType, signed: bool) -> bool {
     matches!(ty, AbiType::Builtin(scalar) if scalar.number_type().is_some()
         && (!signed || matches!(scalar, BuiltinType::F32 | BuiltinType::F64)
             || scalar.integer_layout().is_some_and(|(_, signed)| signed)))
+}
+
+/// Mutable trait applications return unit while inherent storage methods return
+/// their receiver. Both consume the same checked storage helper; unit publication
+/// is a separate logical operation owned by the native invocation.
+pub(super) fn discarded_storage(
+    binding: EngineNativeBinding,
+    signature: &NativeSignature,
+) -> Option<StandardIntrinsic> {
+    let EngineNativeBinding::Intrinsic(operation) = binding else {
+        return None;
+    };
+    if signature.result != AbiType::Builtin(BuiltinType::Unit)
+        || !matches!(
+            operation,
+            StandardIntrinsic::ArrayPush
+                | StandardIntrinsic::ArrayInsert
+                | StandardIntrinsic::ArrayClear
+                | StandardIntrinsic::MapInsert
+                | StandardIntrinsic::MapClear
+                | StandardIntrinsic::SetInsert
+                | StandardIntrinsic::SetClear
+        )
+    {
+        return None;
+    }
+    let receiver = signature.params.first()?;
+    validate(
+        binding,
+        &NativeSignature {
+            params: signature.params.clone(),
+            result: receiver.clone(),
+        },
+    )
 }
 
 pub(super) fn enumeration(ty: &AbiType, expected: StandardEnum, members: &[AbiType]) -> bool {

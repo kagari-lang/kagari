@@ -5,6 +5,7 @@ use crate::{
     standard::{
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         intrinsic,
+        surface::collection_read_method,
         traits::StandardTrait,
     },
     types::{
@@ -64,8 +65,19 @@ impl EngineNativeImport {
         {
             return Ok(false);
         }
-        for (declared, actual) in function.params.iter().zip(&self.signature.params) {
-            if normalize(&declared.ty)? != *actual {
+        let readonly_receiver = self.binding
+            == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionIter)
+            || matches!(self.binding, EngineNativeBinding::Intrinsic(operation) if collection_read_method(operation));
+        for (position, (declared, actual)) in function
+            .params
+            .iter()
+            .zip(&self.signature.params)
+            .enumerate()
+        {
+            let declared = normalize(&declared.ty)?;
+            if declared != *actual
+                && !(position == 0 && readonly_receiver && declared.can_weaken_to(actual))
+            {
                 return Ok(false);
             }
         }

@@ -1,6 +1,6 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00-ST04 implementation scope complete. Whole checked programs
+Status: active; ST00-ST05 implementation scope complete. Whole checked programs
 now retain their dependency closure through portable validation, artifact loading
 and engine/host integration. The workspace builds; compiler and VM library suites
 and selected embedding integration suites pass. Runtime-owned native continuations
@@ -41,8 +41,10 @@ Public Iterator collect delegates its original source to the selected constructo
 partition owns native once-only predicate traversal and ordered buffered construction.
 All fourteen lazy Iterator adapters and List windows/chunks now execute through
 GC-owned native captures and shared nested continuations, preserving the original
-resource schedules and guard lifecycle. The ST05 residual primitive/lookup route
-audit and ST06 encoded fixtures/final acceptance remain pending.
+resource schedules and guard lifecycle. Required collection, iterator, RangeBounds
+and FromStr methods now also use checked native imports. The residual route audit
+is complete; ST06 integration, encoded fixtures, documentation and final acceptance
+are in progress.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -582,9 +584,9 @@ holding dynamic borrows across the call or growing an unbounded Rust call chain.
   protocol witnesses.
 - [x] Migrate remaining collection/set operations, plus lazy
   windows/chunks with their existing observable contracts.
-- [ ] Remove corresponding compiler algorithm expansions and standard source
+- [x] Remove corresponding compiler algorithm expansions and standard source
   lookups from MIR, bytecode, VM and runtime.
-- [ ] Reuse existing Rust helpers; translate compiler-owned behavior into focused
+- [x] Reuse existing Rust helpers; translate compiler-owned behavior into focused
   Rust native implementations without adding Kagari copies of those algorithms.
 
 Exit: every ST00 entry has its final implementation owner. There is no residual
@@ -872,7 +874,104 @@ or an ABI proof helper currently reaches the source catalog even without spellin
 `standard::surface`. Dependency audits therefore check crate graphs as well as
 textual references; renaming an import is not removal of the dependency.
 
+## Final implementation ownership audit
+
+The ST00 inventory above remains the pre-migration reference. Every listed public
+function, receiver view, native default and explicit native implementation now has
+its final owner below; no entry is deferred to compiler expansion. HIR owns all
+source declarations, signatures, documentation, method selection and checked
+applications. Compiler `expr/native_*` modules encode those applications and
+witnesses, without implementing their traversal or mutation algorithms. ABI
+`standard/surface` retains closed scalar/discriminant/storage predicates only;
+it contains no source text, generic declaration model or public method catalog.
+
+| ST00 entries | Final execution owner |
+| --- | --- |
+| Direct array/map/set storage, capacities and String/math/debug helpers | Runtime `builtin/standard`, `builtin/standard/{strings,math}` and shared GC helpers |
+| All 175 numeric methods; thirteen FromStr implementations | Runtime `numeric`/`parsing`, selected by checked native bindings |
+| Unit-returning required storage mutations, including CollectionSet | Runtime `native/unit_mutations`; shared Rust storage helpers followed by separately charged Unit publication |
+| Option/Result callback, flatten, transpose and combination families | Runtime `native/enums`; shared frame callbacks and error-origin helpers |
+| Basic iterator terminals, search, reduction, callback/Ord comparisons, joining and Sum/Product | Runtime `native/iterators`, `native/protocols` and checked selected providers |
+| List positional, binary search, equality queries and joining | Runtime `native/{lists,list_equality,list_join}` |
+| All fourteen lazy Iterator defaults and List windows/chunks | Runtime `native/lazy_iterators/{constructor,step}`; GC-owned version-pinned captures and cursor state |
+| String bytes/indices/splitting/lines | Runtime `native/string_iterators` and existing `gc/string_iter` traversal |
+| Public String parse and debug assert_eq | Runtime `native/protocol_entries`; shared parsing/equality and selected script calls |
+| ArrayList from_fn | Runtime `native/array_initialization` |
+| ArrayList from/FromIterator/copy_from/extend | Runtime `native/array_copy`, `native/sources` and prepared GC storage updates |
+| ArrayList remove_range/copy_within | Runtime `native/array_ranges`; selected RangeBounds and prepared GC storage updates |
+| Array/Map/Set retain | Runtime `native/retention` |
+| ArrayList sort/sort_by/sort_by_key/dedup | Runtime `native/prepared_arrays/{sorting,dedup}` |
+| Map/Set key queries/mutations; Map factory/update | Runtime `native/keys/{lookup,updates}` |
+| Map/Set from and FromIterator | Runtime `native/keys/construction`; shared lookup and source traversal |
+| Map keys/values/entries and capability defaults | Runtime `native/map_snapshots`; checked readonly List result applications |
+| Set relations/algebra | Runtime `native/keys/sets` |
+| Iterator group_by | Runtime `native/keys/grouping`; shared Map lookup |
+| Option/Result FromIterator and nested destinations | Runtime `native/{destinations,destination_factory,results}` |
+| Public Iterator collect/partition | Runtime `native/{destination_factory,partition}` |
+| Collection Iterable, Iter::next and native RangeBounds | Checked native imports resolve to closed core operations; VM dispatch shares existing GC iterator/range primitives |
+| Script/host implementations and explicit overridable defaults | Ordinary selected script frames or checked host contracts, with pinned module/dependency versions |
+| Thirteen type constructors, seven enums and implicit primitive protocols | Carried ABI representations; generic enum/aggregate/closure/arithmetic/conversion/index machinery |
+
+Core C operations remain separate: source loops, language indexing/assignment,
+range/enum construction and payload access, propagation, closure calls, primitive
+arithmetic/conversions and composed equality. Their generic MIR instructions use
+checked types/layouts; they do not select public library methods by name. Internal
+iteration/mutation guards, prepared commits and key phases remain scoped runtime
+primitives. The synchronous Rust helper entry rejects resumable bindings because
+only a checked native invocation supplies callbacks, roots and session state; it
+has no compiler-lowering fallback. Production dependency audits cover transitive
+and ABI build edges, in addition to removal of textual source-catalog references.
+
 ## Progress ledger
+
+- ST05 required-method and residual route audit checkpoint (2026-10-01, from
+  `e54e8964`): completes the last two ST05 checklists together. Removed compiler
+  collection method-name dispatch, native FromStr substitution and public
+  iterator/RangeBounds primitive shortcuts. Checked implementation selections now
+  produce native imports; closed linked core operations share existing VM/GC
+  iterator/range primitives. Unit-returning storage methods reuse Rust helpers and
+  publish Unit on their original separate logical step. CollectionSet preserves
+  its original InvalidIndex category. No transitional reader, forwarding callable,
+  source lookup or Kagari algorithm copy was added.
+- The final ownership map covers all 316 function entries, 116 trait methods,
+  56 native defaults, 38 explicit native impl blocks and core representations from
+  ST00. Remaining compiler protocol branches are core C arithmetic/conversion/
+  indexing/closure/composed-value operations, language loop construction or encoding
+  of checked native witnesses. Runtime synchronous helpers now reject resumable
+  operations as requiring their checked invocation, with frame guard primitives
+  separate; no public binding depends on compiler expansion.
+- Before production changed, recorded 35 scenarios and 1,290 distinct instruction
+  limits at `e54e8964`. Source and decoded KBC pass every original charge, completed
+  effect, allocation and depth assertion. The final five-test family run passes
+  (30.43s): 187 invalid signature/provider/version/readonly/associated-error cases,
+  legal readonly Array/Map/Set Iterable imports, nine lifecycle routes with every
+  allocation cut, cancellation at each effect and successful/failing reentry, plus
+  six committed mutations visible across budget cuts and exact set/insert error
+  categories. Roots, objects, scopes and call depth clean up after each boundary.
+- Broader validation found a real readonly host-array copy regression: selected
+  Iterable imports lost outer readonly access. Lowering now retains the checked
+  receiver view; linkage permits only read-capability outer weakening, with nested
+  payload invariance and mutable rejection intact. The existing host readonly
+  source/artifact and mismatched-registration test passes (1.18s). Two old tests
+  expected eliminated raw Iter/RangeBound method instructions; they now forge actual
+  imports and operands while retaining all malformed-shape rejection assertions.
+  Compiler range validation passes (1.10s); all 15 iteration embedding cases pass
+  (3.26s).
+- Cross-module integration exposed four older fixture assumptions from the installed
+  dependency closure: fixed user-only member counts and module-zero selection.
+  Tests now assert exact user identities, fingerprints for every dependency, selected
+  user targets and reclamation of all old version members. All 29 source-module
+  cases pass (8.46s), retaining reload/pinning and pre-publication rejection coverage.
+  Initial newly written Rust checks had field/variant spellings and checked-analysis
+  identity access errors; all were corrected without weakening behavior assertions.
+- ABI 46, bytecode 27, HIR 414, MIR 1, runtime 71 and stdlib 7 cases pass. Compiler's
+  complete run passed 190 cases before its obsolete range fixture failed; that sole
+  test passes after replacement. Complete VM and remaining embedding runs are still
+  executing their expensive budget/documentation sweeps; ST06 owns final combined
+  workspace/matrix acceptance. Focused family and repaired regressions pass;
+  structure/format/workspace all-target Clippy/diff checks pass with no known carried
+  code failure. Runtime ABI v133 requires rebuilding older artifacts; KBC v110,
+  KMIR v8, native binding v2 and helper ABI v6 retain their schemas.
 
 - ST05 native lazy iterator checkpoint (2026-10-01, after `8e5df0d0`):
   completes the remaining adapter and collection family checklists together;

@@ -5,8 +5,8 @@ mod value_ops;
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
 use kagari_bytecode::{BytecodeInstruction, ModuleRef, Register};
 use kagari_runtime::{
-    ExecutionEvent, ExecutionFrame, ExecutionStack, LoadedModule, NativeProgress,
-    RootedInterfaceMethod, Runtime, value::Value,
+    ExecutionEvent, ExecutionFrame, ExecutionStack, LoadedModule, RootedInterfaceMethod, Runtime,
+    value::Value,
 };
 use std::cell::{Ref, RefMut};
 
@@ -65,15 +65,7 @@ impl<'a> Executor<'a> {
                     .stack
                     .advance_native(self.runtime)
                     .map_err(VmError::RuntimeError)
-                    .and_then(|progress| match progress {
-                        NativeProgress::Continue | NativeProgress::Finished => Ok(()),
-                        NativeProgress::Callback(request) => self
-                            .stack
-                            .push_native_callback(self.runtime, request)
-                            .map_err(VmError::RuntimeError),
-                        NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
-                        NativeProgress::TypeMismatch(detail) => Err(VmError::TypeMismatch(detail)),
-                    });
+                    .and_then(|progress| self.dispatch_native_progress(progress));
                 self.report_operation(result)?;
                 continue;
             }

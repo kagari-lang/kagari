@@ -412,8 +412,13 @@ fn main()->i32 {
 
 #[test]
 fn malformed_native_iter_operations_are_rejected_before_execution() {
-    use kagari_abi::{operations::IterOp, scalar::BuiltinType, types::AbiType};
-    use kagari_bytecode::BytecodeInstruction;
+    use kagari_abi::{
+        callable::{EngineNativeBinding, NativeCall},
+        scalar::BuiltinType,
+        standard::{bindings::NativeProtocolMethod, surface::StandardEnum},
+        types::AbiType,
+    };
+    use kagari_bytecode::{BytecodeInstruction, CallTarget};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -424,30 +429,44 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             Default::default(),
         )
         .unwrap();
+    let root = artifact.program.root.index();
+    let import = artifact.program.modules[root]
+        .engine_imports
+        .iter()
+        .position(|import| {
+            import.binding == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionIter)
+        })
+        .unwrap();
     for corrupt in 0..3 {
         let mut program = artifact.program.clone();
-        let (ty, value) = program
-            .modules
-            .iter_mut()
-            .flat_map(|m| &mut m.functions)
-            .flat_map(|f| &mut f.instructions)
-            .find_map(|i| match i {
-                BytecodeInstruction::Iter {
-                    ty,
-                    value,
-                    op: IterOp::New,
-                    ..
-                } => Some((ty, value)),
-                _ => None,
-            })
-            .unwrap();
         match corrupt {
-            0 => *ty = AbiType::Builtin(BuiltinType::I32),
-            1 => *value = None,
+            0 => {
+                program.modules[root].engine_imports[import]
+                    .signature
+                    .params[0] = AbiType::Builtin(BuiltinType::I32)
+            }
+            1 => {
+                let instruction = program.modules[root]
+                    .functions
+                    .iter_mut()
+                    .flat_map(|function| &mut function.instructions)
+                    .find(|instruction| {
+                        matches!(instruction, BytecodeInstruction::Call {
+                        callee: CallTarget::Native(NativeCall::Engine(id)), ..
+                    } if id.index() == import)
+                    })
+                    .unwrap();
+                let BytecodeInstruction::Call { args, .. } = instruction else {
+                    unreachable!()
+                };
+                args.clear();
+            }
             _ => {
-                *ty = AbiType::Array(
+                program.modules[root].engine_imports[import]
+                    .signature
+                    .params[0] = AbiType::Array(
                     Box::new(AbiType::StandardEnum {
-                        kind: kagari_abi::standard::surface::StandardEnum::Option,
+                        kind: StandardEnum::Option,
                         args: vec![],
                     }),
                     CollectionAccess::Mutable,
@@ -455,6 +474,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             }
         }
         assert!(kagari_bytecode::verify_program(&program).is_err());
+        assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }
 }
 

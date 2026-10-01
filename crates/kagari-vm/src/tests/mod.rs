@@ -13,6 +13,7 @@ mod native_iterator_decisions;
 mod native_iterator_extrema;
 mod native_iterator_join;
 mod native_iterator_terminals;
+mod native_required_methods;
 mod reentry_debug;
 mod security;
 mod sessions;

@@ -116,6 +116,9 @@ impl ExecutionStack {
                 NativeAction::TypeMismatch(detail) => {
                     return Ok(NativeProgress::TypeMismatch(detail));
                 }
+                NativeAction::InvalidIndex(index) => {
+                    return Ok(NativeProgress::InvalidIndex(index));
+                }
                 NativeAction::Publish(value) => {
                     let mut frame = self.current_mut()?;
                     let destination = frame

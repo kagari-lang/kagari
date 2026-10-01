@@ -17,8 +17,26 @@ fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layout
         "use pkg::left::make; use pkg::right::add; fn id() -> bool { true } fn main() -> i32 { val p = make(20); val n = add(p, 22); p.x }",
     );
     let artifact = compile(&engine, root, Default::default());
-    assert_eq!(artifact.program.modules.len(), 4);
-    assert_eq!(artifact.verification.dependency_fingerprints.len(), 3);
+    let mut user_modules: Vec<_> = artifact
+        .program
+        .modules
+        .iter()
+        .filter(|module| module.identity.package == PackageId("pkg".into()))
+        .map(|module| module.identity.path.join("::"))
+        .collect();
+    user_modules.sort();
+    assert_eq!(user_modules, ["left", "right", "root", "shared"]);
+    assert!(
+        artifact
+            .program
+            .modules
+            .iter()
+            .any(|module| module.identity.package == PackageId("kagari-std".into()))
+    );
+    assert_eq!(
+        artifact.verification.dependency_fingerprints.len(),
+        artifact.program.modules.len() - 1
+    );
     let encoded = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     for artifact in [artifact, encoded] {
         let context = ExecutionContext::default();

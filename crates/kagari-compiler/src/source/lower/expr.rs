@@ -22,7 +22,6 @@ use kagari_hir::{
     types::TypeId,
     types::abi::{lower_nominal_type, lower_type},
 };
-mod collections;
 mod equality;
 mod iterators;
 mod native_calls;

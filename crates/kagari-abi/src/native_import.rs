@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 pub mod contract;
 mod keys;
 mod linked;
+mod primitives;
 mod sets;
 mod signature;
 
@@ -29,13 +30,33 @@ pub const ENGINE_NATIVE_BINDING_VERSION: u32 = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineNativeOperation {
     Direct(StandardIntrinsic),
+    Core(EngineCoreOperation),
     Resumable(EngineNativeBinding),
+}
+
+/// Checked native entrypoints reusing the language's typed runtime primitives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineCoreOperation {
+    IterNew,
+    IterNext,
+    RangeStartBound,
+    RangeEndBound,
 }
 
 impl EngineNativeOperation {
     pub fn effects(self) -> EffectSet {
         match self {
             Self::Direct(operation) => standard_intrinsic_effects(operation),
+            Self::Core(operation) => {
+                let effects = EffectSet::runtime_call()
+                    .union(EffectSet::aggregate_read())
+                    .union(EffectSet::allocation());
+                if operation == EngineCoreOperation::IterNext {
+                    effects.union(EffectSet::aggregate_write())
+                } else {
+                    effects
+                }
+            }
             Self::Resumable(_) => EffectSet {
                 allocates: true,
                 ..EffectSet::runtime_call()
@@ -146,6 +167,15 @@ impl EngineNativeImport {
             return None;
         }
         if keys::selected(self.binding)
+            && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
+        {
+            return Some(EngineNativeOperation::Resumable(self.binding));
+        }
+        if let Some(operation) = primitives::resolve(self.binding, &self.signature) {
+            return Some(EngineNativeOperation::Core(operation));
+        }
+        if (signature::discarded_storage(self.binding, &self.signature).is_some()
+            || self.binding == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionSet))
             && contract::binding_signature_valid(self.binding, &self.signature, &self.requirements)
         {
             return Some(EngineNativeOperation::Resumable(self.binding));

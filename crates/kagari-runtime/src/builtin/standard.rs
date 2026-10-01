@@ -44,24 +44,12 @@ pub fn invoke(
             gc.commit_prepared_collection(intrinsic, args)?;
             Ok(Value::Unit)
         }
-        StandardIntrinsic::ArrayRetain
-        | StandardIntrinsic::MapRetain
-        | StandardIntrinsic::SetRetain
-        | StandardIntrinsic::ArraySort
-        | StandardIntrinsic::ArraySortBy
-        | StandardIntrinsic::ArraySortByKey
-        | StandardIntrinsic::ArrayDedup => Err(BuiltinError::new(
-            "collection callback requires static lowering",
-        )),
         StandardIntrinsic::IterResume => {
             gc.resume_iter(
                 args.first()
                     .ok_or_else(|| BuiltinError::new("missing iterator"))?,
             )?;
             Ok(Value::Unit)
-        }
-        StandardIntrinsic::StringParse => {
-            Err(BuiltinError::new("parse requires a checked native call"))
         }
         StandardIntrinsic::ParseNumber(ty) => {
             parsing::parse(gc, ty, args, false).map_err(Into::into)
@@ -72,13 +60,9 @@ pub fn invoke(
         }
         StandardIntrinsic::CollectionMutationBegin
         | StandardIntrinsic::CollectionMutationEnd
-        | StandardIntrinsic::MapGetOrInsertWith
-        | StandardIntrinsic::MapUpdate => Err(BuiltinError::new(
-            "collection operation requires static lowering",
+        | StandardIntrinsic::KeyLookupBegin => Err(BuiltinError::new(
+            "collection guard requires an execution frame",
         )),
-        StandardIntrinsic::KeyLookupBegin => {
-            Err(BuiltinError::new("key lookup requires an execution frame"))
-        }
         StandardIntrinsic::KeyCandidates => {
             let [collection, Value::I64(hash)] = args else {
                 return Err(BuiltinError::new("invalid key candidates arguments"));
@@ -146,16 +130,6 @@ pub fn invoke(
             }
             Ok(Value::Array(gc.alloc_array(vec![])?))
         }
-        StandardIntrinsic::MapKeys
-        | StandardIntrinsic::MapValues
-        | StandardIntrinsic::MapEntries
-        | StandardIntrinsic::ArrayCopyFrom
-        | StandardIntrinsic::ArrayListFromFn
-        | StandardIntrinsic::ArrayListFrom
-        | StandardIntrinsic::LinkedHashMapFrom
-        | StandardIntrinsic::LinkedHashSetFrom => Err(BuiltinError::new(
-            "collection operation requires a checked native invocation",
-        )),
         StandardIntrinsic::ArrayLen => array_len(gc, args),
         StandardIntrinsic::ArrayIsEmpty => array_is_empty(gc, args),
         StandardIntrinsic::ArrayGet => array_get(gc, args),
@@ -172,9 +146,6 @@ pub fn invoke(
         | StandardIntrinsic::SetWithCapacity
         | StandardIntrinsic::SetCapacity
         | StandardIntrinsic::SetReserve => collection_capacity(gc, intrinsic, args),
-        StandardIntrinsic::ArrayExtend => Err(BuiltinError::new(
-            "extend requires prepared source lowering",
-        )),
         StandardIntrinsic::ArraySwap
         | StandardIntrinsic::ArrayReverse
         | StandardIntrinsic::ArrayTruncate
@@ -190,9 +161,6 @@ pub fn invoke(
             let end = range::index_bound(gc, end)?;
             gc.prepare_array_removal(*target, start, end)
                 .map_err(Into::into)
-        }
-        StandardIntrinsic::ArrayRemoveRange | StandardIntrinsic::ArrayCopyWithin => {
-            Err(BuiltinError::new("range bounds require static lowering"))
         }
         StandardIntrinsic::ArrayCopyWithinBounds => {
             let [Value::Array(target), start, end, destination] = args else {
@@ -259,14 +227,6 @@ pub fn invoke(
         | StandardIntrinsic::StringToLowercase
         | StandardIntrinsic::StringToUppercase
         | StandardIntrinsic::StringIsCharBoundary => string_transform(intrinsic, args),
-        StandardIntrinsic::StringSplit
-        | StandardIntrinsic::StringSplitN
-        | StandardIntrinsic::StringSplitWhitespace
-        | StandardIntrinsic::StringLines
-        | StandardIntrinsic::StringBytes
-        | StandardIntrinsic::StringCharIndices => Err(BuiltinError::new(
-            "string traversal requires a resumable native call",
-        )),
         StandardIntrinsic::StringSplitOnce | StandardIntrinsic::StringRsplitOnce => {
             string_split_once(gc, intrinsic, args)
         }
@@ -277,7 +237,35 @@ pub fn invoke(
         | StandardIntrinsic::StringRfind
         | StandardIntrinsic::StringStripPrefix
         | StandardIntrinsic::StringStripSuffix => string_query(gc, intrinsic, args),
-        StandardIntrinsic::OptionUnwrapOrElse
+        StandardIntrinsic::ArrayRetain
+        | StandardIntrinsic::MapRetain
+        | StandardIntrinsic::SetRetain
+        | StandardIntrinsic::ArraySort
+        | StandardIntrinsic::ArraySortBy
+        | StandardIntrinsic::ArraySortByKey
+        | StandardIntrinsic::ArrayDedup
+        | StandardIntrinsic::StringParse
+        | StandardIntrinsic::MapKeys
+        | StandardIntrinsic::MapValues
+        | StandardIntrinsic::MapEntries
+        | StandardIntrinsic::ArrayCopyFrom
+        | StandardIntrinsic::ArrayListFromFn
+        | StandardIntrinsic::ArrayListFrom
+        | StandardIntrinsic::LinkedHashMapFrom
+        | StandardIntrinsic::LinkedHashSetFrom
+        | StandardIntrinsic::ArrayExtend
+        | StandardIntrinsic::ArrayRemoveRange
+        | StandardIntrinsic::ArrayCopyWithin
+        | StandardIntrinsic::StringSplit
+        | StandardIntrinsic::StringSplitN
+        | StandardIntrinsic::StringSplitWhitespace
+        | StandardIntrinsic::StringLines
+        | StandardIntrinsic::StringBytes
+        | StandardIntrinsic::StringCharIndices
+        | StandardIntrinsic::DebugAssertEq
+        | StandardIntrinsic::MapGetOrInsertWith
+        | StandardIntrinsic::MapUpdate
+        | StandardIntrinsic::OptionUnwrapOrElse
         | StandardIntrinsic::OptionOrElse
         | StandardIntrinsic::OptionMapOr
         | StandardIntrinsic::OptionMapOrElse
@@ -303,7 +291,7 @@ pub fn invoke(
         | StandardIntrinsic::ResultMap
         | StandardIntrinsic::ResultMapErr
         | StandardIntrinsic::ResultAndThen => Err(BuiltinError::new(
-            "resumable engine binding requires a checked native call",
+            "resumable binding requires a checked native invocation",
         )),
         StandardIntrinsic::OptionIsSome => option_is_some(gc, args),
         StandardIntrinsic::OptionIsNone => option_is_none(gc, args),
@@ -324,9 +312,6 @@ pub fn invoke(
         StandardIntrinsic::MathTan => math_unary_f64(args, "math.tan", f64::tan),
         StandardIntrinsic::DebugPrint => debug_print(args),
         StandardIntrinsic::DebugAssert => debug_assert(args),
-        StandardIntrinsic::DebugAssertEq => Err(BuiltinError::new(
-            "assert_eq requires a checked native call",
-        )),
         StandardIntrinsic::DebugPanic => debug_panic(args),
     }
 }

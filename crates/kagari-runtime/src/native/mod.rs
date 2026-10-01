@@ -20,6 +20,7 @@ mod results;
 mod retention;
 mod sources;
 mod string_iterators;
+mod unit_mutations;
 use crate::{
     LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
     builtin::BuiltinError,
@@ -84,6 +85,7 @@ pub enum NativeProgress {
     Finished,
     BuiltinFailure(BuiltinError),
     TypeMismatch(&'static str),
+    InvalidIndex(usize),
 }
 
 pub(crate) enum NativeAction {
@@ -94,9 +96,11 @@ pub(crate) enum NativeAction {
     Complete(Value),
     BuiltinFailure(BuiltinError),
     TypeMismatch(&'static str),
+    InvalidIndex(usize),
 }
 
 enum NativeState {
+    UnitMutation,
     Lazy(LazyInvocation),
     Key(KeyInvocation),
     PreparedArray(Box<PreparedArray>),
@@ -148,6 +152,16 @@ impl NativeInvocation {
         }
         let mut entry = None;
         let mut state = match implementation.engine_binding(import) {
+            Some(EngineNativeOperation::Resumable(
+                EngineNativeBinding::Intrinsic(
+                    StandardIntrinsic::ArrayPush
+                    | StandardIntrinsic::ArrayInsert
+                    | StandardIntrinsic::ArrayClear
+                    | StandardIntrinsic::MapClear
+                    | StandardIntrinsic::SetClear,
+                )
+                | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionSet),
+            )) => NativeState::UnitMutation,
             Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
                 operation,
             ))) if operation.lazy() => {
@@ -348,6 +362,7 @@ impl NativeInvocation {
                     .iter()
                     .cloned()
                     .chain(match &mut state {
+                        NativeState::UnitMutation => vec![],
                         NativeState::Key(state) => vec![Value::Unit; state.scratch_roots()],
                         NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
                         NativeState::PreparedArray(_) => {
@@ -416,6 +431,9 @@ impl NativeInvocation {
             state.initialize(runtime, &roots)?;
         }
         let initialized = match &mut state {
+            NativeState::UnitMutation => {
+                Some(unit_mutations::initialize(runtime, contract, arguments)?)
+            }
             NativeState::Lazy(state) => {
                 Some(state.advance(runtime, &implementation, import, contract, &roots)?)
             }
@@ -465,6 +483,7 @@ impl NativeInvocation {
     pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::UnitMutation => Ok(NativeAction::Complete(Value::Unit)),
             NativeState::Lazy(state) => state.advance(
                 runtime,
                 &self.implementation,
@@ -540,6 +559,9 @@ impl NativeInvocation {
     ) -> Result<NativeAction, RuntimeError> {
         let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
         match &mut self.state {
+            NativeState::UnitMutation => Err(RuntimeError::module_validation(
+                "unit mutation has no callback",
+            )),
             NativeState::Lazy(state) => state.receive(runtime, &self.roots, value),
             NativeState::Factory(state) => {
                 state.receive(runtime, &self.implementation, contract, &self.roots, value)

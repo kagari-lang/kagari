@@ -1,5 +1,6 @@
 use super::*;
 use kagari_embed::program::PreparedProgram;
+use std::collections::HashSet;
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
@@ -212,7 +213,16 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     let old = runtime
         .load_program(&old_program, Default::default())
         .unwrap();
-    let dependency = old.members().next().unwrap();
+    let dependency = old
+        .members()
+        .find(|module| {
+            module.bytecode.identity
+                == ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["dependency".into()],
+                }
+        })
+        .unwrap();
     assert!(
         runtime
             .runtime()
@@ -263,14 +273,14 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
             .modules()
             .release_epoch(dependency.key(), ModuleEpochRetention::ActiveCall)
     );
-    assert_eq!(
-        runtime
-            .runtime()
-            .modules()
-            .collect_unreachable_epochs()
-            .len(),
-        2
-    );
+    let collected: HashSet<_> = runtime
+        .runtime()
+        .modules()
+        .collect_unreachable_epochs()
+        .into_iter()
+        .collect();
+    let old_members: HashSet<_> = old.members().map(|module| module.key()).collect();
+    assert_eq!(collected, old_members);
     assert_eq!(
         runtime
             .execute(&new, "main", &[], &context)
@@ -297,6 +307,19 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     );
     let artifact = compile(&engine, root, Default::default());
     let program = &artifact.program;
+    let dependency = ModuleRef::new(
+        program
+            .modules
+            .iter()
+            .position(|module| {
+                module.identity
+                    == ModuleIdentity {
+                        package: PackageId("pkg".into()),
+                        path: vec!["dependency".into()],
+                    }
+            })
+            .unwrap(),
+    );
     let mut malformed = Vec::new();
     let mut bad = program.clone();
     bad.root = ModuleRef::new(100);
@@ -307,15 +330,15 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     let mut bad = program.clone();
     bad.modules[program.root.index()]
         .dependencies
-        .push(ModuleRef::new(0));
+        .push(program.modules[program.root.index()].dependencies[0]);
     malformed.push(bad);
     let mut bad = program.clone();
-    bad.modules[0].identity = bad.modules[program.root.index()].identity.clone();
+    bad.modules[dependency.index()].identity = bad.modules[program.root.index()].identity.clone();
     malformed.push(bad);
     let mut bad = program.clone();
     bad.modules.push(BytecodeModule::default());
     malformed.push(bad);
-    let flag = program.modules[0]
+    let flag = program.modules[dependency.index()]
         .functions
         .iter()
         .find(|function| function.name == "flag")
@@ -323,8 +346,8 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         .id;
     for (module, function) in [
         (ModuleRef::new(100), FunctionRef::new(0)),
-        (ModuleRef::new(0), FunctionRef::new(100)),
-        (ModuleRef::new(0), flag),
+        (dependency, FunctionRef::new(100)),
+        (dependency, flag),
     ] {
         let mut bad = program.clone();
         let call = bad.modules[program.root.index()]

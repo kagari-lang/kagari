@@ -1,6 +1,13 @@
-use kagari_abi::{callable::NativeCall, native_import::EngineNativeOperation};
-use kagari_abi::{operations::IterOp, standard::StandardIntrinsic};
-use kagari_bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
+use kagari_abi::{
+    callable::NativeCall,
+    native_import::{EngineCoreOperation, EngineNativeOperation},
+    operations::IterOp,
+    standard::StandardIntrinsic,
+    types::AbiType,
+};
+use kagari_bytecode::{
+    BytecodeInstruction, CallTarget, EngineImportId, PathId, Register, RuntimeHelper,
+};
 use kagari_runtime::{
     HostPathDescriptorId, NativeProgress, numeric, range::RangeValue, value::Value,
 };
@@ -9,6 +16,100 @@ use std::iter;
 use crate::{error::VmError, executor::Executor};
 
 impl<'a> Executor<'a> {
+    pub(crate) fn dispatch_native_progress(
+        &mut self,
+        progress: NativeProgress,
+    ) -> Result<(), VmError> {
+        match progress {
+            NativeProgress::Continue | NativeProgress::Finished => Ok(()),
+            NativeProgress::Callback(request) => self
+                .stack
+                .push_native_callback(self.runtime, request)
+                .map_err(VmError::RuntimeError),
+            NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
+            NativeProgress::TypeMismatch(detail) => Err(VmError::TypeMismatch(detail)),
+            NativeProgress::InvalidIndex(index) => Err(VmError::InvalidIndex(index)),
+        }
+    }
+
+    fn dispatch_iterator(
+        &mut self,
+        source: &Value,
+        ty: &AbiType,
+        op: IterOp,
+        dst: Option<Register>,
+    ) -> Result<(), VmError> {
+        if op == IterOp::Next
+            && let Some(progress) = self
+                .stack
+                .begin_iterator_step(self.runtime, source, ty, dst)?
+        {
+            return self.dispatch_native_progress(progress);
+        }
+        let result = self
+            .runtime
+            .iter_operation(self.current_frame()?.loaded(), source, ty, op)?;
+        if let Some(dst) = dst {
+            self.current_frame_mut()?.write_register(dst, result)?;
+        }
+        Ok(())
+    }
+
+    fn dispatch_range_bound(
+        &mut self,
+        value: Value,
+        range: &AbiType,
+        bound: &AbiType,
+        upper: bool,
+        dst: Option<Register>,
+    ) -> Result<(), VmError> {
+        let Value::Range(value) = value else {
+            return Err(VmError::Trap("invalid range value"));
+        };
+        let result = value.bound(self.runtime.gc(), range, bound, upper)?;
+        if let Some(dst) = dst {
+            self.current_frame_mut()?.write_register(dst, result)?;
+        }
+        Ok(())
+    }
+
+    fn dispatch_core_binding(
+        &mut self,
+        operation: EngineCoreOperation,
+        import: EngineImportId,
+        dst: Option<Register>,
+        args: Vec<Value>,
+    ) -> Result<(), VmError> {
+        let signature = self
+            .current_loaded()?
+            .bytecode
+            .engine_imports
+            .get(import.index())
+            .ok_or(VmError::UnsupportedInstruction(
+                "missing native primitive contract",
+            ))?
+            .signature
+            .clone();
+        let [source] = args.as_slice() else {
+            return Err(VmError::TypeMismatch("native primitive arguments"));
+        };
+        let [ty] = signature.params.as_slice() else {
+            return Err(VmError::TypeMismatch("native primitive signature"));
+        };
+        match operation {
+            EngineCoreOperation::IterNew => self.dispatch_iterator(source, ty, IterOp::New, dst),
+            EngineCoreOperation::IterNext => self.dispatch_iterator(source, ty, IterOp::Next, dst),
+            EngineCoreOperation::RangeStartBound | EngineCoreOperation::RangeEndBound => self
+                .dispatch_range_bound(
+                    source.clone(),
+                    ty,
+                    &signature.result,
+                    operation == EngineCoreOperation::RangeEndBound,
+                    dst,
+                ),
+        }
+    }
+
     pub(crate) fn dispatch_instruction(
         &mut self,
         instruction: BytecodeInstruction,
@@ -61,28 +162,7 @@ impl<'a> Executor<'a> {
                 let source = self
                     .current_frame()?
                     .read_register(value.ok_or(VmError::TypeMismatch("iterator source"))?)?;
-                if op == IterOp::Next
-                    && let Some(progress) =
-                        self.stack
-                            .begin_iterator_step(self.runtime, &source, &ty, Some(dst))?
-                {
-                    return match progress {
-                        NativeProgress::Continue | NativeProgress::Finished => Ok(()),
-                        NativeProgress::Callback(request) => self
-                            .stack
-                            .push_native_callback(self.runtime, request)
-                            .map_err(VmError::RuntimeError),
-                        NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
-                        NativeProgress::TypeMismatch(detail) => Err(VmError::TypeMismatch(detail)),
-                    };
-                }
-                let result = self.runtime.iter_operation(
-                    self.current_frame()?.loaded(),
-                    &source,
-                    &ty,
-                    op,
-                )?;
-                self.current_frame_mut()?.write_register(dst, result)?;
+                self.dispatch_iterator(&source, &ty, op, Some(dst))?;
             }
             BytecodeInstruction::StandardEnum { dst, value, ty, op } => {
                 let result = self.standard_enum_operation(value, &ty, op)?;
@@ -207,13 +287,8 @@ impl<'a> Executor<'a> {
                 bound,
                 upper,
             } => {
-                let Value::Range(value) = self.current_frame()?.read_register(value)? else {
-                    return Err(VmError::Trap("invalid range value"));
-                };
-                let result = value
-                    .bound(self.runtime.gc(), &range, &bound, upper)
-                    .map_err(VmError::RuntimeError)?;
-                self.current_frame_mut()?.write_register(dst, result)?;
+                let value = self.current_frame()?.read_register(value)?;
+                self.dispatch_range_bound(value, &range, &bound, upper, Some(dst))?;
             }
             BytecodeInstruction::MakeRange {
                 dst,
@@ -491,21 +566,15 @@ impl<'a> Executor<'a> {
                     EngineNativeOperation::Direct(operation) => {
                         self.dispatch_standard_intrinsic(operation, dst, arg_values)
                     }
-                    EngineNativeOperation::Resumable(_) => self
-                        .stack
-                        .begin_native(self.runtime, import, &arg_values, dst)
-                        .map_err(VmError::RuntimeError)
-                        .and_then(|progress| match progress {
-                            NativeProgress::Continue | NativeProgress::Finished => Ok(()),
-                            NativeProgress::Callback(request) => self
-                                .stack
-                                .push_native_callback(self.runtime, request)
-                                .map_err(VmError::RuntimeError),
-                            NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
-                            NativeProgress::TypeMismatch(detail) => {
-                                Err(VmError::TypeMismatch(detail))
-                            }
-                        }),
+                    EngineNativeOperation::Core(operation) => {
+                        self.dispatch_core_binding(operation, import, dst, arg_values)
+                    }
+                    EngineNativeOperation::Resumable(_) => {
+                        let progress =
+                            self.stack
+                                .begin_native(self.runtime, import, &arg_values, dst)?;
+                        self.dispatch_native_progress(progress)
+                    }
                 }
             }
             CallTarget::Native(NativeCall::Host(import)) => {
