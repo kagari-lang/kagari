@@ -1,11 +1,15 @@
 //! A frame-owned invocation drives native entry state without identifying library methods.
 pub(crate) mod array;
+mod array_api;
+pub use array_api::standard_library;
+mod api;
 pub(crate) mod registration;
 use crate::{
     LoadedModule, Runtime, RuntimeError,
     gc::{ClosureValueSnapshot, GcHeap, RootSet},
     value::Value,
 };
+pub use api::{NativeApi, NativeHandler};
 use kagari_abi::{native_import::NativeSignature, types::AbiType};
 use kagari_bytecode::{NativeImportId, Register};
 pub use registration::{NativeEntry, NativeRegistration, NativeRegistry};

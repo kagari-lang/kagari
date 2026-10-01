@@ -25,6 +25,7 @@ use std::{
 
 pub type NativeEntry =
     dyn Fn(&mut NativeContext<'_>) -> Result<Box<dyn NativeInvocationState>, RuntimeError>;
+#[derive(Clone)]
 pub struct NativeRegistration {
     /// Ordinary declaration metadata exported by the source compiler or host adapter.
     /// Multiple declarations may name one entry, without another signature template.
@@ -59,7 +60,7 @@ fn entry_id(declaration: &NativeDeclaration) -> Option<&DefinitionId> {
         _ => None,
     }
 }
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct NativeRegistry {
     entries: HashMap<DefinitionId, Rc<NativeRegistration>>,
 }

@@ -1,14 +1,21 @@
-# Standard library declaration sources
+# Native API and standard library declarations
 
-The standard library's public API is described by versioned Kagari declaration
-sources. All source comments, documentation and examples are written in English.
-The declaration source owns public signatures, documentation, method views and
-source locations. Runtime code owns representation and execution contracts.
+Native registration definitions own API declarations and Rust implementation
+bindings. The standard library is an optional native package installed by Engine
+by default, using the same path as application-owned APIs. `.kgr` declaration text
+is generated for tooling; compiler semantics come directly from registered records.
+Signatures, documentation and navigation locations must describe the same API.
+Generated text does not authorize installation. Runtime owns storage and execution.
+All comments, documentation and examples are written in English.
 
-The NR reset currently reinstalls ArrayList new/len/push/from_fn and List len/get.
+The minimal NR implementation registers ArrayList new/len/push/from_fn, List
+len/get and MutableList.set. Trait implementation signatures are derived from the
+registered trait declaration rather than authored a second time. Remaining source
+package declarations and namespace/prelude metadata use their legacy route during
+restoration; the rules below describe that route where not superseded here.
 Other standard implementation APIs are temporarily removed; their specified
 semantics and tests remain NR04 restoration obligations. See the
-[active plan](../native-provider-refactor.md#reset-execution-checkpoint-2026-10-01).
+[active plan](../native-provider-refactor.md#registration-owned-minimal-checkpoint-2026-10-01).
 
 ## Declaration mode
 
@@ -48,7 +55,7 @@ The implementation sequence and acceptance status are tracked in
 
 ## Public functions and method views
 
-`kagari-stdlib` reads the installed `.kgr` manifest with the declaration parser
+For remaining legacy modules, `kagari-stdlib` reads the installed `.kgr` manifest with the declaration parser
 and retains the exact text, syntax trees, annotations, documentation and declaration
 coordinates. HIR imports that package through ordinary declaration collection and
 checks signatures and bounds through ordinary HIR. A native declaration with a
@@ -86,14 +93,14 @@ Native declarations bind existing engine representations; they do not define emp
 script structs. Enum variant order and payload counts are checked against the
 runtime discriminant contract. Primitive scalar representations remain engine-owned.
 
-All standard traits derive their public contracts from these sources, including
+Remaining legacy standard traits derive their public contracts from these sources, including
 supertraits, generic parameters, methods, associated types and associated bounds.
 Trait solving and native implementations remain engine code. Declaration identities
 and member locations refer to the bundled source text, not placeholder spans.
 Method-local generic parameters and enclosing impl binders are retained in ABI
 signature checks. Readonly interfaces expose their declared methods through
-ordinary bridges; native bindings carry no receiver Read/Write flags. List retains its
-Index supertrait; its len entry is native and get is an ordinary script body.
+ordinary bridges; native bindings carry no receiver Read/Write flags. The registered List retains its Index supertrait; ArrayList supplies both len and
+get through registered native entries. MutableList extends List and adds set.
 Selected default callable/witness metadata remains NR02 work, rather than the old
 method-specific traversal and conversion catalogs.
 

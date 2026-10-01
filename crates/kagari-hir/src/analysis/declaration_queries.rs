@@ -7,7 +7,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     imports::ModuleGraph,
     lower,
-    native::stdlib::InstalledStdlib,
+    native::{api as native_api, stdlib::InstalledStdlib},
     resolver::DeclarationNames,
 };
 use kagari_common::{
@@ -126,26 +126,52 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
-        let stdlib = match self.stdlib.get() {
-            Some(stdlib) => stdlib.clone(),
-            None => {
-                let stdlib = Arc::new(InstalledStdlib::prepare(self.parse_limits, cancel)?);
-                // Installation is immutable and independent of user source revisions.
-                // A failed or cancelled preparation never enters the cache.
-                self.stdlib
-                    .set(stdlib.clone())
-                    .expect("single analysis owner installs once");
-                stdlib
-            }
+        let stdlib = if !self.legacy_stdlib {
+            None
+        } else {
+            Some(match self.stdlib.get() {
+                Some(stdlib) => stdlib.clone(),
+                None => {
+                    let stdlib = Arc::new(InstalledStdlib::prepare(self.parse_limits, cancel)?);
+                    // Installation is immutable and independent of user source revisions.
+                    // A failed or cancelled preparation never enters the cache.
+                    self.stdlib
+                        .set(stdlib.clone())
+                        .expect("single analysis owner installs once");
+                    stdlib
+                }
+            })
         };
         let previous = self.declaration_cache.as_ref();
         let mut lowered_files = stdlib
-            .package
-            .files()
             .iter()
-            .zip(&stdlib.modules)
+            .flat_map(|stdlib| stdlib.package.files().iter().zip(&stdlib.modules))
+            .filter(|(file, _)| {
+                !self
+                    .native_modules
+                    .iter()
+                    .any(|module| module.identity == *file.source().module_identity())
+            })
             .map(|(file, lowered)| (file.source().id(), (file.parsed().clone(), lowered.clone())))
             .collect::<BTreeMap<_, _>>();
+        let native_files = match self.native_files.get() {
+            Some(files) => files,
+            None => {
+                let prepared = self
+                    .native_modules
+                    .iter()
+                    .map(|module| native_api::import(module, self.parse_limits, cancel))
+                    .collect::<Result<Vec<_>, _>>();
+                cancel.check()?;
+                self.native_files
+                    .set(prepared?)
+                    .expect("single native analysis owner");
+                self.native_files.get().expect("installed native API files")
+            }
+        };
+        for (parsed, lowered) in native_files {
+            lowered_files.insert(lowered.source.id(), (parsed.clone(), lowered.clone()));
+        }
         let mut pending = VecDeque::from_iter(source.files().cloned());
         let mut generated = HashSet::new();
         while let Some(file) = pending.pop_front() {

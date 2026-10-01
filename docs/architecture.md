@@ -8,23 +8,28 @@ The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
 implementation checkpoints and final acceptance. Language/runtime behavior follows
 the semantic specifications.
 
-The [standard-library and HIR integration plan](stdlib-hir-refactor.md) records the
-source-package and native execution migration. `kagari-stdlib` owns the installed
-manifest, exact bundled text, parsed syntax and structural declaration coordinates.
-The analysis database caches that package and imports it through ordinary HIR
-resolution, declaration checking and snapshot tool queries. Installed provenance
-controls native binding authority; copied attributes or source URIs confer none.
+The [native registration plan](native-provider-refactor.md#current-design-decision-2026-10-01)
+records the active declaration direction. Native API definitions authored in Rust
+own signatures, generic parameters, trait contracts, documentation and binding IDs.
+The bundled array library is a default, optional package using the same NativeApi
+installation path as application packages. Generic compilation and execution do
+not distinguish standard functions from application native functions.
 
-HIR carries one callable model with Required, Script and Native implementations.
-Standard declarations follow AST -> HIR -> MIR and own native signatures. Portable
-Native implementations carry a binding DefinitionId; runtime registration maps it
-to a handler. Source compilation exports ordinary checked declaration data for
-source-free installation, without a separate standard provider crate or handwritten
-signature/access/effect catalog. Host adapters retain passing styles, capabilities
-and scoped borrow validation while sharing native imports and invocation. Compiler lowering consumes
-checked selections, substitutions, associated outputs and witnesses. Portable MIR
-and bytecode carry their complete dependency closure and executable contracts.
-ABI validates those facts without syntax, HIR or source catalogs.
+HIR imports registered declaration records directly, using ordinary declaration
+checking and selected implementations. Generated `.kgr` files are tooling views
+with syntax, documentation and navigation coordinates; they are never lowered to
+establish registered semantics. The array package no longer consumes a binary
+source-derived declaration payload. Remaining library declarations temporarily
+use `kagari-stdlib` source preparation until their NR04 restoration.
+
+Required, Script and Native implementations share checked callable facts.
+Portable Native implementations carry a binding DefinitionId; registered Rust
+factories supply execution. Source-free runtimes receive the same checked native
+records directly from installed packages. Host adapters retain passing styles,
+capabilities and scoped borrow checks while sharing imports and invocation.
+Compiler lowering consumes checked substitutions, associated outputs and witnesses.
+Portable MIR and bytecode carry complete dependency closures and executable
+contracts. ABI validation has no syntax, HIR or source catalog dependencies.
 
 Trait method signatures carry declaration override policy independently of their
 default implementation. Portable callable declarations retain that policy so
@@ -162,10 +167,13 @@ The builtin layer owns:
 - builtin metadata for type checking, bytecode, reflection profiles, reload validation, and JIT lowering
 
 The standard library is not a historical compatibility layer and is not implemented as a second copy of core containers in Kagari source.
-Container storage is engine-owned. Public native library functions use provider
-contracts and linked import slots; the current reset reinstalls only the array proof.
+Container storage is engine-owned. Public native library functions use registered
+declarations and linked import slots; the current implementation installs only the array proof.
 Remaining library algorithms are tracked in the [active plan](native-provider-refactor.md).
-`stdlib/*.kgr` is the authoritative declaration surface. HIR processes these declarations; ABI owns shared executable identities/contracts and runtime owns implementations. Source declarations do not own storage, GC, resource accounting or host state.
+Native registration definitions are the target authoritative declaration surface.
+The minimal array package follows that model; remaining `stdlib/*.kgr` declarations
+retain their legacy source route during NR04 restoration. Generated declarations
+and registration metadata do not own storage, GC, resource accounting or host state.
 
 Ordered map and set behavior is deterministic.
 The runtime implementation uses insertion-ordered `indexmap` backing for script-visible `Map<K, V>` and `Set<T>` behavior.

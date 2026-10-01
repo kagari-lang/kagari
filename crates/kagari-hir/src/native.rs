@@ -3,6 +3,7 @@ use crate::{host::HostFunctionId, types::TypeId};
 use kagari_abi::{scalar::BuiltinType, standard::surface::StandardEnum};
 use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
 
+pub(crate) mod api;
 pub(crate) mod stdlib;
 
 /// Opaque entry identity or an index into the checked host declaration catalog.

@@ -1,12 +1,12 @@
 //! Regenerate the reset provider fixture independently of the full library fixture.
-use bincode::serialize;
 use kagari_common::SourceFile;
 use kagari_embed::KagariEngine;
 use std::{fs, path::Path};
 
 fn main() {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let artifact = KagariEngine::default()
+    let engine = KagariEngine::default();
+    let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
                 "memory://native-provider.kgr",
@@ -16,16 +16,14 @@ fn main() {
             Default::default(),
         )
         .unwrap();
-    let declarations: Vec<_> = artifact
-        .program
-        .modules
-        .iter()
-        .flat_map(|module| module.native_declarations.iter().cloned())
-        .collect();
+    let source = engine
+        .native_declaration_sources()
+        .into_iter()
+        .find(|source| source.uri.ends_with("/array.kgr"))
+        .expect("installed array API");
     fs::write(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../kagari-runtime/src/native/stdlib-declarations.bin"),
-        serialize(&declarations).unwrap(),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stdlib/array.kgr"),
+        source.text,
     )
     .unwrap();
     fs::write(

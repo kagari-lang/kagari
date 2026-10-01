@@ -103,6 +103,16 @@ method callback.
 
 ## Function Registration
 
+The minimal native package API also accepts application-owned Rust factories.
+`NativeModule` records own declarations; `NativeApi::new` pairs all native binding
+IDs with factories and validates before publication. `KagariEngine::with_native_apis`
+uses this route for default and application packages. Generated `.kgr` provides
+navigation and documentation, while compiler signatures are imported directly.
+Factories use the existing rooted native invocation and callback lifecycle.
+This initial interface is low-level; typed Rust derives and migration of existing
+host opaque/type/path adapters remain pending. Their authority, permission, scoped
+borrow, schema and output checks below continue to apply.
+
 The current function API is `HostFunction::new(declaration, callback)`. Its
 `HostFunctionDeclaration` comes from `kagari_common::host_interface`, which has no
 runtime dependency. It carries a `DefinitionId`, export label, typed parameters

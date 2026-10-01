@@ -1,4 +1,3 @@
-use crate::native::array;
 mod authority;
 mod loading;
 mod objects;
@@ -66,8 +65,8 @@ pub use module::{
     ModuleKey, ModuleStore, VerifiedProgram,
 };
 pub use native::{
-    NativeAction, NativeCallback, NativeContext, NativeEntry, NativeInvocationState,
-    NativeProgress, NativeRegistration, NativeRegistry,
+    NativeAction, NativeApi, NativeCallback, NativeContext, NativeEntry, NativeHandler,
+    NativeInvocationState, NativeProgress, NativeRegistration, NativeRegistry, standard_library,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
@@ -209,11 +208,7 @@ impl Runtime {
             gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
-            native_entries: {
-                let mut registry = NativeRegistry::default();
-                array::install(&mut registry);
-                registry
-            },
+            native_entries: NativeRegistry::default(),
             host_borrows: HostBorrowTable::with_resources(&resources),
             security: config.security,
             host_exposure: Rc::new(config.host_exposure),

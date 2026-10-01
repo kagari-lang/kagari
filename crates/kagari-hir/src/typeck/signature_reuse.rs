@@ -102,7 +102,8 @@ pub(crate) fn reuse_signatures(
 ) -> Option<AnalysisResult<ModuleSignatures>> {
     // Equal text cannot transfer native authority between installed and source
     // inputs. The implementation facts are retained by a reused signature.
-    if previous.native_functions != current.native_functions
+    if previous.registered_native_api != current.registered_native_api
+        || previous.native_functions != current.native_functions
         || previous.installed_stdlib.is_some() != current.installed_stdlib.is_some()
     {
         return None;

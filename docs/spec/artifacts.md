@@ -37,10 +37,11 @@ One native import table carries source identity, concrete type arguments, bindin
 ID, applied signature and declaration bounds. Generic verification checks carried
 source declarations and instantiation. Native effects use a common conservative
 classification, independent of artifact claims. Runtime resolves the installed ID,
-checks the application against its trusted source-derived declaration and pins the
+checks the application against its trusted registered declaration and pins the
 entry owner. No per-function effect/access table or duplicate signature template is
-serialized. The generated standard declaration payload uses ordinary declaration
-records exported from the source pipeline and is checked against source emission.
+serialized. Native API packages install ordinary declaration records directly alongside Rust
+handlers. The minimal route has no standalone binary declaration payload. Source
+compilation must emit the same contracts as the registered definitions.
 
 Synchronous host calls use the same import table and invocation driver. Their full
 optional HostFunctionDeclaration must match the required HostInterface and installed

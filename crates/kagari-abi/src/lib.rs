@@ -9,6 +9,7 @@ pub mod host;
 pub mod ids;
 pub mod layout;
 pub mod native;
+pub mod native_api;
 pub mod native_call;
 pub mod native_import;
 pub mod numeric;

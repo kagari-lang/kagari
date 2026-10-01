@@ -7,7 +7,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-mod context;
+pub(crate) mod context;
 mod expr;
 mod item;
 mod stmt;
@@ -28,6 +28,7 @@ pub struct LoweredModule {
     pub module: Module,
     pub source_map: SourceMap,
     pub attributes: Vec<AttributeFact>,
+    pub(crate) registered_native_api: bool,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
     pub(crate) native_functions: HashMap<FunctionId, DefinitionId>,
@@ -120,6 +121,7 @@ pub(crate) fn lower_module_controlled(
         module,
         source_map,
         attributes,
+        registered_native_api: false,
         native_types: HashMap::new(),
         native_enums: HashMap::new(),
         native_functions: HashMap::new(),

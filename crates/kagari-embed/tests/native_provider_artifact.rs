@@ -69,9 +69,12 @@ fn provider_fixture_matches_source_emission() {
         .iter()
         .flat_map(|module| module.native_declarations.iter().cloned())
         .collect();
-    assert_eq!(
-        bincode::serialize(&declarations).unwrap(),
-        include_bytes!("../../kagari-runtime/src/native/stdlib-declarations.bin").as_slice()
-    );
+    let api = kagari_runtime::standard_library();
+    let registered: Vec<_> = api
+        .modules()
+        .iter()
+        .flat_map(|module| module.native_declarations())
+        .collect();
+    assert_eq!(declarations, registered);
     assert_eq!(artifact.to_bytes().unwrap(), ARTIFACT);
 }

@@ -1,45 +1,41 @@
-// Minimal array provider used to prove declaration-to-artifact execution.
-/// Shared mutable array storage. Read-only List views share its identity.
-#[builtin_type(ArrayList)]
-pub type ArrayList<T>;
+// Generated from native registration definitions. Do not edit.
 
-impl<T> ArrayList<T> {
-    /// Allocate an empty array. The item type must be inferable from context.
-    #[native(array_new)]
-    pub fn new() -> ArrayList<T>;
-    /// Return the current slot count. This operation accepts read-only access.
-    #[native(array_len)]
-    pub fn len(self) -> usize;
-    /// Append a value. Storage growth is checked before committing the mutation.
-    /// Iteration guards and resource limits can trap before the append commits.
-    #[native(array_push)]
-    pub fn push(self, value: T);
-    /// Build slots by calling make once per index in ascending order.
-    /// A zero count never calls make. Callback failure preserves completed effects
-    /// and releases the partial output and invocation roots.
-    #[native(array_from_fn)]
-    pub fn from_fn(count: usize, make: fn(usize) -> T) -> ArrayList<T>;
-}
+/// Shared mutable array storage. Read-only List views share its identity.
+pub type ArrayList<T0>;
 
 /// Shared read access with checked indexing.
-pub trait List<T>: Index<usize, Output = T> {
+pub trait List<T0>: std::ops::Index<usize, Output = T0> {
     /// Return the current slot count.
     fn len(self) -> usize;
     /// Return the addressed value, or None when index is outside the array.
-    fn get(self, index: usize) -> Option<T>;
+    fn get(self, index: usize) -> Option<T0>;
 }
-/// Mutable list protocol retained for subsequent provider restoration.
-pub trait MutableList<T>: List<T> {
+
+/// Mutable list access through declared methods.
+pub trait MutableList<T0>: List<T0> {
     /// Replace a valid slot, trapping before mutation for an invalid index.
-    fn set(self, index: usize, value: T);
+    fn set(self, index: usize, value: T0);
 }
 
-impl<T> List<T> for ArrayList<T> {
-    /// Read the storage length through the same provider entry as inherent len.
-    #[native(array_len)]
-    fn len(self) -> usize;
+impl<T0> ArrayList<T0> {
+    /// Allocate an empty array. The item type must be inferable from context.
+    pub fn new() -> ArrayList<T0>;
+    /// Return the current slot count.
+    pub fn len(self) -> usize;
+    /// Append a value. Allocation and iteration guards are checked before mutation.
+    pub fn push(self, value: T0);
+    /// Build slots by calling make once per index in ascending order.
+    pub fn from_fn(count: usize, make: fn(usize) -> T0) -> ArrayList<T0>;
+}
 
-    fn get(self, index: usize) -> Option<T> {
-        if index < self.len() { Some(self[index]) } else { None }
-    }
+impl<T0> List<T0> for ArrayList<T0> {
+    /// Return the current slot count.
+    pub fn len(self) -> usize;
+    /// Return the addressed value, or None when index is outside the array.
+    pub fn get(self, index: usize) -> Option<T0>;
+}
+
+impl<T0> MutableList<T0> for ArrayList<T0> {
+    /// Replace a valid slot, trapping before mutation for an invalid index.
+    pub fn set(self, index: usize, value: T0);
 }

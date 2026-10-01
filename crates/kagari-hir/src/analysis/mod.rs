@@ -13,6 +13,7 @@ use crate::{
     types::TypeId,
 };
 
+use kagari_abi::native_api::NativeModule;
 use kagari_common::{
     SourceFile,
     host_interface::{HostFieldDeclaration, HostFunctionDeclaration, HostTypeDeclaration},
@@ -686,6 +687,9 @@ pub struct AnalysisDatabase {
     hosts: Arc<HostDeclarations>,
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
     stdlib: OnceCell<Arc<InstalledStdlib>>,
+    native_modules: Vec<Arc<NativeModule>>,
+    native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
+    legacy_stdlib: bool,
 }
 
 impl Default for AnalysisDatabase {
@@ -703,11 +707,25 @@ impl Default for AnalysisDatabase {
             hosts: HostDeclarations::empty(),
             inline_ids: RefCell::new(HashMap::new()),
             stdlib: OnceCell::new(),
+            native_modules: vec![],
+            native_files: OnceCell::new(),
+            legacy_stdlib: false,
         }
     }
 }
 
 impl AnalysisDatabase {
+    /// Native declarations are explicit snapshot inputs. Existing snapshots keep their owners.
+    pub fn set_native_modules(&mut self, modules: Vec<Arc<NativeModule>>, legacy_stdlib: bool) {
+        self.native_modules = modules;
+        self.legacy_stdlib = legacy_stdlib;
+        self.native_files.take();
+        self.stdlib.take();
+        self.declaration_cache = None;
+        self.signature_cache = None;
+        self.body_cache.clear();
+        self.files.clear();
+    }
     pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {
         if self.max_semantic_diagnostics != limit {
             self.max_semantic_diagnostics = limit;
@@ -732,6 +750,7 @@ impl AnalysisDatabase {
         }
         self.parse_limits = limits;
         self.stdlib.take();
+        self.native_files.take();
         self.declaration_cache = None;
         self.signature_cache = None;
         self.body_cache.clear();

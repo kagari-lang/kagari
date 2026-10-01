@@ -1,3 +1,4 @@
+use kagari_abi::native_api::NativeApiError;
 use kagari_common::cancellation::Cancelled;
 use kagari_stdlib::PackageError;
 
@@ -7,6 +8,8 @@ pub enum AnalysisError {
     Cancelled,
     #[error("invalid installed standard library: {0}")]
     StandardLibrary(PackageError),
+    #[error("invalid installed native API: {0}")]
+    NativeApi(#[from] NativeApiError),
 }
 
 impl From<Cancelled> for AnalysisError {

@@ -18,7 +18,7 @@ native standard algorithm through shared Rust helpers or rooted continuations,
 including lazy adapters, prepared mutations, custom keys and selected script calls.
 Core language primitives keep generic typed instructions. The plan's final ownership
 map covers the complete ST00 inventory. These are predecessor results; the NR reset removed its old algorithms.
-Current products use runtime ABI v136, KBC v113, KMIR v11, source-owned native declarations
+Current products use runtime ABI v136, KBC v113, KMIR v11, registration-owned minimal native declarations
 and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
@@ -50,7 +50,13 @@ checks declarations, native imports carry opaque IDs and runtime links registere
 handlers against exported checked declarations using the common native driver. ArrayList new/len/push/from_fn and List
 methods pass source, encoded and source-free execution. Broader witness/default
 metadata, persistent state, library restoration and legacy tests remain pending.
-No NR implementation phase has been accepted yet.
+The latest registration-owned checkpoint replaces the array declaration binary
+with native API definitions shared by direct HIR import, runtime installation and
+`.kgr` generation for tooling. Default array installation can be disabled; user
+native packages use the same path. MutableList.set and ArrayList's derived trait
+implementation provide the minimal proof. Other library declarations and legacy
+host type/path adapters remain migration work. No NR implementation phase has been
+accepted yet.
 
 ## Permissions and execution protection refactor queued
 

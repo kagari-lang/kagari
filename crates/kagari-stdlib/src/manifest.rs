@@ -34,7 +34,6 @@ pub fn bundled_sources() -> &'static [BundledSource] {
     &[
         source!("std"),
         source!("prelude"),
-        source!("array"),
         source!("map"),
         source!("set"),
         source!("string"),

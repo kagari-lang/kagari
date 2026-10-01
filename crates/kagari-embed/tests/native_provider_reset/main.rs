@@ -104,7 +104,7 @@ fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flag
 }
 
 #[test]
-fn readonly_list_script_methods_observe_mutation_through_a_concrete_alias() {
+fn readonly_list_methods_observe_mutation_through_a_concrete_alias() {
     execute(
         r#"fn main() -> i32 {
             val storage = [20];
