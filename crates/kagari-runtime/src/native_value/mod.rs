@@ -3,6 +3,8 @@ pub mod arguments;
 pub mod array;
 pub mod continuation;
 mod conversions;
+pub mod result;
+mod tuples;
 
 use crate::{
     error::RuntimeError,

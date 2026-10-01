@@ -5,6 +5,7 @@ use crate::{
     value::{EnumTag, Value},
 };
 use kagari_abi::{scalar::BuiltinType, standard::surface::StandardEnum, types::AbiType};
+use std::cmp::Ordering;
 
 macro_rules! scalar {
     ($rust:ty, $name:literal, $abi:ident, $value:ident, $wire:ty) => {
@@ -47,6 +48,52 @@ scalar!(usize, "usize", USize, U64, u64);
 scalar!(f32, "f32", F32, F32, f32);
 scalar!(f64, "f64", F64, F64, f64);
 scalar!(String, "String", String, Str, String);
+
+impl NativeValue for Ordering {
+    fn type_expression(_: &[&'static str]) -> TypeExpression {
+        named("Ordering")
+    }
+    fn read(call: &NativeCall, value: Value, expected: &AbiType) -> NativeResult<Self> {
+        if *expected
+            != (AbiType::StandardEnum {
+                kind: StandardEnum::Ordering,
+                args: vec![],
+            })
+        {
+            return Err(invalid());
+        }
+        call.check(&value, expected)?;
+        let Value::Enum(id) = value else {
+            return Err(invalid());
+        };
+        let snapshot = call.heap.enum_snapshot(id).ok_or_else(invalid)?;
+        if !snapshot.fields.is_empty() {
+            return Err(invalid());
+        }
+        match snapshot.tag {
+            EnumTag::OrderingLess => Ok(Self::Less),
+            EnumTag::OrderingEqual => Ok(Self::Equal),
+            EnumTag::OrderingGreater => Ok(Self::Greater),
+            _ => Err(invalid()),
+        }
+    }
+    fn write(self, call: &NativeCall, expected: &AbiType) -> NativeResult<Value> {
+        if *expected
+            != (AbiType::StandardEnum {
+                kind: StandardEnum::Ordering,
+                args: vec![],
+            })
+        {
+            return Err(invalid());
+        }
+        let tag = match self {
+            Self::Less => EnumTag::OrderingLess,
+            Self::Equal => EnumTag::OrderingEqual,
+            Self::Greater => EnumTag::OrderingGreater,
+        };
+        call.retain(Value::Enum(call.heap.alloc_enum(tag, vec![])?))
+    }
+}
 
 impl NativeValue for () {
     fn type_expression(_: &[&'static str]) -> TypeExpression {

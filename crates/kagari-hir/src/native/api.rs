@@ -424,6 +424,9 @@ impl Importer<'_> {
                     .map(|ty| self.ty(ty, span))
                     .collect::<Result<_, _>>()?,
             ),
+            AbiType::StandardEnum { kind, args } if args.is_empty() => {
+                TypeKind::Named(format!("{kind:?}"))
+            }
             AbiType::StandardEnum { kind, args } => TypeKind::Generic {
                 name: format!("{kind:?}"),
                 args: args

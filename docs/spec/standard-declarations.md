@@ -30,6 +30,21 @@ cleanup. This replaces the earlier usize-only callback adapter; from_fn now uses
 `NativeFn<(usize,), T>` with the same generated/executable script signature.
 Returned persistent state and checked trait-member targets remain later NR work.
 
+Ordinary Rust tuples of one through eight NativeValue members describe script
+tuple values, including nested and single-element tuples; unit remains `()`.
+Tuple conversion validates the complete applied shape and retains all heap fields
+across subsequent conversions. This value tuple is independent of NativeArguments'
+outer callback argument pack. Rust `std::cmp::Ordering` converts to the existing
+script Ordering enum through checked tags, without changing comparison policy.
+
+`native_value::result::NativeResultValue<T, E>` represents a rooted script Result.
+Reading and returning it preserve the original enum value and Err error trace.
+Its payload method decodes the selected checked branch; from_result constructs a
+fresh Result under the call's declared result type, with fresh Err origin tracking.
+`NativeResult<T>` continues to represent native execution success/failure. Script
+Err values remain ordinary values and do not become runtime traps. Arbitrary Rust
+Result conversion and opaque Rust value representations are not implied.
+
 The minimal NR implementation registers ArrayList new/len/push/from_fn, List
 len/get and MutableList.set, plus math floor/ceil/sqrt. Trait implementation
 signatures derive from the registered trait declaration rather than being authored

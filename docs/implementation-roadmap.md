@@ -74,6 +74,9 @@ acceptance. The first math package checkpoint restores checked floor/ceil/sqrt, 
 array/application package composition and records entry workloads. Common typed
 callback packs and resumed results now support external zero/binary/unit and
 repeated nested calls. Selected trait targets and managed returned state are next; full-library and whole-workspace acceptance remain open.
+Typed values additionally cover nested tuples, Ordering and a rooted script
+Result handle that preserves Err provenance across native calls. These common
+conversions do not complete the selected-trait or returned-state checkpoints.
 
 ## Permissions and execution protection refactor queued
 

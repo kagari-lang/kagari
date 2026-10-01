@@ -127,7 +127,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | --- | --- | --- |
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records go directly to HIR; generated array.kgr supports tooling | Extend records to remaining types, enums, associated declarations, bounds, method generics, defaults and namespace/prelude bindings |
-| Typed values | Scalars, String, unit, Option, checked generic proxies and NativeArray work | Checked tuple, script Result and other existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
+| Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
 | Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver | Complete checked selected trait-call targets and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -1805,3 +1805,41 @@ Next: complete ordinary tuple/enum result conversions and checked associated/bou
 metadata for the sort/selected-trait path, then implement the managed returned
 iterator proof. The aggregate checkpoint 2 and all complete NR phases remain open;
 goal mode continues.
+
+## 2026-10-01 structural native values checkpoint
+
+Checkpoint 2 advances the shared conversions needed by sorting and composition.
+Complete bounds, selected callable requirements and managed state remain open.
+
+- Add checked NativeValue implementations for one-to-eight member Rust tuples,
+  including nested and single-member shapes. Validate the complete input shape
+  and root all fields while decoding. Earlier output fields retain their roots
+  while later conversions allocate. Keep value tuples separate from callback packs.
+- Convert Rust Ordering to the existing checked script enum. Import zero-argument
+  standard enum ABI types as named HIR types rather than invalid generic types.
+  No comparison algorithm, method dispatch or executable schema changes occur.
+- Add NativeResultValue<T, E> under its actual owner module. Preserve the rooted
+  script Result object and original Err trace on round trips; decode selected
+  payloads under applied ABI types. Fresh construction uses ordinary enum allocation
+  and origin tracking. NativeResult remains execution failure, distinct from script
+  Result branches. No automatic Rust Result copying is added, because it would
+  discard the original error provenance.
+- Application-owned source -> encoded -> runtime tests exercise nested generic
+  tuple/Option/array callback values under GC threshold one, Ordering's three tags,
+  Result construction/payload access, native traps, static shape rejection and exact
+  original Err function/line retention. Active roots/call frames are released after
+  success and traps, and explicit collection releases the objects.
+
+Validation actually performed: 44 SDK integration tests pass across native_values,
+native_callbacks, native_math, native_registration, native_provider_artifact,
+native_provider_reset and host_interfaces. Workspace library and these SDK targets
+pass Clippy with -D warnings. Format, structure (810 Rust files, zero findings or
+exceptions) and diff checks pass. Tuple macro expansion ownership, API visibility
+and the empty re-export whitelist are reviewed manually. All four independent
+native-proof feature combinations, eight production boundaries and the source-free
+ABI build graph pass. Full-workspace legacy
+fixture debt remains in NR04, and wire versions/fixture bytes remain unchanged.
+
+Next: declaration bounds/associated outputs and selected trait-call requirements
+for sorting, followed by the application-owned managed iterator proof. Goal remains
+active; aggregate checkpoint 2 and complete NR phase acceptance remain open.
