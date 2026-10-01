@@ -4,24 +4,29 @@ use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
     host::origin::{HostDeclarationOrigin, HostInput},
-    resolver::ResolvedName,
-    typeck::{self, ConstraintTarget},
+    resolver::resolved::ResolvedName,
+    typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
+
 use kagari_abi::{
     host::satisfies_standard_constraint,
     scalar::BuiltinType,
     standard::{surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_common::{
-    Diagnostic, DiagnosticKind, Span,
     cancellation::{CancellationToken, Cancelled},
+    diagnostic::{Diagnostic, DiagnosticKind},
     host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostInterfaceError,
-        HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration,
-        HostTraitImplementationDeclaration, HostTypeDeclaration, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostInterfaceError,
+        path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::{
+            HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
+        },
+        value_type::HostValueType,
     },
     identity::{DefinitionId, ModuleIdentity},
+    span::Span,
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -244,7 +249,7 @@ impl HostDeclarations {
                     for constraint in constraints {
                         let satisfied = match constraint {
                             ConstraintTarget::Standard(standard) => {
-                                typeck::type_satisfies_standard_constraint(
+                                type_satisfies_standard_constraint(
                                     actual,
                                     *standard,
                                     &Default::default(),

@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, intrinsic, traits::StandardTrait},
     types::{AbiType, ConstraintAbi, GenericBoundAbi},
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 
 #[test]
 fn string_iterator_calls_reject_forged_constructor_contracts() {

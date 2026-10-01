@@ -1,7 +1,6 @@
 use std::collections::{HashMap, hash_map::Entry};
 
-use super::ResolvedName;
-use crate::hir::ImplId;
+use crate::{hir::ids::ImplId, resolver::resolved::ResolvedName};
 
 /// Presence blocks fallback even when a declaration or import cannot resolve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

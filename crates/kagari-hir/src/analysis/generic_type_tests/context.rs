@@ -1,4 +1,5 @@
 use super::*;
+use {crate::typeck::table::CallTarget, kagari_common::diagnostic::DiagnosticKind};
 
 #[test]
 fn body_constraints_use_later_arguments_and_local_uses() {
@@ -91,7 +92,7 @@ fn main() { val value = choose(Sink { seed: 0 }); }
     let analysis = crate::analyze_source(&ambiguous, Default::default());
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
-        kagari_common::DiagnosticKind::CannotInferGenericArgument { .. }
+        DiagnosticKind::CannotInferGenericArgument { .. }
     )));
     assert!(analysis.into_codegen().is_err());
 }
@@ -149,7 +150,7 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
     let analysis = crate::analyze_source(&unconstrained, Default::default());
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
-        kagari_common::DiagnosticKind::GenericBoundNotSatisfied { .. }
+        DiagnosticKind::GenericBoundNotSatisfied { .. }
     )));
     assert!(analysis.into_codegen().is_err());
 }
@@ -178,8 +179,8 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
             .filter(|diagnostic| {
                 matches!(
                     diagnostic.kind,
-                    kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
-                        | kagari_common::DiagnosticKind::GenericBoundNotSatisfied { .. }
+                    DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                        | DiagnosticKind::GenericBoundNotSatisfied { .. }
                 )
             })
             .count();
@@ -219,7 +220,7 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
                 .filter(|diagnostic| {
                     matches!(
                         diagnostic.kind,
-                        kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                        DiagnosticKind::StandardConstraintNotSatisfied { .. }
                     )
                 })
                 .count();
@@ -390,7 +391,7 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
         if !valid {
             assert!(analysis.diagnostics().iter().any(|d| matches!(
                 d.kind,
-                kagari_common::DiagnosticKind::StandardConstraintNotSatisfied { .. }
+                DiagnosticKind::StandardConstraintNotSatisfied { .. }
             )));
         }
         assert_eq!(analysis.into_codegen().is_ok(), valid);
@@ -571,9 +572,7 @@ fn trait_parameter_context_keeps_targets_through_invalid_payloads() {
                 .typed
                 .type_table
                 .call_resolution(id)
-                .is_some_and(|call| {
-                    matches!(call.target, crate::typeck::CallTarget::TraitMethod { .. })
-                })
+                .is_some_and(|call| matches!(call.target, CallTarget::TraitMethod { .. }))
         }));
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }

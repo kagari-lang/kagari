@@ -1,5 +1,6 @@
-use crate::ast::AstNode;
-use kagari_common::{SourceFile, cancellation::CancellationToken};
+use crate::{ast::traits::AstNode, parser::parse};
+
+use kagari_common::{cancellation::CancellationToken, source::SourceFile};
 
 #[test]
 fn cancelled_parses_never_return_a_partial_success() {
@@ -18,7 +19,7 @@ fn cancelled_parses_never_return_a_partial_success() {
 #[test]
 fn multibyte_whitespace_is_lossless_and_does_not_split_utf8() {
     let source = SourceFile::new("unicode", "fn\u{3000}main()\u{a0}{\u{2003}1\u{3000}}\r\n");
-    let parsed = crate::parse(&source);
+    let parsed = parse(&source);
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",

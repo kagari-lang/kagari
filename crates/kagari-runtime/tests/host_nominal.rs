@@ -1,16 +1,29 @@
 use kagari_common::{
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
-        HostVirtualSegmentDeclaration, host_type_identity,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        host_type_identity,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::HostTypeDeclaration,
+        value_type::HostValueType,
     },
     identity::DefinitionId,
 };
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, HostObjectId, HostSchemaEpoch, HostTypeOwnership,
-    HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, TypeId, host::HostFunction, value::Value,
-};
+
 use std::{cell::Cell, rc::Rc};
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostTypeOwnership, PathAccess},
+    },
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+        metadata::TypeId,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -33,10 +46,7 @@ fn runtime() -> Runtime {
 }
 
 fn register(runtime: &mut Runtime, symbol: &str, declaration: DefinitionId) -> (TypeId, Value) {
-    let mut registration = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new(symbol),
-        "Object",
-    );
+    let mut registration = HostTypeRegistration::new(HostTypeDeclaration::new(symbol), "Object");
     registration.declaration.id = declaration;
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = PathAccess::ReadWrite;
@@ -75,10 +85,8 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
         ty
     );
     let before = runtime.types().len();
-    let mut duplicate = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new("other.Export"),
-        "Other",
-    );
+    let mut duplicate =
+        HostTypeRegistration::new(HostTypeDeclaration::new("other.Export"), "Other");
     duplicate.declaration.id = declaration;
     assert_eq!(
         runtime.register_host_type(duplicate).unwrap_err().kind(),
@@ -86,10 +94,7 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
     );
     assert_eq!(runtime.types().len(), before);
     assert!(runtime.types().get_by_name("other.Export").is_none());
-    let mut invalid = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new("bad.Export"),
-        "Other",
-    );
+    let mut invalid = HostTypeRegistration::new(HostTypeDeclaration::new("bad.Export"), "Other");
     invalid.declaration.id.path.clear();
     assert!(runtime.register_host_type(invalid).is_err());
     assert_eq!(runtime.types().len(), before);
@@ -103,7 +108,10 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
 
 #[test]
 fn nested_signature_types_must_be_bound_before_program_publication() {
-    use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+    use kagari_bytecode::{
+        module::BytecodeModule,
+        program::{BytecodeProgram, ModuleRef},
+    };
     let mut runtime = runtime();
     let declaration = function(
         HostValueType::Tuple(vec![HostValueType::Option(Box::new(
@@ -116,7 +124,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
             panic!("linking cannot invoke callbacks")
         }))
         .unwrap();
-    let mut expected_type = kagari_common::host_interface::HostTypeDeclaration::new("export.Alias");
+    let mut expected_type = HostTypeDeclaration::new("export.Alias");
     expected_type.id = host_type_identity("game.Player");
     expected_type.ownership = HostTypeOwnership::HostRoot;
     expected_type.path_access = PathAccess::ReadWrite;
@@ -278,7 +286,7 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
 
 #[test]
 fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
-    use kagari_runtime::{
+    use kagari_runtime::host::{
         DynamicPathArguments, HostPathDescriptorRegistration, HostPathSegmentRegistration,
     };
     let mut local = runtime();
@@ -334,9 +342,14 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
 }
 #[test]
 fn path_fields_are_derived_from_nominal_declarations() {
-    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
-    use kagari_runtime::{
-        HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration, Visibility,
+    use kagari_common::host_interface::type_declaration::{
+        HostFieldDeclaration, HostTypeDeclaration,
+    };
+    use {
+        kagari_common::host_interface::type_declaration::Visibility,
+        kagari_runtime::host::{
+            HostPathDescriptorRegistration, HostPathSegment, HostPathSegmentRegistration,
+        },
     };
     let mut runtime = runtime();
     let mut owner = HostTypeDeclaration::new("game.Player");
@@ -350,11 +363,9 @@ fn path_fields_are_derived_from_nominal_declarations() {
     let disabled = HostFieldDeclaration::new(&owner.id, "disabled", HostValueType::I32);
     owner.fields = vec![hp.clone(), hidden.clone(), disabled.clone()];
     let catalog = HostInterface {
-        paths: vec![kagari_common::host_interface::HostPathDeclaration {
+        paths: vec![HostPathDeclaration {
             root: owner.id.clone(),
-            segments: vec![
-                kagari_common::host_interface::HostPathSegmentDeclaration::Field(hp.id.clone()),
-            ],
+            segments: vec![HostPathSegmentDeclaration::Field(hp.id.clone())],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
             capabilities: CapabilitySet::default(),
@@ -371,12 +382,8 @@ fn path_fields_are_derived_from_nominal_declarations() {
     ] {
         assert!(
             offline
-                .path_contract(&kagari_common::host_interface::HostPathDeclaration {
-                    segments: vec![
-                        kagari_common::host_interface::HostPathSegmentDeclaration::Field(
-                            field.clone()
-                        )
-                    ],
+                .path_contract(&HostPathDeclaration {
+                    segments: vec![HostPathSegmentDeclaration::Field(field.clone())],
                     access,
                     ..offline.paths[0].clone()
                 })
@@ -437,9 +444,12 @@ fn path_fields_are_derived_from_nominal_declarations() {
 }
 #[test]
 fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
-    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
+    use kagari_common::host_interface::type_declaration::{
+        HostFieldDeclaration, HostTypeDeclaration,
+    };
     use kagari_runtime::{
-        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
+        host::{HostPathDescriptorRegistration, HostPathSegmentRegistration},
+        metadata::{TypeKind, TypeRegistration},
     };
     let fingerprint = |padding: usize,
                        docs: &str,
@@ -509,10 +519,11 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
 #[test]
 fn paths_reject_types_without_portable_contracts_before_publication() {
     use kagari_runtime::{
-        HostPathDescriptorRegistration, HostPathSegmentRegistration, TypeKind, TypeRegistration,
+        host::{HostPathDescriptorRegistration, HostPathSegmentRegistration},
+        metadata::{TypeKind, TypeRegistration},
     };
     let mut runtime = runtime();
-    let mut owner = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
+    let mut owner = HostTypeDeclaration::new("game.Player");
     owner.ownership = HostTypeOwnership::HostRoot;
     owner.path_access = PathAccess::ReadOnly;
     let root_type = runtime

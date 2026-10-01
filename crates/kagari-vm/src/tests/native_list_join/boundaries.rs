@@ -1,8 +1,12 @@
 use super::runtime;
-use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use crate::{
+    error::VmError, executor::Executor, reentry::reenter, tests::common::compile_test_bytecode,
+    vm::Vm,
+};
+
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{RuntimeErrorKind, host::HostFunction, value::Value};
+use kagari_runtime::{error::RuntimeErrorKind, host::HostFunction, value::Value};
 use std::{cell::RefCell, rc::Rc};
 pub(super) fn route(program: &BytecodeProgram, encoded: bool) -> BytecodeProgram {
     if encoded {
@@ -75,10 +79,10 @@ fn list_join_reenters_cancels_and_exhausts_every_allocation_limit() {
                                 let depth =
                                     context.runtime().resources().counters().current_call_depth;
                                 assert_eq!(
-                                    crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                                    reenter(context, &root, inner, &[]).unwrap().value(),
                                     Value::I32(42)
                                 );
-                                assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                                assert!(reenter(context, &root, fail, &[]).is_err());
                                 assert_eq!(
                                     context.runtime().resources().counters().current_call_depth,
                                     depth

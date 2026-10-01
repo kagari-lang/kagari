@@ -3,10 +3,18 @@ use kagari_abi::{
     ids::FunctionRef,
     native::{BackendId, ExecutableFunctionArtifact},
 };
-use kagari_bytecode::{ArtifactCompatibility, BytecodeModule, BytecodeProgram, KbcArtifact};
+use kagari_bytecode::{
+    artifact::{ArtifactCompatibility, KbcArtifact},
+    module::BytecodeModule,
+    program::BytecodeProgram,
+};
 use kagari_common::identity::DefinitionId;
 use kagari_runtime::{
-    ExecutionSession, ExecutionTrace, LoadedModule, ReloadValidationError, ResultFailure, Runtime,
+    Runtime,
+    error_trace::ResultFailure,
+    module::LoadedModule,
+    reload::ReloadValidationError,
+    session::{ExecutionSession, ExecutionTrace},
     value::Value,
 };
 use std::{

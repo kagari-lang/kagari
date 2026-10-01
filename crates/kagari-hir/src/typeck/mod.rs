@@ -1,61 +1,53 @@
+#[cfg(test)]
+use crate::hir::ids::HirArenaId;
 use crate::{
     AnalysisResult,
     aggregates::AggregateCatalog,
     declarations::Declarations,
-    hir::{BodySelection, GenericParam},
-    imports::ImportedFunctions,
+    hir::{
+        ids::{BodySelection, ConstId, ExprId, FunctionId, LocalId, ParamId},
+        item::behavior::GenericParam,
+        writeability::Writeability,
+    },
+    imports::functions::ImportedFunctions,
     native::NativeBinding,
-    types::GenericParameterType,
+    typeck::{
+        const_budget::ConstLimits,
+        scalar::ScalarValue,
+        table::{ConstraintTarget, TypeTable},
+    },
+    types::{GenericParameterType, TypeId},
 };
+
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 use smallvec::SmallVec;
-mod applications;
-pub(crate) mod associated_consts;
-mod families;
-mod supertraits;
-pub(crate) use supertraits::trait_supertrait_surface;
-pub(crate) use supertraits::validate as validate_supertraits;
+pub(crate) mod applications;
 pub(crate) mod associated;
-pub(crate) use applications::validate_signatures as validate_signature_applications;
+pub(crate) mod associated_consts;
 mod body;
-mod check;
+pub(crate) mod check;
 mod completion;
-mod const_budget;
+pub mod const_budget;
 mod const_eval;
-pub use const_budget::ConstLimits;
-mod constraints;
+mod families;
+pub(crate) mod supertraits;
+
+pub mod constraints;
 mod inference;
 pub(crate) mod members;
-mod scalar;
+pub mod scalar;
 mod solver;
-pub use scalar::ScalarValue;
-mod reuse;
-mod signature_reuse;
-pub(crate) use signature_reuse::reuse_signatures;
-mod table;
-mod ty;
-pub use reuse::BodyReuse;
 
-use crate::{
-    hir::{ConstId, ExprId, FunctionId, LocalId, ParamId, Writeability},
-    types::TypeId,
-};
+pub mod reuse;
+pub(crate) mod signature_reuse;
+pub mod table;
+mod ty;
+
 use std::collections::HashMap;
 
 pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
 pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;
 pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
-
-pub(crate) use check::possibly_overlapping_impls;
-pub(crate) use check::{check_bodies_controlled, check_signatures};
-pub use constraints::type_satisfies_standard_constraint;
-pub(crate) use table::match_implementation;
-pub use table::{
-    CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor,
-    ResolvedHostPath, ResolvedHostPlacePath, ResolvedInterfaceCoercion,
-    ResolvedInterfaceImplementation, ResolvedIteration, ResolvedStructInit, ResolvedTypeRef,
-    TypeTable, TypeTarget,
-};
 
 #[derive(Debug, Clone)]
 pub struct ModuleSignatures {
@@ -72,8 +64,8 @@ impl ModuleSignatures {
     pub(crate) fn assert_same_source_facts(
         &self,
         other: &Self,
-        arena: crate::hir::HirArenaId,
-        other_arena: crate::hir::HirArenaId,
+        arena: HirArenaId,
+        other_arena: HirArenaId,
     ) {
         let mut functions = self.functions.clone();
         for function in &mut functions {

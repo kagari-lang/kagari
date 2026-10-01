@@ -1,6 +1,8 @@
 //! Requested Rust heap bytes, not allocator overhead, RSS or executable mappings.
-use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 pub struct CountingAllocator;
 static LIVE: AtomicUsize = AtomicUsize::new(0);

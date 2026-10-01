@@ -3,12 +3,15 @@ use kagari_abi::{
     effects::EffectSet,
     representation::ValueType,
 };
-use kagari_common::{Span, cancellation::CancellationToken, identity::DefinitionKind};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind, span::Span};
 use std::{collections::HashSet, ops::Deref};
 
 use crate::{
-    BlockId, LocalId, MirFunction, MirModule, MirValue, TempId, Terminator,
-    analysis::FunctionAnalysis, ids::InstanceId, verify::analysis::Budget,
+    analysis::FunctionAnalysis,
+    function::{MirFunction, MirModule},
+    ids::{BlockId, InstanceId, LocalId, TempId},
+    instruction::{MirValue, Terminator},
+    verify::analysis::Budget,
 };
 
 mod analysis;

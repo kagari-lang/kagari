@@ -1,15 +1,23 @@
 //! Host-facing runtime linking and execution orchestration.
-use crate::context::ExecutionContext;
 use crate::{
     LoadResult, ReloadResult, RunResult,
+    context::ExecutionContext,
     error::{EmbeddingError, RuntimeFailureKind},
     program::PreparedProgram,
 };
+
 use kagari_runtime::{
-    HostFunctionId, HostTypeRegistration, LoadedModule, Runtime, RuntimeError, TypeId,
-    host::HostFunction, value::Value,
+    Runtime,
+    error::RuntimeError,
+    host::{HostFunction, HostFunctionId, HostTypeRegistration},
+    metadata::TypeId,
+    module::LoadedModule,
+    value::Value,
 };
-use kagari_vm::{ExecutionReport, PreparedNativeEntry, Vm, VmError};
+use kagari_vm::{
+    error::VmError,
+    vm::{ExecutionReport, Vm, native::PreparedNativeEntry},
+};
 
 #[derive(Debug)]
 pub struct KagariRuntime {

@@ -1,7 +1,7 @@
 //! Concrete Rust types supply both metadata and checked conversions, including aliases.
 use super::{NativeCall, NativeResult, NativeValue, invalid, named};
 use crate::{
-    native_module::TypeExpression,
+    native_module::types::TypeExpression,
     value::{EnumTag, Value},
 };
 use kagari_abi::{scalar::BuiltinType, standard::surface::StandardEnum, types::AbiType};

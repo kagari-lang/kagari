@@ -1,15 +1,23 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use hir::PlaceKind;
+use kagari_hir::{
+    builtin::traits::StandardTraitSemantics,
+    hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
+    resolver::resolved::ResolvedName,
+    types::{TypeId, abi::lower_nominal_type},
+};
+
 use kagari_abi::{
     numeric::NumericOperation, operations::BinaryOp, representation::ValueType,
     scalar::BuiltinType, standard::traits::StandardTrait, types::NominalAbiType,
 };
 use kagari_common::identity;
-use kagari_hir::types::abi::lower_nominal_type;
-use kagari_hir::{builtin::traits::StandardTraitSemantics, hir, types::TypeId};
+
 use kagari_mir::{
-    AggregateFieldRef, CallTarget, Instruction, LocalId, MirValue, PathRef, ValueBuffer,
-    instruction::InterfaceCallContract,
+    ids::LocalId,
+    instruction::{
+        AggregateFieldRef, CallTarget, Instruction, InterfaceCallContract, MirValue, PathRef,
+        ValueBuffer,
+    },
 };
 use std::ops::ControlFlow;
 
@@ -47,7 +55,7 @@ impl FunctionLowerer<'_, '_> {
     /// `None` means target evaluation terminated control flow; no location exists.
     pub(super) fn prepare_place(
         &mut self,
-        id: hir::PlaceId,
+        id: PlaceId,
     ) -> Result<Option<PreparedPlace>, MirLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_place_path(id).cloned() {
             let Some(prepared) = self.prepare_place_inner(checked.root, true)? else {
@@ -98,7 +106,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn prepare_place_inner(
         &mut self,
-        id: hir::PlaceId,
+        id: PlaceId,
         projected: bool,
     ) -> Result<Option<PreparedPlace>, MirLoweringError> {
         let place = self.analyzed.lowered.module.place(id).clone();
@@ -106,7 +114,7 @@ impl FunctionLowerer<'_, '_> {
             PlaceKind::Name(_) => {
                 let local = self.lookup_binding(self.place_root_resolution(id)?)?;
                 let ty = self.place_type(id)?;
-                let is_cell = matches!(self.place_root_resolution(id)?, kagari_hir::resolver::ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
+                let is_cell = matches!(self.place_root_resolution(id)?, ResolvedName::Local(local_id) if self.cell_locals.contains(&local_id));
                 let root = if projected
                     && matches!(
                         self.analyzed.typed.type_table.place_type(id),
@@ -284,7 +292,7 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn commit_place(
         &mut self,
         place: PreparedPlace,
-        op: Option<hir::BinaryOp>,
+        op: Option<HirBinaryOp>,
         numeric: Option<NumericOperation>,
         rhs: MirValue,
     ) -> Result<(), MirLoweringError> {

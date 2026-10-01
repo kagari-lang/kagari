@@ -1,15 +1,21 @@
 //! Check type-family contracts under their own declaration-owned binders.
 
 use super::applications;
-use super::{ConstraintTarget, ModuleSignatures};
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
     declarations::Declarations,
     lower::LoweredModule,
+    typeck::{
+        ModuleSignatures, constraints::type_satisfies_standard_constraint, table::ConstraintTarget,
+    },
     types::{TypeId, TypeSubstitution},
 };
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+
+use kagari_common::{
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
+};
 
 pub(super) fn validate(
     lowered: &LoweredModule,
@@ -117,7 +123,7 @@ pub(super) fn validate(
             }
             for required in contract.associated_types.get(member).into_iter().flatten() {
                 let satisfies = match normalize_bound(required) {
-                    ConstraintTarget::Standard(required) => super::type_satisfies_standard_constraint(&output, required, &available),
+                    ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(&output, required, &available),
                     ConstraintTarget::Trait(required) => {
                         available.get(&output).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(&required))))
                             || catalog.intrinsic_implementation(&required, &output, &available) || catalog.concrete_interface_implementation(&required, &output, &available, 100_000, 64, cancel).ok().flatten().is_some()

@@ -1,7 +1,6 @@
 use crate::{
     ast::{
-        ast_node,
-        expr::{BlockExpr, Expr},
+        expr::{BlockExpr, Expr, Literal},
         misc::{
             FieldList, GenericParamList, Name, ParamList, Path, TraitBoundList, TraitRef,
             VariantList, WhereClause,
@@ -13,6 +12,7 @@ use crate::{
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
+
 use rowan::NodeOrToken;
 
 ast_node!(SourceFile, SourceFile);
@@ -175,7 +175,7 @@ impl AttributeArg {
 }
 
 impl AttributeValue {
-    pub fn literal(&self) -> Option<super::Literal> {
+    pub fn literal(&self) -> Option<Literal> {
         support::child(self.syntax())
     }
 

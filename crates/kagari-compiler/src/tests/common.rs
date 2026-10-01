@@ -1,15 +1,18 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_bytecode::BytecodeProgram;
+use kagari_hir::{
+    CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, profile::LanguageFeatureProfile,
+    program::CheckedProgram,
+};
+
+use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::{
-    SourceFile,
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_hir::{
-    CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
-};
+
 use kagari_mir::{
-    VerifiedMirModule,
     program::{VerifiedMirProgram, verify_program},
+    verify::VerifiedMirModule,
 };
 
 pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
@@ -18,7 +21,7 @@ pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     Box::new(
         analyze_source(
             &source,
-            kagari_hir::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_host_calls: true,
                 allow_reflection: true,
                 allow_reflection_write: true,
@@ -38,7 +41,7 @@ pub fn program_ok(text: &str) -> CheckedProgram {
     let snapshot = AnalysisDatabase::default()
         .snapshot(
             sources.snapshot(),
-            kagari_hir::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_host_calls: true,
                 allow_reflection: true,
                 allow_reflection_write: true,

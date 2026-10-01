@@ -2,10 +2,14 @@ use super::{
     cases::{OPERATIONS, TYPES},
     runtime,
 };
-use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use crate::{
+    error::VmError, executor::Executor, reentry::reenter, tests::common::compile_test_bytecode,
+    vm::Vm,
+};
+
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{Runtime, RuntimeErrorKind, host::HostFunction, value::Value};
+use kagari_runtime::{Runtime, error::RuntimeErrorKind, host::HostFunction, value::Value};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -166,10 +170,10 @@ fn fail()->i32{{val x=2147483647;x+1}}fn ready()->i32{{7}}
                                     let depth =
                                         context.runtime().resources().counters().current_call_depth;
                                     assert_eq!(
-                                        crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                                        reenter(context, &root, inner, &[]).unwrap().value(),
                                         Value::I32(42)
                                     );
-                                    assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                                    assert!(reenter(context, &root, fail, &[]).is_err());
                                     assert_eq!(
                                         context.runtime().resources().counters().current_call_depth,
                                         depth

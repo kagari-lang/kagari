@@ -1,8 +1,11 @@
 use super::*;
-use crate::{PreparedNativeEntry, tests::native_fixtures};
+use {crate::error::VmError, kagari_common::host_interface::value_type::HostValueType};
+use {crate::reentry::reenter, kagari_runtime::host::HostPathDescriptorId};
 
-use kagari_bytecode::{BytecodeProgram, ModuleRef};
-use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
+use crate::{tests::native_fixtures, vm::native::PreparedNativeEntry};
+
+use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_runtime::backend::{BackendInvocationError, native::NativeInvocationFailure};
 
 #[test]
 fn executes_runtime_host_helper_call() {
@@ -14,16 +17,16 @@ fn executes_runtime_host_helper_call() {
                 vec![
                     kagari_common::host_interface::HostParameter {
                         name: "lhs".into(),
-                        ty: kagari_common::host_interface::HostValueType::I32,
+                        ty: HostValueType::I32,
                         passing: kagari_common::host_interface::HostPassingStyle::Owned,
                     },
                     kagari_common::host_interface::HostParameter {
                         name: "rhs".into(),
-                        ty: kagari_common::host_interface::HostValueType::I32,
+                        ty: HostValueType::I32,
                         passing: kagari_common::host_interface::HostPassingStyle::Owned,
                     },
                 ],
-                kagari_common::host_interface::HostValueType::I32,
+                HostValueType::I32,
             ),
             |_, args| match args {
                 [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
@@ -35,8 +38,8 @@ fn executes_runtime_host_helper_call() {
     let loaded = runtime
         .load_program(
             "helper.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     test_function_module(
                         "main",
@@ -66,16 +69,16 @@ fn executes_runtime_host_helper_call() {
                         vec![
                             kagari_common::host_interface::HostParameter {
                                 name: "lhs".into(),
-                                ty: kagari_common::host_interface::HostValueType::I32,
+                                ty: HostValueType::I32,
                                 passing: kagari_common::host_interface::HostPassingStyle::Owned,
                             },
                             kagari_common::host_interface::HostParameter {
                                 name: "rhs".into(),
-                                ty: kagari_common::host_interface::HostValueType::I32,
+                                ty: HostValueType::I32,
                                 passing: kagari_common::host_interface::HostPassingStyle::Owned,
                             },
                         ],
-                        kagari_common::host_interface::HostValueType::I32,
+                        HostValueType::I32,
                     )],
                 )],
             },
@@ -90,7 +93,7 @@ fn executes_runtime_host_helper_call() {
 
 #[test]
 fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_execution() {
-    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::artifact::KbcArtifact;
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
@@ -101,7 +104,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let write_hp = hp.clone();
             runtime
                 .register_host_path_adapter(
-                    kagari_runtime::HostPathDescriptorId::new(0),
+                    HostPathDescriptorId::new(0),
                     HostPathAdapter::new()
                         .with_read(|_, _| Ok(Value::I32(10)))
                         .with_prepare_write(move |_, _, record| {
@@ -169,7 +172,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                 vm.execute(&loaded, "main").unwrap_err()
             };
             assert!(
-                matches!(error, crate::VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
+                matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
             );
             assert!(vm.runtime().is_quarantined());
             assert_eq!(
@@ -189,7 +192,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
                     .unwrap_err(),
             ] {
                 assert!(
-                    matches!(error, crate::VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
+                    matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
                 );
             }
             assert!(matches!(vm.runtime().invoke_native_function(&native),
@@ -205,7 +208,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
 
 #[test]
 fn typed_path_callbacks_reenter_the_root_session_before_commit() {
-    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::artifact::KbcArtifact;
     use std::{cell::RefCell, rc::Rc};
     fn reenter(call: &kagari_runtime::host::HostCallContext<'_>, function: FunctionRef) {
         let root = call.runtime().execution_root().unwrap();
@@ -214,7 +217,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             .begin_execution(&root, call.runtime().execution_options())
             .unwrap();
         assert_eq!(scope.host_scope_count(), 2);
-        let value = crate::reenter(call, &root, function, &[]).unwrap();
+        let value = reenter(call, &root, function, &[]).unwrap();
         call.runtime().collect_garbage().unwrap();
         let Value::Array(array) = value.value() else {
             panic!("array")
@@ -237,7 +240,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                 .find(|f| f.name == "compute")
                 .unwrap()
                 .id;
-            let descriptor = kagari_runtime::HostPathDescriptorId::new(0);
+            let descriptor = HostPathDescriptorId::new(0);
             let root = runtime.host().root(HostObjectId(1)).unwrap();
             let stages = Rc::new(RefCell::new(Vec::new()));
             let validation = stages.clone();
@@ -330,8 +333,8 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
     let loaded = runtime
         .load_program(
             "paths.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![path_module(
                     &runtime,
                     "main",
@@ -399,8 +402,8 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
     let error = runtime
         .load_program(
             "readonly_path.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![path_module(
                     &runtime,
                     "main",
@@ -445,8 +448,8 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
     let loaded = runtime
         .load_program(
             "path_capability.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![path_module(
                     &runtime,
                     "main",
@@ -477,7 +480,7 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
 
     assert!(matches!(
         error,
-        crate::VmError::RuntimeError(ref error)
+        VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::CapabilityDenied
                 && error.message().contains("fs_read")
     ));
@@ -485,13 +488,13 @@ fn typed_path_helpers_enforce_runtime_capability_boundary() {
 
 #[test]
 fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
-    use kagari_bytecode::KbcArtifact;
+    use kagari_bytecode::artifact::KbcArtifact;
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
             let original = runtime
                 .host()
-                .path_descriptor(kagari_runtime::HostPathDescriptorId::new(0))
+                .path_descriptor(HostPathDescriptorId::new(0))
                 .unwrap()
                 .clone();
             let declaration = runtime
@@ -598,11 +601,13 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
-    use kagari_common::host_interface::{HostIndexSegmentDeclaration, HostValueType};
+    use kagari_common::host_interface::{
+        path::HostIndexSegmentDeclaration, value_type::HostValueType,
+    };
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let field = runtime
         .host()
-        .path_descriptor(kagari_runtime::HostPathDescriptorId::new(0))
+        .path_descriptor(HostPathDescriptorId::new(0))
         .unwrap()
         .clone();
     let target = runtime

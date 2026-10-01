@@ -2,23 +2,28 @@
 
 use super::const_budget::ConstBudget;
 use crate::{
-    hir::{BinaryOp, ConstId, ExprId, ExprKind, PrefixOp},
+    hir::{
+        expr::{
+            ExprKind,
+            ops::{BinaryOp, PrefixOp},
+        },
+        ids::{ConstId, ExprId},
+    },
     lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
+    resolver::resolved::{ResolvedName, ResolvedNames},
+    typeck::{scalar::ScalarValue, table::TypeTable},
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
-    Diagnostic, DiagnosticKind,
     arithmetic::{self, IntegerBinaryOp},
     cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
     integer::{self, IntegerOp},
 };
 use std::collections::HashMap;
 
 use smallvec::SmallVec;
-
-use super::{ScalarValue, TypeTable};
 
 pub(super) fn evaluate_constants(
     lowered: &LoweredModule,

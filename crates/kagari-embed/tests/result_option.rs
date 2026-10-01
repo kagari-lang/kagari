@@ -1,5 +1,12 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    error::EmbeddingError,
+    program::PreparedProgram,
+};
+
 use kagari_runtime::value::Value;
 
 #[test]
@@ -41,7 +48,7 @@ fn fail(error: Source) -> Result<i32, Target> {
 fn main() -> Result<i32, Target> { fail(Source { calls: 0 }) }
 fn after() -> i32 { 42 }
 "#;
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -83,7 +90,7 @@ fn after() -> i32 { 42 }
 }
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -103,9 +110,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -333,7 +340,7 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
                 Default::default(),
             )
             .unwrap_err();
-        let kagari_embed::EmbeddingError::Diagnostics { diagnostics } = error else {
+        let EmbeddingError::Diagnostics { diagnostics } = error else {
             panic!("{source}: {error:?}");
         };
         assert!(
@@ -389,7 +396,7 @@ fn malformed_standard_enum_operations_are_rejected_before_execution() {
         operations::StandardEnumOp, scalar::BuiltinType,
         standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
     };
-    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::instruction::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),

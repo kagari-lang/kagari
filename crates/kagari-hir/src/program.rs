@@ -4,14 +4,17 @@ use crate::typeck::TypedFunction;
 use std::collections::HashMap;
 
 use kagari_common::{
-    Diagnostic, Severity,
+    diagnostic::{Diagnostic, Severity},
     identity::{FileId, ModuleIdentity, Revision},
 };
 
-use crate::{
-    CheckedAnalysis,
-    analysis::{AnalysisSnapshot, CancellationToken},
-    imports::{ModuleOrderError, SourceFunctionId},
+use {
+    crate::{
+        CheckedAnalysis,
+        analysis::AnalysisSnapshot,
+        imports::{ModuleOrderError, functions::SourceFunctionId},
+    },
+    kagari_common::cancellation::CancellationToken,
 };
 
 #[derive(Debug, Clone)]

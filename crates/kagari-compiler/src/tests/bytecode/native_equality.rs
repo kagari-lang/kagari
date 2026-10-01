@@ -10,7 +10,7 @@ use kagari_abi::{
     },
     types::AbiType,
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 
 fn reject(artifact: &KbcArtifact, label: &str) {
     assert!(verify_program(&artifact.program).is_err(), "{label}");

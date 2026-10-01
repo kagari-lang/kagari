@@ -1,14 +1,15 @@
 use super::*;
+use {
+    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
+    kagari_common::host_interface::value_type::HostValueType,
+    kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+};
 
 #[test]
 fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
-    let mut metadata = HostFunctionDeclaration::new(
-        "host.secure",
-        vec![],
-        kagari_common::host_interface::HostValueType::I32,
-    );
+    let mut metadata = HostFunctionDeclaration::new("host.secure", vec![], HostValueType::I32);
     metadata.capability_requirements = CapabilitySet {
         fs_read: true,
         ..CapabilitySet::default()
@@ -26,8 +27,8 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let loaded = runtime
         .load_program(
             "host_capability.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     verified_module(vec![test_function(
                         0,
@@ -69,18 +70,14 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
 fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
-    let mut metadata = HostFunctionDeclaration::new(
-        "host.costly",
-        vec![],
-        kagari_common::host_interface::HostValueType::I32,
-    );
+    let mut metadata = HostFunctionDeclaration::new("host.costly", vec![], HostValueType::I32);
     metadata.resource_cost_hint = Some(2);
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
+        security: SecurityContext {
+            profile: LanguageProfile {
                 allow_host_calls: true,
-                ..kagari_runtime::LanguageProfile::default()
+                ..LanguageProfile::default()
             },
             capabilities: CapabilitySet {
                 host_calls: true,
@@ -91,9 +88,9 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
             max_instruction_steps: Some(2),
             ..ResourcePolicy::default()
         },
-        host_exposure: kagari_runtime::HostExposurePolicy {
+        host_exposure: HostExposurePolicy {
             allowed_host_functions: vec!["host.costly".to_owned()],
-            ..kagari_runtime::HostExposurePolicy::default()
+            ..HostExposurePolicy::default()
         },
         ..RuntimeConfig::default()
     });
@@ -108,8 +105,8 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let loaded = runtime
         .load_program(
             "host_cost.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     verified_module(vec![test_function(
                         0,
@@ -152,10 +149,10 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     let calls_for_host = Arc::clone(&calls);
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
+        security: SecurityContext {
+            profile: LanguageProfile {
                 allow_host_calls: true,
-                ..kagari_runtime::LanguageProfile::default()
+                ..LanguageProfile::default()
             },
             capabilities: CapabilitySet {
                 host_calls: true,
@@ -166,9 +163,9 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
             max_host_calls: Some(0),
             ..ResourcePolicy::default()
         },
-        host_exposure: kagari_runtime::HostExposurePolicy {
+        host_exposure: HostExposurePolicy {
             allowed_host_functions: vec!["host.limited".to_owned()],
-            ..kagari_runtime::HostExposurePolicy::default()
+            ..HostExposurePolicy::default()
         },
         ..RuntimeConfig::default()
     });
@@ -177,7 +174,7 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.limited",
                 vec![],
-                kagari_common::host_interface::HostValueType::I32,
+                HostValueType::I32,
             ),
             move |_, _| {
                 *calls_for_host
@@ -190,8 +187,8 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     let loaded = runtime
         .load_program(
             "host_call_limit.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     verified_module(vec![test_function(
                         0,
@@ -212,7 +209,7 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
                     vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                         "host.limited",
                         vec![],
-                        kagari_common::host_interface::HostValueType::I32,
+                        HostValueType::I32,
                     )],
                 )],
             },

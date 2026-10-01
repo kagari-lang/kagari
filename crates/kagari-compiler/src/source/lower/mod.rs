@@ -1,15 +1,25 @@
-use crate::source::types::raise_type;
+use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
 use kagari_abi::{
     host as module_host,
     types::{ConcreteFunctionIdentity, PublicAbiItem},
 };
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
-    CheckedAnalysis, aggregates::AggregateCatalog, imports::ImportTarget,
+    CheckedAnalysis,
+    aggregates::AggregateCatalog,
+    hir::{
+        ids::{ExprId, FunctionId, LocalId, PlaceId},
+        item::function::FunctionKind,
+    },
+    imports::ImportTarget,
     typeck::FunctionImplementation,
 };
-use kagari_mir::MirVerificationError;
+use kagari_mir::{
+    function::MirModule,
+    passes::optimize,
+    verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir},
+};
 use std::{
     collections::{BTreeSet, HashSet},
     slice,
@@ -20,18 +30,12 @@ mod expr;
 mod function;
 mod host;
 mod host_interfaces;
-mod instances;
+pub mod instances;
 mod layouts;
 mod place;
 mod state;
 mod stmt;
 mod support;
-
-pub use instances::MirLoweringOptions;
-use kagari_hir::hir::{ExprId, FunctionId, FunctionKind, LocalId, PlaceId};
-use kagari_mir::{
-    MirModule, MirVerificationErrorKind, VerifiedMirModule, passes::optimize, verify_mir,
-};
 
 #[derive(Debug)]
 pub enum MirLoweringError {

@@ -4,8 +4,11 @@ mod associated;
 mod methods;
 
 use crate::{
-    BytecodeInstruction, BytecodeModule, BytecodeProgram, BytecodeVerificationError,
+    instruction::BytecodeInstruction,
+    module::BytecodeModule,
+    program::BytecodeProgram,
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
+    verifier::BytecodeVerificationError,
 };
 use kagari_abi::{
     standard::traits::StandardTrait,

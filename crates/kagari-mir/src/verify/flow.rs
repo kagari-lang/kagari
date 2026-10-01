@@ -1,7 +1,9 @@
 use std::{collections::VecDeque, mem};
 
 use crate::{
-    BlockId, Instruction, MirFunction,
+    function::MirFunction,
+    ids::BlockId,
+    instruction::Instruction,
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error, analysis::Budget},
 };
 

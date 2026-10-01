@@ -1,16 +1,32 @@
-use kagari_bytecode as bytecode;
+use kagari_bytecode::{
+    self as bytecode,
+    artifact::ArtifactFingerprint,
+    instruction::{BytecodeInstruction, ConstantOperand},
+    verifier::BytecodeVerificationError,
+};
+
+use {
+    kagari_bytecode::{
+        instruction::{BinaryOp as KagaribytecodeBinaryOp, EnumId},
+        program::{ModuleRef, verify_program},
+    },
+    kagari_mir::instruction::PathRef,
+};
+
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
 use kagari_hir::types::abi::lower_type;
 
-use crate::{lower_to_mir, tests::common};
+use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_abi::{
     callable::NativeCall, contracts::ContractError, effects::EffectSet, operations::BinaryOp,
     representation::ValueType,
 };
-use kagari_bytecode::{BytecodeInstruction, ConstantOperand};
+
 use kagari_mir::{
-    BlockId, CallTarget, Constant, Instruction, LocalId, MirModule, MirTemp, MirValue,
-    MirVerificationErrorKind as Error, TempId, Terminator, ids::InstanceId, verify_mir,
+    function::{MirModule, MirTemp},
+    ids::{BlockId, InstanceId, LocalId, TempId},
+    instruction::{CallTarget, Constant, Instruction, MirValue, Terminator},
+    verify::{MirVerificationErrorKind as Error, verify_mir},
 };
 
 fn raw(source: &str) -> MirModule {
@@ -39,7 +55,7 @@ fn integer_constants_must_match_semantic_range_and_representation() {
             }
         }
         assert!(replaced, "{source}");
-        assert!(bytecode::verify_program(&bytecode).is_err(), "{source}");
+        assert!(verify_program(&bytecode).is_err(), "{source}");
     }
 }
 
@@ -70,7 +86,7 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
         } else {
             *position = 1;
         }
-        assert!(bytecode::verify_program(&bytecode).is_err());
+        assert!(verify_program(&bytecode).is_err());
     }
 }
 
@@ -102,7 +118,7 @@ fn template_parameters_cannot_enter_executable_layout_arguments() {
             };
             layout.variants.clear();
         }
-        assert!(bytecode::verify_program(&bytecode).is_err());
+        assert!(verify_program(&bytecode).is_err());
     }
 }
 
@@ -144,8 +160,8 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
     assert_eq!(bincode::deserialize::<AbiType>(&bytes).unwrap(), encoded);
     let bare = &module.enumerations[enumeration].variants[0].payload[0];
     assert_ne!(
-        bytecode::ArtifactFingerprint::of_serialized(&encoded),
-        bytecode::ArtifactFingerprint::of_serialized(bare)
+        ArtifactFingerprint::of_serialized(&encoded),
+        ArtifactFingerprint::of_serialized(bare)
     );
     module.enumerations[enumeration].variants[0].payload[0] = encoded.clone();
     assert_eq!(reject(module), Error::InvalidEnumLayout);
@@ -159,8 +175,8 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
         .variants[0]
         .payload[0] = encoded;
     assert_eq!(
-        bytecode::verify_program(&bytecode).unwrap_err(),
-        bytecode::BytecodeVerificationError::InvalidEnumLayout
+        verify_program(&bytecode).unwrap_err(),
+        BytecodeVerificationError::InvalidEnumLayout
     );
 }
 
@@ -175,8 +191,8 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     };
     ty.variants[0].payload.clear();
     assert_eq!(
-        bytecode::verify_program(&public).unwrap_err(),
-        bytecode::BytecodeVerificationError::InvalidEnumLayout
+        verify_program(&public).unwrap_err(),
+        BytecodeVerificationError::InvalidEnumLayout
     );
     let mut module = raw(source);
     let enumeration = module
@@ -223,13 +239,13 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
             } = instruction
             {
                 match mode {
-                    0 => *enumeration = kagari_bytecode::EnumId::new(99),
+                    0 => *enumeration = EnumId::new(99),
                     1 => *variant = 99,
                     _ => fields.clear(),
                 }
             }
         }
-        assert!(bytecode::verify_program(&bad).is_err());
+        assert!(verify_program(&bad).is_err());
     }
     let mut second = good.modules[good.root.index()].clone();
     second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
@@ -241,15 +257,15 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     }
     second.dependencies.push(good.root);
     let mut program = good;
-    program.root = bytecode::ModuleRef::new(program.modules.len());
+    program.root = ModuleRef::new(program.modules.len());
     program.modules.push(second);
-    kagari_bytecode::verify_program(&program).unwrap();
+    verify_program(&program).unwrap();
     program.modules[program.root.index()].enumerations[enumeration].variants[0]
         .payload
         .clear();
     assert_eq!(
-        bytecode::verify_program(&program).unwrap_err(),
-        bytecode::BytecodeVerificationError::InvalidEnumLayout
+        verify_program(&program).unwrap_err(),
+        BytecodeVerificationError::InvalidEnumLayout
     );
 }
 
@@ -640,12 +656,12 @@ fn ir_and_bytecode_share_numeric_operation_contracts() {
     let mut bytecode = common::bytecode_ok("fn main() -> bool { true == false }");
     for instruction in &mut bytecode.modules[bytecode.root.index()].functions[0].instructions {
         if let BytecodeInstruction::Binary { op, .. } = instruction {
-            *op = kagari_bytecode::BinaryOp::Add;
+            *op = KagaribytecodeBinaryOp::Add;
         }
     }
     assert!(matches!(
-        bytecode::verify_program(&bytecode),
-        Err(bytecode::BytecodeVerificationError::InvalidOperation { .. })
+        verify_program(&bytecode),
+        Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 }
 
@@ -676,7 +692,7 @@ fn readonly_path_modification_is_rejected_before_effects_or_flow() {
     block.instructions.push(Instruction::ModifyPath {
         dst: Some(value),
         root_or_view: value,
-        path: kagari_mir::PathRef {
+        path: PathRef {
             declaration: None,
             contract_fingerprint: 0,
             root_ty: ValueType::I32,
@@ -784,8 +800,8 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                 Error::InvalidPublicAbi
             );
             assert_eq!(
-                bytecode::verify_program(&invalid_bytecode),
-                Err(bytecode::BytecodeVerificationError::InvalidPublicAbi)
+                verify_program(&invalid_bytecode),
+                Err(BytecodeVerificationError::InvalidPublicAbi)
             );
         }
     }

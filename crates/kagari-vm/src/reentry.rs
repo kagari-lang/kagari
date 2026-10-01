@@ -1,9 +1,9 @@
 use kagari_abi::ids::FunctionRef;
 use kagari_runtime::{
-    LoadedModule, RuntimeError, gc::RootedValue, host::HostCallContext, value::Value,
+    error::RuntimeError, gc::RootedValue, host::HostCallContext, module::LoadedModule, value::Value,
 };
 
-use crate::{VmError, executor::Executor};
+use crate::{error::VmError, executor::Executor};
 
 /// Synchronously call a function in the root call's pinned program.
 /// Host callbacks keep returned heap objects alive through this owned root.

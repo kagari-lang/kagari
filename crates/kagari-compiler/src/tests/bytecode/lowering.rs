@@ -1,8 +1,11 @@
 use crate::tests::bytecode::*;
-use kagari_abi::native_import::EngineNativeOperation;
-use kagari_abi::{budget::LogicalBudgetCharge, effects::EffectSet};
-use kagari_bytecode as bytecode;
-use kagari_bytecode::verify_program;
+use kagari_abi::{
+    budget::LogicalBudgetCharge, effects::EffectSet, native_import::EngineNativeOperation,
+};
+
+use kagari_bytecode::{
+    self as bytecode, instruction::ConstantOperand, module::FunctionRecord, program::verify_program,
+};
 
 #[test]
 fn lowers_function_metadata_into_bytecode() {
@@ -176,7 +179,7 @@ fn main() -> i32 {
             .iter()
             .any(|constant| matches!(
                 constant,
-                bytecode::ConstantOperand::Str(text) if text == "ok"
+                ConstantOperand::Str(text) if text == "ok"
             ))
     );
     assert!(
@@ -393,7 +396,7 @@ fn verifier_accepts_resolved_typed_path_instructions() {
             read_only: false,
             debug_name: "Actor.health".to_owned(),
         }],
-        function_table: vec![bytecode::FunctionRecord {
+        function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "read_health".to_owned(),

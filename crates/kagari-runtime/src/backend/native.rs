@@ -1,6 +1,5 @@
 //! Installation and invocation of trusted compiler products without a compiler dependency.
-use std::mem;
-use std::{rc::Rc, sync::Arc};
+use std::{mem, rc::Rc, sync::Arc};
 
 use kagari_abi::{
     native::{ExecutableEntryPoint, ExecutableFunctionArtifact, NativeCompilationProduct},
@@ -14,8 +13,10 @@ use kagari_abi::{
 };
 
 use crate::{
-    ErrorTrace, Runtime, RuntimeError, RuntimeErrorKind,
+    Runtime,
     backend::BackendInvocationError,
+    error::{RuntimeError, RuntimeErrorKind},
+    error_trace::ErrorTrace,
     jit_abi::decode_native_value,
     module::{LoadedModule, ModuleEpochRetention, ModuleKey, ModuleStore},
     value::Value,

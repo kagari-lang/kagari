@@ -7,8 +7,8 @@ use kagari_abi::{
     },
     operations::{BinaryOp, UnaryOp},
 };
-use kagari_codegen::BackendCompileError;
-use kagari_mir::{Constant, TempId};
+use kagari_codegen::diagnostic::BackendCompileError;
+use kagari_mir::{ids::TempId, instruction::Constant};
 use std::mem::offset_of;
 
 #[derive(Debug, Clone, Copy)]

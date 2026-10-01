@@ -2,12 +2,12 @@ use super::*;
 use crate::{
     declarations::DeclarationId,
     native::NativeBinding,
-    typeck::{FunctionImplementation, reuse_signatures},
+    typeck::{FunctionImplementation, signature_reuse::reuse_signatures},
     types::TypeId,
 };
 use kagari_abi::{callable::EngineNativeBinding, scalar::BuiltinType};
 use kagari_common::{
-    DiagnosticKind,
+    diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
 
@@ -261,7 +261,7 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
 
 #[test]
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
-    use crate::typeck::ConstraintTarget;
+    use crate::typeck::table::ConstraintTarget;
     for header in [
         "impl<T: Eq + Hash> LinkedHashSet<T>",
         "impl<T> LinkedHashSet<T> where T: Eq + Hash",

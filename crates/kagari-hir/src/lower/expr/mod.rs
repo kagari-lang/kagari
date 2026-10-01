@@ -1,28 +1,36 @@
-use crate::hir::{Literal, LiteralKind, TypeData, TypeKind};
-use ast::{Expr, Interpolation};
-use kagari_common::Span;
-mod literal;
-mod pattern;
-
-use kagari_syntax::{
-    ast::{self, AstNode},
-    kind::SyntaxKind,
-};
-use smallvec::{SmallVec, smallvec};
-
 use crate::{
     hir::{
-        BlockData, ClosureParam, Condition, ExprData, ExprId, ExprKind, FieldInit, MatchArm,
-        PrefixOp,
+        expr::{
+            ClosureParam, Condition, ExprData, ExprKind, FieldInit, MatchArm,
+            literal::{Literal, LiteralKind},
+            ops::PrefixOp,
+        },
+        ids::ExprId,
+        stmt::BlockData,
+        ty::{TypeData, TypeKind},
     },
     lower::context::{Lowerer, lower_binary_op, syntax_span, token_span},
 };
+use kagari_syntax::{
+    ast::{
+        expr::{BindingCondition, Expr, Interpolation},
+        traits::AstNode,
+    },
+    kind::SyntaxKind,
+};
+
+use kagari_common::span::Span;
+
+mod literal;
+mod pattern;
+
+use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
     pub(crate) fn lower_condition(
         &mut self,
-        binding: Option<ast::BindingCondition>,
-        plain: Option<ast::Expr>,
+        binding: Option<BindingCondition>,
+        plain: Option<Expr>,
     ) -> Condition {
         if let Some(binding) = binding {
             Condition::Binding {
@@ -45,7 +53,7 @@ impl Lowerer {
         }
     }
 
-    pub(crate) fn lower_expr(&mut self, expr: &ast::Expr) -> ExprId {
+    pub(crate) fn lower_expr(&mut self, expr: &Expr) -> ExprId {
         if self.cancel.check().is_err() {
             return self.missing_expr();
         }

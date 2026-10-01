@@ -3,8 +3,10 @@ use kagari_abi::{
     standard::traits::{self as standard_traits, StandardTrait},
     types::{AbiType, PublicAbiItem},
 };
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, KagariEngine, program::PreparedProgram};
+use {kagari_bytecode::instruction::EnumId, kagari_runtime::module::LoadedModule};
+
+use kagari_common::source::SourceFile;
+use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine
@@ -16,26 +18,21 @@ fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     engine.emit_bytecode(&checked, Default::default()).unwrap()
 }
 
-fn variant(
-    module: &kagari_runtime::LoadedModule,
-    name: &str,
-) -> kagari_runtime::module::EnumVariantRef {
+fn variant(module: &LoadedModule, name: &str) -> kagari_runtime::module::EnumVariantRef {
     let slot = module
         .bytecode
         .enumerations
         .iter()
         .position(|layout| layout.declaration.path.last().unwrap().name == name)
         .unwrap();
-    module
-        .enum_variant(kagari_bytecode::EnumId::new(slot), 0)
-        .unwrap()
+    module.enum_variant(EnumId::new(slot), 0).unwrap()
 }
 
 #[test]
 fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     use kagari_runtime::{
-        RuntimeErrorKind,
         builtin::invoke_standard,
+        error::RuntimeErrorKind,
         value::{EnumTag, Value},
         value_semantics::script_equal,
     };

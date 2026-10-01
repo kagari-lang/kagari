@@ -1,11 +1,13 @@
 use super::*;
 use crate::{
-    hir::ExprKind,
-    resolver::{NameResolution, ResolvedName},
+    hir::expr::ExprKind,
+    profile::LanguageFeatureProfile,
+    resolver::{resolved::ResolvedName, table::NameResolution},
 };
+
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
-    host_interface::{HostFunctionDeclaration, HostInterface, HostValueType},
+    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
@@ -50,7 +52,7 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(
         sources.snapshot(),
-        crate::LanguageFeatureProfile {
+        LanguageFeatureProfile {
             allow_host_calls: true,
             ..Default::default()
         },

@@ -13,7 +13,9 @@ use crate::{
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     host_interface::{
-        HostInterface, HostTraitImplementationDeclaration, HostTypeDeclaration, HostValueType,
+        HostInterface,
+        type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     },
     identity::{DefinitionId, DefinitionKind, ModuleIdentity},
 };

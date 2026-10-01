@@ -1,6 +1,5 @@
 //! Run with `cargo run -p kagari-runtime --example collection_iteration`.
-use kagari_runtime::Runtime;
-use kagari_runtime::value::Value;
+use kagari_runtime::{Runtime, error::RuntimeErrorKind, value::Value};
 
 fn main() {
     let runtime = Runtime::default();
@@ -12,7 +11,7 @@ fn main() {
     gc.array_set(id, 0, Value::I32(42)).unwrap();
     assert_eq!(
         gc.array_set(id, 1, Value::I32(9)).unwrap_err().kind(),
-        kagari_runtime::RuntimeErrorKind::IndexOutOfBounds,
+        RuntimeErrorKind::IndexOutOfBounds,
     );
     assert_eq!(gc.array_get(id, 0), Some(Value::I32(42)));
     assert!(gc.array_push(id, Value::I32(2)).is_err());

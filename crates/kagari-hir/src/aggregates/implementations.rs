@@ -1,15 +1,24 @@
 use crate::{
-    aggregates::{AggregateCatalog, MethodDefault},
+    aggregates::{
+        AggregateCatalog,
+        traits::{MethodDefault, MethodSignature},
+    },
     builtin::{
         numeric,
         traits::{self, StandardTraitSemantics},
     },
     declarations::Declarations,
     lower::LoweredModule,
-    resolver::ResolvedName,
-    typeck::{self, ConstraintTarget, GenericBounds, ModuleSignatures, associated},
+    resolver::resolved::ResolvedName,
+    typeck::{
+        GenericBounds, ModuleSignatures, associated,
+        check::possibly_overlapping_impls,
+        constraints::type_satisfies_standard_constraint,
+        table::{ConstraintTarget, match_implementation},
+    },
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
+
 use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -79,10 +88,7 @@ impl AggregateCatalog {
             };
             if self.implementations.values().any(|candidate| {
                 candidate.trait_type.declaration == standard_traits::identity(other)
-                    && typeck::possibly_overlapping_impls(
-                        &candidate.for_type,
-                        &implementation.for_type,
-                    )
+                    && possibly_overlapping_impls(&candidate.for_type, &implementation.for_type)
             }) {
                 return Some("Iterator already supplies identity Iterable");
             }
@@ -106,7 +112,7 @@ impl AggregateCatalog {
                         (source, TypeId::Generic(_)) => {
                             !occurs_in_constructor(&implementation.for_type, source)
                         }
-                        _ => typeck::possibly_overlapping_impls(input, &implementation.for_type),
+                        _ => possibly_overlapping_impls(input, &implementation.for_type),
                     }
                 })
         {
@@ -380,7 +386,7 @@ impl AggregateCatalog {
                     .cloned();
             }
             let script = self.implementations.values().filter_map(|implementation| {
-                let substitution = typeck::match_implementation(
+                let substitution = match_implementation(
                     &implementation.trait_type,
                     interface,
                     &implementation.for_type,
@@ -439,10 +445,7 @@ impl AggregateCatalog {
                         .arguments
                         .iter()
                         .all(TypeId::is_concrete))
-                    && typeck::possibly_overlapping_impls(
-                        &candidate.for_type,
-                        &implementation.for_type,
-                    )
+                    && possibly_overlapping_impls(&candidate.for_type, &implementation.for_type)
             }) {
                 overlaps.push((conflict, implementation.as_ref()));
             }
@@ -559,7 +562,7 @@ impl AggregateCatalog {
     pub fn default_method(
         &self,
         target: &DefinitionId,
-    ) -> Option<(&ImplementationSignature, &super::MethodSignature)> {
+    ) -> Option<(&ImplementationSignature, &MethodSignature)> {
         let mut owner = target.clone();
         let name = owner.path.pop()?;
         let implementation = self.implementation_signature(&owner)?;
@@ -703,7 +706,7 @@ impl AggregateCatalog {
         budget: &mut SearchBudget<'_>,
     ) -> Result<Option<TypeSubstitution>, ImplementationSearchError> {
         budget.check_candidate()?;
-        let Some(matched) = typeck::match_implementation(
+        let Some(matched) = match_implementation(
             &implementation.trait_type,
             trait_type,
             &implementation.for_type,
@@ -730,13 +733,11 @@ impl AggregateCatalog {
                         .check()
                         .map_err(|_| ImplementationSearchError::Cancelled)?;
                     let satisfied = match constraint {
-                        ConstraintTarget::Standard(standard) => {
-                            typeck::type_satisfies_standard_constraint(
-                                &actual,
-                                *standard,
-                                budget.assumptions,
-                            )
-                        }
+                        ConstraintTarget::Standard(standard) => type_satisfies_standard_constraint(
+                            &actual,
+                            *standard,
+                            budget.assumptions,
+                        ),
                         ConstraintTarget::Trait(required) => {
                             if budget.depth >= budget.max_depth {
                                 return Err(ImplementationSearchError::LimitExceeded);
@@ -744,7 +745,7 @@ impl AggregateCatalog {
                             let required = required.instantiate(&matched);
                             if budget.assumptions.get(&actual).is_some_and(|bounds| {
                                 bounds.iter().any(|bound| {
-                                    matches!(bound, crate::typeck::ConstraintTarget::Trait(available)
+                                    matches!(bound, ConstraintTarget::Trait(available)
                                         if available.satisfies(&required))
                                 })
                             }) {
@@ -765,7 +766,7 @@ impl AggregateCatalog {
                                 required = inner;
                                 actual = destination;
                             }
-                            if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, crate::typeck::ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
+                            if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
                             if traits::intrinsic_applies(
                                 &required,
                                 &actual,
@@ -797,7 +798,7 @@ impl AggregateCatalog {
                                 if let Some(iterator) =
                                     traits::iterator_requirement(&required, &actual)
                                 {
-                                    if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b|matches!(b,crate::typeck::ConstraintTarget::Trait(n) if n.satisfies(&iterator)))) {return Ok(true);}
+                                    if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b|matches!(b,ConstraintTarget::Trait(n) if n.satisfies(&iterator)))) {return Ok(true);}
                                     for candidate in self.implementations.values() {
                                         if self
                                             .implementation_matches(
@@ -858,7 +859,7 @@ fn occurs_in_constructor(parameter: &TypeId, ty: &TypeId) -> bool {
 #[cfg(test)]
 mod search_tests {
     use super::*;
-    use crate::{typeck::ConstraintTarget, types::TypeId};
+    use crate::{typeck::table::ConstraintTarget, types::TypeId};
     use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,

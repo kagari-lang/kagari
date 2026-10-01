@@ -1,15 +1,16 @@
 use super::*;
 use crate::{
-    LanguageFeatureProfile,
     analysis::AnalysisDatabase,
     callable::CallableSignature,
     host::{HostDeclarations, tests::declaration},
     native::NativeBinding,
+    profile::LanguageFeatureProfile,
     typeck::FunctionImplementation,
 };
 use kagari_common::{
     host_interface::{
-        HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostValueType,
+        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     },
     source_database::{SourceDatabase, SourceLayer},
 };

@@ -1,4 +1,12 @@
 use super::*;
+use {kagari_bytecode::program::verify_program, kagari_runtime::error::RuntimeErrorKind};
+use {
+    kagari_bytecode::{
+        instruction::StructId,
+        program::{BytecodeProgram, ModuleRef},
+    },
+    kagari_runtime::security::{LanguageProfile, SecurityContext},
+};
 
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
@@ -114,8 +122,8 @@ fn rejects_unverified_bytecode_before_publication() {
     let error = runtime
         .load_program(
             "unverified.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -168,8 +176,8 @@ fn rejects_unsupported_bytecode_before_publication() {
         let error = runtime
             .load_program(
                 name,
-                kagari_bytecode::BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
                     modules: vec![bytecode],
                 },
             )
@@ -197,10 +205,10 @@ fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
         vec![],
     )]);
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
+        security: SecurityContext {
+            profile: LanguageProfile {
                 allow_reflection: true,
-                ..kagari_runtime::LanguageProfile::default()
+                ..LanguageProfile::default()
             },
             capabilities: CapabilitySet {
                 dynamic_invocation: true,
@@ -212,8 +220,8 @@ fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
     let error = runtime
         .load_program(
             "dynamic_call_capable.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![dynamic_call],
             },
         )
@@ -308,8 +316,8 @@ fn unreachable_instruction_is_a_script_trap() {
     let loaded = runtime
         .load_program(
             "trap.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![verified_module(vec![test_function(
                     0,
                     "main",
@@ -411,8 +419,8 @@ fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
     let loaded = runtime
         .load_program(
             "module-slot-invariant",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![module_with_mutable_slot(7)],
             },
         )
@@ -431,7 +439,7 @@ fn missing_linked_module_slot_quarantines_runtime_and_cleans_frames() {
 
     let error = vm.execute(&loaded, "main").unwrap_err();
     assert!(
-        matches!(error, VmError::RuntimeError(ref error) if error.kind() == kagari_runtime::RuntimeErrorKind::EngineFault)
+        matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
     );
     assert!(vm.runtime().is_quarantined());
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
@@ -444,8 +452,8 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
     let first_loaded = runtime
         .load_program(
             "hot_reload.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![reloadable_value_module(1)],
             },
         )
@@ -460,8 +468,8 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .stage_reload_program(
             &first_loaded,
             "hot_reload.kgr",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![reloadable_value_module(2)],
             },
         )
@@ -511,7 +519,7 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
         let mut bytecode = compile_test_bytecode(
             "struct P { var x: i32 } struct Q { var x: i32 } fn main() -> i32 { val p = P { x: 1 }; p.x = 42; p.x }",
         );
-        let wrong = kagari_bytecode::StructId::new(
+        let wrong = StructId::new(
             bytecode.modules[bytecode.root.index()]
                 .structures
                 .iter()
@@ -533,6 +541,6 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 _ => {}
             }
         }
-        assert!(kagari_bytecode::verify_program(&bytecode).is_err());
+        assert!(verify_program(&bytecode).is_err());
     }
 }

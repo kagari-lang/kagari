@@ -1,13 +1,13 @@
-use kagari_common::DiagnosticKind;
-
 use crate::{
     analyze_source,
     profile::{LanguageFeatureProfile, validate_profile},
+    typeck::table::CallTarget,
 };
+use kagari_common::{diagnostic::DiagnosticKind, source::SourceFile};
 
 #[test]
 fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {
-    let module = kagari_common::SourceFile::new(
+    let module = SourceFile::new(
         "profile.kgr",
         "trait Show { fn value(self) -> i32; } fn identity<Show>(value: Show) -> Show { value }",
     );
@@ -24,7 +24,7 @@ fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {
 
 #[test]
 fn same_named_user_functions_are_not_reflection_helpers() {
-    let module = kagari_common::SourceFile::new(
+    let module = SourceFile::new(
         "profile.kgr",
         "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
     );
@@ -45,14 +45,13 @@ fn same_named_user_functions_are_not_reflection_helpers() {
             .call_resolution(call)
             .unwrap()
             .target,
-        crate::typeck::CallTarget::Function(checked.lowered.module.functions[0].id)
+        CallTarget::Function(checked.lowered.module.functions[0].id)
     );
 }
 
 #[test]
 fn profile_rejects_script_visible_reflection_when_disabled() {
-    let module =
-        kagari_common::SourceFile::new("profile.kgr", "fn main() -> String { type_of(7) }");
+    let module = SourceFile::new("profile.kgr", "fn main() -> String { type_of(7) }");
     let diagnostics = analyze_source(&module, LanguageFeatureProfile::default())
         .into_codegen()
         .expect_err("profile should reject reflection");
@@ -67,7 +66,7 @@ fn profile_rejects_script_visible_reflection_when_disabled() {
 
 #[test]
 fn profile_requires_separate_reflection_write_feature() {
-    let module = kagari_common::SourceFile::new(
+    let module = SourceFile::new(
         "profile.kgr",
         r#"
 struct Point { var x: i32 }
@@ -98,7 +97,7 @@ fn main() -> Point {
 
 #[test]
 fn static_trait_bounds_do_not_require_interface_value_permission() {
-    let module = kagari_common::SourceFile::new(
+    let module = SourceFile::new(
         "bounds.kgr",
         "trait Show { fn show(self) -> i32; } fn inline<T: Show>(value: T) -> i32 { value.show() } fn predicate<T>(value: T) -> i32 where T: Show { value.show() }",
     );
@@ -118,7 +117,7 @@ fn static_trait_bounds_do_not_require_interface_value_permission() {
 
 #[test]
 fn profile_rejects_interface_value_types_when_disabled() {
-    let module = kagari_common::SourceFile::new(
+    let module = SourceFile::new(
         "profile.kgr",
         r#"
 trait Show { fn show(self) -> String; }

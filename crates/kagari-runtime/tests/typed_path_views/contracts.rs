@@ -153,7 +153,10 @@ fn heap_path_temporaries_survive_collection_during_write_preparation() {
         rc::{Rc, Weak},
     };
     let mut runtime = path_mutation_runtime();
-    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration, HostValueType};
+    use kagari_common::host_interface::{
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    };
     let mut declaration = HostTypeDeclaration::new("game.Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
@@ -247,14 +250,14 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
     let scalar = register_i32(&runtime);
     let player = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
     let field = |owner_type| HostPathSegmentRegistration::Field {
-        declaration: kagari_common::host_interface::HostFieldDeclaration::new(
+        declaration: HostFieldDeclaration::new(
             &kagari_common::host_interface::host_type_identity(if owner_type == player {
                 "game.Player"
             } else {
                 "game.Other"
             }),
             "hp",
-            kagari_common::host_interface::HostValueType::I32,
+            HostValueType::I32,
         )
         .id,
     };

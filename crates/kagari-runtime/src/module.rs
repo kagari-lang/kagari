@@ -1,17 +1,22 @@
 use crate::{
-    ExecutionPhase, ResourceState, RuntimeError,
     cache::ReloadDependencySnapshot,
+    error::RuntimeError,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
-    native::NativeRegistration,
+    native::registration::NativeRegistration,
     reload::ModuleEpoch,
+    resource::ResourceState,
+    session::ExecutionPhase,
     value::Value,
 };
-use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
-use kagari_bytecode as bytecode;
 use kagari_bytecode::{
-    ArtifactFingerprint, BytecodeModule, BytecodeProgram, EnumId, ModuleRef, NativeImportId,
-    PathId, StructId,
+    artifact::{ArtifactFingerprint, validate_program_resource_limits},
+    instruction::{EnumId, NativeImportId, PathId, StructId},
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef, verify_program},
 };
+
+use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
+
 use kagari_common::identity::ModuleIdentity;
 use std::{
     cell::{BorrowError, RefCell, RefMut},
@@ -109,9 +114,9 @@ pub struct VerifiedProgram {
 
 impl VerifiedProgram {
     pub fn new(program: BytecodeProgram) -> Result<Self, RuntimeError> {
-        bytecode::validate_program_resource_limits(&program)
+        validate_program_resource_limits(&program)
             .map_err(|error| RuntimeError::resource_limit(error.to_string()))?;
-        bytecode::verify_program(&program).map_err(|error| {
+        verify_program(&program).map_err(|error| {
             RuntimeError::module_validation(format!("bytecode validation failed: {error}"))
         })?;
         Ok(Self::from_verified(program))
@@ -644,9 +649,14 @@ fn live_programs(inner: &ModuleStoreInner) -> HashSet<ModuleKey> {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind};
+    use kagari_bytecode::module::BytecodeModuleSlot;
+    use {
+        crate::resource::{ResourcePolicy, ResourceState},
+        kagari_bytecode::program::ModuleRef,
+    };
 
-    use crate::{Runtime, RuntimeConfig};
+    use super::*;
 
     #[test]
     fn invalid_code_cannot_become_a_shared_verified_program() {
@@ -665,7 +675,7 @@ mod tests {
         };
         assert_eq!(
             VerifiedProgram::new(oversized).unwrap_err().kind(),
-            crate::RuntimeErrorKind::ResourceLimitExceeded
+            RuntimeErrorKind::ResourceLimitExceeded
         );
     }
 
@@ -674,7 +684,7 @@ mod tests {
         let code = VerifiedProgram::new(BytecodeProgram {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
-                module_slots: vec![kagari_bytecode::BytecodeModuleSlot {
+                module_slots: vec![BytecodeModuleSlot {
                     name: "state".into(),
                     ty: kagari_abi::representation::ValueType::I32,
                     mutable: true,
@@ -725,7 +735,7 @@ mod tests {
         let store = ModuleStore::default();
         let stage = |epoch| {
             let dependency = BytecodeModule {
-                module_slots: vec![kagari_bytecode::BytecodeModuleSlot {
+                module_slots: vec![BytecodeModuleSlot {
                     name: "state".into(),
                     ty: kagari_abi::representation::ValueType::I32,
                     mutable: true,
@@ -808,7 +818,7 @@ mod tests {
 
     #[test]
     fn abandoning_candidates_releases_admission_even_after_quarantine() {
-        let resources = std::rc::Rc::new(crate::ResourceState::new(crate::ResourcePolicy {
+        let resources = std::rc::Rc::new(ResourceState::new(ResourcePolicy {
             max_modules: Some(1),
             ..Default::default()
         }));
@@ -829,7 +839,7 @@ mod tests {
         let candidate = stage(1).unwrap();
         assert_eq!(
             stage(2).unwrap_err().kind(),
-            crate::RuntimeErrorKind::ResourceLimitExceeded
+            RuntimeErrorKind::ResourceLimitExceeded
         );
         assert_eq!(store.loaded_count(), 1);
         assert_eq!(resources.counters().loaded_modules, 1);
@@ -852,7 +862,7 @@ mod tests {
                 "game.player",
                 ModuleEpoch(1),
                 VerifiedProgram::new(BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 })
                 .unwrap(),
@@ -866,7 +876,7 @@ mod tests {
                 "game.player",
                 ModuleEpoch(2),
                 VerifiedProgram::new(BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 })
                 .unwrap(),
@@ -880,7 +890,7 @@ mod tests {
                 "game.world",
                 ModuleEpoch(1),
                 VerifiedProgram::new(BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 })
                 .unwrap(),
@@ -906,7 +916,7 @@ mod tests {
                 "game.snapshot",
                 ModuleEpoch(1),
                 VerifiedProgram::new(BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 })
                 .unwrap(),
@@ -929,7 +939,7 @@ mod tests {
                 "game.player",
                 ModuleEpoch(1),
                 VerifiedProgram::new(BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 })
                 .unwrap(),
@@ -943,7 +953,7 @@ mod tests {
                 "game.player",
                 ModuleEpoch(2),
                 VerifiedProgram::new(BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()],
                 })
                 .unwrap(),

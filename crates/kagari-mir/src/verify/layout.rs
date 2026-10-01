@@ -1,5 +1,6 @@
 use crate::{
-    CallTarget, Instruction, MirModule,
+    function::MirModule,
+    instruction::{CallTarget, Instruction},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
 use kagari_abi::{

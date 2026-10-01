@@ -1,5 +1,4 @@
 //! Validate serialized semantic types independently of display strings.
-use crate::types::matching;
 use crate::{
     callable::CallableImplementation,
     layout::LayoutValidationError,
@@ -8,21 +7,21 @@ use crate::{
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
         InterfaceTableAbi, NativeDeclaration, NominalAbiType, PublicAbiItem, TraitAbi,
-        TraitContract, TypeAbi, TypeAbiKind,
+        TraitContract, TypeAbi, TypeAbiKind, matching,
         substitution::{TypeSubstitution, TypeTransformError, normalize_projections},
     },
 };
 
-use kagari_common::identity;
-
-#[cfg(test)]
-use kagari_common::collection::CollectionAccess;
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    identity::{self, DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
     range::RangeKind,
 };
+
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
+
 use std::{
     collections::{BTreeMap, HashSet},
     iter,

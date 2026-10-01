@@ -1,50 +1,63 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+#[cfg(test)]
+use crate::hir::ids::StructId;
 use crate::{
-    AnalysisPolicy, AnalysisResult, AnalyzedModule, LanguageFeatureProfile, analyze_parsed,
+    AnalysisPolicy, AnalysisResult, AnalyzedModule,
+    analysis::{
+        body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
+        error::AnalysisError, signature_queries::SignatureSnapshot,
+    },
+    analyze_parsed,
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::{ExportItem, ExprKind, PlaceKind},
+    hir::{expr::ExprKind, item::storage::ExportItem, place::PlaceKind},
     host::HostDeclarations,
-    imports::{ImportTarget, ImportedFunction, ModuleGraph, SourceImport},
+    imports::{ImportTarget, ModuleGraph, SourceImport, functions::ImportedFunction},
     lower::LoweredModule,
     native::stdlib::InstalledStdlib,
-    resolver::ResolvedName,
-    typeck::{BodyReuse, CallTarget, ConstLimits, ModuleSignatures, TypeTable, TypeTarget},
+    profile::LanguageFeatureProfile,
+    resolver::resolved::ResolvedName,
+    typeck::{
+        ModuleSignatures,
+        const_budget::ConstLimits,
+        reuse::BodyReuse,
+        table::{CallTarget, TypeTable, TypeTarget},
+    },
     types::TypeId,
 };
 
 use kagari_abi::native_api::NativeModule;
 use kagari_common::{
-    SourceFile,
-    host_interface::{HostFieldDeclaration, HostFunctionDeclaration, HostTypeDeclaration},
+    cancellation::CancellationToken,
+    host_interface::{
+        HostFunctionDeclaration,
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+    },
     identity::{DefinitionId, FileId, Revision},
+    source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_syntax::{Parse, ast::SourceFile as AstSourceFile, parser::ParseLimits};
+use kagari_syntax::{
+    ast::item::SourceFile as AstSourceFile,
+    parser::{Parse, ParseLimits},
+};
 use std::{
     cell::{OnceCell, RefCell},
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
 
-mod call_queries;
-pub use call_queries::CallSignature;
-mod documentation_queries;
-mod error;
-mod method_queries;
-pub use method_queries::MethodCompletion;
+pub mod call_queries;
+pub mod documentation_queries;
+pub mod error;
+pub mod method_queries;
 #[cfg(test)]
 mod standard_query_tests;
-pub use documentation_queries::DeclarationDocumentation;
-pub use error::AnalysisError;
-mod body_queries;
-pub use body_queries::FunctionAnalysis;
-mod declaration_queries;
-mod signature_queries;
-pub use declaration_queries::{DeclarationSnapshot, FileDeclarations};
-pub use signature_queries::{FileSignatures, SignatureSnapshot};
 
-pub use kagari_common::cancellation::{CancellationToken, Cancelled};
+pub mod body_queries;
+
+pub mod declaration_queries;
+pub mod signature_queries;
 
 #[derive(Debug)]
 pub struct FileAnalysis {
@@ -1130,9 +1143,7 @@ mod tests {
                     .result()
                     .facts()
                     .declarations
-                    .definition(crate::resolver::ResolvedName::Struct(
-                        crate::hir::StructId::new(0)
-                    ))
+                    .definition(ResolvedName::Struct(StructId::new(0)))
                     .unwrap()
                     .clone(),
                 arguments: Vec::new(),

@@ -1,6 +1,6 @@
-use kagari_common::DiagnosticKind;
+use kagari_common::diagnostic::DiagnosticKind;
 
-use crate::{kind::SyntaxKind, parser::Parser, token::TokenKind};
+use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn parse_root(&mut self) {

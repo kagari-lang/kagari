@@ -1,9 +1,20 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_bytecode::program::verify_program;
+use kagari_common::source::SourceFile;
+use {
+    kagari_embed::{
+        context::JitPolicy,
+        engine::{EngineConfig, source::CompileOptions},
+    },
+    kagari_vm::reentry::reenter,
+};
+
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -23,9 +34,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -188,7 +199,7 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_arguments() {
         callable::EngineNativeBinding, scalar::BuiltinType,
         standard::bindings::NativeDefaultMethod, types::AbiType,
     };
-    use kagari_bytecode::{BytecodeInstruction as I, ConstantOperand};
+    use kagari_bytecode::instruction::{BytecodeInstruction as I, ConstantOperand};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -233,10 +244,7 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_arguments() {
                 **result = AbiType::Builtin(BuiltinType::Bool);
             }
         }
-        assert!(
-            kagari_bytecode::verify_program(&program).is_err(),
-            "mutation {corrupt}"
-        );
+        assert!(verify_program(&program).is_err(), "mutation {corrupt}");
     }
 }
 
@@ -388,7 +396,7 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
         fn main(){print("read");}
     "#,
             ),
-            kagari_embed::CompileOptions {
+            CompileOptions {
                 language_profile: context.language_profile,
             },
             Default::default(),
@@ -409,7 +417,7 @@ fn rooted_pipeline_retains_captures_and_progress_across_execution_sessions() {
             context.runtime().collect_garbage().unwrap();
             let root = context.runtime().execution_root().unwrap();
             let value = input.borrow().as_ref().unwrap().value();
-            let value = kagari_vm::reenter(context, &root, read, &[value]).unwrap();
+            let value = reenter(context, &root, read, &[value]).unwrap();
             context.runtime().collect_garbage().unwrap();
             output.borrow_mut().push(value.value());
             Ok(Value::Unit)

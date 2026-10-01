@@ -1,6 +1,7 @@
 use crate::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, CallTarget, Register,
-    RuntimeHelper, UnaryOp,
+    instruction::{BytecodeInstruction, CallTarget, Register, RuntimeHelper, UnaryOp},
+    module::{BytecodeFunction, BytecodeModule},
+    program::BytecodeProgram,
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
         function_ref_exists, ir_binary_op, local_ty, module_slot_ty, path_record, register_ty,

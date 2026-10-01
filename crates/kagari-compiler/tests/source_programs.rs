@@ -2,25 +2,30 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, ConcreteFunctionIdentity, ConstraintAbi, PublicAbiItem},
 };
+use kagari_bytecode::program::verify_program as Kagaribytecodeverify_program;
+use kagari_mir::{
+    codec::{decode_program, encode_program},
+    instruction::{CallTarget, Instruction},
+    program::{ProgramErrorKind, verify_program},
+    verify::{MirVerificationError, MirVerificationErrorKind},
+};
+
 use kagari_common::{
-    DiagnosticKind,
     cancellation::CancellationToken,
+    diagnostic::DiagnosticKind,
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{
-    MirLoweringError, MirLoweringOptions,
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
-    source::program::{SourceProgramError, lower_program_to_mir},
+    source::{
+        lower::{MirLoweringError, instances::MirLoweringOptions},
+        program::{SourceProgramError, lower_program_to_mir},
+    },
 };
 use kagari_hir::{
     analysis::AnalysisDatabase,
     program::{CheckedProgram, ProgramCheckError},
-};
-use kagari_mir::{
-    CallTarget, Instruction,
-    codec::{decode_program, encode_program},
-    program::{ProgramErrorKind, verify_program},
 };
 
 fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
@@ -159,7 +164,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
 
 #[test]
 fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
-    use kagari_bytecode::{ArtifactFingerprint, KbcArtifact};
+    use kagari_bytecode::artifact::{ArtifactFingerprint, KbcArtifact};
     let mut db = SourceDatabase::default();
     for name in ["left", "right"] {
         insert(&mut db, name, "pub struct Item { val value: i32 }");
@@ -286,7 +291,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     assert_ne!(layouts[0].arguments, layouts[1].arguments);
     assert_ne!(layouts[0].fields[0].ty, layouts[1].fields[0].ty);
     let mut program = lower_program_to_bytecode(&ir).unwrap();
-    kagari_bytecode::verify_program(&program).unwrap();
+    Kagaribytecodeverify_program(&program).unwrap();
     // The owner need not execute an instance for its public template to be checked.
     // Installed standard enum layouts are independent of that user declaration.
     let owner = program
@@ -309,7 +314,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         unreachable!()
     };
     template.variants[0].payload[0] = AbiType::Builtin(BuiltinType::Bool);
-    assert!(kagari_bytecode::verify_program(&program).is_err());
+    assert!(Kagaribytecodeverify_program(&program).is_err());
     let error = lower_program_to_mir(
         &checked,
         &MirLoweringOptions {
@@ -416,8 +421,8 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         verify_program(root.clone(), schema, &Default::default())
             .unwrap_err()
             .kind,
-        ProgramErrorKind::Verification(kagari_mir::MirVerificationError {
-            kind: kagari_mir::MirVerificationErrorKind::InvalidStructLayout,
+        ProgramErrorKind::Verification(MirVerificationError {
+            kind: MirVerificationErrorKind::InvalidStructLayout,
             ..
         })
     ));
@@ -588,7 +593,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
 
 #[test]
 fn portable_default_method_origins_remain_with_the_definition_module() {
-    use kagari_common::{SourceFile, line_index::PositionEncoding};
+    use kagari_common::{line_index::PositionEncoding, source::SourceFile};
     let mut db = SourceDatabase::default();
     let model = "pub trait Read { fn read(self) -> i32;\n fn again(self) -> i32 { self.read() }\n}";
     insert(&mut db, "model", model);
@@ -648,7 +653,7 @@ fn portable_default_method_origins_remain_with_the_definition_module() {
 
 #[test]
 fn portable_inline_module_origins_keep_physical_offsets() {
-    use kagari_common::{SourceFile, line_index::PositionEncoding};
+    use kagari_common::{line_index::PositionEncoding, source::SourceFile};
     let text = "// 中文😀\r\nmod child {\r\n pub fn value() -> i32 { 42 }\r\n}\r\nuse self::child::value; fn main() -> i32 { value() }";
     let mut db = SourceDatabase::default();
     let root = insert(&mut db, "root", text);

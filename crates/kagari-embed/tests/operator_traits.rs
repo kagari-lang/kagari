@@ -1,10 +1,18 @@
 use kagari_abi::standard::traits as standard_traits;
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
+use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
+
+use kagari_common::source::SourceFile;
+
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -24,9 +32,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -101,7 +109,7 @@ fn invalid_ordering_contracts_are_diagnostics() {
                     Default::default(),
                     Default::default()
                 ),
-                Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+                Err(EmbeddingError::Diagnostics { .. })
             ),
             "{source}"
         );
@@ -182,7 +190,7 @@ fn index_does_not_grant_element_replacement_or_immutable_field_writes() {
                     Default::default(),
                     Default::default()
                 ),
-                Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+                Err(EmbeddingError::Diagnostics { .. })
             ),
             "{tail}"
         );
@@ -242,10 +250,7 @@ fn invalid_operator_signatures_bounds_and_writes_are_diagnostics() {
             Default::default(),
         );
         assert!(
-            matches!(
-                result,
-                Err(kagari_embed::EmbeddingError::Diagnostics { .. })
-            ),
+            matches!(result, Err(EmbeddingError::Diagnostics { .. })),
             "{source}: {result:?}"
         );
     }
@@ -362,13 +367,13 @@ fn main()->i32 {Number{value:20}+22}
         } else {
             interface.associated_types.clear();
         }
-        assert!(kagari_bytecode::verify_program(&program).is_err());
+        assert!(verify_program(&program).is_err());
     }
 }
 
 #[test]
 fn builtin_arithmetic_and_indexing_keep_direct_instructions() {
-    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::instruction::BytecodeInstruction;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -394,7 +399,7 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
 
 #[test]
 fn operator_traps_and_budget_exhaustion_release_execution_roots() {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine

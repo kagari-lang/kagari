@@ -11,7 +11,7 @@ use kagari_common::{
 };
 use std::cmp::Ordering;
 
-use crate::Constant;
+use crate::instruction::Constant;
 
 /// Copyable, bounded facts. Strings/heap values/floating-point payloads are not
 /// copied or interpreted by these portable scalar passes.

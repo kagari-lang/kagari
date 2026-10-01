@@ -18,7 +18,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    host_interface::{HostTraitImplementationDeclaration, HostTypeDeclaration},
+    host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
 };
 use std::{

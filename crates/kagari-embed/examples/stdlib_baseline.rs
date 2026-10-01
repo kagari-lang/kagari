@@ -1,7 +1,7 @@
 //! Reproducible standard-library compilation, execution and logical-charge baseline.
 //! Build with the workspace dev profile, then run target/debug/examples/stdlib_baseline.
-use kagari_common::SourceFile;
-use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 use std::{hint::black_box, time::Instant};
 

@@ -1,11 +1,14 @@
-use kagari_bytecode as bytecode;
-use std::collections::{BTreeMap, HashMap};
-
 use kagari_bytecode::{
-    ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError, BytecodeModule,
-    BytecodeProgram, BytecodeVerificationError, KbcArtifact, PathDescriptorFingerprint,
-    PublicAbiFingerprint, verify_program,
+    artifact::{
+        ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError, KbcArtifact,
+        PathDescriptorFingerprint, PublicAbiFingerprint, validate_program_resource_limits,
+    },
+    module::BytecodeModule,
+    program::{BytecodeProgram, verify_program},
+    verifier::BytecodeVerificationError,
 };
+
+use std::collections::{BTreeMap, HashMap};
 
 use crate::{
     error::RuntimeError,
@@ -57,8 +60,7 @@ impl ReloadValidationError {
 }
 
 pub fn validate_load_candidate(bytecode: &BytecodeProgram) -> Result<(), ReloadValidationError> {
-    bytecode::validate_program_resource_limits(bytecode)
-        .map_err(ReloadValidationError::Artifact)?;
+    validate_program_resource_limits(bytecode).map_err(ReloadValidationError::Artifact)?;
     verify_program(bytecode).map_err(ReloadValidationError::Bytecode)
 }
 
@@ -217,12 +219,14 @@ impl ModuleEpochAllocator {
 
 #[cfg(test)]
 mod epoch_tests {
+    use kagari_bytecode::program::ModuleRef;
+
     use super::*;
 
     #[test]
     fn reload_preflight_rejects_oversized_in_memory_programs() {
         let oversized = BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default(); 1_025],
         };
         assert!(matches!(

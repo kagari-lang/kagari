@@ -1,10 +1,10 @@
 //! Resolve facade targets once, before declaration/name/signature consumers run.
 
 use crate::{
-    hir::ExportItem,
+    hir::item::storage::ExportItem,
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, ModuleImports},
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use std::{collections::HashMap, sync::Arc};

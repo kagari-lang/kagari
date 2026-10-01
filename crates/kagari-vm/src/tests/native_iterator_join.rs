@@ -1,9 +1,10 @@
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
+use crate::{error::VmError, reentry::reenter, tests::common::compile_test_bytecode, vm::Vm};
+
 use kagari_abi::{
     callable::EngineNativeBinding, native_import::EngineNativeOperation,
     standard::bindings::NativeDefaultMethod,
 };
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::standard_log,
@@ -12,13 +13,20 @@ use kagari_common::{
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, gc::GcHeapConfig, host::HostFunction, value::Value,
-};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        gc::GcHeapConfig,
+        host::HostFunction,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn cases() -> Vec<(String, String)> {
@@ -381,10 +389,10 @@ fn ready()->i32 {7}
                     } else {
                         let root = context.runtime().execution_root().unwrap();
                         assert_eq!(
-                            crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                            reenter(context, &root, inner, &[]).unwrap().value(),
                             Value::Str("x-y".into())
                         );
-                        assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                        assert!(reenter(context, &root, fail, &[]).is_err());
                         // The lazy step function and map callback share the
                         // caller's ordinary frame stack.
                         assert_eq!(

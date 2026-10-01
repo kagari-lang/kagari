@@ -6,7 +6,7 @@ use kagari_abi::{
 };
 use kagari_common::integer::IntegerOp;
 use kagari_hir::{
-    hir::BinaryOp,
+    hir::expr::ops::BinaryOp,
     native::NativeTypeKind,
     types::{GenericParameterType, NominalType, TypeId},
 };

@@ -1,13 +1,23 @@
 use crate::{
-    DebugPauseReason, DebugSession, SourceBreakpoint, Vm,
+    debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
+    reentry::reenter,
     tests::{common::compile_test_bytecode, native_fixtures},
+    vm::Vm,
 };
 
-use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    instruction::{BytecodeInstruction, CallTarget},
+};
 use kagari_common::host_interface::standard_log;
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, Runtime,
-    RuntimeConfig, SecurityContext, host::HostFunction, value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        host::HostFunction,
+        security::{DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 #[test]
@@ -82,7 +92,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             runtime
                 .register_host_function(HostFunction::new(standard_log(), move |context, _| {
                     let root = context.runtime().execution_root().unwrap();
-                    assert!(crate::reenter(context, &root, nested, &[Value::I32(2)]).is_err());
+                    assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
                     context.runtime().collect_garbage().unwrap();
                     Ok(Value::Unit)
                 }))

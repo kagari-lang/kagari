@@ -1,15 +1,16 @@
 use crate::{
     builtin::traits::{self, intrinsic_holds},
     callable::{AppliedCallSignature, CallableSignature},
-    hir::{ExprId, ExprKind},
-    imports::ImportedFunction,
+    hir::{expr::ExprKind, ids::ExprId},
+    imports::functions::ImportedFunction,
     native::NativeBinding,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
     typeck::{
-        BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, GenericBounds,
-        ScalarValue,
+        BodyTypeEnv, FunctionImplementation, GenericBounds,
         body::BodyChecker,
         check, completion, constraints, inference, members,
+        scalar::ScalarValue,
+        table::{CallTarget, ConstraintTarget},
         ty::{TypeContext, display_type_id, resolve_named_type},
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
@@ -18,7 +19,7 @@ use kagari_abi::standard::{
     surface::{self as standard_surface, StandardTypeConstraint},
     traits::StandardTrait,
 };
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use std::iter;
 
 impl<'a> BodyChecker<'a> {

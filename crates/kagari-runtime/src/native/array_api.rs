@@ -1,11 +1,15 @@
 //! Rust contracts supply signatures, executable adapters and generated tooling views.
-use crate::native_module;
+use kagari_native_macros::native_module;
 
 #[native_module("std::array", runtime = crate)]
 pub(super) mod array {
     use crate::{
-        NativeArray, NativeCall, NativeContinuation, NativeFn, NativeIndex, NativeResult,
-        NativeValue, native::array,
+        native::array,
+        native_value::{
+            NativeCall, NativeResult, NativeValue,
+            array::{NativeArray, NativeIndex},
+            continuation::{NativeContinuation, NativeFn},
+        },
     };
 
     /// Shared mutable array storage. Read-only List views share its identity.

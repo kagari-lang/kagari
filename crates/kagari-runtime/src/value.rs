@@ -412,13 +412,28 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
+    use {
+        crate::host::HostTypeRegistration,
+        kagari_common::{
+            capability::CapabilitySet,
+            host_interface::{
+                type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+                value_type::HostValueType,
+            },
+        },
+    };
+
     use super::*;
     use {
-        crate::host::DynamicPathArguments, crate::host::HostBorrowTable, crate::host::HostObjectId,
-        crate::host::HostPathDescriptorRegistration, crate::host::HostPathSegmentRegistration,
-        crate::host::HostRootHandle, crate::host::HostSchemaEpoch, crate::metadata::AbiFingerprint,
-        crate::metadata::TypeId, kagari_common::host_interface::HostTypeOwnership,
-        kagari_common::host_interface::PathAccess,
+        crate::{
+            host::{
+                DynamicPathArguments, HostBorrowTable, HostObjectId,
+                HostPathDescriptorRegistration, HostPathSegmentRegistration, HostRootHandle,
+                HostSchemaEpoch,
+            },
+            metadata::{AbiFingerprint, TypeId},
+        },
+        kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
     };
 
     fn host_root(object_id: u64) -> HostRootHandle {
@@ -434,19 +449,15 @@ mod tests {
     fn path_view_value(object_id: u64) -> Value {
         let result_type = TypeId::new(1);
         let mut runtime = crate::Runtime::default();
-        let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("Player");
+        let mut declaration = HostTypeDeclaration::new("Player");
         declaration.ownership = HostTypeOwnership::HostRoot;
         declaration.path_access = PathAccess::ReadWrite;
-        let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
-            &declaration.id,
-            "hp",
-            kagari_common::host_interface::HostValueType::I32,
-        );
+        let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
         hp.writable = true;
         hp.path_access = PathAccess::ReadWrite;
         declaration.fields.push(hp);
         let root_type = runtime
-            .register_host_type(crate::HostTypeRegistration::new(declaration, "Player"))
+            .register_host_type(HostTypeRegistration::new(declaration, "Player"))
             .unwrap();
         let root = runtime
             .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
@@ -470,7 +481,7 @@ mod tests {
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
-                capability_requirements: crate::CapabilitySet::default(),
+                capability_requirements: CapabilitySet::default(),
             })
             .unwrap();
         Value::HostPathView(

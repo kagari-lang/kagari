@@ -1,6 +1,6 @@
 use kagari_abi::native_api::NativeApiError;
 use kagari_common::cancellation::Cancelled;
-use kagari_stdlib::PackageError;
+use kagari_stdlib::package::PackageError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum AnalysisError {

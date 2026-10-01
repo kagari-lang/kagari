@@ -1,8 +1,15 @@
-use crate::{lower_to_mir, tests::common};
+use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_bytecode::verify_program;
-use kagari_bytecode::{BytecodeInstruction, BytecodeVerificationError, KbcArtifact};
-use kagari_mir::{Constant, Instruction, analysis::SafepointKind, verify_mir};
+use kagari_bytecode::{
+    artifact::KbcArtifact, instruction::BytecodeInstruction, program::verify_program,
+    verifier::BytecodeVerificationError,
+};
+
+use kagari_mir::{
+    analysis::SafepointKind,
+    instruction::{Constant, Instruction},
+    verify::verify_mir,
+};
 
 #[test]
 fn removed_pure_operations_keep_charge_points_and_origins() {
@@ -117,7 +124,7 @@ fn missing_or_extra_charges_cannot_create_unbudgeted_execution() {
 
 #[test]
 fn logical_offsets_follow_the_verified_entry_and_bytecode_charge_order() {
-    use kagari_mir::BlockId;
+    use kagari_mir::ids::BlockId;
     let checked = common::program_ok("fn main() -> i32 { 7 }");
     let mut raw = lower_to_mir(checked.root(), &Default::default())
         .unwrap()

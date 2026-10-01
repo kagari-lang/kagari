@@ -1,7 +1,10 @@
-use crate::{lower_to_mir, tests::common};
+use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_mir::{
-    BlockId, Instruction, LocalId, MirModule, TempId, VerifiedMirModule, analysis::SafepointKind,
-    verify_mir,
+    analysis::SafepointKind,
+    function::MirModule,
+    ids::{BlockId, LocalId, TempId},
+    instruction::{Instruction, Terminator},
+    verify::{VerifiedMirModule, verify_mir},
 };
 
 fn checked(source: &str) -> VerifiedMirModule {
@@ -131,7 +134,7 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
     let join = function
         .blocks
         .iter()
-        .position(|block| matches!(block.terminator, Some(kagari_mir::Terminator::Return(_))))
+        .position(|block| matches!(block.terminator, Some(Terminator::Return(_))))
         .unwrap();
     function.blocks[join].terminator_scope = Some(scope);
     let module = seal(module);
@@ -271,7 +274,7 @@ fn scalar_temporaries_die_after_their_last_use() {
 #[test]
 fn point_analysis_storage_is_bounded_before_allocation() {
     use kagari_abi::representation::ValueType;
-    use kagari_mir::{MirTemp, MirVerificationErrorKind};
+    use kagari_mir::{function::MirTemp, verify::MirVerificationErrorKind};
     let mut module = checked("fn main() -> i32 { 1 }").into_unverified();
     let function = &mut module.functions[0];
     function.temps.resize(
@@ -301,7 +304,7 @@ fn point_analysis_storage_is_bounded_before_allocation() {
 
 #[test]
 fn parameter_debug_metadata_cannot_be_replaced_by_an_unscoped_local() {
-    use kagari_mir::MirVerificationErrorKind;
+    use kagari_mir::verify::MirVerificationErrorKind;
     let mut module = checked("fn main(x: i32) -> i32 { val y = x; y }").into_unverified();
     let function = &mut module.functions[0];
     function.debug.locals.retain(|local| !local.is_parameter);

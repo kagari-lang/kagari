@@ -1,10 +1,16 @@
-use crate::Register;
-use crate::artifact::*;
+use crate::{
+    artifact::*,
+    instruction::{BytecodeInstruction, PathId, Register},
+    module::{BytecodeFunction, FunctionRecord},
+    program::{BytecodeProgram, ModuleRef},
+};
+
+use kagari_common::host_interface::path::HostPathSegmentDeclaration;
 
 #[test]
 fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     {
@@ -36,15 +42,15 @@ fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
 
 #[test]
 fn typed_path_operands_preflight_before_decoding_registers() {
-    let instruction = crate::BytecodeInstruction::ReadPath {
-        dst: crate::Register::new(0),
-        root_or_view: crate::Register::new(1),
-        path: crate::PathId::new(0),
+    let instruction = BytecodeInstruction::ReadPath {
+        dst: Register::new(0),
+        root_or_view: Register::new(1),
+        path: PathId::new(0),
         dynamic_args: vec![Register::new(2); MAX_ARTIFACT_NESTED_RECORDS + 1],
     };
     let bytes = codec().serialize(&instruction).unwrap();
     let error = codec()
-        .deserialize::<crate::BytecodeInstruction>(&bytes)
+        .deserialize::<BytecodeInstruction>(&bytes)
         .unwrap_err();
     assert!(
         error
@@ -55,10 +61,13 @@ fn typed_path_operands_preflight_before_decoding_registers() {
 
 #[test]
 fn instruction_operand_vectors_are_bounded_before_verification() {
-    use crate::{BytecodeFunction, BytecodeInstruction, Register};
+    use crate::{
+        instruction::{BytecodeInstruction, Register},
+        module::BytecodeFunction,
+    };
 
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let make_tuple = |count| BytecodeInstruction::MakeTuple {
@@ -115,12 +124,14 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
 fn oversized_memory_identity_paths_reject_before_fingerprinting() {
     use kagari_abi::types::AbiType;
     use kagari_common::{
-        host_interface::{HostInterface, HostTypeDeclaration, host_type_identity},
+        host_interface::{
+            HostInterface, host_type_identity, type_declaration::HostTypeDeclaration,
+        },
         identity::MAX_IDENTITY_PATH_SEGMENTS,
     };
 
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     for case in 0..3 {
@@ -183,13 +194,13 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
 #[test]
 fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let mut function_table = valid.clone();
     function_table.modules[0]
         .function_table
-        .push(crate::FunctionRecord {
+        .push(FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "oversized".into(),
@@ -198,7 +209,7 @@ fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
             effects: Default::default(),
         });
     let mut debug_frame = valid.clone();
-    let mut function = crate::BytecodeFunction::default();
+    let mut function = BytecodeFunction::default();
     function.metadata.debug.frame_layout.params =
         vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1];
     debug_frame.modules[0].functions.push(function);
@@ -233,7 +244,7 @@ fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
 #[test]
 fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let mut debug = BytecodeDebugMetadata::default();
@@ -278,7 +289,7 @@ fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
 fn decoder_rejects_forged_header_identity_path_length() {
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         Default::default(),
@@ -329,7 +340,7 @@ fn debug_table_length_is_rejected_before_decoding_source_names() {
 fn decoder_rejects_huge_module_count_before_reading_module_data() {
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         Default::default(),
@@ -347,7 +358,7 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
 fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     use kagari_abi::{scalar::BuiltinType, types::AbiType};
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let mut deep = AbiType::Builtin(BuiltinType::I32);
@@ -389,12 +400,12 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         types::{AbiType, FieldAbi},
     };
     use kagari_common::{
-        host_interface::{HostPathDeclaration, PathAccess},
+        host_interface::{path::HostPathDeclaration, type_declaration::PathAccess},
         identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     };
 
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let id = |kind| DefinitionId {
@@ -442,9 +453,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         .push(HostPathDeclaration {
             root: id(DefinitionKind::Struct),
             segments: vec![
-                kagari_common::host_interface::HostPathSegmentDeclaration::Field(
-                    field_id.clone()
-                );
+                HostPathSegmentDeclaration::Field(field_id.clone());
                 MAX_ARTIFACT_NESTED_RECORDS + 1
             ],
             access: PathAccess::ReadOnly,
@@ -505,7 +514,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
 #[test]
 fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification() {
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let mut excessive = valid.clone();
@@ -542,7 +551,7 @@ fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification()
 fn declared_section_counts_are_bounded_independently_of_payload_size() {
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         Default::default(),
@@ -564,7 +573,7 @@ fn declared_section_counts_are_bounded_independently_of_payload_size() {
 fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         Default::default(),
@@ -595,9 +604,9 @@ fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
 
 #[test]
 fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
-    use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
+    use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
     let valid = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let mut deep = HostValueType::I32;
@@ -633,8 +642,8 @@ fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
 #[test]
 fn bytecode_cannot_claim_a_different_identity_from_its_header() {
     let mut artifact = KbcArtifact::from_program(
-        crate::BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         Default::default(),
@@ -652,8 +661,8 @@ fn bytecode_cannot_claim_a_different_identity_from_its_header() {
 #[test]
 fn legacy_language_semantics_cannot_be_opted_into() {
     let mut artifact = KbcArtifact::from_program(
-        crate::BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         Default::default(),
@@ -689,8 +698,8 @@ fn fingerprints_depend_on_serialized_values_not_rust_debug_names() {
 #[test]
 fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
     let artifact = KbcArtifact::from_program(
-        crate::BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         ArtifactBuildOptions::default(),
@@ -714,8 +723,9 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
 #[test]
 fn artifact_preserves_portable_virtual_path_declarations() {
     use kagari_common::host_interface::{
-        HostPathDeclaration, HostPathSegmentDeclaration, HostTypeDeclaration, HostTypeOwnership,
-        HostValueType, HostVirtualSegmentDeclaration, PathAccess,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
+        value_type::HostValueType,
     };
     let mut root = HostTypeDeclaration::new("game.Player");
     root.ownership = HostTypeOwnership::HostRoot;
@@ -737,8 +747,8 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     module.host_interface.types.push(root);
     module.host_interface.paths.push(path.clone());
     let artifact = KbcArtifact::from_program(
-        crate::BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![module],
         },
         ArtifactBuildOptions::default(),
@@ -751,7 +761,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
 #[test]
 fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     use kagari_common::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostValueType, standard_log,
+        HostFunctionDeclaration, HostInterface, standard_log, value_type::HostValueType,
     };
     let interface = HostInterface {
         paths: vec![],
@@ -775,8 +785,8 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
         ArtifactFingerprint::of_host_interface(&reordered)
     );
     let mut artifact = KbcArtifact::from_program(
-        crate::BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 host_interface: interface,
                 ..Default::default()
@@ -800,8 +810,8 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
 #[test]
 fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
     let mut artifact = KbcArtifact::from_program(
-        crate::BytecodeProgram {
-            root: crate::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule::default()],
         },
         ArtifactBuildOptions::default(),
@@ -830,7 +840,7 @@ fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
 
 #[test]
 fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes() {
-    use crate::ModuleRef;
+    use crate::program::ModuleRef;
     let program = BytecodeProgram {
         root: ModuleRef::new(1),
         modules: vec![
@@ -874,7 +884,7 @@ fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes()
 #[test]
 fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
     let program = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let plain = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();
@@ -944,7 +954,7 @@ fn portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size() {
             .contains("portable MIR byte limit exceeded")
     );
     let program = BytecodeProgram {
-        root: crate::ModuleRef::new(0),
+        root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
     let mut artifact = KbcArtifact::from_program(program.clone(), Default::default()).unwrap();

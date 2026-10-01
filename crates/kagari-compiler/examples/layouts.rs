@@ -4,16 +4,16 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, PublicAbiItem},
 };
-use kagari_bytecode::BytecodeInstruction;
+use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::{
-    SourceFile,
     cancellation::CancellationToken,
     identity::DefinitionKind,
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_mir::{MirVerificationErrorKind, verify_mir};
+use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
 
 fn main() {
     let source = SourceFile::new(

@@ -4,25 +4,35 @@ use super::signature_queries::BodyEnvironment;
 use crate::{
     AnalysisResult,
     analysis::{
-        AnalysisDatabase, AnalysisError,
+        AnalysisDatabase,
         declaration_queries::DeclarationSnapshot,
+        error::AnalysisError,
         signature_queries::{FileSignatures, SignatureSnapshot},
     },
     declarations::{DeclarationId, Declarations},
-    hir::{BodyOwner, BodySelection, FunctionId, FunctionKind},
+    hir::{
+        ids::{BodyOwner, BodySelection, FunctionId},
+        item::function::FunctionKind,
+    },
     lower::LoweredModule,
-    resolver::{self, ResolvedName, ResolvedNames},
-    typeck::{self, BodyInputs, BodyReuse, TypeTable, TypedModule},
+    resolver::{
+        collect::resolve_bodies,
+        resolved::{ResolvedName, ResolvedNames},
+    },
+    typeck::{
+        BodyInputs, TypedModule, check::check_bodies_controlled, reuse::BodyReuse, table::TypeTable,
+    },
     types::TypeId,
 };
+
 use kagari_common::{
-    Diagnostic, SourceFile, cancellation::CancellationToken, source_database::SourceSnapshot,
+    cancellation::CancellationToken, diagnostic::Diagnostic, identity::DefinitionId,
+    source::SourceFile, source_database::SourceSnapshot,
 };
 use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
-use kagari_common::identity::DefinitionId;
 
 #[derive(Debug)]
 pub struct FunctionAnalysis {
@@ -138,12 +148,7 @@ impl AnalysisDatabase {
         } else {
             let prepared = &file.prepared;
             let selection = BodySelection::Function(function);
-            let names = resolver::resolve_bodies(
-                &prepared.lowered,
-                &prepared.names.facts,
-                selection,
-                cancel,
-            );
+            let names = resolve_bodies(&prepared.lowered, &prepared.names.facts, selection, cancel);
             let declarations =
                 prepared
                     .declarations
@@ -178,7 +183,7 @@ impl AnalysisDatabase {
                     old_text: old.source().text(),
                     new_text: file.source().text(),
                 });
-            let typed = typeck::check_bodies_controlled(
+            let typed = check_bodies_controlled(
                 &prepared.lowered,
                 &names,
                 &declarations,

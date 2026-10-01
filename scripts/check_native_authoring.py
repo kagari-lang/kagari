@@ -15,6 +15,8 @@ def run() -> None:
         '[workspace]', '[package]', 'name = "native-authoring-contracts"',
         'version = "0.0.0"', 'edition = "2024"', '[dependencies]',
         f'kagari-runtime = {{ path = {json.dumps(str(ROOT / "crates/kagari-runtime"))} }}',
+        f'kagari-abi = {{ path = {json.dumps(str(ROOT / "crates/kagari-abi"))} }}',
+        f'kagari-native-macros = {{ path = {json.dumps(str(ROOT / "crates/kagari-native-macros"))} }}',
         '[profile.dev]', 'opt-level = 1', '',
     ]))
     (OUTPUT / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
@@ -23,7 +25,7 @@ def run() -> None:
             mod math { #[native] fn answer() -> usize { true } }''', "E0308"),
         "trait-contract": ('''#[native_module("game::array")]
             mod array {
-                use kagari_runtime::{NativeArray, NativeValue, NativeResult};
+                use kagari_runtime::native_value::{array::NativeArray, NativeValue, NativeResult};
                 #[native_type] struct Array<T: NativeValue>(NativeArray<T>);
                 #[native_trait] trait MutableList<T: NativeValue> {
                     fn set(&self, index: usize, value: T) -> NativeResult<()>;
@@ -38,7 +40,7 @@ def run() -> None:
     positive = """use kagari_runtime as renamed_runtime;
         #[native_module("game::math", runtime = crate::renamed_runtime)]
         pub mod math {
-            use crate::renamed_runtime::NativeValue;
+            use crate::renamed_runtime::native_value::NativeValue;
             type Count = usize;
             type Box = u8;
             type Result = u16;
@@ -53,7 +55,7 @@ def run() -> None:
     """
     cases["resolved-types-and-hygiene"] = (positive, None)
     for label, (source, diagnostic) in cases.items():
-        (OUTPUT / "src/lib.rs").write_text('use kagari_runtime::native_module;\n' + source + '\n')
+        (OUTPUT / "src/lib.rs").write_text('use kagari_native_macros::native_module;\n' + source + '\n')
         result = subprocess.run([
             "cargo", "check", "--offline", "--manifest-path", str(manifest),
             "--target-dir", str(ROOT / "target"),

@@ -1,6 +1,7 @@
 use crate::hir::{
-    BinaryOp, BlockId, Condition, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId,
-    Writeability,
+    expr::{Condition, ops::BinaryOp},
+    ids::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
+    writeability::Writeability,
 };
 use smallvec::SmallVec;
 

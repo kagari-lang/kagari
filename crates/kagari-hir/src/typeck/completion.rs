@@ -3,10 +3,14 @@
 
 use crate::{
     hir::{
-        BinaryOp, BlockId, ExprId, ExprKind, MatchArm, Module, PlaceId, PlaceKind, StmtId, StmtKind,
+        expr::{ExprKind, MatchArm, ops::BinaryOp},
+        ids::{BlockId, ExprId, PlaceId, StmtId},
+        item::Module,
+        place::PlaceKind,
+        stmt::StmtKind,
     },
-    resolver::ResolvedNames,
-    typeck::TypeTable,
+    resolver::resolved::ResolvedNames,
+    typeck::table::TypeTable,
 };
 use std::{collections::HashMap, iter};
 
@@ -440,20 +444,27 @@ impl<'a> Completion<'a> {
 
 #[cfg(test)]
 mod tests {
+    use {
+        crate::{hir::ids::StmtId, resolver::collect::resolve_names},
+        kagari_common::source::SourceFile,
+    };
+
     use super::*;
 
     #[test]
     fn deeply_nested_expressions_blocks_and_places_use_the_work_stack() {
-        use crate::hir::{BlockData, ExprData, PlaceData, PrefixOp};
+        use crate::hir::{
+            expr::{ExprData, ops::PrefixOp},
+            place::PlaceData,
+            stmt::BlockData,
+        };
         for (source, expected) in [
             ("fn main() { 7 }", true),
             ("fn main() { if true { return; } else { return; } }", false),
         ] {
-            let mut lowered = crate::lower::lower_module(&kagari_common::SourceFile::new(
-                "deep-completion.kgr",
-                source,
-            ));
-            let names = crate::resolver::resolve_names(&lowered).facts;
+            let mut lowered =
+                crate::lower::lower_module(&SourceFile::new("deep-completion.kgr", source));
+            let names = resolve_names(&lowered).facts;
             let module = &mut lowered.module;
             let mut expr = module
                 .block(module.functions[0].body.unwrap())
@@ -526,11 +537,11 @@ mod tests {
 
     #[test]
     fn a_terminated_sequence_never_requests_a_later_operand() {
-        let lowered = crate::lower::lower_module(&kagari_common::SourceFile::new(
+        let lowered = crate::lower::lower_module(&SourceFile::new(
             "stopped-completion.kgr",
             "fn main() { if true { return; } else { return; } }",
         ));
-        let names = crate::resolver::resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).facts;
         let expr = lowered
             .module
             .block(lowered.module.functions[0].body.unwrap())
@@ -557,12 +568,15 @@ mod tests {
 
     #[test]
     fn shared_subtrees_are_reused_without_losing_loop_exit_context() {
-        use crate::hir::{BlockData, ExprData, StmtData};
-        let mut lowered = crate::lower::lower_module(&kagari_common::SourceFile::new(
+        use crate::hir::{
+            expr::ExprData,
+            stmt::{BlockData, StmtData},
+        };
+        let mut lowered = crate::lower::lower_module(&SourceFile::new(
             "shared-completion.kgr",
             "fn main() { 7 }",
         ));
-        let names = crate::resolver::resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).facts;
         let module = &mut lowered.module;
         let mut expr = module
             .block(module.functions[0].body.unwrap())
@@ -588,7 +602,7 @@ mod tests {
             Ok(true)
         );
 
-        let breaking = crate::hir::StmtId::new(arena, owner, module.body.stmts.len());
+        let breaking = StmtId::new(arena, owner, module.body.stmts.len());
         module.body.stmts.push((
             owner,
             StmtData {
@@ -603,7 +617,7 @@ mod tests {
                 tail_expr: None,
             },
         ));
-        let looping = crate::hir::StmtId::new(arena, owner, module.body.stmts.len());
+        let looping = StmtId::new(arena, owner, module.body.stmts.len());
         module.body.stmts.push((
             owner,
             StmtData {
@@ -631,11 +645,11 @@ mod tests {
 
     #[test]
     fn cancellation_is_not_a_completion_fact() {
-        let lowered = crate::lower::lower_module(&kagari_common::SourceFile::new(
+        let lowered = crate::lower::lower_module(&SourceFile::new(
             "cancel.kgr",
             "fn empty() {} fn value() { 7 }",
         ));
-        let names = crate::resolver::resolve_names(&lowered).facts;
+        let names = resolve_names(&lowered).facts;
         let token = CancellationToken::default();
         token.cancel();
         for function in &lowered.module.functions {
@@ -663,11 +677,8 @@ mod tests {
 
     #[test]
     fn cancellation_during_a_sequence_stops_before_the_next_operand() {
-        let lowered = crate::lower::lower_module(&kagari_common::SourceFile::new(
-            "cancel.kgr",
-            "fn main() { 7 }",
-        ));
-        let names = crate::resolver::resolve_names(&lowered).facts;
+        let lowered = crate::lower::lower_module(&SourceFile::new("cancel.kgr", "fn main() { 7 }"));
+        let names = resolve_names(&lowered).facts;
         let expr = lowered
             .module
             .block(lowered.module.functions[0].body.unwrap())

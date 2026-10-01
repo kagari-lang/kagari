@@ -59,7 +59,7 @@ def run(native_proof: bool = False) -> None:
         'native = ["kagari-embed/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         '[dependencies]',
     ]
-    for name in ["abi", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
+    for name in ["abi", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift", "native-macros"]:
         options = [f'path = {json.dumps(str(ROOT / "crates" / f"kagari-{name}"))}']
         if name == "embed":
             options.append('default-features = false')

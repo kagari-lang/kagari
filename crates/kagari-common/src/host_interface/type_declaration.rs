@@ -1,13 +1,14 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
-use super::{
-    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, HostValueType, codec,
-    hash, host_type_identity, validate_host_type_identity,
-};
 use crate::{
     capability::CapabilitySet,
+    host_interface::{
+        HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, codec, hash,
+        host_type_identity, validate_host_type_identity, value_type::HostValueType,
+    },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
 };
+
 use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, iter};

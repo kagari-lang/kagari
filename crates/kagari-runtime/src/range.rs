@@ -1,8 +1,12 @@
 //! Immutable integer range values; cursor state belongs to each iterator.
 
-use crate::value::EnumTag;
+use crate::{
+    error::{RuntimeError, RuntimeErrorKind},
+    gc::GcHeap,
+    numeric,
+    value::{EnumTag, Value},
+};
 
-use crate::{RuntimeError, RuntimeErrorKind, gc::GcHeap, numeric, value::Value};
 use kagari_abi::{operations, scalar::BuiltinType, types::AbiType};
 use kagari_common::{integer, range::RangeKind};
 use std::ops::Bound;

@@ -1,4 +1,6 @@
 use super::*;
+use crate::profile::LanguageFeatureProfile;
+use {crate::hir::expr::ExprKind, kagari_common::diagnostic::DiagnosticKind};
 
 #[test]
 fn reflective_writes_share_target_context_and_recovery_member_comparison() {
@@ -32,7 +34,7 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
         );
         let analysis = crate::analyze_source(
             &source,
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
@@ -47,7 +49,7 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
         assert_eq!(
             analysis.diagnostics().iter().any(|diagnostic| matches!(
                 diagnostic.kind,
-                kagari_common::DiagnosticKind::AssignmentTypeMismatch { .. }
+                DiagnosticKind::AssignmentTypeMismatch { .. }
             )),
             mismatch,
             "{body}"
@@ -84,10 +86,10 @@ fn standard_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
             analysis.diagnostics()
         );
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::ArgumentTypeMismatch { .. })),
             mismatch,
             "{body}"
         );
@@ -198,7 +200,7 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
             .body
             .expressions()
             .find_map(|(id, expr)| {
-                matches!(&expr.kind, crate::hir::ExprKind::Name { name, .. } if name == "result")
+                matches!(&expr.kind, ExprKind::Name { name, .. } if name == "result")
                     .then(|| facts.typed.type_table.expr_type(id))
                     .flatten()
             });
@@ -249,10 +251,10 @@ fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
             analysis.diagnostics()
         );
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::UnaryOperandTypeMismatch { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::UnaryOperandTypeMismatch { .. })),
             unary_error,
             "{source}"
         );
@@ -292,12 +294,12 @@ fn standard_math_and_equality_check_each_known_operand_after_recovery() {
             analysis.diagnostics()
         );
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
-            &diagnostic.kind, kagari_common::DiagnosticKind::UnknownName { name } if name == "missing"
+            &diagnostic.kind, DiagnosticKind::UnknownName { name } if name == "missing"
         )));
         if body.starts_with("std::math::clamp") {
             let diagnostic = analysis.diagnostics().iter().find(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::ArgumentTypeMismatch { function_name, parameter_name, expected, found }
+                DiagnosticKind::ArgumentTypeMismatch { function_name, parameter_name, expected, found }
                     if function_name == "clamp" && parameter_name == "max" && expected == "i32" && found == "bool"
             )).expect("the remaining known operand must be checked after recovery");
             let span = diagnostic.span.unwrap();

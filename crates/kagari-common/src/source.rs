@@ -1,7 +1,7 @@
 use crate::{
-    Span,
     identity::{FileId, FileSpan, ModuleIdentity, Revision},
     line_index::{LineIndex, Position, PositionEncoding},
+    span::Span,
 };
 #[derive(Debug, Clone)]
 pub struct SourceFile {

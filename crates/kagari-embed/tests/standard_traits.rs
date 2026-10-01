@@ -1,10 +1,18 @@
 use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
+use {
+    kagari_embed::{context::JitPolicy, engine::EngineConfig},
+    kagari_vm::vm::Vm,
+};
+
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -24,9 +32,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -159,7 +167,7 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
             )
             .unwrap_err();
         assert!(
-            matches!(error, kagari_embed::EmbeddingError::Diagnostics { .. }),
+            matches!(error, EmbeddingError::Diagnostics { .. }),
             "{source}: {error:?}"
         );
     }
@@ -226,10 +234,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                 }
             }
         }
-        assert!(
-            kagari_bytecode::verify_program(&program).is_err(),
-            "mutation {mutation}"
-        );
+        assert!(verify_program(&program).is_err(), "mutation {mutation}");
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }
 }
@@ -284,7 +289,7 @@ fn identity_operators_reject_value_types_and_mismatched_objects() {
                 Default::default(),
                 Default::default()
             ),
-            Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+            Err(EmbeddingError::Diagnostics { .. })
         ));
     }
 }
@@ -430,7 +435,7 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
                     Default::default(),
                     Default::default()
                 ),
-                Err(kagari_embed::EmbeddingError::Diagnostics { .. })
+                Err(EmbeddingError::Diagnostics { .. })
             ),
             "{tail}"
         );
@@ -507,7 +512,7 @@ fn make()->(Test,LinkedHashSet<Key>) {
     let loaded = runtime
         .load_program("callback-cleanup", artifact.program)
         .unwrap();
-    let mut vm = kagari_vm::Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     for mode in 1..=4 {
         let value = vm.execute(&loaded, "make").unwrap().return_value;
         let root = vm.runtime().root_value(value.clone()).unwrap();
@@ -699,10 +704,7 @@ fn main()->i64 {Key{id:1}.hash()}
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
         module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==standard_traits::identity(missing))));
-        assert!(
-            kagari_bytecode::verify_program(&program).is_err(),
-            "missing {missing:?}"
-        );
+        assert!(verify_program(&program).is_err(), "missing {missing:?}");
     }
 }
 
@@ -713,7 +715,7 @@ fn key_calls_carry_checked_storage_and_selected_protocols() {
         native_import::{EngineNativeOperation, NativeWitnessImplementation},
         standard::RuntimePrimitive,
     };
-    use kagari_bytecode::{BytecodeInstruction, CallTarget};
+    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     for custom in [false, true] {
         let implementation = if custom {
             "impl PartialEq for Key {fn eq(self,other:Self)->bool {self.id==other.id}} impl Eq for Key {} impl Hash for Key {fn hash(self)->i64 {self.id.hash()}}"

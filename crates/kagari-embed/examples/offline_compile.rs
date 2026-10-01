@@ -1,20 +1,32 @@
 //! Compile against declarations without registering callbacks or starting services.
 
-use kagari_bytecode::ArtifactSectionId;
-use kagari_bytecode::KBC_ARTIFACT_FORMAT_VERSION;
+use kagari_bytecode::artifact::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
+
 use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostIndexSegmentDeclaration, HostInterface,
-        HostMethodDeclaration, HostParameter, HostPassingStyle, HostPathDeclaration,
-        HostPathSegmentDeclaration, HostTypeDeclaration, HostTypeOwnership, HostValueType,
-        HostVirtualSegmentDeclaration, PathAccess,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            HostVirtualSegmentDeclaration,
+        },
+        type_declaration::{
+            HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostTypeOwnership,
+            PathAccess,
+        },
+        value_type::HostValueType,
     },
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use kagari_embed::{ArtifactOptions, BytecodeArtifact, CompileOptions, KagariEngine};
-use kagari_runtime::LanguageProfile;
+use kagari_embed::{
+    BytecodeArtifact,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, CompileOptions},
+    },
+};
+use kagari_runtime::security::LanguageProfile;
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -49,11 +61,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     child.fields.push(child_score.clone());
     let path_declaration = HostPathDeclaration {
         root: player.id.clone(),
-        segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(
-                player.fields[0].id.clone(),
-            ),
-        ],
+        segments: vec![HostPathSegmentDeclaration::Field(
+            player.fields[0].id.clone(),
+        )],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),

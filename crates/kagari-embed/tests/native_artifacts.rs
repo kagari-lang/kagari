@@ -1,8 +1,16 @@
-use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
-use kagari_common::SourceFile;
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, KbcArtifact},
+    native_input::PortableMir,
+};
+use kagari_common::source::SourceFile;
 use kagari_compiler::native_input::verify_native_input;
 use kagari_embed::{
-    ArtifactOptions, EmbeddingError, ExecutionContext, KagariEngine, NativeInputExport,
+    context::ExecutionContext,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, NativeInputExport},
+    },
+    error::EmbeddingError,
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;

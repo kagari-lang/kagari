@@ -9,7 +9,7 @@ use kagari_abi::{
     standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
-use kagari_common::{host_interface::HostPathDeclaration, identity::DefinitionId};
+use kagari_common::{host_interface::path::HostPathDeclaration, identity::DefinitionId};
 use smallvec::SmallVec;
 
 use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};

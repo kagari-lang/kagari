@@ -196,7 +196,6 @@ def module_edges(source: Source, available: set[str], entrypoint=False) -> list[
 def manifest_context(manifests: dict[str, bytes], paths: set[str]):
     roots: dict[str, set[bool]] = {}
     dependencies: dict[str, set[str]] = {}
-    facades = set()
     # A nested package owns its source even when a parent package is also present.
     for manifest, content in sorted(manifests.items(), key=lambda item: len(item[0])):
         config = tomllib.loads(content.decode("utf-8"))
@@ -222,8 +221,6 @@ def manifest_context(manifests: dict[str, bytes], paths: set[str]):
                         if "/" not in target or (target.count("/") == 1 and target.endswith("/main.rs")):
                             roots.setdefault(path, set()).add(test_only)
         library = config.get("lib", {}).get("path", "src/lib.rs")
-        if prefix + library in paths:
-            facades.add(prefix + library)
         targets = [(library, False), ("src/main.rs", False), ("build.rs", False)]
         for kind in ("bin", "test", "bench", "example"):
             targets.extend((target["path"], kind == "test")
@@ -232,7 +229,7 @@ def manifest_context(manifests: dict[str, bytes], paths: set[str]):
             path = posixpath.normpath(prefix + target)
             if path in paths:
                 roots.setdefault(path, set()).add(test_only)
-    return roots, dependencies, facades
+    return roots, dependencies
 
 
 def test_files(sources: dict[str, Source], roots: dict[str, set[bool]]) -> set[str]:
@@ -261,7 +258,7 @@ def test_files(sources: dict[str, Source], roots: dict[str, set[bool]]) -> set[s
     return {path for path, flags in states.items() if flags == {True}}
 
 
-def inspect(source: Source, test_only: bool, facade: bool) -> list[dict]:
+def inspect(source: Source, test_only: bool) -> list[dict]:
     findings = []
 
     def emit(rule, node, message):
@@ -278,15 +275,15 @@ def inspect(source: Source, test_only: bool, facade: bool) -> list[dict]:
         if node.type in {"attribute_item", "inner_attribute_item"}:
             return
         if node.type == "use_declaration":
+            visibility = next((c for c in node.named_children
+                               if c.type == "visibility_modifier"), None)
+            if visibility:
+                finding = emit("reexport-whitelist", node,
+                               "import from the owner; intentional re-exports require an exact whitelist entry")
+                finding["declaration"] = without_comments(node).strip()
             if not test_only:
                 if any(n.type == "use_wildcard" for n in descendants(node)):
                     emit("wildcard-import", node, "list production imports and re-exports explicitly")
-                visibility = next((c for c in node.named_children
-                                   if c.type == "visibility_modifier"), None)
-                if visibility and not facade:
-                    finding = emit("reexport-location", node,
-                                   "put intentional re-exports in lib.rs or mod.rs")
-                    finding["declaration"] = without_comments(node).strip()
                 paths = import_paths(node.child_by_field_name("argument"))
                 if any(any(parts[i:i + 2] == ["super", "super"]
                            for i in range(len(parts) - 1)) for parts in paths):
@@ -329,14 +326,13 @@ def inspect(source: Source, test_only: bool, facade: bool) -> list[dict]:
 
 def check_sources(raw: dict[str, bytes], manifests: dict[str, bytes] | None = None) -> dict:
     parser = Parser(LANGUAGE)
-    roots, dependencies, facades = manifest_context(manifests or {}, set(raw))
+    roots, dependencies = manifest_context(manifests or {}, set(raw))
     sources = {path: Source(path, data, parser.parse(data),
                            dependencies.get(path, {"std", "core", "alloc", "crate"}))
                for path, data in raw.items()}
     tests = test_files(sources, roots)
     findings = []
     for path, source in sources.items():
-        facade = path in facades or posixpath.basename(path) in {"lib.rs", "mod.rs"}
-        findings.extend(inspect(source, path in tests, facade))
+        findings.extend(inspect(source, path in tests))
     findings.sort(key=lambda f: (f["path"], f["line"], f["column"], f["rule"]))
     return {"files": len(sources), "findings": findings}

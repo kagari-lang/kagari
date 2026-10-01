@@ -4,8 +4,11 @@ use crate::{
     lower::{LoweredModule, lower_module_controlled},
     native::NativeTypeKind,
 };
-use kagari_common::{Span, cancellation::CancellationToken};
-use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile, ParsedStdlibPackage};
+use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_stdlib::{
+    index::NativeMarkerKind,
+    package::{PackageError, ParsedStdlibFile, ParsedStdlibPackage},
+};
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 

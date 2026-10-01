@@ -1,4 +1,4 @@
-use crate::{lexer::lex, tests::common, token::TokenKind};
+use crate::{lexer::lex, parser::parse, tests::common, token::TokenKind};
 
 #[test]
 fn line_comments_keep_unicode_ranges_and_crlf_trivia() {
@@ -76,7 +76,7 @@ fn unsupported_unicode_tokens_keep_utf8_boundaries_and_parse_without_panicking()
         .map(|token| text[token.span.start..token.span.end].to_owned())
         .collect::<Vec<_>>();
     assert_eq!(unknown, ["中", "😀"]);
-    assert!(!crate::parse(&common::source(text)).diagnostics().is_empty());
+    assert!(!parse(&common::source(text)).diagnostics().is_empty());
 }
 
 #[test]

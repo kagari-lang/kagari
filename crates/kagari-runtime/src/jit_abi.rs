@@ -1,4 +1,4 @@
-use crate::{Runtime, RuntimeErrorKind, value::Value};
+use crate::{Runtime, error::RuntimeErrorKind, value::Value};
 use kagari_abi::{
     native::NativeHelperSymbol,
     native_call::{

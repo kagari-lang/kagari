@@ -1,38 +1,30 @@
 //! Checked nominal contracts shared by local and imported member access.
 
-use kagari_common::identity;
-
-use crate::{
-    builtin::traits as builtin_traits,
-    host::HostDeclarations,
-    typeck::GenericBounds,
-    types::{GenericParameterType, NominalType},
-};
-mod implementations;
-mod native;
-mod traits;
-use crate::{
-    declarations::{Declaration, DeclarationId, Declarations},
-    hir::{Visibility, Writeability},
-    imports::{ModuleGraph, SourceFunctionId},
-    lower::LoweredModule,
-    native::NativeTypeKind,
-    resolver::ResolvedName,
-    typeck::{ModuleSignatures, TypedFunction},
-    types::TypeId,
-};
-pub use implementations::{ImplementationSearchError, ImplementationSignature};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionId, ModuleIdentity},
+    identity::{self, DefinitionId, ModuleIdentity},
 };
+
+use crate::{
+    aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
+    builtin::traits as builtin_traits,
+    declarations::{Declaration, DeclarationId, Declarations},
+    hir::{item::storage::Visibility, writeability::Writeability},
+    host::HostDeclarations,
+    imports::{ModuleGraph, functions::SourceFunctionId},
+    lower::LoweredModule,
+    native::NativeTypeKind,
+    resolver::resolved::ResolvedName,
+    typeck::{GenericBounds, ModuleSignatures, TypedFunction},
+    types::{GenericParameterType, NominalType, TypeId},
+};
+pub mod implementations;
+mod native;
+pub mod traits;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
-};
-pub use traits::AssociatedConstSignature;
-pub use traits::{
-    MethodDefault, MethodParameter, MethodSignature, TraitSignature, trait_inheritance_closure,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

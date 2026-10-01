@@ -24,6 +24,7 @@ kagari-vm.workspace = true
 smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
+kagari-native-macros.workspace = true
 bincode.workspace = true
 kagari-codegen-cranelift.workspace = true
 

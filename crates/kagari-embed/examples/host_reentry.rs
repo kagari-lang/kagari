@@ -1,6 +1,10 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
-use kagari_embed::program::PreparedProgram;
-use kagari_vm::reenter;
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{KagariEngine, source::CompileOptions},
+    program::PreparedProgram,
+};
+use kagari_vm::reentry::reenter;
 
 use std::{
     cell::{Cell, RefCell},
@@ -8,11 +12,14 @@ use std::{
     slice,
 };
 
-use kagari_common::{SourceFile, host_interface::standard_log};
-use kagari_embed::{CompileOptions, ExecutionContext, KagariEngine};
+use kagari_common::{host_interface::standard_log, source::SourceFile};
+
 use kagari_runtime::{
-    ExecutionEvent, ExecutionFrame, ExecutionObserver, Runtime, RuntimeError,
+    Runtime,
+    error::RuntimeError,
+    frame::ExecutionFrame,
     host::{HostError, HostFunction},
+    session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
 

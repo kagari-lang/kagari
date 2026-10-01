@@ -1,9 +1,16 @@
+use kagari_bytecode::program::verify_program;
 use kagari_common::{
-    SourceFile,
     identity::{ModuleIdentity, PackageId},
+    source::SourceFile,
     source_database::SourceLayer,
 };
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
+};
+
 use kagari_runtime::value::Value;
 
 fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
@@ -17,9 +24,9 @@ fn execute_artifact(engine: &KagariEngine, artifact: BytecodeArtifact) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -274,7 +281,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
             }
         }
         assert!(
-            kagari_bytecode::verify_program(&program).is_err(),
+            verify_program(&program).is_err(),
             "accepted mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
@@ -374,7 +381,7 @@ fn interface_instance_bounds_are_checked_without_method_slots() {
         .unwrap();
     assert!(table.methods.is_empty());
     table.arguments[0] = AbiType::Builtin(BuiltinType::F32);
-    assert!(kagari_bytecode::verify_program(&program).is_err());
+    assert!(verify_program(&program).is_err());
     execute_artifact(&engine, artifact);
 }
 
@@ -463,7 +470,7 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            kagari_bytecode::verify_program(&program).is_err(),
+            verify_program(&program).is_err(),
             "accepted mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());

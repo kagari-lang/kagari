@@ -1,20 +1,30 @@
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
-use kagari_bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
-    FunctionRecord, ModuleRef, Register,
+use {
+    kagari_bytecode::module::RootSlotLayout,
+    kagari_runtime::{
+        error::RuntimeError,
+        frame::ExecutionFrame,
+        session::{ExecutionEvent, ExecutionObserver},
+    },
 };
-use kagari_runtime::{LoadedModule, Runtime, RuntimeErrorKind, value::Value};
+
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, Register},
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_runtime::{Runtime, error::RuntimeErrorKind, module::LoadedModule, value::Value};
 
 #[derive(Debug)]
 struct ReentrantObserver;
 
-impl kagari_runtime::ExecutionObserver for ReentrantObserver {
+impl ExecutionObserver for ReentrantObserver {
     fn observe(
         &self,
         runtime: &Runtime,
-        _: kagari_runtime::ExecutionEvent,
-        _: &[kagari_runtime::ExecutionFrame],
-    ) -> Result<(), kagari_runtime::RuntimeError> {
+        _: ExecutionEvent,
+        _: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
         let module = runtime.execution_root().unwrap();
         let nested = runtime.enter_execution_stack(&module)?;
         nested.push(module.slot(), FunctionRef::new(0), &[], None)
@@ -36,7 +46,7 @@ fn loaded_with_instructions(
         metadata: FunctionMetadata {
             instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
             registers: vec![ValueType::HeapObject],
-            roots: kagari_bytecode::RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
+            roots: RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
             ..Default::default()
         },
         instructions,
@@ -208,7 +218,7 @@ fn observers_cannot_reenter_a_borrowed_stack_or_replace_the_root_observer() {
         .unwrap();
     assert_eq!(
         runtime
-            .observe_execution(kagari_runtime::ExecutionEvent::BeforeInstruction)
+            .observe_execution(ExecutionEvent::BeforeInstruction)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::EngineFault
@@ -302,7 +312,9 @@ fn suspended_session_frames_cannot_be_used_during_candidate_initialization() {
 #[test]
 fn native_logical_charges_preserve_failure_offsets_and_cleanup() {
     use kagari_abi::native_call::{JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT};
-    use kagari_runtime::{ResourcePolicy, RuntimeConfig, jit_abi::jit_consume_instruction_step};
+    use kagari_runtime::{
+        RuntimeConfig, jit_abi::jit_consume_instruction_step, resource::ResourcePolicy,
+    };
     let mut runtime = Runtime::new(RuntimeConfig {
         resources: ResourcePolicy {
             max_instruction_steps: Some(2),

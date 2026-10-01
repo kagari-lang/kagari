@@ -1,10 +1,14 @@
+use kagari_bytecode::{
+    instruction::StructId,
+    program::{BytecodeProgram, ModuleRef},
+};
 use kagari_common::collection::CollectionAccess;
 #[path = "support/layouts.rs"]
 mod layouts;
 
 use kagari_abi::types::AbiType;
-use kagari_bytecode::StructId;
-use kagari_runtime::{Runtime, RuntimeErrorKind, reflection, value::Value};
+
+use kagari_runtime::{Runtime, error::RuntimeErrorKind, reflection, value::Value};
 
 #[test]
 fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
@@ -36,8 +40,8 @@ fn slot_access_checks_nominal_owner_schema_permission_and_representation() {
     let foreign = runtime
         .load_program(
             "other",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![foreign],
             },
         )
@@ -155,8 +159,8 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
         .stage_reload_program(
             original.module(),
             "Point",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![(*original.module().bytecode).clone()],
             },
         )
@@ -213,7 +217,7 @@ fn objects_retain_old_layouts_and_require_equal_schemas_across_generations() {
 #[test]
 fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
     use kagari_abi::{scalar::BuiltinType, types::NominalAbiType};
-    use kagari_bytecode::{BytecodeProgram, ModuleRef};
+    use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
     let mut runtime = Runtime::default();
     let leaf = layouts::layout(
         &mut runtime,

@@ -1,4 +1,4 @@
-use crate::ErrorTrace;
+use crate::error_trace::ErrorTrace;
 use std::sync::Arc;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {

@@ -1,7 +1,7 @@
 //! Source namespaces include enum variants without a standard-library name table.
 
 use crate::{
-    hir::ExportItem,
+    hir::item::storage::ExportItem,
     imports::{
         ImportTarget, SourceCatalog, SourceCatalogEntry, SourceImport, canonical_namespace_target,
     },

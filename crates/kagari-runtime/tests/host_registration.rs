@@ -1,19 +1,30 @@
+use kagari_common::host_interface::{
+    type_declaration::HostTypeDeclaration, value_type::HostValueType,
+};
+
 use std::sync::{Arc, Mutex};
 
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostFunctionDeclaration,
-    HostFunctionEffects, HostParameter, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
-    HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, TypeId, TypeKind, TypeRegistration,
-    host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch},
-    value::Value,
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::{
+            HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
+            type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+        },
+    },
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+        metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
-    let mut registration = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
-        "Player",
-    );
+    let mut registration =
+        HostTypeRegistration::new(HostTypeDeclaration::new("game.Player"), "Player");
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
@@ -68,11 +79,7 @@ fn callback_context_releases_borrows_and_rejects_borrowed_results() {
     host_root_value(&mut runtime, 1);
     runtime
         .register_host_function(HostFunction::new(
-            HostFunctionDeclaration::new(
-                "game.heal",
-                vec![],
-                kagari_common::host_interface::HostValueType::opaque("game.Player"),
-            ),
+            HostFunctionDeclaration::new("game.heal", vec![], HostValueType::opaque("game.Player")),
             |context, _| {
                 let token = context
                     .borrows()
@@ -110,12 +117,12 @@ fn registers_host_function_metadata_and_invokes_handler() {
         params: vec![
             HostParameter {
                 name: "player".into(),
-                ty: kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                ty: HostValueType::opaque("game.Player"),
                 passing: HostPassingStyle::UniqueBorrow,
             },
             HostParameter {
                 name: "hp".into(),
-                ty: kagari_common::host_interface::HostValueType::I32,
+                ty: HostValueType::I32,
                 passing: HostPassingStyle::Owned,
             },
         ],
@@ -129,11 +136,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
             may_trap: true,
             ..HostFunctionEffects::default()
         },
-        ..HostFunctionDeclaration::new(
-            "game.heal",
-            vec![],
-            kagari_common::host_interface::HostValueType::I32,
-        )
+        ..HostFunctionDeclaration::new("game.heal", vec![], HostValueType::I32)
     };
     let fingerprint = metadata.fingerprint().unwrap();
 
@@ -174,7 +177,7 @@ fn host_functions_are_unavailable_until_exposed() {
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
-                kagari_common::host_interface::HostValueType::Unit,
+                HostValueType::Unit,
             ),
             move |_, _| {
                 *calls_for_host.lock().expect("counter should lock") += 1;
@@ -204,7 +207,7 @@ fn rejects_duplicate_host_function_symbols() {
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
-                kagari_common::host_interface::HostValueType::Unit,
+                HostValueType::Unit,
             ),
             |_, _| Ok(Value::Unit),
         ))
@@ -215,7 +218,7 @@ fn rejects_duplicate_host_function_symbols() {
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "game.tick",
                 vec![],
-                kagari_common::host_interface::HostValueType::Unit,
+                HostValueType::Unit,
             ),
             |_, _| Ok(Value::Unit),
         ))
@@ -236,7 +239,8 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
         .unwrap();
 
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostValueType,
+        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     };
     let mut declaration = HostTypeDeclaration::new("game.Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
@@ -288,14 +292,14 @@ fn rejects_duplicate_host_type_names() {
     let mut runtime = Runtime::default();
     runtime
         .register_host_type(HostTypeRegistration::new(
-            kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
+            HostTypeDeclaration::new("game.Player"),
             "crate::game::Player",
         ))
         .unwrap();
 
     let error = runtime
         .register_host_type(HostTypeRegistration::new(
-            kagari_common::host_interface::HostTypeDeclaration::new("game.Player"),
+            HostTypeDeclaration::new("game.Player"),
             "crate::game::OtherPlayer",
         ))
         .unwrap_err();

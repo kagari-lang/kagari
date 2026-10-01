@@ -1,14 +1,19 @@
 use crate::{
     AnalysisResult,
-    hir::{BodySelection, FunctionKind},
+    hir::{ids::BodySelection, item::function::FunctionKind},
     host::HostDeclarations,
     imports::{ModuleGraph, ModuleImports},
     lower::LoweredModule,
     resolver::{
-        DeclarationNames, ResolvedName, ResolvedNames, resolve::BodyResolver, table::NameTable,
+        resolve::BodyResolver,
+        resolved::{DeclarationNames, ResolvedName, ResolvedNames},
+        table::NameTable,
     },
 };
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+use kagari_common::{
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
+};
 use smallvec::SmallVec;
 use std::{collections::HashSet, sync::Arc};
 

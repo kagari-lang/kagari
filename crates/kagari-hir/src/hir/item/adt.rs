@@ -1,9 +1,11 @@
 use crate::hir::{
-    EnumId, FieldId, GenericParam, ImplId, MethodId, OpaqueTypeId, StructId, TraitBound, TraitRef,
-    TypeRefId, VariantId, Writeability,
+    ids::{EnumId, FieldId, ImplId, MethodId, OpaqueTypeId, StructId, TypeRefId, VariantId},
+    item::{
+        behavior::{GenericParam, TraitBound, TraitRef},
+        storage::Visibility,
+    },
+    writeability::Writeability,
 };
-
-use super::Visibility;
 
 /// A declaration whose storage is supplied by an installed native provider.
 /// Its representation is checked separately from its ordinary generic syntax.
@@ -23,7 +25,7 @@ pub struct Struct {
     pub id: StructId,
     pub visibility: Visibility,
     pub name: String,
-    pub generic_params: Vec<super::GenericParam>,
+    pub generic_params: Vec<GenericParam>,
     pub fields: FieldBuffer,
     pub methods: Vec<MethodId>,
     pub impls: Vec<ImplId>,
@@ -43,7 +45,7 @@ pub struct Enum {
     pub id: EnumId,
     pub visibility: Visibility,
     pub name: String,
-    pub generic_params: Vec<super::GenericParam>,
+    pub generic_params: Vec<GenericParam>,
     pub variants: VariantBuffer,
     pub methods: Vec<MethodId>,
     pub impls: Vec<ImplId>,

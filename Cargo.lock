@@ -392,6 +392,7 @@ dependencies = [
  "kagari-compiler",
  "kagari-hir",
  "kagari-mir",
+ "kagari-native-macros",
  "kagari-runtime",
  "kagari-syntax",
  "kagari-vm",

@@ -1,7 +1,8 @@
 //! Run MutableList through a native package and inspect its generated declaration view.
-use kagari_common::SourceFile;
-use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
-use kagari_runtime::{native_module, value::Value};
+use kagari_common::source::SourceFile;
+use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari_native_macros::native_module;
+use kagari_runtime::value::Value;
 
 #[native_module("demo::math")]
 mod math {

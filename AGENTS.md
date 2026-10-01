@@ -102,12 +102,12 @@ build policy.
 - Do not introduce forwarding modules, broad re-exports, widened visibility or
   compatibility aliases just to shorten imports. Import from the actual owner or
   fix the responsibility boundary. Keep intentional public facades explicit.
-- Place explicit production re-exports (`pub use`, including restricted visibility)
-  in `lib.rs`, `mod.rs` or the library root declared in Cargo by default. A flat
-  module or another deliberate API boundary may justify a documented exception
-  for its exact declaration. Ordinary implementation files import from owners
-  directly. Neither location nor an exception justifies unnecessary re-exports
-  or broader visibility.
+- Re-exports (`pub use`, including restricted visibility and test-only scopes)
+  are forbidden by default. An intentional API boundary requires an exact
+  file/declaration whitelist entry under `reexport-whitelist` in
+  `scripts/structure-exceptions.toml`, with reviewed consumer/ownership evidence.
+  Library roots and `mod.rs` receive no automatic exemption. Import from the
+  actual owner; do not add forwarding modules or aliases to shorten paths.
 
 ### Structural Review at Checkpoints
 
@@ -127,7 +127,7 @@ Review changed handwritten Rust modules before each implementation checkpoint:
    debt entry is not an exemption. Never use blanket allowances to make CI green.
 
 The [structure checker](docs/structure-checks.md) parses Rust syntax and checks
-imports, paths, re-export placement and effective LOC without building the
+imports, paths, the re-export whitelist and effective LOC without building the
 workspace. Its documented scope excludes macro expansion and semantic name
 resolution. Review macro token trees, module ownership and unnecessary public
 surface manually; a passing syntax check does not replace architectural review.

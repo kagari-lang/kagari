@@ -1,9 +1,13 @@
 //! Execute a preparation decision supplied before script entry. Compilation belongs to the SDK.
 use kagari_abi::native::BackendId;
-use kagari_runtime::{BackendInvocationError, InstalledNativeFunction, LoadedModule, RuntimeError};
+use kagari_runtime::{
+    backend::{BackendInvocationError, native::InstalledNativeFunction},
+    error::RuntimeError,
+    module::LoadedModule,
+};
 
 use crate::{
-    VmError,
+    error::VmError,
     executor::Executor,
     vm::{ExecutionReport, JitExecutionReport, JitExecutionStatus, Vm, find_function_ref},
 };

@@ -1,7 +1,7 @@
 use crate::{
     builtin::traits::StandardTraitSemantics,
-    hir::ExprId,
-    typeck::{BodyTypeEnv, ResolvedIteration, body::BodyChecker},
+    hir::ids::ExprId,
+    typeck::{BodyTypeEnv, body::BodyChecker, table::ResolvedIteration},
     types::TypeId,
 };
 use kagari_abi::standard::traits::StandardTrait;

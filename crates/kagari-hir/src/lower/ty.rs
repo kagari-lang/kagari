@@ -1,13 +1,17 @@
-use kagari_syntax::ast;
+use kagari_syntax::ast::{misc::GenericArgList, ty::TypeRef};
+
 use smallvec::SmallVec;
 
 use crate::{
-    hir::{TypeData, TypeKind, TypeRefId},
+    hir::{
+        ids::TypeRefId,
+        ty::{TypeData, TypeKind},
+    },
     lower::context::{Lowerer, syntax_span, token_span},
 };
 
 impl Lowerer {
-    pub(crate) fn lower_type(&mut self, ty: &ast::TypeRef) -> TypeRefId {
+    pub(crate) fn lower_type(&mut self, ty: &TypeRef) -> TypeRefId {
         if let Some(inner) = ty.grouped_type() {
             return self.lower_type(&inner);
         }
@@ -101,7 +105,7 @@ impl Lowerer {
 
     pub(crate) fn lower_associated_bindings(
         &mut self,
-        list: &ast::GenericArgList,
+        list: &GenericArgList,
     ) -> Vec<(String, TypeRefId)> {
         list.bindings()
             .map(|binding| {

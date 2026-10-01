@@ -1,14 +1,22 @@
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
+use crate::{error::VmError, reentry::reenter, tests::common::compile_test_bytecode, vm::Vm};
+
 use kagari_abi::{callable::EngineNativeBinding, native_import::EngineNativeOperation};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, gc::GcHeapConfig, host::HostFunction, value::Value,
-};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        gc::GcHeapConfig,
+        host::HostFunction,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn cases() -> Vec<(String, String)> {
@@ -846,10 +854,10 @@ fn fail()->i32 {[1,2].iter().reduce(|a,n|{val x=2147483647;x+1}).unwrap_or(0)}
                 sink.borrow_mut().push(args[0].clone());
                 let root = context.runtime().execution_root().unwrap();
                 assert_eq!(
-                    crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                    reenter(context, &root, inner, &[]).unwrap().value(),
                     Value::I32(7)
                 );
-                assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                assert!(reenter(context, &root, fail, &[]).is_err());
                 assert_eq!(
                     context.runtime().resources().counters().current_call_depth,
                     2

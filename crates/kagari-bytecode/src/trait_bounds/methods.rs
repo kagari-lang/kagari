@@ -1,5 +1,5 @@
 //! Compare executable method signatures after canonical substitution and projection resolution.
-use crate::BytecodeModule;
+use crate::module::BytecodeModule;
 use kagari_abi::types::{
     AbiType, PublicAbiItem,
     proofs::ProofCatalog,

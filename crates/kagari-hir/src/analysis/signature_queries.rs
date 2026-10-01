@@ -1,24 +1,30 @@
 //! Signature queries consume declarations without running any body analysis.
 
-use crate::AnalysisResult;
 use crate::{
-    DiagnosticBuffer, PreparedAnalysis,
+    AnalysisResult, DiagnosticBuffer, PreparedAnalysis,
     aggregates::AggregateCatalog,
     analysis::{
-        AnalysisDatabase, AnalysisError,
+        AnalysisDatabase,
         declaration_queries::{DeclarationSnapshot, FileDeclarations},
+        error::AnalysisError,
         type_at_in, type_reference_at, type_reference_target_at,
     },
     declarations::{Declaration, Declarations},
-    imports::{FunctionCatalog, ImportedFunctions, ModuleGraph, TypeCatalog},
-    typeck::{ModuleSignatures, TypeTarget},
+    imports::{
+        ModuleGraph,
+        functions::{FunctionCatalog, ImportedFunctions},
+        types::TypeCatalog,
+    },
+    typeck::{ModuleSignatures, table::TypeTarget},
     types::TypeId,
 };
+
 use kagari_common::{
-    Diagnostic, SourceFile,
     cancellation::{CancellationToken, Cancelled},
-    host_interface::HostTypeDeclaration,
+    diagnostic::Diagnostic,
+    host_interface::type_declaration::HostTypeDeclaration,
     identity::{FileId, Revision},
+    source::SourceFile,
     source_database::SourceSnapshot,
 };
 use std::{

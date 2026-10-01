@@ -1,24 +1,29 @@
 //! Validate applied aggregate contracts from the shared checked catalog.
 
-use crate::builtin::traits::intrinsic_holds;
-
-use super::{
-    ConstraintTarget, GenericBounds, ModuleSignatures, TypeTable,
-    check::{self, MethodComparison},
-    constraints, families,
-};
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
+    builtin::traits::intrinsic_holds,
     declarations::Declarations,
     host::HostDeclarations,
     lower::LoweredModule,
+    typeck::{
+        GenericBounds, ModuleSignatures,
+        check::{self, MethodComparison},
+        constraints::{self, type_satisfies_standard_constraint},
+        families,
+        table::{ConstraintTarget, TypeTable},
+    },
     types::{TypeId, TypeSubstitution},
 };
+
 use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
 use kagari_common::{
-    Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken, identity::ModuleIdentity,
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity::ModuleIdentity,
     range::RangeKind,
+    span::Span,
 };
 
 pub(super) fn validate(
@@ -60,11 +65,7 @@ pub(super) fn validate(
             _ => None,
         };
         if let Some(key) = key
-            && super::type_satisfies_standard_constraint(
-                key,
-                StandardTypeConstraint::HashKey,
-                bounds,
-            )
+            && type_satisfies_standard_constraint(key, StandardTypeConstraint::HashKey, bounds)
             && [StandardTrait::Eq, StandardTrait::Hash]
                 .into_iter()
                 .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))
@@ -116,9 +117,7 @@ pub(super) fn validate(
                         for constraint in constraints {
                             let satisfied = match constraint {
                                 ConstraintTarget::Standard(required) => {
-                                    super::type_satisfies_standard_constraint(
-                                        &actual, *required, bounds,
-                                    )
+                                    type_satisfies_standard_constraint(&actual, *required, bounds)
                                 }
                                 ConstraintTarget::Trait(required) => {
                                     let required = required.instantiate(&substitution);

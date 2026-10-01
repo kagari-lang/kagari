@@ -245,7 +245,7 @@ fn executable_struct_fields_require_concrete_resolved_types() {
 #[test]
 fn struct_instances_must_match_public_templates_locally_and_across_modules() {
     use kagari_abi::{scalar::BuiltinType, types::AbiType};
-    use kagari_bytecode::{BytecodeProgram, ModuleRef, verify_program};
+    use kagari_bytecode::program::{BytecodeProgram, ModuleRef, verify_program};
     let owner = common::bytecode_ok(
         "pub struct Box<T> { var values: ArrayList<T> } fn main() -> i32 { Box<i32> { values: [42] }.values[0] }",
     );

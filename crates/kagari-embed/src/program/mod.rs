@@ -1,6 +1,6 @@
 //! Shared immutable executable input, independent of runtime instances.
 #[cfg(feature = "native")]
-mod native;
+pub mod native;
 
 #[cfg(feature = "native")]
 use std::cell::RefCell;
@@ -8,18 +8,16 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use kagari_bytecode::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact};
+use kagari_bytecode::artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact};
 use kagari_common::cancellation::CancellationToken;
 #[cfg(feature = "native")]
 use kagari_compiler::native_input::{NativeInputError, verify_native_input};
 #[cfg(feature = "native")]
 use kagari_mir::program::VerifiedMirProgram;
-use kagari_runtime::{RuntimeError, VerifiedProgram};
+use kagari_runtime::{error::RuntimeError, module::VerifiedProgram};
 
 #[cfg(feature = "native")]
 use crate::program::native::{CachedFunction, NativeCacheKey};
-#[cfg(feature = "native")]
-pub use native::NativePreparationError;
 
 /// Clones share bytecode, verified native input and compiled products. Loading a
 /// clone creates fresh runtime instances and host bindings, never a new code cache.

@@ -1,12 +1,16 @@
 use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
+use {kagari_embed::engine::source::CompileOptions, kagari_runtime::security::LanguageProfile};
+
 use kagari_common::{
-    SourceFile, host_interface::standard_log, identity::DefinitionKind,
+    host_interface::standard_log, identity::DefinitionKind, source::SourceFile,
     source_database::SourceDatabase,
 };
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_hir::{
     analysis::AnalysisDatabase, declarations::DeclarationId, native::NativeBinding,
-    resolver::ResolvedName, typeck::FunctionImplementation,
+    resolver::resolved::ResolvedName, typeck::FunctionImplementation,
 };
 use kagari_runtime::{host::HostFunction, value::Value};
 use std::collections::HashSet;
@@ -121,7 +125,9 @@ fn healthy()->i32 {42}
 
 #[test]
 fn standard_api_documentation_examples_compile_and_execute() {
-    use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
+    use kagari_common::host_interface::{
+        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+    };
     let number = HostFunctionDeclaration::new("doc_test.number", vec![], HostValueType::F64);
     let mut failures = Vec::new();
     let mut checked = 0;
@@ -185,8 +191,8 @@ fn standard_api_documentation_examples_compile_and_execute() {
                 .unwrap();
             let artifact = match engine.compile_to_artifact(
                 SourceFile::new(format!("doctest-{checked}.kgr"), text),
-                kagari_embed::CompileOptions {
-                    language_profile: kagari_runtime::LanguageProfile {
+                CompileOptions {
+                    language_profile: LanguageProfile {
                         allow_host_calls: true,
                         ..Default::default()
                     },

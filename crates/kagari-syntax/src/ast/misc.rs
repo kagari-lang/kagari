@@ -1,7 +1,13 @@
 use crate::{
-    ast::{ast_node, item::visibility_of, support, traits::AstNode, ty::TypeRef},
+    ast::{
+        item::{Visibility, visibility_of},
+        support,
+        traits::AstNode,
+        ty::TypeRef,
+    },
     kind::SyntaxKind,
 };
+
 use rowan::NodeOrToken;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +204,7 @@ impl FieldList {
 }
 
 impl Field {
-    pub fn visibility(&self) -> super::Visibility {
+    pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 

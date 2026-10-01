@@ -1,5 +1,6 @@
 use super::{assert_clean, route, runtime};
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
+use crate::{error::VmError, reentry::reenter, tests::common::compile_test_bytecode, vm::Vm};
+
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::standard_log,
@@ -9,7 +10,7 @@ use kagari_common::{
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
-    RuntimeErrorKind,
+    error::RuntimeErrorKind,
     host::{HostError, HostFunction},
     value::Value,
 };
@@ -115,10 +116,10 @@ fn ready()->i32 {7}
                             _ => {
                                 let root = context.runtime().execution_root().unwrap();
                                 assert_eq!(
-                                    crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                                    reenter(context, &root, inner, &[]).unwrap().value(),
                                     Value::I32(42)
                                 );
-                                assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                                assert!(reenter(context, &root, fail, &[]).is_err());
                                 assert_eq!(
                                     context.runtime().resources().counters().current_call_depth,
                                     2

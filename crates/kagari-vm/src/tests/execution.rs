@@ -3,25 +3,39 @@ use kagari_abi::{
     ids::{DebugPointId, FunctionRef},
     representation::ValueType,
 };
+use kagari_bytecode::{
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstantOperand, ModuleSlot, Register, RuntimeHelper,
+    },
+    module::{
+        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
+        InstructionSourceSpan, SafeDebugPoint, SafeDebugPointKind,
+    },
+    program::ModuleRef,
+};
+use {kagari_bytecode::module::RootSlotLayout, kagari_runtime::security::HostExposurePolicy};
+
 use std::sync::{Arc, Mutex};
 
-use kagari_bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
-    ConstantOperand, FunctionMetadata, FunctionRecord, InstructionSourceSpan, ModuleSlot, Register,
-    RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
-};
-use kagari_common::Span;
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, HostFunctionDeclaration, LanguageProfile,
-    ModuleEpochRetention, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext,
-    host::HostFunction,
-    value::{StructValueField, Value},
+use kagari_common::span::Span;
+use {
+    kagari_common::{capability::CapabilitySet, host_interface::HostFunctionDeclaration},
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::HostFunction,
+        module::ModuleEpochRetention,
+        resource::ResourcePolicy,
+        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
+        value::{StructValueField, Value},
+    },
 };
 
 use crate::{
-    DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError,
+    debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
+    error::VmError,
     tests::common::{compile_test_bytecode, load_test_module},
+    vm::Vm,
 };
 
 fn test_function(
@@ -34,7 +48,7 @@ fn test_function(
     let metadata = FunctionMetadata {
         instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
-        roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
+        roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
@@ -155,19 +169,19 @@ fn reloadable_value_module(value: i32) -> BytecodeModule {
 
 fn host_call_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
+        security: SecurityContext {
+            profile: LanguageProfile {
                 allow_host_calls: true,
-                ..kagari_runtime::LanguageProfile::default()
+                ..LanguageProfile::default()
             },
             capabilities: CapabilitySet {
                 host_calls: true,
                 ..CapabilitySet::default()
             },
         },
-        host_exposure: kagari_runtime::HostExposurePolicy {
+        host_exposure: HostExposurePolicy {
             allow_host_functions: true,
-            ..kagari_runtime::HostExposurePolicy::default()
+            ..HostExposurePolicy::default()
         },
         ..RuntimeConfig::default()
     })
@@ -207,7 +221,7 @@ fn interface_instruction_module() -> BytecodeModule {
         scalar::BuiltinType,
         types::{AbiType, InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi},
     };
-    use kagari_bytecode::{InterfaceTableRecord, InterfaceTableRef};
+    use kagari_bytecode::{instruction::InterfaceTableRef, module::InterfaceTableRecord};
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
     };
@@ -234,7 +248,7 @@ fn interface_instruction_module() -> BytecodeModule {
             BytecodeInstruction::MakeInterface {
                 dst: Register::new(1),
                 value: Register::new(0),
-                module: kagari_bytecode::ModuleRef::new(0),
+                module: ModuleRef::new(0),
                 implementation: InterfaceTableRef::new(0),
             },
             BytecodeInstruction::Return(Some(Register::new(1))),

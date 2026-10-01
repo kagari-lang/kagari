@@ -1,9 +1,11 @@
-use kagari_common::{DiagnosticKind, Severity};
-
 use crate::{
-    ast::{Expr, Item},
+    ast::{
+        expr::Expr,
+        item::{Item, Visibility},
+    },
     tests::common,
 };
+use kagari_common::diagnostic::{DiagnosticKind, Severity};
 
 #[test]
 fn parses_unit_type_and_unit_value() {
@@ -95,7 +97,7 @@ where T: Display + Clone
 
     match &items[0] {
         Item::StructDef(struct_def) => {
-            assert!(struct_def.visibility() == crate::ast::Visibility::Public);
+            assert!(struct_def.visibility() == Visibility::Public);
             assert_eq!(struct_def.name_text().as_deref(), Some("PlayerInfo"));
             assert_eq!(
                 struct_def
@@ -169,7 +171,7 @@ where T: Display + Clone
             );
             let methods = impl_block.methods().collect::<Vec<_>>();
             assert_eq!(methods.len(), 1);
-            assert!(methods[0].visibility() == crate::ast::Visibility::Public);
+            assert!(methods[0].visibility() == Visibility::Public);
             assert!(methods[0].body().is_some());
         }
         other => panic!("unexpected fourth item: {other:?}"),

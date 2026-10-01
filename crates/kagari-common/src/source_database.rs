@@ -1,6 +1,6 @@
 use crate::{
-    SourceFile,
     identity::{FileId, FileSpan, ModuleIdentity, Revision},
+    source::SourceFile,
 };
 use std::{collections::BTreeMap, env, fs, sync::Arc};
 
@@ -320,8 +320,8 @@ fn is_absolute_path(path: &str) -> bool {
 mod tests {
     use super::*;
     use crate::{
-        Span,
         line_index::{Position, PositionEncoding},
+        span::Span,
     };
 
     #[test]

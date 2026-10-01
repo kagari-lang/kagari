@@ -1,5 +1,6 @@
 use super::*;
-use crate::tests::common;
+use crate::{error::VmError, tests::common};
+use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 
 #[test]
 fn executes_runtime_reflect_type_of_helper() {
@@ -58,7 +59,7 @@ fn runtime_reflection_helpers_require_runtime_capability() {
 
     assert!(matches!(
         error,
-        crate::VmError::RuntimeError(ref error)
+        VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::CapabilityDenied
                 && error.message().contains("reflection_metadata")
     ));
@@ -82,8 +83,8 @@ fn reflection_metadata_and_read_gates_are_separate() {
     let loaded = metadata_only
         .load_program(
             "reflect_read_denied.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![common::point_function_module(
                     "main",
                     vec![
@@ -116,7 +117,7 @@ fn reflection_metadata_and_read_gates_are_separate() {
 
     assert!(matches!(
         error,
-        crate::VmError::RuntimeError(ref error)
+        VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::CapabilityDenied
                 && error.message().contains("reflection_read")
     ));
@@ -142,8 +143,8 @@ fn reflection_read_and_write_gates_are_separate() {
     let loaded = read_only
         .load_program(
             "reflect_write_denied.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![common::point_function_module(
                     "main",
                     vec![
@@ -185,7 +186,7 @@ fn reflection_read_and_write_gates_are_separate() {
 
     assert!(matches!(
         error,
-        crate::VmError::RuntimeError(ref error)
+        VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::CapabilityDenied
                 && error.message().contains("reflection_write")
     ));
@@ -214,8 +215,8 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
     let loaded = runtime
         .load_program(
             "reflect_operation_limit.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![common::point_function_module(
                     "main",
                     vec![
@@ -258,7 +259,7 @@ fn reflection_helpers_enforce_reflection_operation_resource_limit() {
 
     assert!(matches!(
         error,
-        crate::VmError::RuntimeError(ref error)
+        VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
                 && error.message().contains("reflection operations")
     ));

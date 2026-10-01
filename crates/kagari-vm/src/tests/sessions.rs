@@ -1,13 +1,26 @@
 use crate::{
-    Vm, VmError,
+    error::VmError,
     tests::{common::compile_test_bytecode, native_fixtures},
+    vm::Vm,
 };
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use {
+    crate::reentry::reenter,
+    kagari_runtime::{host::HostBorrowKind, module::LoadedModule},
+};
+
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{
-    BackendInvocationError, CapabilitySet, HostExposurePolicy, LanguageProfile,
-    NativeInvocationFailure, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, host::HostFunction, value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        backend::{BackendInvocationError, native::NativeInvocationFailure},
+        error::RuntimeErrorKind,
+        host::HostFunction,
+        resource::ResourcePolicy,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn runtime(limit: Option<u64>) -> Runtime {
@@ -48,7 +61,7 @@ fn route(program: BytecodeProgram, encoded: bool) -> BytecodeProgram {
 
 #[test]
 fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
-    use kagari_runtime::{HostObjectId, RuntimeErrorKind, TypeId};
+    use kagari_runtime::{error::RuntimeErrorKind, host::HostObjectId, metadata::TypeId};
     use std::{cell::RefCell, rc::Rc};
     for encoded in [false, true] {
         for jit in [false, true] {
@@ -73,7 +86,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                             .borrow_unique(HostObjectId(1), TypeId::new(0))
                             .unwrap();
                         assert!(
-                            crate::reenter(
+                            reenter(
                                 context,
                                 &context.runtime().execution_root().unwrap(),
                                 make,
@@ -81,7 +94,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                             )
                             .is_err()
                         );
-                        let value = crate::reenter(
+                        let value = reenter(
                             context,
                             &context.runtime().execution_root().unwrap(),
                             make,
@@ -90,7 +103,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                         .unwrap();
                         context
                             .borrows()
-                            .validate(token, kagari_runtime::HostBorrowKind::Unique)
+                            .validate(token, HostBorrowKind::Unique)
                             .unwrap();
                         runtime.collect_garbage().unwrap();
                         let Value::Array(id) = value.value() else {
@@ -156,7 +169,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
 
 #[test]
 fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
-    use kagari_runtime::{HostObjectId, TypeId};
+    use kagari_runtime::{host::HostObjectId, metadata::TypeId};
     for cancel in [false, true] {
         for encoded in [false, true] {
             for jit in [false, true] {
@@ -181,7 +194,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     if args == [Value::Str("inner".into())] {
                         cancellation.cancel();
                     } else {
-                        let error = crate::reenter(context, &context.runtime().execution_root().unwrap(), nested, &[]).expect_err("nested termination");
+                        let error = reenter(context, &context.runtime().execution_root().unwrap(), nested, &[]).expect_err("nested termination");
                         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::ResourceLimitExceeded }));
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
@@ -269,13 +282,13 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
         called.set(called.get() + 1);
         let runtime = context.runtime();
-        assert!(matches!(crate::reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
+        assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         if let Some(root) = runtime.execution_root() {
                 assert!(foreign.gc().validate_value(&foreign_value));
-                assert!(matches!(crate::reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
+                assert!(matches!(reenter(context, &root, echo, std::slice::from_ref(&foreign_value)), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
                 let stale = Value::Array(runtime.alloc_array(vec![]).unwrap());
                 runtime.collect_garbage().unwrap();
-                assert!(matches!(crate::reenter(context, &root, echo, &[stale]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
+                assert!(matches!(reenter(context, &root, echo, &[stale]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         }
         Ok(Value::Unit)
     })).unwrap();
@@ -313,7 +326,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
             .find(|f| f.name == "value")
             .unwrap()
             .id;
-        let versions = Rc::new(RefCell::new(Vec::<kagari_runtime::LoadedModule>::new()));
+        let versions = Rc::new(RefCell::new(Vec::<LoadedModule>::new()));
         let observed = Rc::new(RefCell::new(Vec::new()));
         let targets = versions.clone();
         let values = observed.clone();
@@ -321,7 +334,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
         runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
             let root = context.runtime().execution_root().unwrap();
             for version in targets.borrow().iter() {
-                let result = crate::reenter(context, version, function, &[]);
+                let result = reenter(context, version, function, &[]);
                 if version.key() == root.key() {
                     values.borrow_mut().push(result.unwrap().value());
                 } else {
@@ -359,7 +372,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
     let mut runtime = runtime(None);
     runtime.register_host_function(HostFunction::new(standard_log(), move |context, _| {
         let root = context.runtime().execution_root().unwrap();
-        let error = crate::reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
+        let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
         assert_eq!(context.runtime().resources().counters().current_call_depth, 1);
         context.runtime().collect_garbage().unwrap();
@@ -530,7 +543,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                 );
                 *saved.borrow_mut() = context.runtime().result_failure(&value);
                 let root = context.runtime().execution_root().unwrap();
-                let error = crate::reenter(context, &root, fail, &[]).unwrap_err();
+                let error = reenter(context, &root, fail, &[]).unwrap_err();
                 Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
             }))
             .unwrap();

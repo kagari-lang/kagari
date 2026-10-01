@@ -1,10 +1,13 @@
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::SourceFile;
+use kagari_common::source::SourceFile;
 use kagari_embed::{
-    BytecodeArtifact, ExecutionContext, JitPolicy, KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
-use kagari_vm::{JitExecutionStatus, PreparedNativeEntry};
+use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 
 #[test]
 fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() {
@@ -115,7 +118,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
 
 #[test]
 fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints() {
-    use kagari_embed::KagariRuntime;
+    use kagari_embed::runtime::KagariRuntime;
     use kagari_runtime::{Runtime, RuntimeConfig, gc::GcHeapConfig};
     let engine = KagariEngine::default();
     let prepare = |value| {

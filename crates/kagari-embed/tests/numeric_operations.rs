@@ -1,9 +1,19 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use {
+    kagari_embed::{
+        context::JitPolicy,
+        engine::{EngineConfig, source::CompileOptions},
+    },
+    kagari_runtime::security::LanguageProfile,
+};
+
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -23,9 +33,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -132,7 +142,7 @@ fn shifts_reject_negative_and_width_counts() {
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
     use kagari_common::{
         collection::CollectionAccess,
-        host_interface::{HostFunctionDeclaration, HostInterface, HostValueType},
+        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     };
     use kagari_runtime::host::HostFunction;
     let declaration = HostFunctionDeclaration::new(
@@ -147,7 +157,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
             ..Default::default()
         })
         .unwrap();
-    let profile = kagari_runtime::LanguageProfile {
+    let profile = LanguageProfile {
         allow_host_calls: true,
         ..Default::default()
     };
@@ -161,7 +171,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         fn main() { val memory = demo::memory(); memory[index(memory)] <<= count(memory); }
     "#,
             ),
-            kagari_embed::CompileOptions {
+            CompileOptions {
                 language_profile: profile,
             },
             Default::default(),
@@ -344,7 +354,7 @@ fn casts_respect_early_return_and_nested_generics() {
 #[test]
 fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
     use kagari_abi::scalar::BuiltinType;
-    use kagari_bytecode::BytecodeInstruction;
+    use kagari_bytecode::instruction::BytecodeInstruction;
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(

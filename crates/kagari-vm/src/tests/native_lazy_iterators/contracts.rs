@@ -8,7 +8,10 @@ use kagari_abi::{
     standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
     types::{AbiType, PublicAbiItem},
 };
-use kagari_bytecode::{BytecodeProgram, KbcArtifact, verify_program};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    program::{BytecodeProgram, verify_program},
+};
 
 fn reject(program: &BytecodeProgram, label: &str) {
     assert!(verify_program(program).is_err(), "{label}");

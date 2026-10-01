@@ -9,9 +9,11 @@ use kagari_abi::{
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
 
 use crate::{
-    BytecodeFunction, BytecodeInstruction as I, BytecodeModule, BytecodeProgram,
-    BytecodeVerificationError as Error, CallTarget, ConstantOperand, ModuleRef, Register,
-    RuntimeHelper, trait_bounds,
+    instruction::{BytecodeInstruction as I, CallTarget, ConstantOperand, Register, RuntimeHelper},
+    module::{BytecodeFunction, BytecodeModule},
+    program::{BytecodeProgram, ModuleRef},
+    trait_bounds,
+    verifier::BytecodeVerificationError as Error,
 };
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -790,9 +792,7 @@ pub(super) fn verify(
                             {
                                 if matches!(
                                     callee,
-                                    CallTarget::RuntimeHelper(
-                                        super::RuntimeHelper::ReflectSetField(_)
-                                    )
+                                    CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(_))
                                 ) {
                                     if !flows(&facts[1], &field.ty) {
                                         return Err(invalid());

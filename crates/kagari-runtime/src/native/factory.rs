@@ -1,7 +1,7 @@
 //! An entry's execution policy, independent of its script declaration identity.
 use crate::{
-    RuntimeError,
-    native::{NativeContext, NativeEntry, NativeInvocationState},
+    error::RuntimeError,
+    native::{NativeContext, NativeInvocationState, registration::NativeEntry},
 };
 use std::rc::Rc;
 

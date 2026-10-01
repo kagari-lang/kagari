@@ -1,6 +1,9 @@
 use super::*;
+use {crate::typeck::table::CallTarget, kagari_common::source::SourceFile};
+
 use crate::{
-    aggregates::MethodDefault, builtin::traits::StandardTraitSemantics, native::NativeBinding,
+    aggregates::traits::MethodDefault, builtin::traits::StandardTraitSemantics,
+    native::NativeBinding,
 };
 use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 
@@ -74,7 +77,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         analysis::AnalysisDatabase,
         declarations::DeclarationId,
         native::NativeTypeKind,
-        typeck::{ConstraintTarget, FunctionImplementation},
+        typeck::{FunctionImplementation, table::ConstraintTarget},
     };
     use kagari_abi::standard::{
         surface::{self as standard_surface, StandardEnum},
@@ -277,7 +280,7 @@ fn sized(value: usize) -> usize { value }
 
 #[test]
 fn resolves_standard_module_imports_facade_exports_and_function_calls() {
-    let source = kagari_common::SourceFile::new(
+    let source = SourceFile::new(
         "standard-imports.kgr",
         r#"
 pub use std::math;
@@ -344,7 +347,7 @@ fn clamp(value: i32) -> i32 {
             .tail_expr
             .unwrap();
         let call = analyzed.typed.type_table.call_resolution(tail).unwrap();
-        let crate::typeck::CallTarget::SourceFunction(target) = &call.target else {
+        let CallTarget::SourceFunction(target) = &call.target else {
             panic!("call must use the imported checked function");
         };
         let imported = analyzed.imported_functions.target(target).unwrap();
@@ -383,7 +386,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
     let typed = &analyzed.typed;
     let binding = |expression| {
         let call = typed.type_table.call_resolution(expression).unwrap();
-        let crate::typeck::CallTarget::SourceFunction(target) = &call.target else {
+        let CallTarget::SourceFunction(target) = &call.target else {
             panic!("ordinary imported method target");
         };
         analyzed

@@ -2,19 +2,18 @@ mod core;
 mod grammar;
 
 use kagari_common::{
-    SourceFile,
     cancellation::{CancellationToken, Cancelled},
+    source::SourceFile,
 };
 use rowan::GreenNode;
 
 use crate::{
     BoxedDiagnosticBuffer, DiagnosticBuffer,
-    ast::{AstNode, SourceFile as AstSourceFile},
+    ast::{item::SourceFile as AstSourceFile, traits::AstNode},
     lexer::lex_with_cancellation,
+    parser::core::Parser,
     syntax_node::syntax_node_from_green,
 };
-
-pub(crate) use core::{Checkpoint, Parser};
 
 /// Per-file parser resource limits. The limit diagnostic is additional to the
 /// ordinary diagnostic budget; zero still permits parsing valid source.

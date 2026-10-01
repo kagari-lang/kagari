@@ -1,14 +1,15 @@
 //! Imported call contracts are projections of independently checked signatures.
 
-use crate::aggregates::AggregateCatalog;
 use crate::{
     PreparedAnalysis,
+    aggregates::AggregateCatalog,
     declarations::Declaration,
-    hir::{ExportItem, FunctionId},
+    hir::{ids::FunctionId, item::storage::ExportItem},
     imports::{ImportTarget, ModuleImports, SourceImport},
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
     typeck::TypedFunction,
 };
+
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionId, FileId, Revision},

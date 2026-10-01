@@ -1,6 +1,6 @@
 use crate::{
-    MirFunction,
     debug::{SourceOrigin, SourcePosition},
+    function::MirFunction,
     verify::{Context, MirVerificationError, MirVerificationErrorKind},
 };
 use std::mem;

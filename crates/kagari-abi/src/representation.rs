@@ -1,5 +1,5 @@
 use crate::scalar::BuiltinType;
-use kagari_common::host_interface::HostValueType;
+use kagari_common::host_interface::value_type::HostValueType;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

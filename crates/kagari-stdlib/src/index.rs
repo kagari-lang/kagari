@@ -1,9 +1,13 @@
 use crate::package::PackageError;
-use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
+use kagari_common::{cancellation::CancellationToken, source::SourceFile, span::Span};
 use kagari_syntax::{
-    Parse,
-    ast::{AstNode, Attribute, Field, Item, MethodDef, Name, Variant},
+    ast::{
+        item::{Attribute, Item, MethodDef},
+        misc::{Field, Name, Variant},
+        traits::AstNode,
+    },
     kind::SyntaxKind,
+    parser::Parse,
     syntax_node::SyntaxNode,
 };
 use std::collections::BTreeSet;

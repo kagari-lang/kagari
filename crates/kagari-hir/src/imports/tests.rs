@@ -1,9 +1,12 @@
 use super::*;
-use crate::analysis::{AnalysisDatabase, AnalysisSnapshot};
 use kagari_common::{
+    host_interface::value_type::HostValueType,
     identity::PackageId,
     source_database::{SourceDatabase, SourceLayer},
 };
+use {crate::profile::LanguageFeatureProfile, kagari_stdlib::manifest::bundled_sources};
+
+use crate::analysis::{AnalysisDatabase, AnalysisSnapshot};
 
 fn identity(name: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -23,7 +26,7 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 }
 
 fn with_standard(names: &[&str]) -> Vec<ModuleIdentity> {
-    let mut expected = kagari_stdlib::bundled_sources()
+    let mut expected = bundled_sources()
         .iter()
         .map(|source| ModuleIdentity {
             package: PackageId("kagari-std".into()),
@@ -232,7 +235,8 @@ fn reexports_cannot_widen_private_items_or_modules() {
 #[test]
 fn wildcard_import_expands_offline_host_module_declarations() {
     use kagari_common::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType,
     };
     let mut db = SourceDatabase::default();
     let root = insert(
@@ -260,7 +264,7 @@ fn wildcard_import_expands_offline_host_module_declarations() {
     let snapshot = analysis
         .snapshot(
             db.snapshot(),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_host_calls: true,
                 ..Default::default()
             },
@@ -576,7 +580,7 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
             functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                 "pkg.api.external",
                 vec![],
-                kagari_common::host_interface::HostValueType::Unit,
+                HostValueType::Unit,
             )],
         })
         .unwrap(),
@@ -618,7 +622,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
             .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
-        1024 + kagari_stdlib::bundled_sources().len()
+        1024 + bundled_sources().len()
     );
     let cancel = CancellationToken::default();
     cancel.cancel();

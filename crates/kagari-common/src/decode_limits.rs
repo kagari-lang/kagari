@@ -1,9 +1,9 @@
 //! Shared sequence preflight for portable identity and host declaration data.
-use serde::de::Error as DecodeError;
 use serde::{
     Deserialize, Deserializer,
-    de::{SeqAccess, Visitor},
+    de::{Error as DecodeError, SeqAccess, Visitor},
 };
+
 use std::{fmt, marker::PhantomData};
 
 pub(crate) fn bounded_vec<'de, D, T>(

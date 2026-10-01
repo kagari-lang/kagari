@@ -1,9 +1,14 @@
 use crate::{
-    ErrorTrace, ExecutionFrame, HostExposurePolicy, HostFrameId, LoadedModule,
-    ModuleEpochRetention, ModuleStore, ResourceCounters, ResourcePolicy, ResourceState, Runtime,
-    RuntimeError, RuntimeErrorKind, SecurityContext, StagedReload,
+    Runtime, StagedReload,
+    error::{RuntimeError, RuntimeErrorKind},
+    error_trace::ErrorTrace,
+    frame::ExecutionFrame,
     gc::{GcHeap, HeapObjectId},
+    host::HostFrameId,
     host_scope::HostScopeState,
+    module::{LoadedModule, ModuleEpochRetention, ModuleStore},
+    resource::{ResourceCounters, ResourcePolicy, ResourceState},
+    security::{HostExposurePolicy, SecurityContext},
     value::Value,
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
@@ -15,7 +20,7 @@ use std::{
     time::Instant,
 };
 
-use kagari_bytecode::ArtifactFingerprint;
+use kagari_bytecode::artifact::ArtifactFingerprint;
 
 /// Restrictions attached to the root session and inherited by synchronous reentry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -383,7 +388,10 @@ impl Drop for CandidateSession<'_> {
 mod tests {
     use super::*;
     use crate::value::Value;
-    use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
+    use kagari_bytecode::{
+        module::BytecodeModule,
+        program::{BytecodeProgram, ModuleRef},
+    };
 
     #[test]
     fn trace_values_report_truncation_and_stop_at_a_shared_budget() {

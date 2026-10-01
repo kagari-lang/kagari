@@ -1,17 +1,24 @@
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
+use crate::{error::VmError, tests::common::compile_test_bytecode, vm::Vm};
 use kagari_abi::{
     callable::EngineNativeBinding,
     standard::bindings::{NativeDefaultMethod, NativeProtocolMethod},
 };
-use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::host_interface::standard_log;
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, gc::GcHeapConfig, host::HostFunction, value::Value,
-};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        gc::GcHeapConfig,
+        host::HostFunction,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn runtime() -> Runtime {

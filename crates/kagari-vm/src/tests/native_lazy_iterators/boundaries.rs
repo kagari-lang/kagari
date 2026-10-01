@@ -100,8 +100,8 @@ fn inner()->i32{{42}}fn fail()->i32{{val x=2147483647;x+1}}fn ready()->i32{{7}}
 #[test]
 fn indexed_lazy_failures_preserve_categories_and_completed_effects() {
     use super::runtime;
-    use crate::{Vm, VmError};
-    use kagari_bytecode::KbcArtifact;
+    use crate::{error::VmError, vm::Vm};
+    use kagari_bytecode::artifact::KbcArtifact;
     use kagari_common::host_interface::standard_log;
     use kagari_runtime::{host::HostFunction, value::Value};
     use std::{cell::RefCell, rc::Rc};
@@ -186,9 +186,9 @@ fn healthy()->i32{42}
 #[test]
 fn nested_native_steps_enforce_the_shared_call_depth_budget() {
     use super::runtime;
-    use crate::{Vm, VmError};
+    use crate::{error::VmError, vm::Vm};
     use kagari_common::host_interface::standard_log;
-    use kagari_runtime::{RuntimeErrorKind, host::HostFunction, value::Value};
+    use kagari_runtime::{error::RuntimeErrorKind, host::HostFunction, value::Value};
     let program = compile_test_bytecode(&format!(
         r#"{TYPES}
 fn main()->i32{{val iterator=[1,2,3].iter().map(|x|x).enumerate().filter_map(|pair|Some(pair[1])).take(3usize).skip(0usize).take_while(|x|true).skip_while(|x|false).inspect(|x|{{print("visit");}}).zip(Sequence{{items:[10,20,30]}}).map(|pair|pair[0]).chain(Sequence{{items:[10]}}).flat_map(|x|Proxy{{items:[x]}}.chunks(1usize).flat_map(|piece|piece)).map(|x|Sequence{{items:[x]}}).flatten().fuse();val result:ArrayList<i32> =iterator.collect();std::debug::assert(result.len()==4usize,"depth");42}}

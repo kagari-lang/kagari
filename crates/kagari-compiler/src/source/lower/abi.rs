@@ -1,4 +1,23 @@
 use crate::source::types::lower_native_constructor;
+use kagari_hir::{
+    AnalyzedModule,
+    aggregates::traits::MethodDefault,
+    declarations::DeclarationId,
+    hir::item::{
+        Item,
+        behavior::{GenericParam, Impl},
+        function::{Function, FunctionKind},
+        storage::Visibility,
+    },
+    native::NativeBinding,
+    resolver::resolved::ResolvedName,
+    typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::ConstraintTarget},
+    types::{
+        GenericParameterType, TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
+};
+
 use kagari_abi::{
     callable::CallableImplementation,
     types::{
@@ -9,17 +28,6 @@ use kagari_abi::{
     },
 };
 use kagari_common::identity::{self, DefinitionId};
-use kagari_hir::{
-    AnalyzedModule,
-    aggregates::MethodDefault,
-    declarations::DeclarationId,
-    hir::{self, FunctionKind, Item, Visibility},
-    native::NativeBinding,
-    resolver::ResolvedName,
-    typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ScalarValue},
-    types::abi::{lower_nominal_type, lower_type},
-    types::{GenericParameterType, TypeId},
-};
 
 #[cfg(test)]
 mod tests;
@@ -448,7 +456,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
     }
 }
 
-fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<FunctionAbi> {
+fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FunctionAbi> {
     let mut result = item
         .methods
         .iter()
@@ -571,7 +579,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
     result
 }
 
-fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<FunctionAbi> {
+fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FunctionAbi> {
     let typed = module
         .typed
         .functions
@@ -628,8 +636,8 @@ fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> AbiType {
 
 fn method_abi(
     module: &AnalyzedModule,
-    function: &hir::Function,
-    outer: &[hir::GenericParam],
+    function: &Function,
+    outer: &[GenericParam],
 ) -> Option<FunctionAbi> {
     let mut method = function_abi(module, function)?;
     let inherited = generic_param_abi(module, outer);
@@ -656,10 +664,7 @@ fn method_abi(
     Some(method)
 }
 
-fn generic_param_abi(
-    module: &AnalyzedModule,
-    params: &[hir::GenericParam],
-) -> Vec<GenericParameterAbi> {
+fn generic_param_abi(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<GenericParameterAbi> {
     params
         .iter()
         .map(|param| {
@@ -686,7 +691,7 @@ fn constraint_abi(target: ConstraintTarget) -> ConstraintAbi {
     }
 }
 
-fn parameter_bounds(module: &AnalyzedModule, params: &[hir::GenericParam]) -> Vec<GenericBoundAbi> {
+fn parameter_bounds(module: &AnalyzedModule, params: &[GenericParam]) -> Vec<GenericBoundAbi> {
     let identities = generic_param_abi(module, params);
     let bounds = params
         .iter()

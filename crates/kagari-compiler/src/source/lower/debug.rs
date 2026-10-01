@@ -1,8 +1,10 @@
 use crate::source::lower::MirLoweringError;
-use kagari_common::{SourceFile, cancellation::CancellationToken, line_index::PositionEncoding};
+use kagari_common::{
+    cancellation::CancellationToken, line_index::PositionEncoding, source::SourceFile,
+};
 use kagari_mir::{
-    MirFunction,
     debug::{SourceOrigin, SourcePosition},
+    function::MirFunction,
 };
 use std::collections::BTreeSet;
 
@@ -37,8 +39,9 @@ pub(super) fn capture_origin(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lower_to_mir, tests::common};
-    use kagari_common::Span;
+    use crate::{source::lower::lower_to_mir, tests::common};
+    use kagari_common::span::Span;
+    use kagari_mir::verify::verify_mir;
 
     #[test]
     fn origin_capture_preserves_unlocatable_crlf_offsets_and_cancellation() {
@@ -66,6 +69,6 @@ mod tests {
             Err(MirLoweringError::Cancelled)
         ));
         function.debug.source = Some(origin);
-        assert!(kagari_mir::verify_mir(raw, &Default::default()).is_ok());
+        assert!(verify_mir(raw, &Default::default()).is_ok());
     }
 }

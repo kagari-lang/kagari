@@ -1,14 +1,33 @@
-use analysis::AnalysisDatabase;
-use declarations::Declarations;
-use hir::BodySelection;
-use kagari_common::{
-    DiagnosticKind, Severity, SourceFile, Span,
-    cancellation::{CancellationToken, Cancelled},
-    source_database::SourceSnapshot,
+use crate::{
+    hir::ids::BodySelection,
+    imports::{functions::ImportedFunctions, types::ImportedTypes},
+    profile::LanguageFeatureProfile,
+    resolver::{
+        collect::{collect_declarations, resolve_bodies},
+        resolved::{DeclarationNames, ResolvedNames},
+    },
+    typeck::{
+        applications::validate_signatures,
+        check::{check_bodies_controlled, check_signatures},
+        const_budget::ConstLimits,
+        reuse::BodyReuse,
+        signature_reuse::reuse_signatures,
+        supertraits::validate,
+    },
 };
-use kagari_syntax::Parse;
+use analysis::AnalysisDatabase;
+
+use declarations::Declarations;
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    diagnostic::{Diagnostic, DiagnosticKind, Severity},
+    source::SourceFile,
+    source_database::SourceSnapshot,
+    span::Span,
+};
+use kagari_syntax::parser::Parse;
 use smallvec::SmallVec;
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 use typeck::associated_consts;
 pub mod aggregates;
 pub mod analysis;
@@ -27,11 +46,6 @@ pub mod source_map;
 pub mod typeck;
 pub mod types;
 
-use kagari_common::Diagnostic;
-use std::ops::Deref;
-
-pub use profile::LanguageFeatureProfile;
-
 pub type DiagnosticBuffer = SmallVec<[Diagnostic; 4]>;
 pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 
@@ -39,11 +53,11 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 pub struct AnalyzedModule {
     pub aggregates: aggregates::AggregateCatalog,
     pub lowered: Arc<lower::LoweredModule>,
-    pub names: resolver::ResolvedNames,
+    pub names: ResolvedNames,
     pub declarations: declarations::Declarations,
     pub typed: typeck::TypedModule,
     pub signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
-    pub imported_functions: imports::ImportedFunctions,
+    pub imported_functions: ImportedFunctions,
 }
 
 #[derive(Debug, Clone)]
@@ -97,7 +111,7 @@ pub(crate) struct PreparedAnalysis {
     // Recompute it after all declaration signatures exist, including on reuse.
     local_signature_diagnostics: usize,
     lowered: Arc<lower::LoweredModule>,
-    names: AnalysisResult<resolver::DeclarationNames>,
+    names: AnalysisResult<DeclarationNames>,
     declarations: declarations::Declarations,
     signatures: Arc<AnalysisResult<typeck::ModuleSignatures>>,
 }
@@ -117,7 +131,7 @@ impl PreparedAnalysis {
             &mut diagnostics,
             cancel,
         );
-        typeck::validate_supertraits(
+        validate(
             &self.lowered,
             &self.declarations,
             aggregates,
@@ -125,7 +139,7 @@ impl PreparedAnalysis {
             &mut diagnostics,
             cancel,
         );
-        typeck::validate_signature_applications(
+        validate_signatures(
             &self.lowered,
             &self.declarations,
             self.signatures.facts(),
@@ -200,14 +214,14 @@ impl PreparedAnalysis {
 #[derive(Debug, Clone)]
 pub(crate) struct DeclaredAnalysis {
     lowered: Arc<lower::LoweredModule>,
-    names: AnalysisResult<resolver::DeclarationNames>,
+    names: AnalysisResult<DeclarationNames>,
     declarations: declarations::Declarations,
 }
 
 impl DeclaredAnalysis {
     fn check_signatures(
         mut self,
-        imported_types: imports::ImportedTypes,
+        imported_types: ImportedTypes,
         previous_analysis: Option<&PreparedAnalysis>,
         cancel: &CancellationToken,
     ) -> PreparedAnalysis {
@@ -229,8 +243,7 @@ impl DeclaredAnalysis {
             {
                 Some(old.signatures.clone())
             } else {
-                typeck::reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel)
-                    .map(Arc::new)
+                reuse_signatures(&old.lowered, &old.signatures, &self.lowered, cancel).map(Arc::new)
             }
         });
         let signatures_reused = previous.is_some();
@@ -240,11 +253,7 @@ impl DeclaredAnalysis {
                 .local_signature_diagnostics
         });
         let signatures = previous.unwrap_or_else(|| {
-            Arc::new(typeck::check_signatures(
-                &self.lowered,
-                &self.declarations,
-                cancel,
-            ))
+            Arc::new(check_signatures(&self.lowered, &self.declarations, cancel))
         });
         PreparedAnalysis {
             signatures_reused,
@@ -264,7 +273,7 @@ fn declare_analysis(
     imports: Arc<imports::ModuleImports>,
     cancel: &CancellationToken,
 ) -> DeclaredAnalysis {
-    let names = resolver::collect_declarations(&lowered, hosts, imports, cancel);
+    let names = collect_declarations(&lowered, hosts, imports, cancel);
     let declarations = Declarations::collect_named(&lowered.source, &lowered, &names.facts, cancel);
     DeclaredAnalysis {
         lowered,
@@ -275,10 +284,10 @@ fn declare_analysis(
 
 fn analyze_prepared(
     prepared: PreparedAnalysis,
-    const_limits: typeck::ConstLimits,
-    imported_functions: imports::ImportedFunctions,
+    const_limits: ConstLimits,
+    imported_functions: ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
-    reuse: Option<&typeck::BodyReuse<'_>>,
+    reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let PreparedAnalysis {
@@ -290,11 +299,11 @@ fn analyze_prepared(
         signatures,
     } = prepared;
     let names = AnalysisResult {
-        facts: resolver::resolve_bodies(&lowered, &names.facts, BodySelection::All, cancel),
+        facts: resolve_bodies(&lowered, &names.facts, BodySelection::All, cancel),
         diagnostics: names.diagnostics,
     };
     let declarations = declarations.with_bindings(&lowered, &names.facts, cancel);
-    let typed = typeck::check_bodies_controlled(
+    let typed = check_bodies_controlled(
         &lowered,
         &names.facts,
         &declarations,
@@ -344,7 +353,7 @@ pub fn analyze_source(
 
 pub(crate) struct AnalysisPolicy {
     profile: LanguageFeatureProfile,
-    const_limits: typeck::ConstLimits,
+    const_limits: ConstLimits,
     max_semantic_diagnostics: usize,
 }
 
@@ -352,9 +361,9 @@ pub(crate) fn analyze_parsed(
     prepared: PreparedAnalysis,
     parsed: &Parse,
     policy: AnalysisPolicy,
-    imported_functions: imports::ImportedFunctions,
+    imported_functions: ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
-    reuse: Option<&typeck::BodyReuse<'_>>,
+    reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<AnalyzedModule> {
     let mut analyzed = analyze_prepared(

@@ -2,7 +2,7 @@ use kagari_abi::{
     callable::CallableImplementation,
     types::{FunctionAbi, PublicAbiItem},
 };
-use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::identity::DefinitionId;
 
 fn alter_function(function: &mut FunctionAbi, alter: &impl Fn(&mut DefinitionId)) {

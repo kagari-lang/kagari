@@ -1,24 +1,28 @@
 use crate::{
-    LanguageFeatureProfile,
     analysis::AnalysisDatabase,
     declarations::DeclarationId,
-    hir::ExprKind,
+    hir::{expr::ExprKind, stmt::StmtKind},
     host::HostDeclarations,
     native::NativeBinding,
-    typeck::{CallTarget, FunctionImplementation},
+    profile::LanguageFeatureProfile,
+    resolver::resolved::ResolvedName,
+    typeck::{FunctionImplementation, table::CallTarget},
     types::TypeId,
 };
+
 use kagari_abi::{
     callable::EngineNativeBinding,
     scalar::BuiltinType,
     standard::{RuntimePrimitive, bindings::NativeDefaultMethod, surface::StandardEnum},
 };
 use kagari_common::{
-    DiagnosticKind, SourceFile,
+    diagnostic::DiagnosticKind,
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType,
     },
     integer::IntegerMethod,
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 
@@ -51,8 +55,7 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
         };
         let block = facts.lowered.module.block(function.body.unwrap());
         for statement in &block.statements {
-            let crate::hir::StmtKind::Expr(expression) = facts.lowered.module.stmt(*statement).kind
-            else {
+            let StmtKind::Expr(expression) = facts.lowered.module.stmt(*statement).kind else {
                 panic!("call statement")
             };
             let call = facts.typed.type_table.call_resolution(expression).unwrap();
@@ -151,7 +154,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
                 file.result()
                     .facts()
                     .declarations
-                    .definition(crate::resolver::ResolvedName::Function(function.id))
+                    .definition(ResolvedName::Function(function.id))
                     == Some(&method.id)
             })
             .unwrap();

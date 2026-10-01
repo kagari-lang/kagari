@@ -1,9 +1,9 @@
 use kagari_abi::{
     operations::StandardEnumOp, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
 };
-use kagari_bytecode::{EnumId, FieldRef, Register, StructId};
+use kagari_bytecode::instruction::{EnumId, FieldRef, Register, StructId};
 use kagari_runtime::{
-    RuntimeErrorKind,
+    error::RuntimeErrorKind,
     value::{EnumTag, Value},
 };
 

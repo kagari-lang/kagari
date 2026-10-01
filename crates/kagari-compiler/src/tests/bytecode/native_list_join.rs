@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{bindings::NativeDefaultMethod, intrinsic, traits::StandardTrait},
     types::{AbiType, ConstraintAbi, GenericBoundAbi},
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::identity::associated_type_id;
 
 #[test]

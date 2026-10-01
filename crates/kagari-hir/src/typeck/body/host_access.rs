@@ -1,23 +1,30 @@
 use crate::{
     builtin::BuiltinFunction,
-    hir::{ExprId, ExprKind, PlaceId, PlaceKind},
+    hir::{
+        expr::ExprKind,
+        ids::{ExprId, PlaceId},
+        place::PlaceKind,
+    },
     host::{self, HostSourcePathStep},
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
     typeck::{
-        BodyTypeEnv, CallTarget, ResolvedHostPath, ResolvedHostPlacePath,
+        BodyTypeEnv,
         body::{BodyChecker, HostPathNode},
         completion,
+        table::{CallTarget, ResolvedHostPath, ResolvedHostPlacePath},
         ty::display_type_id,
     },
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
-    Diagnostic, DiagnosticKind,
     cancellation::Cancelled,
     collection::CollectionAccess,
+    diagnostic::{Diagnostic, DiagnosticKind},
     host_interface::{
-        self, HostFieldDeclaration, HostFunctionDeclaration, HostPathSegmentDeclaration, PathAccess,
+        self, HostFunctionDeclaration,
+        path::HostPathSegmentDeclaration,
+        type_declaration::{HostFieldDeclaration, PathAccess},
     },
 };
 

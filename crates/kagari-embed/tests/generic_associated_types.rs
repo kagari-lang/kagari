@@ -1,5 +1,11 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
+};
+
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -21,9 +27,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =

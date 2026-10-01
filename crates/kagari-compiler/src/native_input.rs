@@ -1,6 +1,9 @@
 //! Frontend-free preparation of portable native input against validated bytecode.
 use bincode::{DefaultOptions, Options};
-use kagari_bytecode::{BytecodeProgram, validate_program_resource_limits, verify_program};
+use kagari_bytecode::{
+    artifact::validate_program_resource_limits,
+    program::{BytecodeProgram, verify_program},
+};
 use kagari_common::cancellation::CancellationToken;
 use kagari_mir::{
     codec::{MirCodecError, decode_program},

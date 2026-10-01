@@ -1,9 +1,12 @@
 //! Declaration policy is checked separately from native binding selection.
 
-use crate::{hir::FunctionKind, lower::LoweredModule, native::stdlib::invalid};
+use crate::{hir::item::function::FunctionKind, lower::LoweredModule, native::stdlib::invalid};
 use kagari_abi::callable::MethodPolicy;
 use kagari_common::cancellation::CancellationToken;
-use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile};
+use kagari_stdlib::{
+    index::NativeMarkerKind,
+    package::{PackageError, ParsedStdlibFile},
+};
 
 pub(super) fn install(
     file: &ParsedStdlibFile,

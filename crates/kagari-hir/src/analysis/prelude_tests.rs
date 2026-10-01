@@ -1,10 +1,14 @@
 use super::*;
 use crate::{
-    builtin::BuiltinFunction, declarations::DeclarationId, hir::ExprKind, resolver::ResolvedName,
-    typeck::CallTarget,
+    builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
+    profile::LanguageFeatureProfile, resolver::resolved::ResolvedName, typeck::table::CallTarget,
 };
+use kagari_common::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
+
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [
     ("print", BuiltinFunction::Print),
@@ -22,7 +26,7 @@ fn analyze(text: &str) -> (AnalysisSnapshot, FileId) {
     let result = AnalysisDatabase::default()
         .snapshot(
             sources.snapshot(),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_host_calls: true,
                 ..Default::default()
             },
@@ -267,7 +271,9 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
 
 #[test]
 fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
-    use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
+    use kagari_common::host_interface::{
+        HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+    };
     for (name, _) in HELPERS {
         let mut sources = SourceDatabase::default();
         let text = format!("fn main() -> i32 {{ {name}() }}");
@@ -288,7 +294,7 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
         let snapshot = db
             .snapshot(
                 sources.snapshot(),
-                crate::LanguageFeatureProfile {
+                LanguageFeatureProfile {
                     allow_host_calls: true,
                     ..Default::default()
                 },
@@ -342,7 +348,7 @@ fn reflection_helpers_reject_unknown_members_and_invalid_index_targets_in_hir() 
         );
         let analysis = crate::analyze_source(
             &source,
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
@@ -370,7 +376,7 @@ fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("recovery-reflection.kgr", format!("fn main() {{ {body} }}")),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
@@ -383,7 +389,7 @@ fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
             analysis.diagnostics()
         );
         assert!(matches!(&analysis.diagnostics()[0].kind,
-            kagari_common::DiagnosticKind::UnknownName { name } if name == "missing"));
+            DiagnosticKind::UnknownName { name } if name == "missing"));
         assert!(analysis.into_codegen().is_err());
     }
 }
@@ -419,25 +425,25 @@ fn reflective_field_writes_check_declared_writeability_and_keep_rhs_context() {
         );
         let analysis = crate::analyze_source(
             &source,
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
             },
         );
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::InvalidAssignmentTarget { .. })),
             readonly,
             "{expression}"
         );
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::AssignmentTypeMismatch { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::AssignmentTypeMismatch { .. })),
             mismatch,
             "{expression}"
         );
@@ -498,7 +504,7 @@ fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics
                     "struct Point {{ var x: i32 }} fn bad(name: String) {{ val point = Point {{ x: 1 }}; {expression}; }}"
                 ),
             ),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
@@ -541,7 +547,7 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
                 "partial-index.kgr",
                 format!("fn bad(values: ArrayList<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
             ),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
@@ -554,10 +560,10 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
             analysis.diagnostics()
         );
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::InvalidIndexTarget { .. })),
             invalid,
             "{body}"
         );
@@ -585,7 +591,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                         "struct Box {{ var value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
                     ),
                 ),
-                crate::LanguageFeatureProfile {
+                LanguageFeatureProfile {
                     allow_reflection: true,
                     allow_reflection_write: true,
                     ..Default::default()
@@ -612,7 +618,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                     "struct Box {{ val value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
                 ),
             ),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()
@@ -637,7 +643,7 @@ fn reflection_receivers_must_produce_values_before_target_checks() {
         let source = format!("fn main() -> i32 {{ {call}; 0 }}");
         let analysis = crate::analyze_source(
             &SourceFile::new("reflection-receiver-completion.kgr", source.clone()),
-            crate::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_reflection: true,
                 allow_reflection_write: true,
                 ..Default::default()

@@ -1,5 +1,15 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use hir::{BinaryOp as HirBinaryOp, PlaceKind, PrefixOp};
+use kagari_hir::{
+    hir::{
+        expr::ops::{BinaryOp as HirBinaryOp, PrefixOp},
+        ids::{ExprId, LocalId as HirLocalId, PlaceId},
+        place::PlaceKind,
+    },
+    resolver::resolved::ResolvedName,
+    typeck::scalar::ScalarValue,
+    types::{TypeId, abi::lower_nominal_type},
+};
+
 use kagari_abi::{
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
@@ -8,12 +18,10 @@ use kagari_abi::{
     types::NominalAbiType,
 };
 use kagari_common::identity::DefinitionId;
-use kagari_hir::types::abi::lower_nominal_type;
-use kagari_hir::{hir, resolver::ResolvedName, typeck::ScalarValue, types::TypeId};
+
 use kagari_mir::{
-    ValueBuffer,
     ids::LocalId,
-    instruction::{AggregateFieldRef, Constant, Instruction, MirValue},
+    instruction::{AggregateFieldRef, Constant, Instruction, MirValue, ValueBuffer},
 };
 use std::{ops::ControlFlow, slice};
 
@@ -51,7 +59,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_host_path_arguments(
         &mut self,
-        arguments: &[(u32, hir::ExprId)],
+        arguments: &[(u32, ExprId)],
     ) -> Result<ControlFlow<MirValue, ValueBuffer>, MirLoweringError> {
         let mut ordered = vec![None; arguments.len()];
         for (slot, argument) in arguments {
@@ -81,7 +89,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn bind_local(
         &mut self,
-        hir_local: hir::LocalId,
+        hir_local: HirLocalId,
         name: String,
     ) -> Result<LocalId, MirLoweringError> {
         let ty = self
@@ -152,7 +160,7 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    pub(crate) fn expr_type(&self, expr_id: hir::ExprId) -> Result<ValueType, MirLoweringError> {
+    pub(crate) fn expr_type(&self, expr_id: ExprId) -> Result<ValueType, MirLoweringError> {
         self.analyzed
             .typed
             .type_table
@@ -163,7 +171,7 @@ impl FunctionLowerer<'_, '_> {
             .ok_or(MirLoweringError::MissingExprType(expr_id))
     }
 
-    pub(crate) fn place_type(&self, place_id: hir::PlaceId) -> Result<ValueType, MirLoweringError> {
+    pub(crate) fn place_type(&self, place_id: PlaceId) -> Result<ValueType, MirLoweringError> {
         self.analyzed
             .typed
             .type_table
@@ -214,7 +222,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn expr_nominal_instance(
         &self,
-        id: hir::ExprId,
+        id: ExprId,
     ) -> Result<NominalAbiType, MirLoweringError> {
         let ty = self
             .analyzed
@@ -224,7 +232,7 @@ impl FunctionLowerer<'_, '_> {
             .ok_or(MirLoweringError::MissingExprType(id))?;
         self.nominal_instance(&ty)
     }
-    pub(crate) fn place_root(&self, place_id: hir::PlaceId) -> hir::PlaceId {
+    pub(crate) fn place_root(&self, place_id: PlaceId) -> PlaceId {
         match &self.analyzed.lowered.module.place(place_id).kind {
             PlaceKind::Name(_) | PlaceKind::Expr(_) => place_id,
             PlaceKind::Field { base, .. } | PlaceKind::Index { base, .. } => self.place_root(*base),
@@ -233,7 +241,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn place_root_resolution(
         &self,
-        place_id: hir::PlaceId,
+        place_id: PlaceId,
     ) -> Result<ResolvedName, MirLoweringError> {
         let root = self.place_root(place_id);
         self.analyzed
@@ -254,7 +262,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_name_expr(
         &mut self,
-        expr_id: hir::ExprId,
+        expr_id: ExprId,
     ) -> Result<MirValue, MirLoweringError> {
         let resolved = self
             .analyzed
@@ -313,14 +321,14 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    pub(crate) fn lower_unary_op(op: hir::PrefixOp) -> UnaryOp {
+    pub(crate) fn lower_unary_op(op: PrefixOp) -> UnaryOp {
         match op {
             PrefixOp::Neg => UnaryOp::Neg,
             PrefixOp::Not => UnaryOp::Not,
         }
     }
 
-    pub(crate) fn lower_binary_op(op: hir::BinaryOp) -> BinaryOp {
+    pub(crate) fn lower_binary_op(op: HirBinaryOp) -> BinaryOp {
         match op {
             HirBinaryOp::Add => BinaryOp::Add,
             HirBinaryOp::Sub => BinaryOp::Sub,

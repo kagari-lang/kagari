@@ -1,11 +1,17 @@
 use super::{cases::OPERATIONS, runtime};
-use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+use crate::{
+    error::VmError, executor::Executor, reentry::reenter, tests::common::compile_test_bytecode,
+    vm::Vm,
+};
+
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
 use kagari_runtime::{
-    LoadedModule, Runtime, RuntimeErrorKind,
+    Runtime,
+    error::RuntimeErrorKind,
     gc::{HeapObjectId, RootedValue},
     host::HostFunction,
+    module::LoadedModule,
     value::Value,
 };
 use std::{cell::RefCell, rc::Rc, slice};
@@ -233,10 +239,10 @@ fn key_callbacks_reenter_and_cancel_at_every_hash_equality_and_factory_occurrenc
                             let depth = context.runtime().resources().counters().current_call_depth;
                             let root = context.runtime().execution_root().unwrap();
                             assert_eq!(
-                                crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                                reenter(context, &root, inner, &[]).unwrap().value(),
                                 Value::I32(42)
                             );
-                            assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                            assert!(reenter(context, &root, fail, &[]).is_err());
                             assert_eq!(
                                 context.runtime().resources().counters().current_call_depth,
                                 depth

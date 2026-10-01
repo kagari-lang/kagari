@@ -1,8 +1,11 @@
 use crate::{
-    ast::AstNode,
-    parser::{ParseLimits, parse_with_limits},
+    ast::traits::AstNode,
+    parser::{ParseLimits, parse, parse_with_limits},
 };
-use kagari_common::{DiagnosticKind, SourceFile, cancellation::CancellationToken};
+
+use kagari_common::{
+    cancellation::CancellationToken, diagnostic::DiagnosticKind, source::SourceFile,
+};
 
 #[test]
 fn parser_diagnostic_budget_stops_recovery_and_preserves_lossless_suffix() {
@@ -232,7 +235,7 @@ fn tree_depth_accounts_for_wrappers_and_not_sibling_width() {
         "fn main() { val x = 1; x = 2; }",
     ] {
         let source = SourceFile::new("depth.kgr", text);
-        let baseline = crate::parse(&source);
+        let baseline = parse(&source);
         assert!(baseline.diagnostics().is_empty());
         let tree = baseline.syntax();
         let depth = tree

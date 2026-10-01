@@ -7,7 +7,8 @@
 use kagari_common::cancellation::CancellationToken;
 
 use crate::{
-    Instruction, MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir,
+    instruction::Instruction,
+    verify::{MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, verify_mir},
 };
 mod constants;
 mod dead;

@@ -1,10 +1,21 @@
-use kagari_bytecode::{BytecodeProgram, HostImportId, ModuleRef};
-use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    host::HostFunction, value::Value,
+use kagari_bytecode::{
+    HostImportId,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_common::host_interface::{
+    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
 };
 use std::error::Error;
+use {kagari_bytecode::module::BytecodeModule, kagari_runtime::session::TraceValue};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        host::HostFunction,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // This definition can be exported by a separate tool with no runtime or services.
@@ -44,7 +55,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "offline-demo",
         BytecodeProgram {
             root: ModuleRef::new(0),
-            modules: vec![kagari_bytecode::BytecodeModule {
+            modules: vec![BytecodeModule {
                 host_interface: expected,
                 ..Default::default()
             }],
@@ -61,10 +72,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert_eq!(trace.inputs.unix_time_millis, 1_000);
     assert_eq!(trace.host_calls.len(), 1);
     assert_eq!(trace.host_calls[0].symbol, "demo.limit");
-    assert_eq!(
-        trace.host_calls[0].outcome,
-        Some(Ok(kagari_runtime::TraceValue::I32(42)))
-    );
+    assert_eq!(trace.host_calls[0].outcome, Some(Ok(TraceValue::I32(42))));
     drop(session);
     let candidate = runtime.stage_reload_program(
         &loaded,

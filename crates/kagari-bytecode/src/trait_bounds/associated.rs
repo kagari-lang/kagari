@@ -1,4 +1,4 @@
-use crate::{BytecodeModule, trait_bounds::contract};
+use crate::{module::BytecodeModule, trait_bounds::contract};
 use kagari_abi::types::{
     AbiType, ConstraintAbi, GenericBoundAbi, GenericParameterAbi, InterfaceTableAbi,
     NominalAbiType, TraitAbi,

@@ -1,11 +1,14 @@
 use crate::{
-    hir::TypeKind,
+    hir::ty::TypeKind,
     lower::LoweredModule,
     native::{NativeTypeKind, stdlib::invalid},
 };
 use kagari_abi::standard::surface::StandardEnum;
 use kagari_common::cancellation::CancellationToken;
-use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile};
+use kagari_stdlib::{
+    index::NativeMarkerKind,
+    package::{PackageError, ParsedStdlibFile},
+};
 use serde::{
     Deserialize,
     de::value::{Error as DeserializationError, StrDeserializer},

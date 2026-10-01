@@ -1,7 +1,5 @@
-use crate::hir::ModuleId;
-use kagari_common::Span;
-
-use super::Visibility;
+use crate::hir::{ids::ModuleId, item::storage::Visibility};
+use kagari_common::span::Span;
 
 #[derive(Debug, Clone)]
 pub struct ModuleDecl {

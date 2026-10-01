@@ -1,4 +1,12 @@
 use crate::tests::bytecode::*;
+use kagari_bytecode::{
+    self as bytecode,
+    artifact::KbcArtifact,
+    instruction::{ConstantOperand, NativeImportId},
+    module::{FunctionRecord, RootSlotLayout},
+    program::verify_program,
+};
+
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     budget::LogicalBudgetCharge,
@@ -13,8 +21,6 @@ use kagari_abi::{
     },
     types::AbiType,
 };
-use kagari_bytecode as bytecode;
-use kagari_bytecode::verify_program;
 
 #[test]
 fn native_aggregation_rejects_forged_generic_method_applications() {
@@ -399,7 +405,7 @@ fn rejects_function_fallthrough_before_loading() {
 #[test]
 fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok("fn main() -> bool { val a = [7]; a.get(a.len()).is_none() }");
-    let get = kagari_bytecode::NativeImportId::new(
+    let get = NativeImportId::new(
         module.modules[module.root.index()]
             .native_imports
             .iter()
@@ -509,7 +515,7 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
     invalid_register.modules[invalid_register.root.index()].functions[0].instructions[0] =
         BytecodeInstruction::LoadConst {
             dst: Register::new(999),
-            constant: kagari_bytecode::ConstantOperand::I32(1),
+            constant: ConstantOperand::I32(1),
         };
     assert!(matches!(
         verify_program(&invalid_register),
@@ -630,7 +636,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
             let program = common::bytecode_ok("struct Point { var x: i32 }");
             program.modules[program.root.index()].structures.clone()
         },
-        function_table: vec![bytecode::FunctionRecord {
+        function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "write_bad_field".to_owned(),
@@ -649,7 +655,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
                 instruction_budgets: vec![LogicalBudgetCharge::Step; 2],
                 return_type: ValueType::Unit,
                 registers: vec![ValueType::HeapObject, ValueType::Bool],
-                roots: bytecode::RootSlotLayout {
+                roots: RootSlotLayout {
                     registers: vec![Register::new(0)],
                     ..Default::default()
                 },
@@ -694,7 +700,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             read_only: false,
             debug_name: "Actor.health".to_owned(),
         }],
-        function_table: vec![bytecode::FunctionRecord {
+        function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "read_missing_path".to_owned(),
@@ -745,7 +751,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
             read_only: true,
             debug_name: "Actor.id".to_owned(),
         }],
-        function_table: vec![bytecode::FunctionRecord {
+        function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: "write_readonly_path".to_owned(),
@@ -942,7 +948,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
 
 #[test]
 fn forged_repetition_cannot_copy_shared_mutable_identities() {
-    use kagari_bytecode::ConstantOperand;
+    use kagari_bytecode::instruction::ConstantOperand;
     for value in [
         "Cell { value: 1 }",
         "(Cell { value: 1 }, 1)",
@@ -1010,7 +1016,7 @@ fn string_iterator_rejects_forged_constructor_contracts() {
             EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplit)
         ))
     );
-    let artifact = bytecode::KbcArtifact::from_program(module.clone(), Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(module.clone(), Default::default()).unwrap();
     for mutation in 0..6 {
         let mut invalid = module.clone();
         let owner = &mut invalid.modules[root];
@@ -1049,7 +1055,7 @@ fn string_iterator_rejects_forged_constructor_contracts() {
             .serialize(&forged)
             .unwrap();
         assert!(
-            !bytecode::KbcArtifact::from_bytes(&bytes)
+            !KbcArtifact::from_bytes(&bytes)
                 .is_ok_and(|decoded| decoded.validate_for_loader(&Default::default()).is_ok()),
             "encoded mutation {mutation}"
         );

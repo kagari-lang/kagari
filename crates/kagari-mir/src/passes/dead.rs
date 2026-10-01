@@ -1,4 +1,8 @@
-use crate::{BlockId, MirVerificationError, VerifiedMirModule, passes::Work};
+use crate::{
+    ids::BlockId,
+    passes::Work,
+    verify::{MirVerificationError, VerifiedMirModule},
+};
 use kagari_abi::effects::EffectSet;
 
 /// A backwards local sweep uses sealed live-outs, preserving cross-block uses.

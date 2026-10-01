@@ -1,9 +1,12 @@
 use crate::hir::{
-    BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId, HirOwner,
-    ImplId, Item, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StmtId, StructId,
-    TraitId, TraitMethodId, TypeRefId, VariantId,
+    ids::{
+        BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, GenericParamId, HirArenaId,
+        HirOwner, ImplId, LocalId, ModuleId, OpaqueTypeId, ParamId, PatternId, PlaceId, StmtId,
+        StructId, TraitId, TraitMethodId, TypeRefId, VariantId,
+    },
+    item::Item,
 };
-use kagari_common::Span;
+use kagari_common::span::Span;
 use std::{collections::HashMap, mem};
 
 #[derive(Debug, Clone, Default)]

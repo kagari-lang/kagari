@@ -1,5 +1,9 @@
 use super::*;
-use crate::{declarations::DeclarationId, resolver::NameResolution};
+use crate::{
+    declarations::DeclarationId,
+    resolver::{resolved::ResolvedName, table::NameResolution},
+};
+
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
@@ -87,7 +91,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                             associated_types: Default::default(),
                             declaration: facts
                                 .declarations
-                                .definition(crate::resolver::ResolvedName::Trait(item.id))
+                                .definition(ResolvedName::Trait(item.id))
                                 .unwrap()
                                 .clone(),
                             arguments: Vec::new(),

@@ -14,11 +14,13 @@ use crate::{
     metadata::{TypeId, TypeRegistry},
     value::Value,
 };
-use kagari_bytecode::BinaryOp;
+use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::{
     host_interface::{
-        self, HostInterface, HostPathDeclaration, HostPathSegmentDeclaration, HostTypeOwnership,
-        HostValueType, PathAccess, Visibility,
+        self, HostInterface,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::{HostTypeOwnership, PathAccess, Visibility},
+        value_type::HostValueType,
     },
     identity::DefinitionId,
 };

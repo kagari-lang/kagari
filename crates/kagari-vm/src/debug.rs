@@ -1,14 +1,22 @@
 use kagari_abi::ids::{DebugPointId, FunctionRef};
-use kagari_bytecode::{BytecodeFunction, LocalSlot, SafeDebugPoint};
-use kagari_common::Span;
+use kagari_bytecode::{
+    instruction::LocalSlot,
+    module::{BytecodeFunction, SafeDebugPoint},
+};
+use kagari_common::span::Span;
 use kagari_runtime::{
-    DebugVisibilityPolicy, ExecutionEvent, ExecutionFrame, ExecutionObserver, ModuleId, Runtime,
-    RuntimeError, RuntimeErrorKind, SecurityContext, gc::RootSet, module::LoadedModule,
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::ExecutionFrame,
+    gc::RootSet,
+    module::{LoadedModule, ModuleId},
+    security::{DebugVisibilityPolicy, SecurityContext},
+    session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
 use std::cell::RefCell;
 
-use crate::VmError;
+use crate::error::VmError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DebugFrameId(u64);

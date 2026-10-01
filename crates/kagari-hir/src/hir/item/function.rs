@@ -1,8 +1,11 @@
 use crate::hir::{
-    BlockId, FunctionId, GenericParamBuffer, ParamId, TraitBoundBuffer, TypeRefId, Writeability,
+    ids::{BlockId, FunctionId, ParamId, TypeRefId},
+    item::{
+        behavior::{GenericParamBuffer, TraitBoundBuffer},
+        storage::Visibility,
+    },
+    writeability::Writeability,
 };
-
-use super::Visibility;
 
 #[derive(Debug, Clone)]
 pub struct Function {

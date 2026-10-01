@@ -3,16 +3,21 @@ use crate::{
     analyze_source,
     declarations::DeclarationId,
     declare_analysis,
-    hir::{ExportItem, Item, Visibility},
+    hir::item::{
+        Item,
+        function::FunctionKind,
+        storage::{ExportItem, Visibility},
+    },
     host::HostDeclarations,
     imports::ModuleGraph,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
     types::TypeId,
 };
+
 use kagari_abi::{
     callable::EngineNativeBinding, scalar::BuiltinType, standard::bindings::NativeDefaultMethod,
 };
-use kagari_common::{DiagnosticKind, SourceFile, collection::CollectionAccess};
+use kagari_common::{collection::CollectionAccess, diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_syntax::parser;
 
 #[test]
@@ -251,7 +256,7 @@ fn installed_final_policy_rejects_required_methods_and_non_trait_targets() {
         .iter_mut()
         .find(|function| function.id == join)
         .unwrap()
-        .kind = crate::hir::FunctionKind::ImplMethod;
+        .kind = FunctionKind::ImplMethod;
     assert!(matches!(
         policies::install(file, &mut lowered, &cancel),
         Err(PackageError::Annotation { message, .. })

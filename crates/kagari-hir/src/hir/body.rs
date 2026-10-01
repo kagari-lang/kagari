@@ -1,6 +1,10 @@
 use crate::hir::{
-    BlockData, BlockId, ExprData, ExprId, HirArenaId, HirOwner, PatternData, PatternId, PlaceData,
-    PlaceId, StmtData, StmtId, TypeData, TypeRefId,
+    expr::ExprData,
+    ids::{BlockId, ExprId, HirArenaId, HirOwner, PatternId, PlaceId, StmtId, TypeRefId},
+    pattern::PatternData,
+    place::PlaceData,
+    stmt::{BlockData, StmtData},
+    ty::TypeData,
 };
 
 #[derive(Debug, Clone, Default)]

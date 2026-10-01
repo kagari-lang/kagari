@@ -1,11 +1,11 @@
 use crate::{
-    ResourceState, RuntimeErrorKind,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
         HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId,
     },
     metadata::TypeId,
+    resource::ResourceState,
     value::Value,
 };
 use std::rc::{Rc, Weak};

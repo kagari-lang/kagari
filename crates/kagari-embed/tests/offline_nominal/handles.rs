@@ -1,4 +1,7 @@
 use super::*;
+use kagari_bytecode::program::verify_program;
+use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
+
 use kagari_embed::program::PreparedProgram;
 
 #[test]
@@ -37,7 +40,7 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
 
 #[test]
 fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once() {
-    use kagari_common::host_interface::HostMethodDeclaration;
+    use kagari_common::host_interface::type_declaration::HostMethodDeclaration;
     let mut interface = interface();
     let mut method = HostMethodDeclaration::new(
         &interface.types[0].id,
@@ -87,7 +90,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -108,9 +111,9 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };
@@ -200,7 +203,7 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             .load_program(&loaded_program, Default::default())
             .unwrap();
         let mut denied = context.clone();
-        denied.jit_policy = kagari_embed::JitPolicy::Disabled;
+        denied.jit_policy = JitPolicy::Disabled;
         denied.capabilities.fs_write = false;
         assert!(runtime.execute(&loaded, "main", &[], &denied).is_err());
         assert_eq!(total.get(), 40);
@@ -270,10 +273,10 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         .host_interface
         .types
         .clear();
-    assert!(kagari_bytecode::KbcArtifact::from_program(invalid, Default::default()).is_err());
+    assert!(KbcArtifact::from_program(invalid, Default::default()).is_err());
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -289,9 +292,9 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };
@@ -420,5 +423,5 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         .host_interface
         .types
         .clear();
-    assert!(kagari_bytecode::verify_program(&invalid).is_err());
+    assert!(verify_program(&invalid).is_err());
 }

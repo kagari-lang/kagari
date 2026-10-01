@@ -1,5 +1,5 @@
 use crate::{
-    hir::{ExprId, TypeRefId},
+    hir::ids::{ExprId, TypeRefId},
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;

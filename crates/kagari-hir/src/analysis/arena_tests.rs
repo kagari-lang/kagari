@@ -1,4 +1,6 @@
 use super::*;
+use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName};
+
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapshot {
@@ -38,7 +40,7 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     assert!(
         right
             .declarations
-            .target(crate::resolver::ResolvedName::Param(a.params[0].id))
+            .target(ResolvedName::Param(a.params[0].id))
             .is_none()
     );
     for (expr, _) in left.lowered.module.body.expressions() {
@@ -49,13 +51,13 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     let right_stmt = right.lowered.module.block(b.body.unwrap()).statements[0];
     assert_eq!(left_stmt.index(), right_stmt.index());
     assert_ne!(left_stmt, right_stmt);
-    let crate::hir::StmtKind::Binding {
+    let StmtKind::Binding {
         local: left_local, ..
     } = left.lowered.module.stmt(left_stmt).kind
     else {
         panic!("binding");
     };
-    let crate::hir::StmtKind::Binding {
+    let StmtKind::Binding {
         local: right_local, ..
     } = right.lowered.module.stmt(right_stmt).kind
     else {

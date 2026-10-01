@@ -17,7 +17,7 @@ fn definition(module: &str, kind: DefinitionKind) -> DefinitionId {
 
 #[test]
 fn collection_access_is_invariant_in_nested_types_and_survives_substitution() {
-    use CollectionAccess::{Mutable, ReadOnly};
+    use kagari_common::collection::CollectionAccess::{Mutable, ReadOnly};
     let parameter = GenericParameterType {
         owner: definition("collection.kgr", DefinitionKind::Function),
         position: 0,

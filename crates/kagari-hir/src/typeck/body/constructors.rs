@@ -1,17 +1,25 @@
 use crate::{
     declarations::DeclarationId,
-    hir::{ExportItem, ExprId, ExprKind, FieldInit, TypeRefId},
+    hir::{
+        expr::{ExprKind, FieldInit},
+        ids::{ExprId, TypeRefId},
+        item::storage::ExportItem,
+    },
     native::NativeTypeKind,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
     typeck::{
-        BodyTypeEnv, ResolvedEnumConstructor, ResolvedStructInit,
+        BodyTypeEnv,
         body::BodyChecker,
         check, completion, inference,
+        table::{ResolvedEnumConstructor, ResolvedStructInit},
         ty::{TypeContext, display_type, display_type_id, resolve_type_in},
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{Diagnostic, DiagnosticKind, identity::DefinitionId};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity::DefinitionId,
+};
 use std::collections::HashSet;
 
 impl<'a> BodyChecker<'a> {

@@ -1,14 +1,32 @@
-use crate::{DebugSession, JitExecutionStatus, SourceBreakpoint, Vm, tests::native_fixtures};
+use crate::{
+    debug::{DebugSession, SourceBreakpoint},
+    tests::native_fixtures,
+    vm::{JitExecutionStatus, Vm},
+};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    program::{BytecodeProgram, verify_program},
+};
+use {
+    crate::error::VmError,
+    kagari_bytecode::instruction::{BytecodeInstruction, CallTarget},
+    kagari_runtime::error::RuntimeErrorKind,
+};
+
 use kagari_abi::native_import::EngineNativeOperation;
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
+
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::bytecode::lower_program_to_bytecode;
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn fixture(dependency_source: &str) -> BytecodeProgram {
@@ -79,7 +97,7 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
                 };
                 if overflow {
                     assert!(
-                        matches!(report, Err(crate::VmError::RuntimeError(error)) if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap)
+                        matches!(report, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ScriptTrap)
                     );
                     continue;
                 }
@@ -224,8 +242,8 @@ fn forged_native_imports_reject_versions_providers_signatures_and_obligations() 
                     .find(|instruction| {
                         matches!(
                             instruction,
-                            kagari_bytecode::BytecodeInstruction::Call {
-                                callee: kagari_bytecode::CallTarget::Native(
+                            BytecodeInstruction::Call {
+                                callee: CallTarget::Native(
                                     kagari_abi::callable::NativeCall::Provider(_)
                                 ),
                                 ..
@@ -233,17 +251,17 @@ fn forged_native_imports_reject_versions_providers_signatures_and_obligations() 
                         )
                     })
                     .unwrap();
-                let kagari_bytecode::BytecodeInstruction::Call { callee, .. } = instruction else {
+                let BytecodeInstruction::Call { callee, .. } = instruction else {
                     unreachable!()
                 };
-                *callee = kagari_bytecode::CallTarget::Native(
-                    kagari_abi::callable::NativeCall::Host(kagari_bytecode::HostImportId::new(0)),
-                );
+                *callee = CallTarget::Native(kagari_abi::callable::NativeCall::Host(
+                    kagari_bytecode::HostImportId::new(0),
+                ));
             }
             _ => unreachable!(),
         }
         assert!(
-            kagari_bytecode::verify_program(&forged).is_err(),
+            verify_program(&forged).is_err(),
             "accepted corruption {corrupt}"
         );
         assert!(
@@ -322,11 +340,11 @@ fn hash_storage_native_imports_carry_and_validate_selected_witnesses() {
     missing.modules[owner].native_imports[import]
         .witnesses
         .clear();
-    assert!(kagari_bytecode::verify_program(&missing).is_err());
+    assert!(verify_program(&missing).is_err());
     let mut forged = program.clone();
     forged.modules[owner].native_imports[import].witnesses[0].implementation =
         kagari_abi::native_import::NativeWitnessImplementation::Host;
-    assert!(kagari_bytecode::verify_program(&forged).is_err());
+    assert!(verify_program(&forged).is_err());
     let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let mut runtime = Runtime::default();
@@ -346,7 +364,7 @@ fn low_level_storage_writes_reject_element_type_forgery() {
     use kagari_abi::{
         callable::NativeCall, scalar::BuiltinType, standard::RuntimePrimitive, types::AbiType,
     };
-    use kagari_bytecode::{BytecodeInstruction, CallTarget, Register};
+    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, Register};
     let mut program = fixture(
         r#"pub fn answer() -> i32 {
         val values = [[42]];
@@ -379,7 +397,7 @@ fn low_level_storage_writes_reject_element_type_forgery() {
     *callee = CallTarget::RuntimePrimitive(RuntimePrimitive::ArrayPush);
     // The low-level form still has a valid physical contract and semantic slot
     // facts; this exercises the storage verifier independently of native imports.
-    kagari_bytecode::verify_program(&program).unwrap();
+    verify_program(&program).unwrap();
     let function = program.modules[member]
         .functions
         .iter_mut()
@@ -402,7 +420,7 @@ fn low_level_storage_writes_reject_element_type_forgery() {
         unreachable!()
     };
     args[1] = wrong;
-    assert!(kagari_bytecode::verify_program(&program).is_err());
+    assert!(verify_program(&program).is_err());
     assert!(KbcArtifact::from_program(program.clone(), Default::default()).is_err());
     let mut runtime = Runtime::default();
     assert!(runtime.load_program("forged-storage", program).is_err());

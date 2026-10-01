@@ -1,6 +1,5 @@
 use crate::{
     ast::{
-        ast_node,
         misc::{GenericArgList, Name, Path, TraitRef},
         support,
         traits::AstNode,
@@ -15,7 +14,7 @@ ast_node!(FunctionType, FunctionType);
 ast_node!(QualifiedType, QualifiedType);
 
 impl QualifiedType {
-    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+    pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
     pub fn receiver(&self) -> Option<TypeRef> {

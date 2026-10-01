@@ -2,8 +2,12 @@ use kagari_abi::{
     callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     standard::bindings::NativeDefaultMethod,
 };
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use {kagari_bytecode::program::ModuleRef, kagari_embed::context::JitPolicy};
+
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
@@ -25,9 +29,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -282,8 +286,7 @@ fn malformed_default_contracts_and_source_origins_are_rejected() {
                 .unwrap();
             implementation.methods.clear();
         } else {
-            module.functions[0].metadata.debug.source_module =
-                Some(kagari_bytecode::ModuleRef::new(999));
+            module.functions[0].metadata.debug.source_module = Some(ModuleRef::new(999));
         }
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }

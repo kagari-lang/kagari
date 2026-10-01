@@ -1,17 +1,35 @@
 use kagari_common::collection::CollectionAccess;
+use {
+    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
+    kagari_common::host_interface::{
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    },
+    kagari_runtime::host::HostTypeRegistration,
+};
+
 #[path = "support/layouts.rs"]
 mod layouts;
 use kagari_abi::types::AbiType;
-use kagari_bytecode::BytecodeModule;
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, FieldInfo, FieldMetadataId, HostTypeOwnership, MethodInfo,
-    MethodMetadataId, MethodOrigin, ParameterInfo, PathAccess, Runtime, RuntimeErrorKind,
-    TraitInfo, TypeId, TypeKind, TypeRegistration, Visibility,
-    host::{
-        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-        HostPathSegmentRegistration, HostSchemaEpoch,
+use kagari_bytecode::module::BytecodeModule;
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     },
-    value::{Value, ValueCategory},
+    kagari_runtime::{
+        Runtime,
+        error::RuntimeErrorKind,
+        host::{
+            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
+            HostPathSegmentRegistration, HostSchemaEpoch,
+        },
+        metadata::{
+            AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
+            ParameterInfo, TraitInfo, TypeId, TypeKind, TypeRegistration,
+        },
+        value::{Value, ValueCategory},
+    },
 };
 
 fn host_root_value(object_id: u64) -> Value {
@@ -24,22 +42,15 @@ fn host_root_value(object_id: u64) -> Value {
 fn path_view_value(object_id: u64) -> Value {
     let result_type = TypeId::new(1);
     let mut runtime = kagari_runtime::Runtime::default();
-    let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("Player");
+    let mut declaration = HostTypeDeclaration::new("Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
-        &declaration.id,
-        "hp",
-        kagari_common::host_interface::HostValueType::I32,
-    );
+    let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);
     let root_type = runtime
-        .register_host_type(kagari_runtime::HostTypeRegistration::new(
-            declaration,
-            "Player",
-        ))
+        .register_host_type(HostTypeRegistration::new(declaration, "Player"))
         .unwrap();
     let root = runtime
         .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
@@ -147,8 +158,8 @@ fn module_epochs_have_independent_runtime_instances() {
     let first = runtime
         .load_program(
             "game.player",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -156,8 +167,8 @@ fn module_epochs_have_independent_runtime_instances() {
     let second = runtime
         .load_program(
             "game.player",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )

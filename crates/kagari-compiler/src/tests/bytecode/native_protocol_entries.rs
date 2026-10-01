@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, intrinsic, surface::StandardEnum, traits::StandardTrait},
     types::{AbiType, ConstraintAbi, GenericBoundAbi, PublicAbiItem},
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::identity::associated_type_id;
 
 fn rejected(artifact: &KbcArtifact, label: &str) {

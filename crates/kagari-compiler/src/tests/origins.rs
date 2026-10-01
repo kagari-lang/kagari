@@ -1,6 +1,9 @@
-use crate::{lower_to_mir, tests::common};
-use kagari_common::{Span, line_index::PositionEncoding};
-use kagari_mir::{MirVerificationErrorKind, debug::SourcePosition, verify_mir};
+use crate::{source::lower::lower_to_mir, tests::common};
+use kagari_common::{line_index::PositionEncoding, span::Span};
+use kagari_mir::{
+    debug::SourcePosition,
+    verify::{MirVerificationErrorKind, verify_mir},
+};
 use std::sync::Arc;
 
 #[test]

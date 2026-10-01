@@ -1,4 +1,4 @@
-use crate::ModuleRef;
+use crate::program::ModuleRef;
 use kagari_abi::{
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},

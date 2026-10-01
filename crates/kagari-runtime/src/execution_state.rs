@@ -3,7 +3,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
 };
 
-use crate::{RuntimeError, RuntimeErrorKind};
+use crate::error::{RuntimeError, RuntimeErrorKind};
 
 #[derive(Debug, Clone, Copy, Default)]
 enum Phase {

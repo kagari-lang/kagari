@@ -2,7 +2,12 @@ use kagari_abi::{
     layout::{StructFieldLayout, StructLayout},
     types::AbiType,
 };
-use kagari_bytecode::{BytecodeModule, StructId};
+use kagari_bytecode::{
+    instruction::StructId,
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+
 use kagari_common::identity::{
     DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
 };
@@ -20,7 +25,10 @@ pub fn interface_value(runtime: &mut Runtime) -> Value {
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value_with(runtime: &mut Runtime, concrete_type: AbiType, data: Value) -> Value {
     use kagari_abi::types::{InterfaceTableAbi, NominalAbiType, PublicAbiItem, TraitAbi};
-    use kagari_bytecode::{BytecodeProgram, InterfaceTableRecord, ModuleRef};
+    use kagari_bytecode::{
+        module::InterfaceTableRecord,
+        program::{BytecodeProgram, ModuleRef},
+    };
     let identity = ModuleIdentity::single_file("interface-fixture.kgr");
     let declaration = |kind, name: &str| DefinitionId {
         module: identity.clone(),
@@ -113,8 +121,8 @@ pub fn layout(
     let module = runtime
         .load_program(
             name,
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![BytecodeModule {
                     structures: vec![StructLayout {
                         arguments: Vec::new(),

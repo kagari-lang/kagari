@@ -23,11 +23,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostInterfaceError,
-        HostPathDeclaration, HostTypeDeclaration, MAGIC, PathAccess, VERSION,
+        HostFunctionDeclaration, HostInterface, HostInterfaceError, MAGIC, VERSION,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration, PathAccess},
+        value_type::HostValueType,
     };
+
+    use super::*;
+
     use bincode::Options;
 
     #[derive(Debug, Deserialize)]
@@ -60,17 +64,10 @@ mod tests {
         );
 
         let owner = HostTypeDeclaration::new("demo.Player");
-        let field = HostFieldDeclaration::new(
-            &owner.id,
-            "score",
-            crate::host_interface::HostValueType::I32,
-        );
+        let field = HostFieldDeclaration::new(&owner.id, "score", HostValueType::I32);
         let path = HostPathDeclaration {
             root: owner.id,
-            segments: vec![
-                crate::host_interface::HostPathSegmentDeclaration::Field(field.id);
-                MAX_MEMBERS + 1
-            ],
+            segments: vec![HostPathSegmentDeclaration::Field(field.id); MAX_MEMBERS + 1],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
             capabilities: Default::default(),
@@ -97,11 +94,8 @@ mod tests {
 
     #[test]
     fn in_memory_host_identity_path_is_bounded_before_encoding() {
-        let mut function = HostFunctionDeclaration::new(
-            "demo.read",
-            Vec::new(),
-            crate::host_interface::HostValueType::I32,
-        );
+        let mut function =
+            HostFunctionDeclaration::new("demo.read", Vec::new(), HostValueType::I32);
         function.id.module.path =
             vec!["part".into(); crate::identity::MAX_IDENTITY_PATH_SEGMENTS + 1];
         assert_eq!(function.validate(), Err(HostInterfaceError::TooLarge));

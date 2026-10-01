@@ -1,6 +1,10 @@
-use super::*;
+use crate::{
+    manifest::{BundledSource, bundled_sources},
+    package::{PackageError, ParsedStdlibPackage},
+};
+
 use kagari_common::cancellation::CancellationToken;
-use kagari_syntax::{ast::AstNode, kind::SyntaxKind, parser::ParseLimits};
+use kagari_syntax::{ast::traits::AstNode, kind::SyntaxKind, parser::ParseLimits};
 
 fn prepare(text: &'static str) -> Result<ParsedStdlibPackage, PackageError> {
     ParsedStdlibPackage::prepare_sources(

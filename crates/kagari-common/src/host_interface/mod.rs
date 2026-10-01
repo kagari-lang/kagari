@@ -1,6 +1,6 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
-use bincode::DefaultOptions;
-use bincode::Options;
+use bincode::{DefaultOptions, Options};
+
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashSet},
@@ -9,6 +9,11 @@ use std::{
 
 use crate::{
     capability::CapabilitySet,
+    host_interface::{
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::HostTypeDeclaration,
+        value_type::HostValueType,
+    },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 
@@ -17,19 +22,11 @@ const VERSION: u16 = 12;
 const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 mod decode_limits;
-mod path;
-pub use path::{
-    HostIndexSegmentDeclaration, HostPathContract, HostPathDeclaration, HostPathInput,
-    HostPathSegmentContract, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
-};
-mod value_type;
-pub use value_type::HostValueType;
-mod type_declaration;
-pub use type_declaration::{
-    HostAssociatedTypeBinding, HostFieldDeclaration, HostMethodDeclaration, HostReflectionPolicy,
-    HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
-    HostTypeOwnership, PathAccess, Visibility,
-};
+pub mod path;
+
+pub mod value_type;
+
+pub mod type_declaration;
 
 impl HostValueType {
     pub fn opaque(symbol: &str) -> Self {

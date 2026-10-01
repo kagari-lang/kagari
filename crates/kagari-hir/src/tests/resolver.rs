@@ -1,8 +1,8 @@
-use kagari_common::DiagnosticKind;
+use kagari_common::diagnostic::DiagnosticKind;
 
 use crate::{
-    hir::{ExprKind, PatternKind, StmtKind},
-    resolver::{ResolvedName, resolve_names},
+    hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
+    resolver::{collect::resolve_names, resolved::ResolvedName},
     tests::common,
 };
 
@@ -179,25 +179,25 @@ fn main() -> i32 { 1 }
         resolved
             .items
             .lookup("gameplay")
-            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Module(_))))
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Module(_))))
     );
     assert!(
         resolved
             .items
             .lookup("Display")
-            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Trait(_))))
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Trait(_))))
     );
     assert!(
         resolved
             .items
             .lookup("Player")
-            .is_some_and(|r| matches!(r.target(), Some(crate::resolver::ResolvedName::Struct(_))))
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Struct(_))))
     );
     assert!(
-        resolved.items.lookup("main").is_some_and(|r| matches!(
-            r.target(),
-            Some(crate::resolver::ResolvedName::Function(_))
-        ))
+        resolved
+            .items
+            .lookup("main")
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     assert_eq!(resolved.items.impl_count(), 1);
 }

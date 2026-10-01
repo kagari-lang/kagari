@@ -4,25 +4,38 @@ use kagari_abi::{
     representation::ValueType,
 };
 use kagari_bytecode::{
-    BytecodeInstruction, ConstantOperand, InstructionSourceSpan, LineTableEntry, Register,
-    SafeDebugPoint, SafeDebugPointKind,
+    instruction::{BytecodeInstruction, ConstantOperand, Register},
+    module::{
+        BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
+    },
 };
-use kagari_common::Span;
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    value::Value,
+
+use kagari_common::span::Span;
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 use crate::{
-    DebugSession, JitExecutionStatus, PreparedNativeEntry, Vm,
+    debug::DebugSession,
     tests::{common, native_fixtures},
+    vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
-    use kagari_bytecode::{ArtifactBuildOptions, ArtifactCompatibility, HostImportId, KbcArtifact};
-    use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType, standard_log};
-    use kagari_runtime::{HostExposurePolicy, host::HostFunction};
+    use kagari_bytecode::{
+        HostImportId,
+        artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+    };
+    use kagari_common::host_interface::{
+        HostFunctionDeclaration, standard_log, value_type::HostValueType,
+    };
+    use kagari_runtime::{host::HostFunction, security::HostExposurePolicy};
     use std::sync::{Arc, Mutex};
     let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
     for artifact in [false, true] {
@@ -402,7 +415,7 @@ fn jit_runtime() -> Runtime {
     })
 }
 
-fn debug_test_module(value: i32) -> kagari_bytecode::BytecodeModule {
+fn debug_test_module(value: i32) -> BytecodeModule {
     let mut module = common::test_function_module(
         "main",
         vec![

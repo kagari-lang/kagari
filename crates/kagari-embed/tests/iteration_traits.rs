@@ -1,9 +1,17 @@
-use kagari_common::{SourceFile, collection::CollectionAccess};
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_bytecode::program::verify_program;
+use kagari_common::{collection::CollectionAccess, source::SourceFile};
+use {
+    kagari_embed::{context::JitPolicy, engine::EngineConfig},
+    kagari_runtime::session::ExecutionOptions,
+};
+
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -23,9 +31,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -186,7 +194,7 @@ fn main()->i32 {val a=[20];val b=head(a);a.push(22);b+a[1]}
 #[test]
 fn native_guards_release_on_failure_and_iter_handles_survive_gc() {
     use kagari_abi::{operations::IterOp, scalar::BuiltinType, types::AbiType};
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -233,7 +241,7 @@ fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
     let item = AbiType::Builtin(BuiltinType::I32);
     let ty = AbiType::Iter(Box::new(item.clone()));
     let cancellation = kagari_common::cancellation::CancellationToken::default();
-    let options = kagari_runtime::ExecutionOptions {
+    let options = ExecutionOptions {
         cancellation: cancellation.clone(),
         ..Default::default()
     };
@@ -418,7 +426,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
         standard::{bindings::NativeProtocolMethod, surface::StandardEnum},
         types::AbiType,
     };
-    use kagari_bytecode::{BytecodeInstruction, CallTarget};
+    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -473,7 +481,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 )
             }
         }
-        assert!(kagari_bytecode::verify_program(&program).is_err());
+        assert!(verify_program(&program).is_err());
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }
 }

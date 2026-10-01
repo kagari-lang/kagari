@@ -10,7 +10,7 @@ use smallvec::{Array, SmallVec};
 use std::io::{self, Error as IoError, Read, Write};
 
 use crate::{
-    MirModule,
+    function::MirModule,
     program::{ProgramError, VerifiedMirProgram, verify_program},
 };
 

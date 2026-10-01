@@ -1,18 +1,26 @@
-use super::NameResolution;
 use crate::{
     builtin::BuiltinFunction,
     hir::{
-        BlockId, BodyOwner, Condition, ConstId, ExportItem, ExprId, ExprKind, FunctionId, HirOwner,
-        Module, ParamId, PatternId, PatternKind, PlaceId, PlaceKind, StmtId, StmtKind,
+        expr::{Condition, ExprKind},
+        ids::{
+            BlockId, BodyOwner, ConstId, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId,
+            StmtId,
+        },
+        item::{Module, storage::ExportItem},
+        pattern::PatternKind,
+        place::PlaceKind,
+        stmt::StmtKind,
     },
     host::HostDeclarations,
     imports::{ImportTarget, ModuleImports},
     resolver::{
-        LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding, table::NameTable,
+        resolved::{LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding},
+        table::{NameResolution, NameTable},
     },
     source_map::SourceMap,
 };
-use kagari_common::{Span, cancellation::CancellationToken};
+
+use kagari_common::{cancellation::CancellationToken, span::Span};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -145,7 +153,7 @@ impl<'a> BodyResolver<'a> {
                     self.bind_pattern(*pattern, self.source_map.block_span(*body).start);
                 }
                 self.resolve_block(*body);
-                if matches!(condition, crate::hir::Condition::Binding { .. }) {
+                if matches!(condition, Condition::Binding { .. }) {
                     self.pop_scope();
                 }
             }
@@ -231,7 +239,7 @@ impl<'a> BodyResolver<'a> {
                     self.bind_pattern(*pattern, self.source_map.block_span(*then_branch).start);
                 }
                 self.resolve_block(*then_branch);
-                if matches!(condition, crate::hir::Condition::Binding { .. }) {
+                if matches!(condition, Condition::Binding { .. }) {
                     self.pop_scope();
                 }
                 if let Some(expr) = else_branch {
@@ -404,7 +412,7 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn binding(&self, name: &str) -> Option<super::NameResolution> {
+    fn binding(&self, name: &str) -> Option<NameResolution> {
         for scope in self.scopes.iter().rev() {
             if let Some(index) = scope.latest.get(name) {
                 return Some(NameResolution::Unique(

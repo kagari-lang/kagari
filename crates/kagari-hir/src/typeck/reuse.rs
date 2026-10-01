@@ -1,11 +1,12 @@
 //! Cache semantic facts by source content, remapping every arena ID on reuse.
 
-use super::TypeTable;
 use crate::{
-    hir::{Function, FunctionKind},
+    hir::item::function::{Function, FunctionKind},
     lower::LoweredModule,
+    typeck::table::TypeTable,
 };
-use kagari_common::Diagnostic;
+
+use kagari_common::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
 
 pub struct BodyReuse<'a> {
@@ -127,7 +128,11 @@ fn environment(module: &LoweredModule, text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_common::{Diagnostic, DiagnosticKind, SourceFile, Span};
+    use kagari_common::{
+        diagnostic::{Diagnostic, DiagnosticKind},
+        source::SourceFile,
+        span::Span,
+    };
 
     #[test]
     fn environment_tokens_ignore_only_trivia() {

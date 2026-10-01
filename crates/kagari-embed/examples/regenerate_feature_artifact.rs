@@ -1,6 +1,6 @@
 //! Regenerate the canonical source-free SDK feature fixture from its exact source.
-use kagari_common::SourceFile;
-use kagari_embed::KagariEngine;
+use kagari_common::source::SourceFile;
+use kagari_embed::engine::KagariEngine;
 use std::{fs, path::Path};
 
 fn main() {

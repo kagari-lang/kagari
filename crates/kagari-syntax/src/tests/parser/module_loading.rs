@@ -1,5 +1,8 @@
 use crate::{
-    ast::{Expr, Item},
+    ast::{
+        expr::Expr,
+        item::{Item, Visibility},
+    },
     tests::common,
 };
 
@@ -19,7 +22,7 @@ pub mod ui {
 
     match &items[0] {
         Item::ModuleDef(module_def) => {
-            assert!(module_def.visibility() == crate::ast::Visibility::Private);
+            assert!(module_def.visibility() == Visibility::Private);
             assert_eq!(module_def.name_text().as_deref(), Some("gameplay"));
             assert!(module_def.block().is_none());
         }
@@ -28,7 +31,7 @@ pub mod ui {
 
     match &items[1] {
         Item::ModuleDef(module_def) => {
-            assert!(module_def.visibility() == crate::ast::Visibility::Public);
+            assert!(module_def.visibility() == Visibility::Public);
             assert_eq!(module_def.name_text().as_deref(), Some("ui"));
             let block = module_def.block().expect("expected inline module body");
             assert_eq!(block.items().count(), 1);
@@ -46,13 +49,11 @@ fn parses_scoped_visibility_and_rejects_unimplemented_scopes() {
         Item::ModuleDef(child) => child,
         other => panic!("{other:?}"),
     };
-    assert_eq!(child.visibility(), crate::ast::Visibility::PublicSuper);
+    assert_eq!(child.visibility(), Visibility::PublicSuper);
     let items = child.block().unwrap().items().collect::<Vec<_>>();
+    assert!(matches!(&items[0], Item::FnDef(item) if item.visibility() == Visibility::PublicSuper));
     assert!(
-        matches!(&items[0], Item::FnDef(item) if item.visibility() == crate::ast::Visibility::PublicSuper)
-    );
-    assert!(
-        matches!(&items[1], Item::StructDef(item) if item.visibility() == crate::ast::Visibility::PublicSuper && item.field_list().unwrap().fields().next().unwrap().visibility() == crate::ast::Visibility::PublicSuper)
+        matches!(&items[1], Item::StructDef(item) if item.visibility() == Visibility::PublicSuper && item.field_list().unwrap().fields().next().unwrap().visibility() == Visibility::PublicSuper)
     );
     assert!(
         !common::parse("pub(crate) fn invalid() {}")
@@ -80,7 +81,7 @@ use {std::math, super::util as util};
 
     match &items[0] {
         Item::UseDecl(use_decl) => {
-            assert!(use_decl.visibility() == crate::ast::Visibility::Public);
+            assert!(use_decl.visibility() == Visibility::Public);
             let tree = use_decl.tree().expect("expected use tree");
             assert_eq!(
                 tree.path().and_then(|path| path.text()).as_deref(),
@@ -106,7 +107,7 @@ use {std::math, super::util as util};
 
     match &items[1] {
         Item::UseDecl(use_decl) => {
-            assert!(use_decl.visibility() == crate::ast::Visibility::Private);
+            assert!(use_decl.visibility() == Visibility::Private);
             let tree = use_decl.tree().expect("expected use tree");
             let nested = tree.nested_trees().collect::<Vec<_>>();
             assert_eq!(nested.len(), 2);

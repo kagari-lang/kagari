@@ -1,9 +1,9 @@
 //! Reuse checked signatures after body edits, rebasing all source-local type IDs.
 use std::collections::HashMap;
 
-use kagari_common::{Span, cancellation::CancellationToken};
+use kagari_common::{cancellation::CancellationToken, span::Span};
 
-use crate::{AnalysisResult, hir::FunctionKind, lower::LoweredModule};
+use crate::{AnalysisResult, hir::item::function::FunctionKind, lower::LoweredModule};
 
 use super::ModuleSignatures;
 

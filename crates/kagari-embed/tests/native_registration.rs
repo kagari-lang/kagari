@@ -8,10 +8,16 @@ use kagari_abi::{
     types::{AbiType, FunctionAbi},
 };
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
-use kagari_embed::{EngineConfig, KagariEngine};
+use kagari_embed::engine::{EngineConfig, KagariEngine};
+use kagari_native_macros::native_module;
 use kagari_runtime::{
-    NativeAction, NativeApi, NativeContext, NativeHandler, NativeInvocationState, RuntimeError,
-    native_module, standard_library, value::Value,
+    error::RuntimeError,
+    native::{
+        NativeAction, NativeContext, NativeInvocationState,
+        api::{NativeApi, NativeHandler},
+        packages::standard_library,
+    },
+    value::Value,
 };
 
 struct Answer;
@@ -66,7 +72,7 @@ fn authoring_matches_explicit_records_and_preserves_documentation() {
 
 #[native_module("game::aliases", runtime = kagari_runtime)]
 mod aliases {
-    use kagari_runtime::{NativeResult, NativeValue};
+    use kagari_runtime::native_value::{NativeResult, NativeValue};
     type Count = usize;
     /// Preserve aliases and checked optional values.
     #[native]
@@ -114,7 +120,10 @@ fn authoring_resolves_rust_aliases_and_generic_value_contracts() {
 #[cfg(feature = "source")]
 #[native_module("game::retained")]
 mod retained {
-    use kagari_runtime::{NativeArray, NativeResult, RuntimeError};
+    use kagari_runtime::{
+        error::RuntimeError,
+        native_value::{NativeResult, array::NativeArray},
+    };
     use std::cell::RefCell;
     thread_local! {
         static SAVED: RefCell<Option<NativeArray<i32>>> = const { RefCell::new(None) };
@@ -262,10 +271,12 @@ fn generated_sources_come_from_the_installed_packages() {
 #[cfg(feature = "source")]
 mod source {
     use super::*;
-    use kagari_bytecode::KbcArtifact;
-    use kagari_common::collection::CollectionAccess;
-    use kagari_common::{SourceFile, source_database::SourceLayer};
-    use kagari_embed::{ExecutionContext, program::PreparedProgram};
+    use kagari_bytecode::artifact::KbcArtifact;
+    use kagari_common::{
+        collection::CollectionAccess, source::SourceFile, source_database::SourceLayer,
+    };
+
+    use kagari_embed::{context::ExecutionContext, program::PreparedProgram};
     use std::{cell::RefCell, rc::Rc};
 
     fn execute(engine: &KagariEngine, text: &str) -> Value {

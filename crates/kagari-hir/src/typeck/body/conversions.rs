@@ -1,10 +1,11 @@
 use crate::{
     builtin::traits::{self, StandardTraitSemantics, conversion_requirement},
-    hir::{ExprId, ExprKind, TypeKind},
+    hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
     native::NativeTypeKind,
     typeck::{
-        BodyTypeEnv, CallTarget,
+        BodyTypeEnv,
         body::BodyChecker,
+        table::CallTarget,
         ty::{self, TypeContext, resolve_type_in},
     },
     types::{NominalType, TypeId},
@@ -16,7 +17,10 @@ use kagari_abi::{
         traits::{self as standard_traits, StandardTrait},
     },
 };
-use kagari_common::{Diagnostic, DiagnosticKind, identity};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity,
+};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_conversion_call(

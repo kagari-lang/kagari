@@ -1,10 +1,11 @@
 //! Portable resolved path contracts shared by offline tools and runtime registration.
-use super::{
-    CapabilitySet, DefinitionId, HostInterface, HostInterfaceError, HostTypeOwnership,
-    HostValueType, PathAccess, Visibility,
-};
 #[cfg(test)]
 use crate::collection::CollectionAccess;
+use crate::host_interface::{
+    CapabilitySet, DefinitionId, HostInterface, HostInterfaceError,
+    type_declaration::{HostTypeOwnership, PathAccess, Visibility},
+    value_type::HostValueType,
+};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -417,7 +418,7 @@ mod tests {
     }
 
     use super::*;
-    use crate::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
+    use crate::host_interface::type_declaration::{HostFieldDeclaration, HostTypeDeclaration};
 
     #[test]
     fn mixed_path_roundtrips_offline_and_rejects_broken_segment_contracts() {

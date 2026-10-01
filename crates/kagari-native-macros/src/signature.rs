@@ -73,7 +73,7 @@ impl VisitMut for Substitute<'_> {
             }
             if let Some(slot) = self.names.iter().position(|name| name == ident) {
                 let runtime = self.runtime;
-                *ty = parse_quote!(#runtime::GenericValue<#slot>);
+                *ty = parse_quote!(#runtime::native_value::GenericValue<#slot>);
                 return;
             }
         }
@@ -105,7 +105,7 @@ pub(crate) fn value_type(
 ) -> TokenStream {
     let ty = concrete(ty, names, runtime, receiver);
     let names: Vec<_> = names.iter().map(ToString::to_string).collect();
-    quote!(<#ty as #runtime::NativeValue>::type_expression(&[#(#names),*]))
+    quote!(<#ty as #runtime::native_value::NativeValue>::type_expression(&[#(#names),*]))
 }
 
 pub(crate) fn nominal(path: &Path, names: &[Ident], runtime: &Path) -> SyntaxResult<TokenStream> {
@@ -142,9 +142,11 @@ pub(crate) fn nominal(path: &Path, names: &[Ident], runtime: &Path) -> SyntaxRes
             "unsupported native trait arguments",
         ));
     }
-    Ok(quote!(#runtime::native_module::TypeExpression::Named {
-        path: ::std::vec![#(#segments),*], arguments: ::std::vec![#(#arguments),*], bindings: ::std::vec![#(#bindings),*],
-    }))
+    Ok(
+        quote!(#runtime::native_module::types::TypeExpression::Named {
+            path: ::std::vec![#(#segments),*], arguments: ::std::vec![#(#arguments),*], bindings: ::std::vec![#(#bindings),*],
+        }),
+    )
 }
 
 pub(crate) fn validate(sig: &Signature) -> SyntaxResult<()> {
@@ -186,7 +188,7 @@ pub(crate) fn method(
                 let ty = if let Some(receiver) = receiver {
                     value_type(receiver, names, runtime, None)
                 } else {
-                    quote!(#runtime::native_module::TypeExpression::Named { path: ::std::vec!["Self"], arguments: ::std::vec![], bindings: ::std::vec![] })
+                    quote!(#runtime::native_module::types::TypeExpression::Named { path: ::std::vec!["Self"], arguments: ::std::vec![], bindings: ::std::vec![] })
                 };
                 params.push(quote!(("self", #ty)));
             }
@@ -214,6 +216,6 @@ pub(crate) fn method(
     let names: Vec<_> = names.iter().map(ToString::to_string).collect();
     Ok(quote!(#runtime::native_module::Method {
         name: #name, documentation: #doc, params: ::std::vec![#(#params),*],
-        result: <#result as #runtime::NativeReturn>::type_expression(&[#(#names),*]), binding: #binding,
+        result: <#result as #runtime::native_value::NativeReturn>::type_expression(&[#(#names),*]), binding: #binding,
     }))
 }

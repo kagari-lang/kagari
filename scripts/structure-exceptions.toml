@@ -1,3 +1,5 @@
 # Deliberate structural exceptions only; no grandfathered findings.
 # See docs/structure-checks.md for the schema and evidence requirements.
 # Add [[exceptions]] tables when a specific design is justified in review.
+# Re-export whitelist: empty. No file location is implicitly approved.
+# Each future reexport-whitelist entry must name one exact declaration.

@@ -1,30 +1,45 @@
 use kagari_common::{
-    SourceFile,
     collection::CollectionAccess,
     host_interface::{
-        HostFieldDeclaration, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
-        HostParameter, HostPassingStyle, HostTraitImplementationDeclaration,
-        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{
+            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership,
+        },
+        value_type::HostValueType,
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
+    source::SourceFile,
     source_database::SourceLayer,
 };
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
-    program::PreparedProgram,
-};
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile,
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-    value::Value,
-};
+use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
+
 use std::{cell::RefCell, rc::Rc};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+        security::LanguageProfile,
+        value::Value,
+    },
+};
+use {
+    kagari_embed::{
+        context::ExecutionContext,
+        engine::{
+            KagariEngine,
+            source::{ArtifactOptions, CompileOptions},
+        },
+        program::PreparedProgram,
+    },
+    kagari_runtime::security::HostExposurePolicy,
+};
 
 fn interface() -> HostInterface {
     let related = HostTypeDeclaration::new("right.Item");
     let mut item = HostTypeDeclaration::new("left.Item");
     item.ownership = HostTypeOwnership::HostRoot;
-    item.path_access = kagari_common::host_interface::PathAccess::ReadOnly;
+    item.path_access = PathAccess::ReadOnly;
     item.fields.push(HostFieldDeclaration::new(
         &item.id,
         "related",
@@ -50,11 +65,12 @@ fn interface() -> HostInterface {
 
 fn assert_source_index_path(field_prefix: bool) {
     use kagari_common::host_interface::{
-        HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration, PathAccess,
+        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::PathAccess,
     };
     use kagari_runtime::{
-        AbiFingerprint, HostPathAdapter, TypeKind, TypeRegistration,
-        host::{HostError, PreparedHostPathWrite},
+        host::{HostError, HostPathAdapter, PreparedHostPathWrite},
+        metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     };
     use std::cell::Cell;
 
@@ -145,7 +161,7 @@ fn assert_source_index_path(field_prefix: bool) {
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -169,9 +185,9 @@ fn assert_source_index_path(field_prefix: bool) {
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };

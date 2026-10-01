@@ -19,8 +19,7 @@ use std::{
     fmt,
 };
 
-mod render;
-pub use render::{NativeApiSource, NativeDeclarationSite};
+pub mod render;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeApiError(pub String);

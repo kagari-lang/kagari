@@ -3,16 +3,17 @@ use crate::source::lower::{
     instances::{Instance, InstancePlanner},
     state::FunctionLowerer,
 };
-use hir::ExprKind;
-use kagari_abi::{representation::ValueType, scalar::BuiltinType, standard::traits::StandardTrait};
 use kagari_hir::{
     AnalyzedModule,
     builtin::traits::callable_signature,
-    hir,
-    resolver::ResolvedName,
+    hir::{expr::ExprKind, ids::ExprId, item::function::Function},
+    resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction},
     types::{TypeId, TypeSubstitution},
 };
+
+use kagari_abi::{representation::ValueType, scalar::BuiltinType, standard::traits::StandardTrait};
+
 use kagari_mir::{
     debug::MirCapturedBindingDebugInfo,
     function::{MirFunction, MirParameter},
@@ -22,7 +23,7 @@ use std::iter;
 
 pub(crate) fn lower_callable<'a>(
     module: &'a AnalyzedModule,
-    parent: &hir::Function,
+    parent: &Function,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
@@ -109,7 +110,7 @@ pub(crate) fn lower_callable<'a>(
 
 pub(crate) fn lower_protocol<'a>(
     module: &'a AnalyzedModule,
-    parent: &hir::Function,
+    parent: &Function,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
@@ -174,7 +175,7 @@ pub(crate) fn lower_protocol<'a>(
 
 pub(crate) fn lower_function<'a>(
     module: &'a AnalyzedModule,
-    function: &hir::Function,
+    function: &Function,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
@@ -204,8 +205,8 @@ pub(crate) fn lower_function<'a>(
 
 pub(crate) fn lower_closure<'a>(
     module: &'a AnalyzedModule,
-    parent: &hir::Function,
-    closure: hir::ExprId,
+    parent: &Function,
+    closure: ExprId,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
@@ -362,7 +363,7 @@ pub(crate) fn lower_closure<'a>(
 
 pub(crate) fn lower_native_method<'a>(
     module: &'a AnalyzedModule,
-    parent: &hir::Function,
+    parent: &Function,
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {

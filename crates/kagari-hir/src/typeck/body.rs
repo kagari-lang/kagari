@@ -1,4 +1,23 @@
-use crate::builtin::traits::StandardTraitSemantics;
+use crate::{
+    aggregates::AggregateCatalog,
+    builtin::traits::StandardTraitSemantics,
+    declarations::Declarations,
+    hir::{
+        expr::{Condition, ExprKind, literal::LiteralKind},
+        ids::{BlockId, ConstId, ExprId},
+    },
+    imports::functions::ImportedFunctions,
+    lower::LoweredModule,
+    resolver::resolved::{ResolvedName, ResolvedNames},
+    typeck::{
+        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications, completion,
+        scalar::ScalarValue,
+        solver::Solver,
+        table::TypeTable,
+        ty::{TypeContext, display_type_id, resolve_type_in},
+    },
+    types::{self, TypeId},
+};
 mod calls;
 mod constructors;
 mod host_access;
@@ -6,19 +25,18 @@ mod methods;
 mod patterns;
 mod places;
 mod statements;
-use super::{ScalarValue, applications, completion, solver::Solver};
-use crate::{
-    aggregates::AggregateCatalog,
-    declarations::Declarations,
-    hir::{Condition, ConstId},
-    imports::ImportedFunctions,
-    types,
-};
-use kagari_abi::standard::traits::StandardTrait;
+
+use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
 use kagari_common::{
-    cancellation::CancellationToken, collection::CollectionAccess, range::RangeKind,
+    cancellation::CancellationToken,
+    collection::CollectionAccess,
+    diagnostic::{Diagnostic, DiagnosticKind},
+    range::RangeKind,
 };
-use std::mem;
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
+};
 mod conversions;
 mod iteration;
 mod numeric;
@@ -26,22 +44,7 @@ mod operators;
 mod solving;
 mod standard;
 
-use std::collections::{HashMap, HashSet};
-
-use kagari_common::{Diagnostic, DiagnosticKind};
 use smallvec::SmallVec;
-
-use crate::{
-    hir::{BlockId, ExprId, ExprKind, LiteralKind},
-    lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
-    typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable,
-        ty::{TypeContext, display_type_id, resolve_type_in},
-    },
-    types::TypeId,
-};
-use kagari_abi::scalar::BuiltinType;
 
 #[derive(Clone)]
 enum HostPathNode<Id> {
@@ -78,7 +81,7 @@ pub(crate) struct BodyChecker<'a> {
     names: &'a ResolvedNames,
     function_index: &'a FunctionTypeIndex,
     top_level_index: &'a TopLevelTypeIndex,
-    const_values: Option<&'a HashMap<ConstId, super::ScalarValue>>,
+    const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
     type_table: &'a mut TypeTable,
     function_name: &'a str,

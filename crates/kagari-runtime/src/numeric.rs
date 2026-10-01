@@ -1,5 +1,5 @@
 use crate::{
-    RuntimeError, RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     gc::GcHeap,
     value::{EnumTag, Value},
 };
@@ -9,7 +9,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::AbiType,
 };
-use kagari_bytecode::{BinaryOp, UnaryOp};
+use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_common::{
     arithmetic::{self, ArithmeticError, IntegerBinaryOp},
     integer::{self, IntegerMethod},

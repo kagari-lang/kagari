@@ -8,9 +8,9 @@ use crate::{
     },
 };
 use kagari_common::{
-    Span,
     collection::CollectionAccess,
     identity::{DefinitionId, DefinitionKind},
+    span::Span,
 };
 use std::collections::BTreeMap;
 

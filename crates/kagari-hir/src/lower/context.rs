@@ -1,11 +1,15 @@
-use kagari_common::{Span, cancellation::CancellationToken};
-use kagari_syntax::{ast::AstNode, kind::SyntaxKind};
+use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_syntax::{ast::traits::AstNode, kind::SyntaxKind};
 
 use crate::{
     hir::{
-        BinaryOp, BlockData, BlockId, ExprData, ExprId, ExprKind, LocalId, Module, PatternData,
-        PatternId, PatternKind, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, TypeData,
-        TypeKind, TypeRefId,
+        expr::{ExprData, ExprKind, ops::BinaryOp},
+        ids::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
+        item::Module,
+        pattern::{PatternData, PatternKind},
+        place::{PlaceData, PlaceKind},
+        stmt::{BlockData, StmtData},
+        ty::{TypeData, TypeKind},
     },
     source_map::SourceMap,
 };

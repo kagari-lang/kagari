@@ -1,12 +1,17 @@
 use super::*;
 use crate::{
-    LanguageFeatureProfile, analysis::AnalysisDatabase, callable::CallableSignature,
-    declarations::DeclarationId, native::NativeBinding, typeck::FunctionImplementation,
+    analysis::AnalysisDatabase, callable::CallableSignature, declarations::DeclarationId,
+    native::NativeBinding, profile::LanguageFeatureProfile, typeck::FunctionImplementation,
 };
+use kagari_common::host_interface::type_declaration::HostMethodDeclaration;
 use kagari_common::{
     host_interface::{HostParameter, HostPassingStyle},
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
+};
+use {
+    crate::hir::expr::ExprKind,
+    kagari_common::{diagnostic::DiagnosticKind, host_interface::path::HostPathSegmentDeclaration},
 };
 
 fn interface() -> HostInterface {
@@ -34,7 +39,7 @@ fn interface() -> HostInterface {
 fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
     let mut declarations = interface();
     let owner = &mut declarations.types[0];
-    let mut method = kagari_common::host_interface::HostMethodDeclaration::new(
+    let mut method = HostMethodDeclaration::new(
         &owner.id,
         "add",
         vec![HostParameter {
@@ -99,7 +104,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
                     .iter()
                     .any(|diagnostic| matches!(
                         diagnostic.kind,
-                        kagari_common::DiagnosticKind::CallArityMismatch {
+                        DiagnosticKind::CallArityMismatch {
                             expected: 1,
                             found: 0,
                             ..
@@ -223,10 +228,12 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
 #[test]
 fn erroneous_host_calls_retain_return_types_and_member_facts() {
     use kagari_common::{
-        DiagnosticKind,
+        diagnostic::DiagnosticKind,
         host_interface::{
-            HostFieldDeclaration, HostMethodDeclaration, HostPathDeclaration, HostTypeOwnership,
-            PathAccess,
+            path::HostPathDeclaration,
+            type_declaration::{
+                HostFieldDeclaration, HostMethodDeclaration, HostTypeOwnership, PathAccess,
+            },
         },
     };
     let mut declarations = interface();
@@ -250,9 +257,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
     owner.fields.push(field.clone());
     declarations.paths.push(HostPathDeclaration {
         root: owner.id.clone(),
-        segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(field.id.clone()),
-        ],
+        segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
         capabilities: Default::default(),
@@ -306,7 +311,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
             .body
             .expressions()
             .find_map(|(id, expr)| {
-                matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                matches!(expr.kind, ExprKind::Call { .. })
                     .then(|| facts.typed.type_table.expr_type(id))
                     .flatten()
             });
@@ -379,7 +384,8 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
 #[test]
 fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostPathDeclaration, HostTypeOwnership, PathAccess,
+        path::HostPathDeclaration,
+        type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
     };
     let mut declarations = interface();
     let owner = &mut declarations.types[0];
@@ -391,9 +397,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     owner.fields.push(field.clone());
     let path = HostPathDeclaration {
         root: owner.id.clone(),
-        segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(field.id.clone()),
-        ],
+        segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
         access: PathAccess::ReadOnly,
         schema_epoch: 2,
         capabilities: Default::default(),
@@ -457,10 +461,12 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
             .snapshot(sources.snapshot(), profile, &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
-        assert!(file.result().diagnostics().iter().any(|d| matches!(
-            d.kind,
-            kagari_common::DiagnosticKind::InvalidHostPath { .. }
-        )));
+        assert!(
+            file.result()
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::InvalidHostPath { .. }))
+        );
         assert_eq!(
             file.host_field_at(changed.find("score").unwrap()).unwrap(),
             &field
@@ -490,7 +496,8 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
 #[test]
 fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostPathDeclaration, HostTypeOwnership, PathAccess,
+        path::HostPathDeclaration,
+        type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
     };
     let mut declarations = interface();
     let owner = &mut declarations.types[0];
@@ -502,9 +509,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     owner.fields.push(field.clone());
     declarations.paths.push(HostPathDeclaration {
         root: owner.id.clone(),
-        segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(field.id.clone()),
-        ],
+        segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: Default::default(),
@@ -577,10 +582,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
             .result()
             .diagnostics()
             .iter()
-            .any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::InvalidHostPath { .. }
-            ))
+            .any(|d| matches!(d.kind, DiagnosticKind::InvalidHostPath { .. }))
     );
     assert!(readonly.check_program(root, &Default::default()).is_err());
     assert_eq!(
@@ -601,7 +603,8 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
 #[test]
 fn mixed_field_chains_resolve_the_complete_host_suffix() {
     use kagari_common::host_interface::{
-        HostFieldDeclaration, HostPathDeclaration, HostTypeOwnership, PathAccess,
+        path::HostPathDeclaration,
+        type_declaration::{HostFieldDeclaration, HostTypeOwnership, PathAccess},
     };
     let mut declarations = interface();
     let mut related = HostFieldDeclaration::new(
@@ -622,8 +625,8 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     let path = HostPathDeclaration {
         root: declarations.types[0].id.clone(),
         segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(related.id.clone()),
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(count.id.clone()),
+            HostPathSegmentDeclaration::Field(related.id.clone()),
+            HostPathSegmentDeclaration::Field(count.id.clone()),
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,

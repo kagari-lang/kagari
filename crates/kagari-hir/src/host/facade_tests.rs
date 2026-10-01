@@ -1,5 +1,5 @@
 use super::*;
-use crate::{LanguageFeatureProfile, analysis::AnalysisDatabase};
+use crate::{analysis::AnalysisDatabase, profile::LanguageFeatureProfile};
 use kagari_common::{
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},

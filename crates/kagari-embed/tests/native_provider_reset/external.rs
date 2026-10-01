@@ -1,10 +1,17 @@
 //! This integration target owns its handler and uses only exported runtime APIs.
 use super::{artifact, contracts::alter_bindings};
 use kagari_abi::{callable::CallableImplementation, types::AbiType};
-use kagari_bytecode::KbcArtifact;
-use kagari_embed::{EngineConfig, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
 use kagari_runtime::{
-    NativeAction, NativeContext, NativeInvocationState, NativeRegistration, RuntimeError,
+    error::RuntimeError,
+    native::{
+        NativeAction, NativeContext, NativeInvocationState, registration::NativeRegistration,
+    },
     value::Value,
 };
 

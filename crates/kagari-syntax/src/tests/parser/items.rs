@@ -1,6 +1,5 @@
-use kagari_common::{DiagnosticKind, Severity};
-
-use crate::tests::common;
+use crate::{ast::item::Visibility, tests::common};
+use kagari_common::diagnostic::{DiagnosticKind, Severity};
 
 #[test]
 fn parses_struct_definition_with_fields() {
@@ -62,7 +61,7 @@ fn parses_public_const_item() {
     let module = common::parse_ok("pub const VERSION: i32 = 1;");
     let const_def = common::first_const(&module);
 
-    assert!(const_def.visibility() == crate::ast::Visibility::Public);
+    assert!(const_def.visibility() == Visibility::Public);
     assert_eq!(const_def.name_text().as_deref(), Some("VERSION"));
     assert_eq!(
         const_def.ty().and_then(|ty| ty.name_text()).as_deref(),

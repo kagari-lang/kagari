@@ -1,8 +1,10 @@
 //! Typed continuation results reuse the existing rooted invocation driver.
 use super::{NativeCall, NativeResult, NativeReturn, NativeValue, invalid};
 use crate::{
-    NativeCallback, NativeContext, NativeInvocationState, gc::RootSet,
-    native_module::TypeExpression, value::Value,
+    gc::RootSet,
+    native::{NativeCallback, NativeContext, NativeInvocationState},
+    native_module::types::TypeExpression,
+    value::Value,
 };
 use kagari_abi::types::AbiType;
 use std::marker::PhantomData;

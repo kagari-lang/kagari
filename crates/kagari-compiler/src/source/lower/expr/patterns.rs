@@ -1,14 +1,22 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer, support::lower_scalar};
+use kagari_hir::{
+    hir::{
+        expr::MatchArmBuffer,
+        ids::{ExprId, PatternId},
+        pattern::PatternKind,
+    },
+    native::NativeTypeKind,
+    types::{
+        NominalType, TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
+};
+
 use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
 };
-use kagari_hir::{
-    hir::{self, PatternKind},
-    native::NativeTypeKind,
-    types::abi::{lower_nominal_type, lower_type},
-    types::{NominalType, TypeId},
-};
+
 use kagari_mir::{
     ids::{BlockId, LocalId},
     instruction::{Constant, Instruction, MirValue, Terminator},
@@ -18,9 +26,9 @@ use std::collections::HashMap;
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_match(
         &mut self,
-        expr_id: hir::ExprId,
-        scrutinee: hir::ExprId,
-        arms: hir::MatchArmBuffer,
+        expr_id: ExprId,
+        scrutinee: ExprId,
+        arms: MatchArmBuffer,
     ) -> Result<MirValue, MirLoweringError> {
         let scrutinee_temp = self.lower_expr(scrutinee)?;
         if self.current_block_terminated() {
@@ -107,7 +115,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_pattern_decision(
         &mut self,
-        pattern: hir::PatternId,
+        pattern: PatternId,
         value: MirValue,
         expected: &TypeId,
         fail: BlockId,
@@ -342,7 +350,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_enum_pattern(
         &mut self,
-        pattern: hir::PatternId,
+        pattern: PatternId,
         value: MirValue,
         expected: &TypeId,
         fail: BlockId,

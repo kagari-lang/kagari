@@ -1,22 +1,52 @@
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use {
+    kagari_bytecode::{
+        module::RootSlotLayout,
+        program::{BytecodeProgram, ModuleRef},
+    },
+    kagari_common::host_interface::{
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    },
+    kagari_runtime::host::HostPathDescriptor,
+};
+
 use kagari_bytecode::{
-    ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,
-    ConstantOperand, FunctionMetadata, FunctionRecord, KbcArtifact, PathId, PathRecord, Register,
+    artifact::{ArtifactBuildOptions, KbcArtifact},
+    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register},
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
-use kagari_common::SourceFile;
-use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext,
-    HostExposurePolicy, KagariEngine, KagariRuntime, LoadOptions, ReloadOptions,
-    RuntimeFailureKind,
-    program::{PreparedProgram, ProgramPreparationError},
+use kagari_common::source::SourceFile;
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    },
+    kagari_runtime::{
+        host::{
+            HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+            HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
+            HostTypeRegistration,
+        },
+        metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+        resource::ResourcePolicy,
+        security::LanguageProfile,
+        value::Value,
+    },
 };
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,
-    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess,
-    ResourcePolicy, TypeKind, TypeRegistration,
-    host::{HostError, HostFunction},
-    value::Value,
+use {
+    kagari_embed::{
+        BytecodeArtifact,
+        context::ExecutionContext,
+        engine::{
+            KagariEngine,
+            source::{ArtifactOptions, CompileOptions},
+        },
+        error::{EmbeddingError, RuntimeFailureKind},
+        program::{PreparedProgram, ProgramPreparationError},
+        runtime::{KagariRuntime, LoadOptions, ReloadOptions},
+    },
+    kagari_runtime::security::HostExposurePolicy,
 };
 
 fn compile_artifact(
@@ -77,7 +107,7 @@ fn register_embedding_host_path_runtime(
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.player",
                 vec![],
-                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                HostValueType::opaque("game.Player"),
             ),
             move |_, _| Ok(Value::HostRoot(root)),
         ))
@@ -129,7 +159,7 @@ fn register_embedding_host_path_runtime(
 }
 
 fn host_path_artifact(
-    contract: &kagari_runtime::HostPathDescriptor,
+    contract: &HostPathDescriptor,
     source_name: &str,
     path_debug_name: &str,
     instructions: Vec<BytecodeInstruction>,
@@ -146,13 +176,13 @@ fn host_path_artifact(
     let metadata = FunctionMetadata {
         instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
-        roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
+        roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
     KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 host_interface: kagari_common::host_interface::HostInterface {
                     paths: vec![],
@@ -181,7 +211,7 @@ fn host_path_artifact(
                         vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                             "host.player",
                             vec![],
-                            kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                            HostValueType::opaque("game.Player"),
                         )]
                     } else {
                         vec![]
@@ -781,15 +811,11 @@ fn execution_context_denies_host_and_reflection_helpers() {
     assert_eq!(report.return_value, Value::Str("i32".to_owned()));
 }
 
-fn player_type_declaration() -> kagari_common::host_interface::HostTypeDeclaration {
-    let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
+fn player_type_declaration() -> HostTypeDeclaration {
+    let mut declaration = HostTypeDeclaration::new("game.Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
-        &declaration.id,
-        "hp",
-        kagari_common::host_interface::HostValueType::I32,
-    );
+    let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);

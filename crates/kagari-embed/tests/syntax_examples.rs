@@ -1,5 +1,9 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
+    program::PreparedProgram,
+};
+
 use kagari_runtime::value::Value;
 
 #[test]
@@ -394,7 +398,7 @@ fn inline_module_errors_point_into_the_original_source() {
             &Default::default(),
         )
         .unwrap_err();
-    let kagari_embed::EmbeddingError::Diagnostics { diagnostics } = error else {
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected diagnostics");
     };
     assert!(

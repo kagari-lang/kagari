@@ -1,13 +1,14 @@
 //! Mutation visibility on traps and shared-session native lifecycle boundaries.
 use super::runtime;
 use crate::{
-    Vm, VmError,
+    error::VmError,
     executor::Executor,
     tests::{common::compile_test_bytecode, native_destinations::boundaries::lifecycle},
+    vm::Vm,
 };
-use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::host_interface::standard_log;
-use kagari_runtime::{Runtime, RuntimeErrorKind, host::HostFunction, value::Value};
+use kagari_runtime::{Runtime, error::RuntimeErrorKind, host::HostFunction, value::Value};
 use std::{cell::RefCell, rc::Rc};
 
 #[test]

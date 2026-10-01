@@ -3,16 +3,24 @@ use crate::source::{
         MirLoweringError,
         state::{FunctionLowerer, LoopScope},
     },
-    types::{self},
+    types,
 };
-use hir::{Condition, StmtKind};
+use kagari_hir::{
+    hir::{
+        expr::Condition,
+        ids::{BlockId, ExprId, PatternId, StmtId},
+        stmt::StmtKind,
+    },
+    typeck::table::ResolvedIteration,
+    types::{TypeId, abi::lower_type},
+};
+
 use kagari_abi::{
     operations::{IterOp, StandardEnumOp},
     representation::ValueType,
     standard::{surface::StandardEnum, traits::StandardTrait},
 };
-use kagari_hir::types::abi::lower_type;
-use kagari_hir::{hir, typeck::ResolvedIteration, types::TypeId};
+
 use std::slice;
 
 use kagari_mir::instruction::{Instruction, MirValue, Terminator};
@@ -20,7 +28,7 @@ use kagari_mir::instruction::{Instruction, MirValue, Terminator};
 impl FunctionLowerer<'_, '_> {
     pub(crate) fn lower_block(
         &mut self,
-        block_id: hir::BlockId,
+        block_id: BlockId,
     ) -> Result<Option<MirValue>, MirLoweringError> {
         let previous_scope = self.current_scope;
         let result = self.lower_block_inner(block_id);
@@ -30,7 +38,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_block_inner(
         &mut self,
-        block_id: hir::BlockId,
+        block_id: BlockId,
     ) -> Result<Option<MirValue>, MirLoweringError> {
         self.planner.check()?;
         let block = self.analyzed.lowered.module.block(block_id).clone();
@@ -52,13 +60,13 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    fn lower_stmt(&mut self, stmt_id: hir::StmtId) -> Result<(), MirLoweringError> {
+    fn lower_stmt(&mut self, stmt_id: StmtId) -> Result<(), MirLoweringError> {
         self.planner.check()?;
         let span = self.analyzed.lowered.source_map.stmt_span(stmt_id);
         self.with_debug_span(span, |this| this.lower_stmt_inner(stmt_id))
     }
 
-    fn lower_stmt_inner(&mut self, stmt_id: hir::StmtId) -> Result<(), MirLoweringError> {
+    fn lower_stmt_inner(&mut self, stmt_id: StmtId) -> Result<(), MirLoweringError> {
         let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
         match stmt.kind {
             StmtKind::Binding {
@@ -170,11 +178,7 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    fn lower_while(
-        &mut self,
-        condition: hir::Condition,
-        body: hir::BlockId,
-    ) -> Result<(), MirLoweringError> {
+    fn lower_while(&mut self, condition: Condition, body: BlockId) -> Result<(), MirLoweringError> {
         let cond_block = self.new_block();
 
         self.ensure_jump(cond_block);
@@ -228,7 +232,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(())
     }
 
-    fn lower_loop(&mut self, body: hir::BlockId) -> Result<(), MirLoweringError> {
+    fn lower_loop(&mut self, body: BlockId) -> Result<(), MirLoweringError> {
         let body_block = self.new_block();
         let exit_block = self.new_block();
 
@@ -250,9 +254,9 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_for(
         &mut self,
-        pattern: hir::PatternId,
-        iterable: hir::ExprId,
-        body: hir::BlockId,
+        pattern: PatternId,
+        iterable: ExprId,
+        body: BlockId,
     ) -> Result<(), MirLoweringError> {
         let fact = self
             .analyzed
@@ -268,9 +272,9 @@ impl FunctionLowerer<'_, '_> {
 impl FunctionLowerer<'_, '_> {
     fn lower_protocol_for(
         &mut self,
-        pattern: hir::PatternId,
-        iterable: hir::ExprId,
-        body: hir::BlockId,
+        pattern: PatternId,
+        iterable: ExprId,
+        body: BlockId,
         fact: ResolvedIteration,
     ) -> Result<(), MirLoweringError> {
         let receiver = self

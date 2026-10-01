@@ -1,25 +1,29 @@
 use crate::{
-    RootSlotLayout,
     artifact::limits::{artifact_count_limit, metadata_count_limit, program_count_limit},
+    instruction::{JumpTarget, PathId},
+    module::{BytecodeDebugMetadata, BytecodeModule, RootSlotLayout},
     native_input::PortableMir,
+    program::{BytecodeProgram, verify_program},
+    verifier::BytecodeVerificationError,
 };
 mod limits;
-use crate::{BytecodeVerificationError, JumpTarget};
+
 use bincode::{DefaultOptions, ErrorKind, Options};
 use kagari_abi::{
     decode_limits::{
         MAX_FUNCTIONS, MAX_INSTRUCTIONS, MAX_MODULES, MAX_NESTED_RECORDS, MAX_TABLE_RECORDS,
     },
     effects::EffectSet,
+    ids::FunctionRef,
+    representation::ValueType,
     slots::SemanticSlots,
+    version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION},
 };
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
 use kagari_common::{host_interface::HostInterface, identity::ModuleIdentity};
 use std::io::{self, Write};
 
-use crate::{BytecodeDebugMetadata, BytecodeModule, BytecodeProgram, PathId, verify_program};
-use kagari_abi::{ids::FunctionRef, representation::ValueType};
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
@@ -63,7 +67,6 @@ pub fn validate_program_resource_limits(
 pub const KAGARI_LANGUAGE_VERSION: &str = "kagari-language-v3";
 pub const KAGARI_COMPILER_FINGERPRINT: &str =
     concat!("kagari-compiler/", env!("CARGO_PKG_VERSION"));
-use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KbcArtifact {

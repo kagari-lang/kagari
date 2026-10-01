@@ -7,7 +7,11 @@ use kagari_abi::{
     standard::{RuntimePrimitive, bindings::NativeProtocolMethod, traits::StandardTrait},
     types::AbiType,
 };
-use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    instruction::{BytecodeInstruction, CallTarget},
+    program::verify_program,
+};
 use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
 
 #[test]

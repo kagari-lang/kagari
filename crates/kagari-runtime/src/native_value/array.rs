@@ -1,9 +1,9 @@
 //! Owning array handles expose checked operations, never unrestricted heap references.
 use super::{NativeCall, NativeResult, NativeValue, invalid};
 use crate::{
-    RuntimeError, RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     gc::{HeapObjectId, RootSet},
-    native_module::TypeExpression,
+    native_module::types::TypeExpression,
     value::Value,
 };
 use kagari_abi::types::AbiType;

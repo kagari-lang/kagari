@@ -1,4 +1,4 @@
-use crate::hir::{ExprId, PlaceId};
+use crate::hir::ids::{ExprId, PlaceId};
 
 #[derive(Debug, Clone)]
 pub struct PlaceData {

@@ -1,6 +1,9 @@
 use crate::{
-    ArtifactFingerprint, BytecodeInstruction, BytecodeModule, BytecodeVerificationError,
-    CallTarget, DependencyFingerprint, trait_bounds, verifier,
+    artifact::{ArtifactFingerprint, DependencyFingerprint},
+    instruction::{BytecodeInstruction, CallTarget},
+    module::BytecodeModule,
+    trait_bounds,
+    verifier::{self, BytecodeVerificationError},
 };
 use kagari_abi::{
     host, layout,

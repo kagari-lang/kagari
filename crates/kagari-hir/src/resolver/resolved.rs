@@ -1,8 +1,12 @@
 use crate::{
     builtin::BuiltinFunction,
     hir::{
-        BodyOwner, ConstId, EnumId, ExportItem, ExprId, FunctionId, LocalId, Module, ModuleId,
-        OpaqueTypeId, ParamId, PatternId, PatternKind, PlaceId, StructId, TraitId,
+        ids::{
+            BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, OpaqueTypeId,
+            ParamId, PatternId, PlaceId, StructId, TraitId,
+        },
+        item::{Module, storage::ExportItem},
+        pattern::PatternKind,
     },
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     imports::ModuleImports,
@@ -10,7 +14,7 @@ use crate::{
 };
 use std::{cmp::Reverse, collections::HashMap, sync::Arc};
 
-use kagari_common::Span;
+use kagari_common::span::Span;
 
 #[derive(Debug, Clone)]
 pub struct ScopeBinding {

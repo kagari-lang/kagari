@@ -1,8 +1,8 @@
 //! Primitive language trait contracts and their remaining proof obligations.
 //! Nominal overrides, generic assumptions and recursive structural protocols are
 //! resolved by the linked catalog, using the obligations returned here.
-use crate::numeric;
 use crate::{
+    numeric,
     scalar::BuiltinType,
     standard::traits::{self, StandardTrait},
     types::{
@@ -10,6 +10,7 @@ use crate::{
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
+
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, associated_type_id},

@@ -1,10 +1,11 @@
 use super::*;
 use crate::{
-    hir::{HirOwner, TypeKind},
-    typeck::{ConstraintTarget, TypeTarget},
+    hir::{ids::HirOwner, ty::TypeKind},
+    typeck::table::{ConstraintTarget, TypeTarget},
 };
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
+    diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
@@ -179,7 +180,7 @@ fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() 
                 .iter()
                 .any(|diagnostic| matches!(
                     &diagnostic.kind,
-                    kagari_common::DiagnosticKind::InvalidTraitReference { reason, .. }
+                    DiagnosticKind::InvalidTraitReference { reason, .. }
                         if *reason == "generic trait references require concrete type arguments"
                 ))
         );
@@ -347,7 +348,7 @@ fn imported_applied_trait_methods_validate_and_resolve_bound_calls() {
             .iter()
             .any(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, .. }
+                DiagnosticKind::TraitMethodMismatch { method_name, .. }
                     if method_name == "get"
             ))
     );
@@ -366,7 +367,7 @@ fn imported_applied_trait_methods_validate_and_resolve_bound_calls() {
             .iter()
             .any(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
+                DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
                     if method_name == "get" && reason == "missing impl method"
             ))
     );
@@ -398,7 +399,7 @@ fn imported_applied_trait_methods_validate_and_resolve_bound_calls() {
             .iter()
             .any(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, .. }
+                DiagnosticKind::TraitMethodMismatch { method_name, .. }
                     if method_name == "get"
             ))
     );
@@ -483,7 +484,7 @@ fn imported_generic_method_rejects_interface_annotations() {
             .iter()
             .any(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::InvalidInterfaceType { reason, .. }
+                DiagnosticKind::InvalidInterfaceType { reason, .. }
                     if reason == "method `map` is not interface-compatible"
             ))
     );

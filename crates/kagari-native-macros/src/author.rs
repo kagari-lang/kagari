@@ -140,14 +140,14 @@ impl Expansion<'_> {
             let concrete: Vec<Type> = names
                 .iter()
                 .enumerate()
-                .map(|(slot, _)| parse_quote!(#runtime::GenericValue<#slot>))
+                .map(|(slot, _)| parse_quote!(#runtime::native_value::GenericValue<#slot>))
                 .collect();
             quote!(self::#method::<#(#concrete),*>(#(#arguments),*))
         };
         let delay = entry.delay;
         self.adapters.push(quote! {
-            fn #adapter() -> #runtime::NativeFactory {
-                #runtime::NativeFactory::typed::<#result>(#delay, |__call| {
+            fn #adapter() -> #runtime::native::factory::NativeFactory {
+                #runtime::native::factory::NativeFactory::typed::<#result>(#delay, |__call| {
                     #(#declarations)*
                     ::std::result::Result::Ok(#invocation)
                 })
@@ -295,15 +295,15 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     .push(quote!(__builder.array_type(#name, &[#(#generic_names),*], #doc)?;));
                 let (impl_generics, type_generics, where_clause) = ty.generics.split_for_impl();
                 value_impls.push(quote! {
-                    impl #impl_generics #runtime::NativeValue for #ident #type_generics #where_clause {
-                        fn type_expression(__names: &[&'static str]) -> #runtime::native_module::TypeExpression {
-                            <#field as #runtime::NativeValue>::type_expression(__names)
+                    impl #impl_generics #runtime::native_value::NativeValue for #ident #type_generics #where_clause {
+                        fn type_expression(__names: &[&'static str]) -> #runtime::native_module::types::TypeExpression {
+                            <#field as #runtime::native_value::NativeValue>::type_expression(__names)
                         }
-                        fn read(__call: &#runtime::NativeCall, __value: #runtime::value::Value, __expected: &#runtime::native_module::AbiType) -> #runtime::NativeResult<Self> {
-                            ::std::result::Result::Ok(Self(<#field as #runtime::NativeValue>::read(__call, __value, __expected)?))
+                        fn read(__call: &#runtime::native_value::NativeCall, __value: #runtime::value::Value, __expected: &::kagari_abi::types::AbiType) -> #runtime::native_value::NativeResult<Self> {
+                            ::std::result::Result::Ok(Self(<#field as #runtime::native_value::NativeValue>::read(__call, __value, __expected)?))
                         }
-                        fn write(self, __call: &#runtime::NativeCall, __expected: &#runtime::native_module::AbiType) -> #runtime::NativeResult<#runtime::value::Value> {
-                            <#field as #runtime::NativeValue>::write(self.0, __call, __expected)
+                        fn write(self, __call: &#runtime::native_value::NativeCall, __expected: &::kagari_abi::types::AbiType) -> #runtime::native_value::NativeResult<#runtime::value::Value> {
+                            <#field as #runtime::native_value::NativeValue>::write(self.0, __call, __expected)
                         }
                     }
                 });
@@ -385,7 +385,7 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
         #(#value_impls)*
         #(#adapters)*
         /// Build the validated executable API and its generated tooling declarations.
-        pub fn native_api() -> ::std::result::Result<#runtime::NativeApi, #runtime::RuntimeError> {
+        pub fn native_api() -> ::std::result::Result<#runtime::native::api::NativeApi, #runtime::error::RuntimeError> {
             let mut __builder = #runtime::native_module::NativeModuleBuilder::new(&[#(#path),*])?;
             #(#declarations)* #(#implementations)* #(#functions)*
             __builder.finish()

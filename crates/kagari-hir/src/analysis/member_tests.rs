@@ -1,9 +1,11 @@
 use super::*;
-use crate::declarations::DeclarationId;
+use crate::{declarations::DeclarationId, profile::LanguageFeatureProfile};
 use kagari_common::{
+    diagnostic::DiagnosticKind,
     identity::DefinitionKind,
     line_index::PositionEncoding,
     source_database::{SourceDatabase, SourceLayer},
+    span::Span,
 };
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -147,10 +149,7 @@ fn members_keep_module_ownership_and_exact_declaration_locations() {
     let offset = text.find("Ready").unwrap();
     assert_eq!(declaration.location.file, left);
     assert_eq!(declaration.location.revision, a.source().revision());
-    assert_eq!(
-        declaration.location.range,
-        kagari_common::Span::new(offset, offset + 5)
-    );
+    assert_eq!(declaration.location.range, Span::new(offset, offset + 5));
     assert_eq!(a.definition_at(offset), Some(declaration));
     assert_eq!(
         headers.file(left).unwrap().member_at(offset),
@@ -240,10 +239,7 @@ fn duplicate_variants_remain_queryable_but_cannot_reach_codegen() {
         .find(|d| d.kind.code() == "KG_RESOLVE_DUPLICATE_VARIANT")
         .unwrap();
     let offset = text.rfind("Ready").unwrap();
-    assert_eq!(
-        diagnostic.span,
-        Some(kagari_common::Span::new(offset, offset + 5))
-    );
+    assert_eq!(diagnostic.span, Some(Span::new(offset, offset + 5)));
     let first = header.member_at(text.find("Ready").unwrap()).unwrap();
     let second = header.member_at(offset).unwrap();
     assert_ne!(first.id, second.id);
@@ -312,7 +308,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .set("reflection-members.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = AnalysisDatabase::default();
-    let profile = crate::LanguageFeatureProfile {
+    let profile = LanguageFeatureProfile {
         allow_reflection: true,
         allow_reflection_write: true,
         ..Default::default()
@@ -399,7 +395,7 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
         let snapshot = AnalysisDatabase::default()
             .snapshot(
                 sources.snapshot(),
-                crate::LanguageFeatureProfile {
+                LanguageFeatureProfile {
                     allow_reflection: true,
                     ..Default::default()
                 },
@@ -407,9 +403,18 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
             )
             .unwrap();
         let file = snapshot.file(id).unwrap();
-        assert_eq!(file.result().diagnostics().iter().filter(|diagnostic| matches!(
-            &diagnostic.kind, kagari_common::DiagnosticKind::UnknownName { name } if name == "absent"
-        )).count(), missing_fields, "{receiver}: {:?}", file.result().diagnostics());
+        assert_eq!(
+            file.result()
+                .diagnostics()
+                .iter()
+                .filter(|diagnostic| matches!(
+                    &diagnostic.kind, DiagnosticKind::UnknownName { name } if name == "absent"
+                ))
+                .count(),
+            missing_fields,
+            "{receiver}: {:?}",
+            file.result().diagnostics()
+        );
         if missing_fields != 0 {
             let known = text.rfind("value.known").unwrap() + "value.".len();
             let unknown = text.rfind("value.unknown").unwrap() + "value.".len();
@@ -451,10 +456,7 @@ fn unresolved_assignment_receivers_preserve_independent_index_facts() {
             file.result()
                 .diagnostics()
                 .iter()
-                .filter(|d| matches!(
-                    d.kind,
-                    kagari_common::DiagnosticKind::CallArityMismatch { .. }
-                ))
+                .filter(|d| matches!(d.kind, DiagnosticKind::CallArityMismatch { .. }))
                 .count(),
             usize::from(target.contains("true"))
         );
@@ -508,10 +510,7 @@ fn readonly_assignments_retain_target_and_contextual_initializer_types() {
             file.result()
                 .diagnostics()
                 .iter()
-                .filter(|d| matches!(
-                    d.kind,
-                    kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
-                ))
+                .filter(|d| matches!(d.kind, DiagnosticKind::InvalidAssignmentTarget { .. }))
                 .count(),
             1,
             "{target}: {:?}",
@@ -573,7 +572,7 @@ fn erroneous_array_indexes_retain_element_members_without_accepting_codegen() {
             assert_eq!(file.result().diagnostics().len(), 1);
             assert!(matches!(
                 file.result().diagnostics()[0].kind,
-                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+                DiagnosticKind::InvalidIndexTarget { .. }
             ));
         }
     }
@@ -642,10 +641,7 @@ fn assignment_diagnostics_consume_existing_facts_without_rechecking_receivers() 
         assert_eq!(
             diagnostics
                 .iter()
-                .filter(|d| matches!(
-                    d.kind,
-                    kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
-                ))
+                .filter(|d| matches!(d.kind, DiagnosticKind::InvalidIndexTarget { .. }))
                 .count(),
             if target.contains("false") { 2 } else { 1 },
             "{target}: {diagnostics:?}"
@@ -653,10 +649,7 @@ fn assignment_diagnostics_consume_existing_facts_without_rechecking_receivers() 
         assert_eq!(
             diagnostics
                 .iter()
-                .filter(|d| matches!(
-                    d.kind,
-                    kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
-                ))
+                .filter(|d| matches!(d.kind, DiagnosticKind::InvalidAssignmentTarget { .. }))
                 .count(),
             1
         );

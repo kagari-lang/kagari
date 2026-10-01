@@ -1,15 +1,16 @@
 //! Nominal type imports are built from declarations, before signature checking.
 
-use crate::hir::ExportItem;
 use crate::{
     DeclaredAnalysis,
     declarations::{Declaration, DeclarationId},
+    hir::item::storage::ExportItem,
     imports::{ImportTarget, ModuleImports, SourceImport},
     native::NativeTypeKind,
-    resolver::ResolvedName,
-    typeck,
+    resolver::resolved::ResolvedName,
+    typeck::supertraits::trait_supertrait_surface,
     types::{NominalType, TypeId},
 };
+
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionId, FileId, Revision},
@@ -355,7 +356,7 @@ impl<'a> TypeCatalog<'a> {
                         continue;
                     };
                     if let Some(surface) = next.get_mut(id) {
-                        surface.supertraits = typeck::trait_supertrait_surface(
+                        surface.supertraits = trait_supertrait_surface(
                             &module.lowered.module,
                             item,
                             &declarations,

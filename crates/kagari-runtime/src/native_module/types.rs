@@ -1,5 +1,6 @@
 //! Symbolic authoring types become ABI types under an explicit declaration binder.
-use crate::RuntimeError;
+use crate::error::RuntimeError;
+
 use kagari_abi::{
     native_api::NativeModule,
     scalar::BuiltinType,

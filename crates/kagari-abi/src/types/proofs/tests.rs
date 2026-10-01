@@ -276,7 +276,9 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
 
 #[test]
 fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
-    use kagari_common::host_interface::{HostAssociatedTypeBinding, HostValueType};
+    use kagari_common::host_interface::{
+        type_declaration::HostAssociatedTypeBinding, value_type::HostValueType,
+    };
     let cancel = CancellationToken::default();
     let marker = nominal(id(DefinitionKind::Trait, "Marker"), vec![]);
     let mut growing = table("growing", marker.clone(), scalar());

@@ -1,40 +1,45 @@
 //! Import facts are resolved once from immutable lowered sources and host declarations.
 
 use crate::{
-    hir::{EnumId, ExportItem, FunctionKind, ModuleId, TypeKind, Visibility},
+    hir::{
+        ids::{EnumId, ModuleId},
+        item::{
+            function::FunctionKind,
+            storage::{ExportItem, Visibility},
+        },
+        ty::TypeKind,
+    },
     host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     lower::LoweredModule,
     native::NativeTypeKind,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
 };
 use kagari_abi::standard::surface::StandardEnum;
 use kagari_common::{
-    Diagnostic, DiagnosticKind, SourceFile, Span,
     cancellation::{CancellationToken, Cancelled},
+    diagnostic::{Diagnostic, DiagnosticKind},
     identity::{FileId, ModuleIdentity, Revision},
+    source::SourceFile,
+    span::Span,
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
     sync::Arc,
 };
 
-mod bindings;
-mod functions;
-mod members;
-mod stdlib;
-mod types;
-pub(crate) use types::TypeCatalog;
-pub use types::{ImportedType, ImportedTypes, SourceTypeId};
 #[cfg(test)]
 mod aggregate_tests;
+mod bindings;
+pub mod functions;
+mod members;
 #[cfg(test)]
 mod signature_tests;
+mod stdlib;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod type_tests;
-pub(crate) use functions::FunctionCatalog;
-pub use functions::{ImportedFunction, ImportedFunctions, SourceFunctionId};
+pub mod types;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceImport {

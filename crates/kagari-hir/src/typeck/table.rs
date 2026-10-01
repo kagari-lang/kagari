@@ -1,23 +1,26 @@
-use super::{ScalarValue, constraints};
+#[cfg(test)]
+use crate::hir::ids::HirArenaId;
 use crate::{
     builtin::{BuiltinFunction, traits},
     callable::AppliedCallSignature,
-    hir::{
+    hir::ids::{
         EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, OpaqueTypeId, PatternId,
         PlaceId, StructId, TraitId, TypeRefId,
     },
     host::{HostFunctionId, HostTypeId},
     source_map::SourceMap,
+    typeck::{constraints, scalar::ScalarValue},
     types::{
         AssociatedTypeFamily, AssociatedTypeParameters, GenericParameterType, NominalType, TypeId,
         TypeSubstitution,
     },
 };
+
 use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
 use kagari_common::{
-    Span,
-    host_interface::{HostPathContract, HostPathDeclaration},
+    host_interface::path::{HostPathContract, HostPathDeclaration},
     identity::DefinitionId,
+    span::Span,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -235,16 +238,12 @@ impl TypeTable {
     pub(crate) fn assert_same_source_facts(
         &self,
         other: &Self,
-        arena: crate::hir::HirArenaId,
-        other_arena: crate::hir::HirArenaId,
+        arena: HirArenaId,
+        other_arena: HirArenaId,
     ) {
         // Fresh analysis must have different local identities. Compare slot facts
         // only after checking every key/receiver belongs to its actual lowering.
-        fn normalized(
-            table: &TypeTable,
-            from: crate::hir::HirArenaId,
-            to: crate::hir::HirArenaId,
-        ) -> TypeTable {
+        fn normalized(table: &TypeTable, from: HirArenaId, to: HirArenaId) -> TypeTable {
             let mut result = table.clone();
             result.field_types = result
                 .field_types
@@ -258,7 +257,7 @@ impl TypeTable {
                 ($($field:ident : $ty:ident),+ $(,)?) => {$(
                     result.$field = result.$field.into_iter().map(|(id, fact)| {
                         assert_eq!(id.arena(), from, "foreign key in {}", stringify!($field));
-                        (crate::hir::$ty::new(to, id.owner(), id.index()), fact)
+                        (crate::hir::ids::$ty::new(to, id.owner(), id.index()), fact)
                     }).collect();
                 )+};
             }

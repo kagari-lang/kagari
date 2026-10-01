@@ -3,12 +3,12 @@
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
-
 use kagari_hir::{
-    hir,
+    hir::ids::ExprId,
     native::NativeBinding,
-    typeck::{CallTarget, FunctionImplementation},
+    typeck::{FunctionImplementation, table::CallTarget},
 };
+
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue, ValueBuffer};
 
 impl FunctionLowerer<'_, '_> {
@@ -48,7 +48,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_engine_call(
         &mut self,
-        expr: hir::ExprId,
+        expr: ExprId,
         lowered: ValueBuffer,
         application: NativeApplication<'_>,
     ) -> Result<MirValue, MirLoweringError> {

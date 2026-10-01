@@ -1,10 +1,13 @@
 use crate::{
-    NativeCallback, NativeProgress, Runtime, RuntimeError,
+    Runtime,
+    error::RuntimeError,
     frame::{ExecutionStack, ReturnDestination},
-    native::{NativeAction, NativeCallbackTarget, NativeInvocation},
+    native::{
+        NativeAction, NativeCallback, NativeCallbackTarget, NativeInvocation, NativeProgress,
+    },
     value::Value,
 };
-use kagari_bytecode::{NativeImportId, Register};
+use kagari_bytecode::instruction::{NativeImportId, Register};
 use std::rc::Rc;
 
 impl ExecutionStack {

@@ -1,4 +1,6 @@
-use kagari_runtime::{Runtime, RuntimeErrorKind, value::Value, value_semantics::script_equal};
+use kagari_runtime::{
+    Runtime, error::RuntimeErrorKind, value::Value, value_semantics::script_equal,
+};
 
 #[test]
 fn foreign_handles_and_wrong_value_tags_are_rejected_before_mutation_or_accounting() {
@@ -130,9 +132,16 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 
 #[test]
 fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
-    use kagari_runtime::{
-        CapabilitySet, HostExposurePolicy, HostFunctionDeclaration, HostValueType, LanguageProfile,
-        RuntimeConfig, SecurityContext, host::HostFunction,
+    use {
+        kagari_common::{
+            capability::CapabilitySet,
+            host_interface::{HostFunctionDeclaration, value_type::HostValueType},
+        },
+        kagari_runtime::{
+            RuntimeConfig,
+            host::HostFunction,
+            security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        },
     };
     let mut runtime = Runtime::new(RuntimeConfig {
         security: SecurityContext {

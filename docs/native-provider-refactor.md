@@ -35,6 +35,20 @@ scoped borrow validation, roots, callback cleanup, budgets and generation pinnin
 Primitive representations and language protocols remain engine capabilities.
 Existing synchronous host adapters retain their checks during the bounded migration.
 
+### Owner imports and re-export whitelist
+
+The next user direction removes every existing Rust re-export across the
+workspace, including restricted visibility. Consumers import actual owners;
+intentional future re-exports require one exact reviewed whitelist declaration.
+This is a breaking Rust API path migration within NR01, without changing portable
+ABI records or Kagari language re-exports. It does not activate NR04 restoration.
+
+- [x] Remove existing re-export declarations and expose the required owner routes.
+- [x] Migrate implementation, tests, examples, macro expansions and consumers.
+- [x] Reject unlisted re-exports in every parsed file/scope, including library roots,
+  `mod.rs`, custom roots and tests; keep the initial whitelist empty.
+- [x] Complete owner/visibility review and record final validation and inherited errors.
+
 ### Typed Rust authoring implementation
 
 The latest user instruction activates a bounded typed adapter implementation and
@@ -1407,3 +1421,70 @@ The inherited full-workspace/all-target and legacy stdlib fixture failures recor
 above remain NR04 debt. Those unchanged failing commands were not repeated. This
 checkpoint completes the requested bounded typed API; it does not accept an NR
 phase or claim full Rust interoperability or full-library restoration.
+
+
+## 2026-10-01 owner imports and empty re-export whitelist checkpoint
+
+User direction: remove every existing Rust `pub use` and require explicit whitelist
+approval for any future re-export. This supersedes the previous automatic facade
+allowance, including the earlier hidden AbiType expansion facade. NR01 owns this
+Rust API migration; NR04 still owns legacy native fixtures and library restoration.
+
+- Remove all 172 actual Rust re-export declarations, including restricted
+  visibility and the proc-macro re-export. Preserve Kagari `pub use` statements
+  inside language fixtures: they test language semantics, not Rust API facades.
+- Import each item from its actual owner throughout crates, examples, tests and
+  standalone consumers. Open only the owner routes required by former public or
+  crate-visible exports; retain member visibility, ownership checks and validation.
+  No forwarding module, compatibility alias, second implementation or executable
+  ABI change is introduced. Group imports by owner and preserve conditional scopes.
+- Make ast_node a lexical parent macro defined before AST child modules instead
+  of re-exporting it. Update identifier macros and native proc-macro expansions
+  to name owners directly. Native attributes come from kagari-native-macros;
+  generated wrapper conversion signatures name kagari-abi directly. The SDK's
+  examples/tests and independent consumers declare those direct dependencies.
+- Replace reexport-location with reexport-whitelist. Every parsed public/restricted
+  use declaration produces a finding, including library roots, mod.rs, custom
+  Cargo roots and tests. Only one exact file/declaration entry with review evidence
+  can authorize it. The current structure-exceptions.toml has no entries. Preserve
+  stale/duplicate/ambiguous-entry checks and independent wildcard enforcement.
+- Review macro token trees, owner routes, visibility, aliases and conditional
+  imports manually. The checker remains syntax-only and does not expand macros;
+  current generated native adapters contain no re-exports. Update AGENTS.md,
+  the structure policy and the embedding import/dependency guidance.
+
+Validation actually performed:
+
+- `uv run --locked scripts/check_structure.py --self-test`: 33 regression tests
+  pass, including root/test whitelist authorization, location-independent denial,
+  exact declaration matching, restricted visibility and stale policy rejection.
+- `uv run --locked scripts/check_structure.py`: 803 Rust files, zero findings and
+  zero whitelist/LOC exceptions. `cargo fmt --all -- --check`, changed-document
+  Markdown link checks and `git diff --check` pass.
+- `cargo clippy --workspace --lib -- -D warnings` and workspace binary Clippy
+  pass. All-target Clippy passes for common, syntax, MIR, bytecode, codegen,
+  Cranelift codegen, native macros and stdlib. Focused runtime host/layout/session
+  targets also pass Clippy without warnings.
+- Subsystem tests for common, syntax, MIR, bytecode, codegen, Cranelift codegen and
+  native macros pass: 141 tests including doctests. The native_registration,
+  native_provider_artifact, native_provider_reset and host_interfaces SDK targets
+  pass all 34 tests. Runtime host_registration, host_nominal, struct_layouts,
+  execution_sessions and runtime_substrate pass all 38 tests. No assertion or
+  behavioral test was weakened.
+- `uv run python scripts/check_native_authoring.py` passes all three negative Rust
+  contracts and the positive alias/generic/renamed-runtime consumer.
+  `uv run python scripts/check_features.py --native-proof` passes all four feature
+  combinations, eight production dependency boundaries and the source-free ABI
+  build boundary. `cargo check -p kagari-embed --test source_snapshots` passes.
+- `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
+  were attempted. They remain blocked by the already carried ABI/HIR fixture
+  errors, including removed EngineNativeBinding, standard bindings and
+  RuntimePrimitive variants. Broader compiler/runtime/VM/SDK target attempts also
+  expose the carried old native call/witness/import fields, HostImportId and
+  binding_version. Their owning follow-up remains NR04. Newly introduced missing
+  owner imports and conditional-test imports were repaired; no alias was added
+  to conceal those obsolete model errors.
+
+This completes the requested re-export removal and enforcement checkpoint.
+It is a breaking Rust import/dependency change and does not accept an NR phase
+or claim full-workspace integration while the inherited fixture errors remain.

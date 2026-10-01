@@ -1,11 +1,16 @@
 use crate::{
     hir::{
-        ExprKind, FunctionKind, Item, PatternKind, PlaceKind, StmtKind, TypeKind, Visibility,
-        Writeability,
+        expr::ExprKind,
+        item::{Item, function::FunctionKind, storage::Visibility},
+        pattern::PatternKind,
+        place::PlaceKind,
+        stmt::StmtKind,
+        ty::TypeKind,
+        writeability::Writeability,
     },
     tests::common,
 };
-use kagari_common::SourceFile;
+use kagari_common::source::SourceFile;
 use kagari_syntax::parser;
 use std::sync::Arc;
 

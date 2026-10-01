@@ -4,14 +4,14 @@ use kagari_abi::{
     native_import::{NativeImport, NativeSignature},
     types::{ConcreteFunctionIdentity, substitution::TypeSubstitution},
 };
-use kagari_common::{Span, identity::DefinitionId};
+use kagari_common::{identity::DefinitionId, span::Span};
 use kagari_hir::{
-    aggregates::MethodDefault,
+    aggregates::traits::MethodDefault,
     callable::AppliedCallSignature,
     declarations::DeclarationId,
     native::NativeBinding,
-    resolver::ResolvedName,
-    typeck::{CallTarget, FunctionImplementation},
+    resolver::resolved::ResolvedName,
+    typeck::{FunctionImplementation, table::CallTarget},
     types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, abi::lower_type},
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};

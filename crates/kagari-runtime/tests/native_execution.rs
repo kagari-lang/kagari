@@ -19,13 +19,24 @@ use kagari_abi::{
     representation::ValueType,
 };
 use kagari_bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, FunctionMetadata,
-    FunctionRecord, KbcArtifact, ModuleRef,
+    artifact::KbcArtifact,
+    instruction::BytecodeInstruction,
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
+    program::{BytecodeProgram, ModuleRef},
 };
-use kagari_runtime::{
-    BackendInvocationError, CapabilitySet, InstalledNativeFunction, LanguageProfile,
-    ReloadValidationError, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext, VerifiedProgram, jit_abi::jit_consume_instruction_step, value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        backend::{BackendInvocationError, native::InstalledNativeFunction},
+        error::RuntimeErrorKind,
+        jit_abi::jit_consume_instruction_step,
+        module::VerifiedProgram,
+        reload::ReloadValidationError,
+        resource::ResourcePolicy,
+        security::{LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 #[derive(Debug)]
@@ -504,7 +515,11 @@ fn native_handles_pin_the_entire_dependency_program_across_reload() {
 
 #[test]
 fn execution_observers_prevent_native_entry_without_debug_callbacks() {
-    use kagari_runtime::{ExecutionEvent, ExecutionFrame, ExecutionObserver, RuntimeError};
+    use kagari_runtime::{
+        error::RuntimeError,
+        frame::ExecutionFrame,
+        session::{ExecutionEvent, ExecutionObserver},
+    };
     #[derive(Debug)]
     struct Observer;
     impl ExecutionObserver for Observer {

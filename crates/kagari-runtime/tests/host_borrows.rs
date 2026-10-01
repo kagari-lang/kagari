@@ -1,5 +1,9 @@
 use kagari_runtime::{
-    HostBorrowKind, HostBorrowTable, HostObjectId, Runtime, RuntimeErrorKind, TypeId, value::Value,
+    Runtime,
+    error::RuntimeErrorKind,
+    host::{HostBorrowKind, HostBorrowTable, HostCallGuard, HostObjectId},
+    metadata::TypeId,
+    value::Value,
 };
 
 #[test]
@@ -114,7 +118,7 @@ fn borrow_values_are_non_storable_and_fail_no_escape_validation() {
         RuntimeErrorKind::HostBorrowEscape
     );
     assert_eq!(
-        kagari_runtime::HostCallGuard::validate_no_escape(&borrow_value)
+        HostCallGuard::validate_no_escape(&borrow_value)
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostBorrowEscape

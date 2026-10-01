@@ -1,6 +1,9 @@
 //! Collection capability and value-copy checks over concrete executable types.
-use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution};
-use crate::types::{AbiType, NominalAbiType};
+use crate::types::{
+    AbiType, NominalAbiType,
+    substitution::{MAX_TYPE_NODES, TypeSubstitution},
+};
+
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
 use std::collections::HashSet;
 

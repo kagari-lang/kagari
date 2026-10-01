@@ -3,15 +3,18 @@ use crate::{
     cache::{InterpreterCacheId, ReloadDependencySnapshot, ReloadInvalidation},
     error::RuntimeError,
     module::{LinkedHostBindings, LoadedModule, VerifiedProgram},
-    native::{NativeRegistration, registration::host_registration},
+    native::registration::{NativeRegistration, host_registration},
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
         validate_verified_reload_candidate,
     },
 };
-use kagari_bytecode as bytecode;
 use kagari_bytecode::{
-    ArtifactCompatibility, ArtifactFingerprint, BytecodeModule, BytecodeProgram, KbcArtifact,
+    artifact::{
+        ArtifactCompatibility, ArtifactFingerprint, KbcArtifact, validate_program_resource_limits,
+    },
+    module::BytecodeModule,
+    program::BytecodeProgram,
 };
 
 impl Runtime {
@@ -107,8 +110,7 @@ impl Runtime {
         bytecode: BytecodeProgram,
     ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
-        bytecode::validate_program_resource_limits(&bytecode)
-            .map_err(ReloadValidationError::Artifact)?;
+        validate_program_resource_limits(&bytecode).map_err(ReloadValidationError::Artifact)?;
         self.validate_loaded_module(active)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);

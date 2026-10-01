@@ -8,12 +8,13 @@ use kagari_abi::{
     },
     native_call::{JIT_STATUS_OK, JitValue},
 };
-use kagari_bytecode::{BytecodeInstruction, ConstantOperand, Register};
+use kagari_bytecode::instruction::{BytecodeInstruction, ConstantOperand, Register};
 use kagari_runtime::{
-    InstalledNativeFunction, LoadedModule, Runtime, jit_abi::jit_consume_instruction_step,
+    Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_consume_instruction_step,
+    module::LoadedModule,
 };
 
-use crate::PreparedNativeEntry;
+use crate::vm::native::PreparedNativeEntry;
 
 pub(super) fn unsupported() -> PreparedNativeEntry {
     PreparedNativeEntry::Unsupported {

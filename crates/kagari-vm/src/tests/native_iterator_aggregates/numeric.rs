@@ -1,8 +1,8 @@
 use super::{numeric_baseline::BASELINE, numeric_cases::cases, route, runtime};
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
+use crate::{error::VmError, tests::common::compile_test_bytecode, vm::Vm};
 use kagari_abi::{callable::EngineNativeBinding, standard::bindings::NativeProtocolMethod};
 use kagari_common::host_interface::standard_log;
-use kagari_runtime::{RuntimeErrorKind, host::HostFunction, value::Value};
+use kagari_runtime::{error::RuntimeErrorKind, host::HostFunction, value::Value};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,

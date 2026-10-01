@@ -1,7 +1,6 @@
 use crate::{
     ast::{
-        ast_node,
-        misc::{Name, Path},
+        misc::{GenericArgList, Name, Path},
         stmt::Stmt,
         support,
         traits::AstNode,
@@ -10,6 +9,7 @@ use crate::{
     kind::SyntaxKind,
     syntax_node::SyntaxNode,
 };
+
 use rowan::NodeOrToken;
 
 ast_node!(BlockExpr, BlockExpr);
@@ -162,7 +162,7 @@ impl PathExpr {
     pub fn qualified_type(&self) -> Option<TypeRef> {
         self.syntax().children().find_map(TypeRef::cast)
     }
-    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+    pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
     pub fn name(&self) -> Option<Name> {
@@ -301,7 +301,7 @@ impl RangeExpr {
 }
 
 impl CallExpr {
-    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+    pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
     pub fn callee(&self) -> Option<Expr> {
@@ -380,7 +380,7 @@ impl BindingCondition {
 }
 
 impl StructExpr {
-    pub fn generic_args(&self) -> Option<super::GenericArgList> {
+    pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
     pub fn path(&self) -> Option<PathExpr> {

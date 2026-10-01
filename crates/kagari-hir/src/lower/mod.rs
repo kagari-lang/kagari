@@ -1,8 +1,17 @@
-use ast::Attribute;
+use kagari_syntax::{
+    ast::{
+        item::{Attribute, AttributeArg, SourceFile as AstSourceFile},
+        traits::AstNode,
+    },
+    parser::parse,
+};
+
 use kagari_abi::callable::MethodPolicy;
-use kagari_common::{SourceFile, Span, cancellation::CancellationToken, identity::DefinitionId};
-use kagari_stdlib::ParsedStdlibPackage;
-use kagari_syntax::parse;
+use kagari_common::{
+    cancellation::CancellationToken, identity::DefinitionId, source::SourceFile, span::Span,
+};
+use kagari_stdlib::package::ParsedStdlibPackage;
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -13,10 +22,11 @@ mod item;
 mod stmt;
 mod ty;
 
-use kagari_syntax::ast::{self, AstNode};
-
 use crate::{
-    hir::{EnumId, FunctionId, Module, OpaqueTypeId},
+    hir::{
+        ids::{EnumId, FunctionId, OpaqueTypeId},
+        item::Module,
+    },
     lower::context::Lowerer,
     native::NativeTypeKind,
     source_map::SourceMap,
@@ -59,7 +69,7 @@ pub enum AttributeValue {
     Missing,
 }
 
-fn attribute_argument(arg: ast::AttributeArg) -> AttributeArgument {
+fn attribute_argument(arg: AttributeArg) -> AttributeArgument {
     let value = match arg.value() {
         Some(value) => {
             if let Some(literal) = value.literal() {
@@ -78,7 +88,7 @@ fn attribute_argument(arg: ast::AttributeArg) -> AttributeArgument {
     }
 }
 
-fn lower_attributes(module: &ast::SourceFile) -> Vec<AttributeFact> {
+fn lower_attributes(module: &AstSourceFile) -> Vec<AttributeFact> {
     module
         .syntax()
         .descendants()
@@ -109,7 +119,7 @@ pub fn lower_module(source: &SourceFile) -> LoweredModule {
 
 pub(crate) fn lower_module_controlled(
     source: Arc<SourceFile>,
-    module: &ast::SourceFile,
+    module: &AstSourceFile,
     cancel: &CancellationToken,
 ) -> LoweredModule {
     let attributes = lower_attributes(module);

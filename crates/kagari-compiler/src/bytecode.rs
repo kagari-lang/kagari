@@ -9,19 +9,24 @@ use kagari_abi::{
     types::{AbiType, ConcreteFunctionIdentity, NominalAbiType, PublicAbiItem},
 };
 use kagari_bytecode::{
-    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot,
-    BytecodeProgram, BytecodeVerificationError, CallTarget, ConstantOperand, EnumId, FieldRef,
-    FunctionMetadata, FunctionRecord, InterfaceMethodSlot, InterfaceTableRecord, InterfaceTableRef,
-    JumpTarget, LocalSlot, ModuleRef, ModuleSlot, NativeImportId, PathId, PathRecord, Register,
-    RootSlotLayout, RuntimeHelper, StructId, UnaryOp, verify_module, verify_program,
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, EnumId, FieldRef,
+        InterfaceTableRef, JumpTarget, LocalSlot, ModuleSlot, NativeImportId, PathId, Register,
+        RuntimeHelper, StructId, UnaryOp,
+    },
+    module::{
+        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
+        InterfaceMethodSlot, InterfaceTableRecord, PathRecord, RootSlotLayout,
+    },
+    program::{BytecodeProgram, ModuleRef, verify_program},
+    verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
-    Span,
     host_interface::HostInterface,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    span::Span,
 };
 use kagari_mir::{
-    VerifiedMirModule,
     analysis::FunctionAnalysis,
     function::{BasicBlock, MirFunction},
     ids::{BlockId, LocalId, ModuleSlotId, TempId},
@@ -30,6 +35,7 @@ use kagari_mir::{
         RuntimeHelper as MirRuntimeHelper, Terminator,
     },
     program::VerifiedMirProgram,
+    verify::VerifiedMirModule,
 };
 use std::{collections::HashMap, slice};
 

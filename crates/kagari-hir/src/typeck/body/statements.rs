@@ -1,5 +1,9 @@
 use crate::{
-    hir::{BinaryOp, Condition, StmtId, StmtKind},
+    hir::{
+        expr::{Condition, ops::BinaryOp},
+        ids::StmtId,
+        stmt::StmtKind,
+    },
     typeck::{
         BodyTypeEnv, applications,
         body::{BodyChecker, LoopResult},
@@ -9,7 +13,10 @@ use crate::{
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::{Diagnostic, DiagnosticKind, Span};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    span::Span,
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {

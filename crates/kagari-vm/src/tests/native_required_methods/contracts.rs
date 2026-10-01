@@ -8,7 +8,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, bindings::NativeProtocolMethod},
     types::AbiType,
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::{collection::CollectionAccess, range::RangeKind};
 
 #[test]

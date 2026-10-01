@@ -2,8 +2,12 @@ use kagari_runtime::value::Value;
 use std::cell::{Ref, RefMut};
 
 use crate::{
-    BreakpointId, DebugFrameId, DebugPause, DebugSession, DebugWatch, ResolvedBreakpoint,
-    SourceBreakpoint, Vm, VmError,
+    debug::{
+        BreakpointId, DebugFrameId, DebugPause, DebugSession, DebugWatch, ResolvedBreakpoint,
+        SourceBreakpoint,
+    },
+    error::VmError,
+    vm::Vm,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

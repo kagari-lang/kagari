@@ -1,12 +1,16 @@
 use crate::{
-    BytecodeProgram, InterfaceMethodSlot, NativeImportId, verifier::operation::verify_instruction,
+    access,
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, JumpTarget,
+        LocalSlot, ModuleSlot, NativeImportId, PathId, Register, StructId,
+    },
+    module::{BytecodeFunction, BytecodeModule, InterfaceMethodSlot, PathRecord, RootSlotLayout},
+    program::BytecodeProgram,
+    trait_bounds,
+    verifier::operation::verify_instruction,
 };
 mod operation;
-use crate::{
-    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    FieldRef, JumpTarget, LocalSlot, ModuleSlot, PathId, PathRecord, Register, RootSlotLayout,
-    StructId, access, trait_bounds,
-};
+
 use kagari_abi::{
     callable::CallableImplementation,
     contracts::{self, ContractError},

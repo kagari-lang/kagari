@@ -1,17 +1,25 @@
 use kagari_bytecode::{
-    ArtifactFingerprint, BytecodeModule, BytecodeProgram, KbcArtifact, ModuleRef,
+    artifact::{ArtifactFingerprint, KbcArtifact},
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
-        HostFieldDeclaration, HostInterface, HostMethodDeclaration, HostParameter,
-        HostPassingStyle, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-        HostTypeDeclaration, HostTypeOwnership, HostValueType, PathAccess,
+        HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{
+            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
+        value_type::HostValueType,
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 use kagari_runtime::{
-    HostTypeRegistration, Runtime, RuntimeErrorKind, TypeKind, host::HostFunction,
+    Runtime,
+    error::RuntimeErrorKind,
+    host::{HostFunction, HostTypeRegistration},
+    metadata::TypeKind,
 };
 
 #[test]

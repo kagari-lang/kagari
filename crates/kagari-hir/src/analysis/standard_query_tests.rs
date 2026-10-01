@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use crate::{builtin::traits, typeck::ConstraintTarget};
+        use crate::{builtin::traits, typeck::table::ConstraintTarget};
         use kagari_abi::standard::surface::StandardEnum;
         let mut sources = SourceDatabase::default();
         let root = sources
@@ -521,8 +521,10 @@ mod interpolation_queries {
 
 #[cfg(test)]
 mod collection_access_tests {
+    use crate::{analysis::AnalysisDatabase, resolver::resolved::ResolvedName};
+
     use super::*;
-    use crate::analysis::AnalysisDatabase;
+
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
@@ -590,7 +592,7 @@ mod collection_access_tests {
                         .signature_snapshot()
                         .file(declaration.location.file)
                         .unwrap();
-                    let Some(crate::resolver::ResolvedName::Function(function)) =
+                    let Some(ResolvedName::Function(function)) =
                         file.declarations().definition_target(target)
                     else {
                         panic!("implementation method")

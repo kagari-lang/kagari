@@ -1,5 +1,10 @@
 use super::*;
-use kagari_embed::program::PreparedProgram;
+use kagari_bytecode::{
+    artifact::{ArtifactValidationError, KbcArtifact},
+    program::verify_program,
+    verifier::BytecodeVerificationError,
+};
+use kagari_embed::{context::JitPolicy, program::PreparedProgram};
 
 #[test]
 fn source_and_encoded_programs_execute_transitive_calls_and_shared_struct_layouts() {
@@ -139,13 +144,13 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
     method.unwrap().return_type =
         kagari_abi::types::AbiType::Builtin(kagari_abi::scalar::BuiltinType::Bool);
     assert!(matches!(
-        kagari_bytecode::verify_program(&wrong_contract),
-        Err(kagari_bytecode::BytecodeVerificationError::InvalidInterfaceTable)
+        verify_program(&wrong_contract),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     assert!(matches!(
-        kagari_bytecode::KbcArtifact::from_program(wrong_contract, Default::default()),
-        Err(kagari_bytecode::ArtifactValidationError::Bytecode(
-            kagari_bytecode::BytecodeVerificationError::InvalidInterfaceTable
+        KbcArtifact::from_program(wrong_contract, Default::default()),
+        Err(ArtifactValidationError::Bytecode(
+            BytecodeVerificationError::InvalidInterfaceTable
         ))
     ));
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -155,9 +160,9 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
             artifact.clone()
         };
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -221,9 +226,9 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
             artifact.clone()
         };
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -287,9 +292,9 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
             artifact.clone()
         };
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -509,9 +514,9 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
             artifact.clone()
         };
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -664,9 +669,9 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
             artifact.clone()
         };
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =

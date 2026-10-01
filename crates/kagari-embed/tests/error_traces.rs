@@ -1,5 +1,12 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+    runtime::LoadOptions,
+};
+use kagari_vm::vm::native::PreparedNativeEntry;
 
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
@@ -49,9 +56,9 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program = PreparedProgram::from_artifact(
@@ -74,10 +81,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
                     &context.cancellation,
                 )
                 .unwrap();
-            assert!(matches!(
-                prepared,
-                kagari_vm::PreparedNativeEntry::Native(_)
-            ));
+            assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
             runtime.execute_prepared(&loaded, "main", &[], &context, &prepared)
         } else {
             runtime.execute(&loaded, "main", &[], &context)
@@ -90,7 +94,7 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
 }
 
 fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected_message: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -110,9 +114,9 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -395,7 +399,7 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
     let loaded = runtime
         .load_program(
             &loaded_program,
-            kagari_embed::LoadOptions {
+            LoadOptions {
                 module_name: Some("unrelated-load-alias".into()),
             },
         )

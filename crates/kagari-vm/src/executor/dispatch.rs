@@ -1,7 +1,9 @@
 use kagari_abi::{operations::IterOp, standard::RuntimePrimitive, types::AbiType};
-use kagari_bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
+use kagari_bytecode::instruction::{
+    BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
+};
 use kagari_runtime::{
-    HostPathDescriptorId, NativeProgress, numeric, range::RangeValue, value::Value,
+    host::HostPathDescriptorId, native::NativeProgress, numeric, range::RangeValue, value::Value,
 };
 use std::iter;
 

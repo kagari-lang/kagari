@@ -1,4 +1,4 @@
-use kagari_bytecode::{BinaryOp, ConstantOperand, UnaryOp};
+use kagari_bytecode::instruction::{BinaryOp, ConstantOperand, UnaryOp};
 use kagari_runtime::{numeric, value::Value, value_semantics};
 
 use crate::{error::VmError, executor::Executor};

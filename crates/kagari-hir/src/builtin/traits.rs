@@ -1,5 +1,10 @@
 //! Standard protocols have declaration identities and ordinary trait contracts.
 
+use crate::{
+    aggregates::{AggregateCatalog, traits::trait_inheritance_closure},
+    typeck::{GenericBounds, table::ConstraintTarget},
+    types::{NominalType, TypeId},
+};
 use kagari_abi::{
     numeric as scalar_numeric,
     scalar::BuiltinType,
@@ -8,17 +13,14 @@ use kagari_abi::{
         traits::{StandardTrait, identity},
     },
 };
+
 use kagari_common::{
     collection::CollectionAccess::Mutable,
     identity::{DefinitionId, associated_type_id},
 };
 
 use super::{numeric, surface};
-use crate::{
-    aggregates::{self, AggregateCatalog},
-    typeck::{ConstraintTarget, GenericBounds},
-    types::{NominalType, TypeId},
-};
+
 use std::collections::{BTreeMap, HashSet};
 
 pub trait StandardTraitSemantics {
@@ -455,19 +457,15 @@ pub fn iteration_outputs(
     bounds: &GenericBounds,
 ) -> Option<BTreeMap<DefinitionId, TypeId>> {
     if let TypeId::Trait(interface) = receiver {
-        let inherited = aggregates::trait_inheritance_closure(
-            interface,
-            receiver,
-            &Default::default(),
-            &|id| {
+        let inherited =
+            trait_inheritance_closure(interface, receiver, &Default::default(), &|id| {
                 let contract = catalog?.trait_(id)?;
                 Some((
                     contract.generic_params.clone(),
                     contract.supertraits.clone(),
                 ))
-            },
-        )
-        .ok()?;
+            })
+            .ok()?;
         return inherited
             .into_iter()
             .find(|parent| parent.declaration == identity(kind))

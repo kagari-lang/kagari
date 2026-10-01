@@ -10,7 +10,7 @@ use kagari_abi::{
     },
     types::AbiType,
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 #[test]
 fn list_queries_reject_forged_storage_and_script_selections() {
     for (binding, call) in [

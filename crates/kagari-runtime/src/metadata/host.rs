@@ -1,7 +1,7 @@
 //! Build reflection metadata from portable declarations, then commit once.
 
-use crate::error::RuntimeError;
 use crate::{
+    error::RuntimeError,
     host::{HostRegistry, HostTypeInfo, HostTypeRegistration},
     metadata::{
         AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
@@ -9,8 +9,12 @@ use crate::{
         VariantMetadataId,
     },
 };
+
 use kagari_common::{
-    host_interface::{HostValueType, PathAccess, Visibility},
+    host_interface::{
+        type_declaration::{PathAccess, Visibility},
+        value_type::HostValueType,
+    },
     identity::DefinitionId,
 };
 use std::{collections::HashMap, fmt::Display};

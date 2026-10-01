@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, bindings::NativeDefaultMethod, traits::StandardTrait},
     types::{AbiType, PublicAbiItem},
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::collection::CollectionAccess;
 #[test]
 fn map_snapshots_reject_forged_traversal_and_result_construction() {

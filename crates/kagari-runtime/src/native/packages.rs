@@ -1,5 +1,5 @@
 //! Engine's default selection; every selected module is an ordinary native package.
-use crate::{NativeApi, native::array_api};
+use crate::native::{api::NativeApi, array_api};
 
 pub fn standard_library() -> NativeApi {
     NativeApi::combine(vec![

@@ -2,9 +2,15 @@ use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter,
-        HostPassingStyle, HostValueType,
+        HostPassingStyle, value_type::HostValueType,
     },
 };
+use {
+    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+};
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -27,7 +33,8 @@ fn declaration() -> HostFunctionDeclaration {
 #[test]
 fn module_load_and_reload_require_matching_bindings_before_publication() {
     use kagari_bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeModule, KbcArtifact,
+        artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+        module::BytecodeModule,
     };
     let mut runtime = Runtime::default();
     let required = declaration();
@@ -43,8 +50,8 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
         runtime
             .load_program(
                 "host",
-                kagari_bytecode::BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
                     modules: vec![bytecode.clone()]
                 }
             )
@@ -60,8 +67,8 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
     let loaded = runtime
         .load_program(
             "host",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![bytecode.clone()],
             },
         )
@@ -79,16 +86,16 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
             .stage_reload_program(
                 &loaded,
                 "host",
-                kagari_bytecode::BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
                     modules: vec![mismatch.clone()]
                 }
             )
             .is_err()
     );
     let artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![mismatch],
         },
         ArtifactBuildOptions::default(),
@@ -108,7 +115,7 @@ fn module_load_and_reload_require_matching_bindings_before_publication() {
 
 #[test]
 fn bound_slots_and_loaded_handles_reject_another_runtime() {
-    use kagari_bytecode::BytecodeModule;
+    use kagari_bytecode::module::BytecodeModule;
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     let a = first
@@ -123,8 +130,8 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let a = first
         .load_program(
             "same",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -132,8 +139,8 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
     let b = second
         .load_program(
             "same",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![BytecodeModule::default()],
             },
         )
@@ -147,8 +154,8 @@ fn bound_slots_and_loaded_handles_reject_another_runtime() {
             .stage_reload_program(
                 &a,
                 "same",
-                kagari_bytecode::BytecodeProgram {
-                    root: kagari_bytecode::ModuleRef::new(0),
+                BytecodeProgram {
+                    root: ModuleRef::new(0),
                     modules: vec![BytecodeModule::default()]
                 }
             )
@@ -166,17 +173,17 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
         Ok(Value::Bool(true))
     });
     let mut runtime = Runtime::new(kagari_runtime::RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
+        security: SecurityContext {
+            profile: LanguageProfile {
                 allow_host_calls: true,
                 ..Default::default()
             },
-            capabilities: kagari_runtime::CapabilitySet {
+            capabilities: CapabilitySet {
                 host_calls: true,
                 ..Default::default()
             },
         },
-        host_exposure: kagari_runtime::HostExposurePolicy {
+        host_exposure: HostExposurePolicy {
             allow_host_functions: true,
             ..Default::default()
         },

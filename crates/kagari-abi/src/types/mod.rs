@@ -25,7 +25,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
-    host_interface::HostValueType,
+    host_interface::value_type::HostValueType,
     identity::{DefinitionId, DefinitionKind, ModuleIdentity},
     range::RangeKind,
 };

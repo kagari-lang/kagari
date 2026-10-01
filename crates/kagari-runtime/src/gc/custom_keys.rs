@@ -1,11 +1,11 @@
 //! Hash bucket preparation and atomic commits. Script comparisons run in VM
 //! frames between these operations, never inside a borrowed hash table.
-use crate::error::RuntimeError;
 use crate::{
-    error::RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObjectId},
     value::{MapKey, Value},
 };
+
 use indexmap::{IndexMap, map::RawEntryApiV1};
 use std::hash::BuildHasher;
 

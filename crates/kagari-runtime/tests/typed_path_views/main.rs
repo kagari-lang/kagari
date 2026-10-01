@@ -1,20 +1,34 @@
 use kagari_common::{
     collection::CollectionAccess,
-    host_interface::{HostIndexSegmentDeclaration, HostValueType, HostVirtualSegmentDeclaration},
+    host_interface::{
+        path::{HostIndexSegmentDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    },
 };
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, DynamicPathArgument, DynamicPathArguments, HostBorrowTable,
-    HostExposurePolicy, HostObjectId, HostPathAdapter, HostPathDescriptorId,
-    HostPathDescriptorRegistration, HostPathOperation, HostPathSegmentRegistration,
-    HostReflectionPolicy, HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration,
-    LanguageProfile, PathAccess, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeId,
-    TypeKind, TypeRegistration,
-    host::{HostError, PreparedHostPathWrite},
-    value::Value,
-};
-use std::sync::{Arc, Mutex};
 
-use kagari_bytecode::BinaryOp;
+use std::sync::{Arc, Mutex};
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    },
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::{
+            DynamicPathArgument, DynamicPathArguments, HostBorrowTable, HostError, HostObjectId,
+            HostPathAdapter, HostPathDescriptorId, HostPathDescriptorRegistration,
+            HostPathOperation, HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
+            PreparedHostPathWrite,
+        },
+        metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
+
+use kagari_bytecode::instruction::BinaryOp;
 
 fn path_mutation_runtime() -> Runtime {
     Runtime::new(path_mutation_config())
@@ -58,18 +72,12 @@ fn register_i32(runtime: &Runtime) -> TypeId {
 }
 
 fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess) -> TypeId {
-    let mut registration = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new(name),
-        name,
-    );
+    let mut registration = HostTypeRegistration::new(HostTypeDeclaration::new(name), name);
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = access;
     for name in ["hp", "secure_hp", "count"] {
-        let mut field = kagari_common::host_interface::HostFieldDeclaration::new(
-            &registration.declaration.id,
-            name,
-            kagari_common::host_interface::HostValueType::I32,
-        );
+        let mut field =
+            HostFieldDeclaration::new(&registration.declaration.id, name, HostValueType::I32);
         field.writable = access == PathAccess::ReadWrite;
         field.path_access = access;
         registration.declaration.fields.push(field);

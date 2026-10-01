@@ -1,6 +1,9 @@
 //! Opaque optional compiler input. Bytecode loading never interprets MIR semantics.
-use serde::de::{Error, SeqAccess, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{Error, SeqAccess, Visitor},
+};
+
 use std::fmt;
 
 use crate::artifact::MAX_ARTIFACT_BYTES;

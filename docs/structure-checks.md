@@ -4,8 +4,9 @@ The repository uses a strict, syntax-aware check for the mechanical rules in
 [AGENTS.md](../AGENTS.md). It runs independently of Cargo, including while crate
 wiring is incomplete. Existing violations fail exactly like new violations;
 there is no grandfathering baseline, changed-files-only mode or warning-only mode.
-LOC and re-export placement are defaults with narrowly documented design
-exceptions, not unconditional architectural truths.
+Effective LOC has a bounded exception policy. Re-exports are forbidden by
+default and require an exact, reviewed whitelist entry; the initial whitelist
+is empty.
 
 ## Commands
 
@@ -41,7 +42,7 @@ source files.
 | `wildcard-import` | Production `use x::*`, grouped globs, local enum globs and glob re-exports | Name imported items explicitly or qualify variants. |
 | `parent-traversal` | Production `super::super::` chains, including grouped imports | Import from the owning module through `crate::...`. |
 | `qualified-path` | Production paths at use sites with three or more components, paths starting at `crate`, `std`, `core`, `alloc` or a Cargo dependency, and leading `::` | Import the item or a meaningful short module name. |
-| `reexport-location` | Production `pub use` or restricted-visibility re-exports outside facade files | Keep intentional explicit re-exports in `lib.rs`, `mod.rs` or a Cargo-declared library root; otherwise import directly from the owner. |
+| `reexport-whitelist` | Every `pub use`, including restricted visibility and test-only scopes | Import directly from the owner or document one exact file/declaration whitelist entry. Library roots and `mod.rs` receive no exemption. |
 | `effective-loc` | Any scanned Rust file exceeding 1200 effective LOC | Split by responsibility, including test files. |
 | `parse-error` | Rust syntax the pinned parser cannot parse, including missing tokens | Fix invalid syntax or investigate/update parser support; never silently skip the file. |
 
@@ -63,14 +64,16 @@ Qualified trait calls such as `<Type as Trait>::method`, attributes and derive
 paths are excluded from the verbose-path rule. A short imported alias is allowed;
 the checker does not resolve names or determine whether an alias is meaningful.
 
-Re-export placement is a file-level convention. It does not prove a facade is
-necessary, detect forwarding layers or approve widening an API. Review those
-decisions against crate ownership. Do not move unrelated implementation code into
-a facade just to make a re-export pass.
+Re-export authorization is independent of file location. An intentional public
+boundary must explain its owner and consumers in a whitelist entry. Moving a
+re-export into `lib.rs`, `mod.rs` or a Cargo-declared library root does not approve
+it. The whitelist does not authorize forwarding layers or unrelated visibility
+growth; review those decisions against module ownership.
 
 ## Test Scope
 
-Import, path and re-export rules apply to production scopes. The checker follows
+Import and path rules apply to production scopes. Re-export authorization applies
+to every parsed scope, including tests. The checker follows
 inline and out-of-line modules, literal `#[path = "..."]` attributes and Cargo
 test targets. A module whose `cfg` expression cannot be enabled with `test=false`
 is treated as test-only. Examples and benchmarks use production rules.
@@ -80,7 +83,7 @@ For example, `cfg(all(test, feature = "extra"))` is test-only;
 platform or feature does not accidentally exempt production source. `cfg_attr`
 is not interpreted as a test exemption. Files reachable from both test and
 production roots receive production checks. Unknown/unreachable entrypoints are
-also checked as production. Tests never receive an LOC or parse-error exemption.
+also checked as production. Tests never receive an LOC, parse-error or re-export exemption.
 
 ## Effective LOC
 
@@ -116,16 +119,16 @@ reason = "The ordered exhaustive table is reviewed against one specification."
 evidence = "docs/table-layout-rationale.md"
 ```
 
-A re-export exception names one file and one exact declaration. The rationale
+A re-export whitelist entry names one file and one exact declaration. The rationale
 must explain the public or internal API responsibility, intended consumers, and
-why a facade here is clearer than direct owner imports or a separate `mod.rs`.
+why that boundary is clearer than direct owner imports.
 Keeping a cohesive flat module as an API boundary can be reasonable; shortening
 an inconvenient import by adding a forwarding layer is not sufficient evidence.
 
 ```toml
 [[exceptions]]
 path = "crates/example/src/api.rs"
-rule = "reexport-location"
+rule = "reexport-whitelist"
 declaration = "pub use crate::model::Model;"
 reason = "This flat module owns the documented SDK model surface."
 evidence = "docs/sdk-boundary-rationale.md"

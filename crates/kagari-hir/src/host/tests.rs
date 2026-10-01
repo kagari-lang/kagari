@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    LanguageFeatureProfile, analysis::AnalysisDatabase, callable::CallableSignature,
-    native::NativeBinding, typeck::FunctionImplementation,
+    analysis::AnalysisDatabase, callable::CallableSignature, native::NativeBinding,
+    profile::LanguageFeatureProfile, typeck::FunctionImplementation,
 };
 use kagari_common::{
     host_interface::{HostParameter, HostPassingStyle},
@@ -10,7 +10,9 @@ use kagari_common::{
 
 #[test]
 fn offline_type_queries_preserve_member_contracts_and_reject_stale_ids() {
-    use kagari_common::host_interface::{HostFieldDeclaration, HostTypeDeclaration};
+    use kagari_common::host_interface::type_declaration::{
+        HostFieldDeclaration, HostTypeDeclaration,
+    };
     let mut declaration = HostTypeDeclaration::new("model.Player");
     declaration.fields.push(HostFieldDeclaration::new(
         &declaration.id,

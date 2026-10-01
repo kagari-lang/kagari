@@ -1,20 +1,35 @@
 use crate::{
-    DebugPauseReason, DebugSession, SourceBreakpoint, Vm, VmError,
+    debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
+    error::VmError,
+    reentry::reenter,
     tests::common::compile_test_bytecode,
+    vm::Vm,
 };
+
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     native_import::EngineNativeOperation,
     standard::RuntimePrimitive,
 };
-use kagari_bytecode::{BytecodeInstruction, BytecodeProgram, CallTarget, KbcArtifact};
-use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, ResourcePolicy,
-    Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, gc::GcHeapConfig,
-    host::HostFunction, value::Value,
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    instruction::{BytecodeInstruction, CallTarget},
+    program::BytecodeProgram,
 };
+use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
 use std::{cell::RefCell, rc::Rc};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        gc::GcHeapConfig,
+        host::HostFunction,
+        resource::ResourcePolicy,
+        security::{DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 fn runtime(resources: ResourcePolicy) -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -441,10 +456,10 @@ fn fail() -> i32 { val value: Option<i32> = None; value.unwrap_or_else(|| { val 
                 let root = context.runtime().execution_root().unwrap();
                 if args == [Value::Str("outer".into())] {
                     assert_eq!(
-                        crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                        reenter(context, &root, inner, &[]).unwrap().value(),
                         Value::I32(7)
                     );
-                    assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                    assert!(reenter(context, &root, fail, &[]).is_err());
                     assert_eq!(
                         context.runtime().resources().counters().current_call_depth,
                         2
@@ -504,7 +519,7 @@ fn main() -> i32 {{ print("invoke"); 0 }}
             .register_host_function(HostFunction::new(standard_log(), move |context, _| {
                 let value = callback.borrow().as_ref().unwrap().clone();
                 let root = context.runtime().execution_root().unwrap();
-                let result = crate::reenter(context, &root, consume, &[value]).unwrap();
+                let result = reenter(context, &root, consume, &[value]).unwrap();
                 sink.borrow_mut().push(result.value());
                 context.runtime().collect_garbage().unwrap();
                 Ok(Value::Unit)

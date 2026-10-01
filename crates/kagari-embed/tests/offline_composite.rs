@@ -1,21 +1,34 @@
+use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
-    SourceFile,
     collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        HostValueType as Type,
+        value_type::HostValueType as Type,
+    },
+    source::SourceFile,
+};
+
+use std::sync::{Arc, Mutex};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        host::HostFunction,
+        security::LanguageProfile,
+        value::{EnumTag, Value},
     },
 };
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
-    LoadOptions, program::PreparedProgram,
+use {
+    kagari_embed::{
+        context::ExecutionContext,
+        engine::{
+            KagariEngine,
+            source::{ArtifactOptions, CompileOptions},
+        },
+        program::PreparedProgram,
+        runtime::LoadOptions,
+    },
+    kagari_runtime::security::HostExposurePolicy,
 };
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile,
-    host::HostFunction,
-    value::{EnumTag, Value},
-};
-use std::sync::{Arc, Mutex};
 
 fn composite() -> Type {
     Type::Tuple(vec![
@@ -63,7 +76,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, LinkedHashMap<String, bool>, LinkedHashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -248,7 +261,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             .unwrap();
         for (encoded, jit) in [(false, false), (true, false), (true, true)] {
             let artifact = if encoded {
-                kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+                KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
             } else {
                 artifact.clone()
             };

@@ -1,11 +1,14 @@
-use kagari_common::host_interface::HostValueType;
+use kagari_common::host_interface::{
+    type_declaration::{PathAccess, Visibility},
+    value_type::HostValueType,
+};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
 };
 
 use {
-    crate::error::RuntimeError, crate::reload::ModuleEpoch,
+    crate::{error::RuntimeError, reload::ModuleEpoch},
     kagari_common::capability::CapabilitySet,
 };
 
@@ -67,8 +70,6 @@ pub enum TypeKind {
     HostPathView,
     Set,
 }
-
-use kagari_common::host_interface::{PathAccess, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldInfo {

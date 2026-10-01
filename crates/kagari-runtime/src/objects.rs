@@ -5,13 +5,14 @@ use crate::{
     module::{self, LoadedModule},
     value::{self, EnumTag, Value},
 };
+use kagari_bytecode::trait_bounds::interface_ancestors;
+
 use kagari_abi::{
     ids::FunctionRef,
     operations::IterOp,
     representation::ValueType,
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem},
 };
-use kagari_bytecode as bytecode;
 use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
 use std::slice;
 
@@ -328,11 +329,9 @@ impl Runtime {
                 .iter()
                 .map(|version| version.bytecode.as_ref())
                 .collect::<Vec<_>>();
-            if let Some(parents) = bytecode::interface_ancestors(
-                &snapshot.interface_type,
-                &snapshot.concrete_type,
-                &modules,
-            ) {
+            if let Some(parents) =
+                interface_ancestors(&snapshot.interface_type, &snapshot.concrete_type, &modules)
+            {
                 for parent in parents.into_iter().skip(1) {
                     let mut owner = method.clone();
                     owner.path.pop();
@@ -379,8 +378,8 @@ impl Runtime {
             .iter()
             .map(|version| version.bytecode.as_ref())
             .collect::<Vec<_>>();
-        let parents = bytecode::interface_ancestors(source, &snapshot.concrete_type, &modules)
-            .ok_or_else(invalid)?;
+        let parents =
+            interface_ancestors(source, &snapshot.concrete_type, &modules).ok_or_else(invalid)?;
         if !parents.iter().any(|parent| parent == target) {
             return Err(invalid());
         }

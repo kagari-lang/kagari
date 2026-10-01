@@ -1,4 +1,4 @@
-use crate::hir::{
+use crate::hir::ids::{
     ConstId, EnumId, ExprId, FunctionId, ImplId, ModuleId, OpaqueTypeId, StructId, TraitId,
     TypeRefId, VariantId,
 };

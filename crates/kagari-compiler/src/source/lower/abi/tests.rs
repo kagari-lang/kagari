@@ -15,7 +15,7 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_hir::{
-    aggregates::MethodDefault, analysis::AnalysisDatabase,
+    aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
     native::NativeBinding as HirNativeBinding,
 };
 use std::collections::BTreeMap;

@@ -1,4 +1,7 @@
-use crate::{CallTarget, Instruction, MirModule};
+use crate::{
+    function::MirModule,
+    instruction::{CallTarget, Instruction},
+};
 
 use kagari_abi::types::{
     TraitAbi, applications::ApplicationValidator, substitution::TypeTransformError,

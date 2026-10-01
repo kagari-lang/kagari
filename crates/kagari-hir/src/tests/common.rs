@@ -1,7 +1,16 @@
-use kagari_common::SourceFile;
-use kagari_syntax::parse_module;
+use crate::{
+    hir::ids::BodySelection,
+    lower::{LoweredModule, lower_module},
+    resolver::resolved::{DeclarationNames, ResolvedNames},
+    typeck::{
+        applications::validate_signatures,
+        check::{check_bodies_controlled, check_signatures},
+        reuse::BodyReuse,
+    },
+};
+use kagari_common::source::SourceFile;
 
-use crate::lower::{LoweredModule, lower_module};
+use kagari_syntax::parser::parse_module;
 
 pub fn lower_ok(text: &str) -> LoweredModule {
     let source = SourceFile::new("test.kg", text);
@@ -26,13 +35,13 @@ pub fn definition(
 
 pub fn check_module(
     lowered: &LoweredModule,
-    names: &crate::resolver::ResolvedNames,
-    reuse: Option<&crate::typeck::BodyReuse<'_>>,
+    names: &ResolvedNames,
+    reuse: Option<&BodyReuse<'_>>,
 ) -> crate::AnalysisResult<crate::typeck::TypedModule> {
     let declarations = crate::declarations::Declarations::collect_named(
         &lowered.source,
         lowered,
-        &crate::resolver::DeclarationNames {
+        &DeclarationNames {
             items: names.items.clone(),
             hosts: names.hosts.clone(),
             imports: names.imports.clone(),
@@ -40,8 +49,7 @@ pub fn check_module(
         &Default::default(),
     )
     .with_bindings(lowered, names, &Default::default());
-    let mut signatures =
-        crate::typeck::check_signatures(lowered, &declarations, &Default::default());
+    let mut signatures = check_signatures(lowered, &declarations, &Default::default());
     let mut aggregates = crate::aggregates::AggregateCatalog::default();
     aggregates
         .add_module(
@@ -52,7 +60,7 @@ pub fn check_module(
         )
         .unwrap();
     let mut diagnostics = crate::DiagnosticBuffer::new();
-    crate::typeck::validate_signature_applications(
+    validate_signatures(
         lowered,
         &declarations,
         signatures.facts(),
@@ -61,13 +69,13 @@ pub fn check_module(
         &Default::default(),
     );
     signatures.diagnostics.extend(diagnostics);
-    crate::typeck::check_bodies_controlled(
+    check_bodies_controlled(
         lowered,
         names,
         &declarations,
         crate::typeck::BodyInputs {
             const_limits: Default::default(),
-            selection: crate::hir::BodySelection::All,
+            selection: BodySelection::All,
             signatures: &signatures,
             imported_functions: &Default::default(),
             aggregates: &aggregates,

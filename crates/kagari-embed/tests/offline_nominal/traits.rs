@@ -1,4 +1,10 @@
 use super::*;
+use kagari_common::diagnostic::DiagnosticKind;
+use {
+    kagari_bytecode::artifact::KbcArtifact,
+    kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,
+};
+
 use kagari_embed::program::PreparedProgram;
 
 #[test]
@@ -51,7 +57,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
             ArtifactOptions::default(),
         )
         .unwrap();
-    let encoded = kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let encoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let required = &encoded.program.modules[encoded.program.root.index()].host_interface;
     assert_eq!(
         required.types[0].trait_implementations,
@@ -167,7 +173,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     wrong_result.methods[0].return_type = HostValueType::Bool;
     assert!(install(wrong_result).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+        DiagnosticKind::InvalidTraitImpl { reason, .. }
             if reason.contains("return type")
     )));
 
@@ -175,14 +181,14 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     missing.trait_implementations[0].methods.clear();
     assert!(install(missing).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+        DiagnosticKind::InvalidTraitImpl { reason, .. }
             if reason.contains("missing method")
     )));
     let mut wrong_argument = host.clone();
     wrong_argument.methods[0].params[0].ty = HostValueType::Bool;
     assert!(install(wrong_argument).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+        DiagnosticKind::InvalidTraitImpl { reason, .. }
             if reason.contains("parameter 1")
     )));
 
@@ -190,14 +196,14 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     wrong_arity.trait_implementations[0].trait_arguments.clear();
     assert!(install(wrong_arity).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+        DiagnosticKind::InvalidTraitImpl { reason, .. }
             if reason.contains("type argument count")
     )));
     let mut unsatisfied_bound = host.clone();
     unsatisfied_bound.trait_implementations[0].trait_arguments = vec![HostValueType::F32];
     assert!(install(unsatisfied_bound).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+        DiagnosticKind::InvalidTraitImpl { reason, .. }
             if reason.contains("does not satisfy its bound")
     )));
 
@@ -207,7 +213,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     extra.trait_implementations[0].methods.push(extra_method);
     assert!(install(extra).iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+        DiagnosticKind::InvalidTraitImpl { reason, .. }
             if reason.contains("extra trait method")
     )));
 
@@ -226,7 +232,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             .iter()
             .any(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+                DiagnosticKind::InvalidTraitImpl { reason, .. }
                     if reason.contains("return type")
             ))
     );
@@ -263,7 +269,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     });
     let mut host = HostTypeDeclaration::new("demo.Counter");
     host.ownership = HostTypeOwnership::HostRoot;
-    host.path_access = kagari_common::host_interface::PathAccess::ReadOnly;
+    host.path_access = PathAccess::ReadOnly;
     let number = HostMethodDeclaration::new(&host.id, "number", vec![], HostValueType::I32);
     let flag = HostMethodDeclaration::new(&host.id, "flag", vec![], HostValueType::Bool);
     host.methods.extend([number.clone(), flag.clone()]);
@@ -320,7 +326,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -340,9 +346,9 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };
@@ -430,7 +436,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .iter()
             .any(|diagnostic| matches!(
                 &diagnostic.kind,
-                kagari_common::DiagnosticKind::InvalidTraitImpl { reason, .. }
+                DiagnosticKind::InvalidTraitImpl { reason, .. }
                     if reason.contains("host and script implementations overlap")
             ))
     );

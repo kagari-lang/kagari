@@ -1,8 +1,8 @@
 use super::tests::{analyze, insert};
-use crate::{analysis::AnalysisDatabase, typeck::CallTarget, types::TypeId};
+use crate::{analysis::AnalysisDatabase, typeck::table::CallTarget, types::TypeId};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
-    DiagnosticKind,
+    diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
 use std::sync::Arc;

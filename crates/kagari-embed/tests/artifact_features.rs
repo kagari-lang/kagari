@@ -1,6 +1,14 @@
 //! The same portable artifact is consumed with source, native, or neither feature.
-use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
-use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, KbcArtifact},
+    native_input::PortableMir,
+};
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
+
 use kagari_runtime::value::Value;
 
 const ARTIFACT: &[u8] = include_bytes!("fixtures/feature_artifact.kbc");
@@ -32,7 +40,7 @@ fn source_free_native_bindings_execute_and_release_scopes() {
         PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
             .unwrap();
     let context = ExecutionContext::default();
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let mut runtime = KagariEngine::new(config).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
@@ -111,7 +119,7 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
 #[cfg(feature = "source")]
 #[test]
 fn portable_fixture_matches_source_emission() {
-    use kagari_common::SourceFile;
+    use kagari_common::source::SourceFile;
     let source = SourceFile::new(
         "memory://feature-artifact.kgr",
         include_str!("fixtures/feature_artifact.kgr"),
@@ -134,12 +142,15 @@ mod native {
         native_call::{JIT_STATUS_OK, JitValue},
     };
     use kagari_codegen::{
-        BackendCompileError, BackendConfiguration, BackendFunctionInput, CodegenBackend,
+        BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
     };
-    use kagari_mir::{Constant, Instruction, Terminator};
-    use kagari_runtime::{CapabilitySet, LanguageProfile, jit_abi::jit_consume_instruction_step};
-    use kagari_vm::JitExecutionStatus;
+    use kagari_mir::instruction::{Constant, Instruction, Terminator};
+    use kagari_vm::vm::JitExecutionStatus;
     use std::{ffi::c_void, rc::Rc};
+    use {
+        kagari_common::capability::CapabilitySet,
+        kagari_runtime::{jit_abi::jit_consume_instruction_step, security::LanguageProfile},
+    };
 
     #[derive(Debug)]
     struct StaticCode;
@@ -236,7 +247,7 @@ mod native {
 #[test]
 fn real_cranelift_compiles_portable_artifact_without_source() {
     use kagari_codegen_cranelift::CraneliftBackend;
-    use kagari_vm::{JitExecutionStatus, PreparedNativeEntry};
+    use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
     let program =
         PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
             .unwrap();

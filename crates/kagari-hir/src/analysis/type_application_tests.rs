@@ -1,5 +1,5 @@
 use super::*;
-use crate::hir::{ExprKind, TypeKind};
+use crate::hir::{expr::ExprKind, ty::TypeKind};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},

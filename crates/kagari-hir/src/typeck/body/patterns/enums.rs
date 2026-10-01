@@ -1,11 +1,11 @@
 use crate::{
     declarations::DeclarationId,
-    hir::PatternId,
+    hir::ids::PatternId,
     native::NativeTypeKind,
     typeck::{BodyTypeEnv, body::BodyChecker},
     types::TypeId,
 };
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
     pub(super) fn check_enum_pattern(

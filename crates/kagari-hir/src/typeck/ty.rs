@@ -1,22 +1,29 @@
-use super::{ResolvedTypeRef, TypeTable, TypeTarget, associated};
 use crate::{
     builtin::traits::StandardTraitSemantics,
     declarations::{DeclarationId, Declarations},
-    hir,
+    hir::{
+        ids::{BodyOwner, HirOwner, ImplId, TraitId, TypeRefId},
+        item::{Module, behavior::GenericParam},
+        ty::TypeKind,
+    },
     native::NativeTypeKind,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
+    typeck::{
+        associated,
+        table::{ResolvedTypeRef, TypeTable, TypeTarget},
+    },
     types::{NominalType, TypeId},
 };
-use hir::{BodyOwner, HirOwner, TypeKind};
+
 use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
 use kagari_common::{cancellation::CancellationToken, identity};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct TypeContext<'a> {
     pub declarations: &'a Declarations,
-    pub generics: &'a [hir::GenericParam],
-    pub self_type: Option<hir::TraitId>,
-    pub implementation: Option<hir::ImplId>,
+    pub generics: &'a [GenericParam],
+    pub self_type: Option<TraitId>,
+    pub implementation: Option<ImplId>,
 }
 
 pub(super) fn native_type(
@@ -131,8 +138,8 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
 }
 
 pub(super) fn resolve_type(
-    module: &hir::Module,
-    ty: hir::TypeRefId,
+    module: &Module,
+    ty: TypeRefId,
     declarations: &Declarations,
     table: &mut TypeTable,
     cancel: &CancellationToken,
@@ -152,8 +159,8 @@ pub(super) fn resolve_type(
 }
 
 pub(super) fn resolve_type_in(
-    module: &hir::Module,
-    ty: hir::TypeRefId,
+    module: &Module,
+    ty: TypeRefId,
     context: TypeContext<'_>,
     table: &mut TypeTable,
     cancel: &CancellationToken,
@@ -394,7 +401,7 @@ pub(super) fn resolve_type_in(
     );
     resolved
 }
-pub(super) fn display_type(module: &hir::Module, ty: hir::TypeRefId) -> String {
+pub(super) fn display_type(module: &Module, ty: TypeRefId) -> String {
     match &module.type_ref(ty).kind {
         TypeKind::Named(name) => name.clone(),
         TypeKind::Generic {

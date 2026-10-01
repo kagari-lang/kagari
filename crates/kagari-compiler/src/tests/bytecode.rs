@@ -1,23 +1,31 @@
 use crate::tests::common;
+use kagari_bytecode::{
+    artifact::{
+        ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
+        ArtifactValidationError, DebugMetadata, DependencyFingerprint, KBC_MAGIC, KbcArtifact,
+    },
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, FieldRef, JumpTarget, LocalSlot, PathId,
+        Register, RuntimeHelper, StructId, UnaryOp,
+    },
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, PathRecord, SafeDebugPointKind},
+    program::{BytecodeProgram, verify_program},
+    verifier::{BytecodeVerificationError, verify_module},
+};
+
 use kagari_abi::{
     ids::FunctionRef,
     representation::ValueType,
     standard::RuntimePrimitive,
     types::{PublicAbiItem, TypeAbiKind},
 };
-use kagari_bytecode::{
-    ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactSectionId,
-    ArtifactValidationError, BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule,
-    BytecodeVerificationError, CallTarget, DebugMetadata, DependencyFingerprint, FieldRef,
-    FunctionMetadata, JumpTarget, KBC_MAGIC, KbcArtifact, LocalSlot, PathId, PathRecord, Register,
-    RuntimeHelper, SafeDebugPointKind, StructId, UnaryOp, verify_module, verify_program,
-};
+
 use kagari_common::{
     collection::CollectionAccess,
     identity::{ModuleIdentity, PackageId},
 };
 
-fn host_trait_test_program(source: &str) -> kagari_bytecode::BytecodeProgram {
+fn host_trait_test_program(source: &str) -> BytecodeProgram {
     let mut module = common::bytecode_ok(source);
     let root = module.root.index();
     add_readable_host(&mut module.modules[root]);
@@ -27,8 +35,11 @@ fn host_trait_test_program(source: &str) -> kagari_bytecode::BytecodeProgram {
 fn add_readable_host(module: &mut BytecodeModule) {
     use kagari_common::{
         host_interface::{
-            HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-            HostTypeDeclaration, HostValueType,
+            type_declaration::{
+                HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+                HostTypeDeclaration,
+            },
+            value_type::HostValueType,
         },
         identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     };

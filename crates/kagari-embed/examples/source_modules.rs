@@ -1,15 +1,15 @@
 //! Query source dependencies, then encode, load and execute their shared program.
 
-use kagari_abi::types::AbiType;
-use kagari_abi::types::PublicAbiItem;
-use kagari_bytecode::KbcArtifact;
+use kagari_abi::types::{AbiType, PublicAbiItem};
+
+use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
 use kagari_compiler::{bytecode, source::program};
-use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 
 fn main() {
     let engine = KagariEngine::default();

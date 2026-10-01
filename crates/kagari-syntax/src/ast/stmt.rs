@@ -1,7 +1,6 @@
 use crate::{
     ast::{
-        ast_node,
-        expr::{BlockExpr, Expr, Pattern},
+        expr::{BindingCondition, BlockExpr, Expr, Pattern},
         misc::{Name, Writeability},
         support,
         traits::AstNode,
@@ -155,7 +154,7 @@ impl AssignStmt {
 }
 
 impl WhileStmt {
-    pub fn binding_condition(&self) -> Option<super::BindingCondition> {
+    pub fn binding_condition(&self) -> Option<BindingCondition> {
         support::child(self.syntax())
     }
 

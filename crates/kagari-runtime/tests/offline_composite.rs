@@ -1,9 +1,14 @@
 use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
-        HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType as Type,
+        HostFunctionDeclaration, HostParameter, HostPassingStyle, value_type::HostValueType as Type,
     },
 };
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+};
+
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::HostFunction,
@@ -16,17 +21,17 @@ use std::sync::{
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
+        security: SecurityContext {
+            profile: LanguageProfile {
                 allow_host_calls: true,
                 ..Default::default()
             },
-            capabilities: kagari_runtime::CapabilitySet {
+            capabilities: CapabilitySet {
                 host_calls: true,
                 ..Default::default()
             },
         },
-        host_exposure: kagari_runtime::HostExposurePolicy {
+        host_exposure: HostExposurePolicy {
             allow_host_functions: true,
             ..Default::default()
         },
@@ -204,7 +209,7 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
 
 #[test]
 fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
-    use kagari_runtime::{HostObjectId, RuntimeErrorKind, TypeId};
+    use kagari_runtime::{error::RuntimeErrorKind, host::HostObjectId, metadata::TypeId};
     let mut runtime = runtime();
     let id = runtime
         .register_host_function(HostFunction::new(

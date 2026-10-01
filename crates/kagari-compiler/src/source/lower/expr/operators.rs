@@ -1,8 +1,18 @@
 use crate::source::{
     lower::{MirLoweringError, state::FunctionLowerer},
-    types::{self},
+    types,
 };
-use hir::BinaryOp as HirBinaryOp;
+use kagari_hir::{
+    aggregates::traits::MethodDefault,
+    builtin::traits,
+    hir::{expr::ops::BinaryOp as HirBinaryOp, ids::ExprId},
+    typeck::table::CallTarget as HirCallTarget,
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        abi::{lower_nominal_type, lower_type},
+    },
+};
+
 use kagari_abi::{
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, StandardEnumOp, UnaryOp},
@@ -11,14 +21,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, traits::StandardTrait},
 };
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
-use kagari_hir::{
-    aggregates::MethodDefault,
-    builtin::traits,
-    hir,
-    typeck::CallTarget as HirCallTarget,
-    types::abi::{lower_nominal_type, lower_type},
-    types::{NominalType, TypeId, TypeSubstitution},
-};
+
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, InterfaceCallContract, MirValue, SourceFunctionContract,
     Terminator, ValueBuffer,
@@ -60,7 +63,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_selected_operator(
         &mut self,
-        site: hir::ExprId,
+        site: ExprId,
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
         let call = self
@@ -457,8 +460,8 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_ordering_operator(
         &mut self,
-        site: hir::ExprId,
-        op: hir::BinaryOp,
+        site: ExprId,
+        op: HirBinaryOp,
         args: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
         // Primitive numeric comparisons retain their direct instruction path.
@@ -497,13 +500,13 @@ impl FunctionLowerer<'_, '_> {
         });
         self.switch_to_block(body);
         let order = self.standard_enum_op(&optional, StandardEnumOp::Read(0), Some(value))?;
-        let tag = if matches!(op, hir::BinaryOp::Lt | hir::BinaryOp::Ge) {
+        let tag = if matches!(op, HirBinaryOp::Lt | HirBinaryOp::Ge) {
             0
         } else {
             2
         };
         let test = self.standard_enum_op(&ordering, StandardEnumOp::Test(tag), Some(order))?;
-        if matches!(op, hir::BinaryOp::Le | hir::BinaryOp::Ge) {
+        if matches!(op, HirBinaryOp::Le | HirBinaryOp::Ge) {
             self.emit(Instruction::Unary {
                 dst,
                 op: UnaryOp::Not,

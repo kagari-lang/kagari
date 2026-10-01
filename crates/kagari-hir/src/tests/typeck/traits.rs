@@ -1,4 +1,5 @@
 use super::*;
+use kagari_common::diagnostic::DiagnosticKind;
 
 #[test]
 fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
@@ -28,7 +29,7 @@ fn trait_name_is_not_a_self_parameter_in_where_bounds() {
     let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");
     let names = resolve_names(&lowered).into_checked().expect("trait names");
     let typed = check_module(&lowered, &names, None);
-    assert!(typed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, kagari_common::DiagnosticKind::InvalidBoundTarget { name } if name == "Sequence")));
+    assert!(typed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidBoundTarget { name } if name == "Sequence")));
 }
 
 #[test]

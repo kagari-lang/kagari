@@ -1,8 +1,12 @@
 use crate::{
-    ast::{AstNode, Item},
-    parser::{ParseLimits, parse_declarations},
+    ast::{
+        item::{AssociatedType, Item},
+        traits::AstNode,
+    },
+    parser::{ParseLimits, parse, parse_declarations},
 };
-use kagari_common::{SourceFile, cancellation::CancellationToken};
+
+use kagari_common::{cancellation::CancellationToken, source::SourceFile};
 
 #[test]
 fn declaration_mode_preserves_signatures_docs_and_source() {
@@ -30,7 +34,7 @@ fn declaration_mode_preserves_signatures_docs_and_source() {
         "Read one element.\nReturns None outside the array."
     );
     assert_eq!(items[1].documentation(text), "The next operation.");
-    assert!(!crate::parse(&source).diagnostics().is_empty());
+    assert!(!parse(&source).diagnostics().is_empty());
 }
 
 #[test]
@@ -66,7 +70,7 @@ fn opaque_native_types_are_restricted_to_declaration_mode() {
             .syntax()
             .syntax()
             .children()
-            .any(|node| crate::ast::AssociatedType::cast(node).is_some())
+            .any(|node| AssociatedType::cast(node).is_some())
     );
-    assert!(!crate::parse(&source).diagnostics().is_empty());
+    assert!(!parse(&source).diagnostics().is_empty());
 }

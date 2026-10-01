@@ -1,39 +1,52 @@
-use crate::source::{lower::support::lower_scalar, types::raise_type};
+use crate::source::{
+    lower::{
+        MirLoweringError,
+        instances::CallableInstance,
+        state::{FunctionLowerer, LoopScope},
+        support::lower_scalar,
+    },
+    types::raise_type,
+};
+use kagari_hir::{
+    hir::{
+        expr::{Condition, ExprKind, ops::BinaryOp as HirBinaryOp},
+        ids::{BlockId, ExprId},
+    },
+    native::NativeTypeKind,
+    resolver::resolved::ResolvedName,
+    typeck::table::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
+    types::{
+        TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
+};
+
 mod aggregates;
 mod calls;
 mod patterns;
-use crate::source::lower::{instances::CallableInstance, state::LoopScope};
-use hir::{BinaryOp as HirBinaryOp, Condition, ExprKind};
+
 use kagari_abi::{
     numeric::NumericConversion,
     operations::{StandardEnumOp, UnaryOp},
-    standard::traits::StandardTrait,
+    representation::ValueType,
+    standard::{RuntimePrimitive, traits::StandardTrait},
 };
 use kagari_common::collection::CollectionAccess;
-use kagari_hir::{
-    native::NativeTypeKind,
-    resolver::ResolvedName,
-    typeck::{CallTarget as TypeckCallTarget, ResolvedInterfaceImplementation},
-    types::TypeId,
-    types::abi::{lower_nominal_type, lower_type},
-};
+
 mod equality;
 mod native_calls;
 mod native_contracts;
 mod operators;
 mod standard;
 
-use kagari_abi::{representation::ValueType, standard::RuntimePrimitive};
-use kagari_hir::hir;
 use std::ops::ControlFlow;
 
-use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
 };
 
 impl FunctionLowerer<'_, '_> {
-    fn lower_closure(&mut self, expr_id: hir::ExprId) -> Result<MirValue, MirLoweringError> {
+    fn lower_closure(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
         let mut captures = ValueBuffer::new();
         for resolved in self.analyzed.names.closure_captures(expr_id) {
             let local = self.lookup_binding(*resolved)?;
@@ -55,7 +68,7 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(MirLoweringError::MissingBinding("captured parameter type"))?,
                 _ => return Err(MirLoweringError::MissingBinding("closure capture")),
             };
-            let physical = if matches!(resolved, kagari_hir::resolver::ResolvedName::Local(id) if self.cell_locals.contains(id))
+            let physical = if matches!(resolved, ResolvedName::Local(id) if self.cell_locals.contains(id))
             {
                 ValueType::HeapObject
             } else {
@@ -80,7 +93,7 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_values(
         &mut self,
-        expressions: &[hir::ExprId],
+        expressions: &[ExprId],
     ) -> Result<ControlFlow<MirValue, ValueBuffer>, MirLoweringError> {
         let mut values = ValueBuffer::new();
         for expression in expressions {
@@ -93,7 +106,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(ControlFlow::Continue(values))
     }
 
-    fn record_expr_layout(&mut self, expr_id: hir::ExprId) -> Result<(), MirLoweringError> {
+    fn record_expr_layout(&mut self, expr_id: ExprId) -> Result<(), MirLoweringError> {
         let ty = self
             .analyzed
             .typed
@@ -108,10 +121,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(())
     }
 
-    pub(crate) fn lower_expr(
-        &mut self,
-        expr_id: hir::ExprId,
-    ) -> Result<MirValue, MirLoweringError> {
+    pub(crate) fn lower_expr(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
         self.planner.check()?;
         let mut value = self.lower_expr_value(expr_id)?;
         if !self.current_block_terminated() && self.expr_type(expr_id)? == ValueType::Never {
@@ -287,7 +297,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(value)
     }
 
-    fn lower_expr_value(&mut self, expr_id: hir::ExprId) -> Result<MirValue, MirLoweringError> {
+    fn lower_expr_value(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
         if let Some(fact) = self
             .analyzed
             .typed
@@ -578,7 +588,7 @@ impl FunctionLowerer<'_, '_> {
                 Ok(dst)
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                if matches!(op, hir::BinaryOp::AndAnd | hir::BinaryOp::OrOr) {
+                if matches!(op, HirBinaryOp::AndAnd | HirBinaryOp::OrOr) {
                     return self.lower_short_circuit(expr_id, lhs, op, rhs);
                 }
                 let operand_ty = self
@@ -597,16 +607,16 @@ impl FunctionLowerer<'_, '_> {
                 }
                 if matches!(
                     op,
-                    hir::BinaryOp::Add
-                        | hir::BinaryOp::Sub
-                        | hir::BinaryOp::Mul
-                        | hir::BinaryOp::Div
-                        | hir::BinaryOp::Rem
-                        | hir::BinaryOp::BitAnd
-                        | hir::BinaryOp::BitOr
-                        | hir::BinaryOp::BitXor
-                        | hir::BinaryOp::Shl
-                        | hir::BinaryOp::Shr
+                    HirBinaryOp::Add
+                        | HirBinaryOp::Sub
+                        | HirBinaryOp::Mul
+                        | HirBinaryOp::Div
+                        | HirBinaryOp::Rem
+                        | HirBinaryOp::BitAnd
+                        | HirBinaryOp::BitOr
+                        | HirBinaryOp::BitXor
+                        | HirBinaryOp::Shl
+                        | HirBinaryOp::Shr
                 ) && self
                     .analyzed
                     .typed
@@ -618,7 +628,7 @@ impl FunctionLowerer<'_, '_> {
                 }
                 if matches!(
                     op,
-                    hir::BinaryOp::Lt | hir::BinaryOp::Le | hir::BinaryOp::Gt | hir::BinaryOp::Ge
+                    HirBinaryOp::Lt | HirBinaryOp::Le | HirBinaryOp::Gt | HirBinaryOp::Ge
                 ) && self
                     .analyzed
                     .typed
@@ -628,7 +638,7 @@ impl FunctionLowerer<'_, '_> {
                 {
                     return self.lower_ordering_operator(expr_id, op, &[lhs, rhs]);
                 }
-                if matches!(op, hir::BinaryOp::Eq | hir::BinaryOp::NotEq) {
+                if matches!(op, HirBinaryOp::Eq | HirBinaryOp::NotEq) {
                     let ty = self
                         .planner
                         .arguments(
@@ -704,10 +714,10 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_if(
         &mut self,
-        expr_id: hir::ExprId,
-        condition: hir::Condition,
-        then_branch: hir::BlockId,
-        else_branch: Option<hir::ExprId>,
+        expr_id: ExprId,
+        condition: Condition,
+        then_branch: BlockId,
+        else_branch: Option<ExprId>,
     ) -> Result<MirValue, MirLoweringError> {
         let cond = self.lower_expr(condition.value())?;
         if self.current_block_terminated() {
@@ -779,10 +789,10 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_short_circuit(
         &mut self,
-        expr_id: hir::ExprId,
-        lhs: hir::ExprId,
-        op: hir::BinaryOp,
-        rhs: hir::ExprId,
+        expr_id: ExprId,
+        lhs: ExprId,
+        op: HirBinaryOp,
+        rhs: ExprId,
     ) -> Result<MirValue, MirLoweringError> {
         let lhs = self.lower_expr(lhs)?;
         if self.current_block_terminated() {
@@ -843,8 +853,8 @@ impl FunctionLowerer<'_, '_> {
 
     fn lower_loop_expr(
         &mut self,
-        expr: hir::ExprId,
-        body: hir::BlockId,
+        expr: ExprId,
+        body: BlockId,
     ) -> Result<MirValue, MirLoweringError> {
         let result = self.alloc_temp(self.expr_type(expr)?);
         let body_block = self.new_block();

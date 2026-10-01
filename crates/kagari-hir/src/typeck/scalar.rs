@@ -1,5 +1,5 @@
 use crate::{
-    hir::{Literal, LiteralKind},
+    hir::expr::literal::{Literal, LiteralKind},
     types::TypeId,
 };
 use kagari_abi::{scalar::BuiltinType, standard::surface::builtin_type};

@@ -1,7 +1,8 @@
 use super::*;
-use crate::{declarations::DeclarationId, hir::ExprKind};
+use crate::{declarations::DeclarationId, hir::expr::ExprKind};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
+    diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
@@ -221,7 +222,7 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
                 .iter()
                 .any(|diagnostic| matches!(
                     diagnostic.kind,
-                    kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
+                    DiagnosticKind::ArgumentTypeMismatch { .. }
                 )),
             has_mismatch
         );
@@ -439,10 +440,12 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap()
         .unwrap();
     assert_eq!(invalidated.reused_bodies(), 0);
-    assert!(invalidated.diagnostics().iter().any(|d| matches!(
-        d.kind,
-        kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
-    )));
+    assert!(
+        invalidated
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::ArgumentTypeMismatch { .. }))
+    );
     assert!(body.diagnostics().is_empty());
     assert_eq!(
         body.type_at(text.find("(7)").unwrap() + 1),

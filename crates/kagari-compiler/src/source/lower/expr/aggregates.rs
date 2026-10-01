@@ -1,19 +1,24 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
-use kagari_abi::representation::ValueType;
-use kagari_hir::types::abi::lower_type;
-use kagari_hir::{hir, typeck::ResolvedHostPath};
-use kagari_mir::{
-    PathRef,
-    instruction::{Instruction, MirValue, StructFieldInit},
+use kagari_hir::{
+    hir::{
+        expr::{ExprBuffer, FieldInitBuffer},
+        ids::ExprId,
+    },
+    typeck::table::ResolvedHostPath,
+    types::abi::lower_type,
 };
+
+use kagari_abi::representation::ValueType;
+
+use kagari_mir::instruction::{Instruction, MirValue, PathRef, StructFieldInit};
 use smallvec::SmallVec;
 use std::ops::ControlFlow;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_tuple(
         &mut self,
-        expr_id: hir::ExprId,
-        elements: hir::ExprBuffer,
+        expr_id: ExprId,
+        elements: ExprBuffer,
     ) -> Result<MirValue, MirLoweringError> {
         let elements = match self.lower_values(&elements)? {
             ControlFlow::Continue(elements) => elements,
@@ -26,8 +31,8 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_array(
         &mut self,
-        expr_id: hir::ExprId,
-        elements: hir::ExprBuffer,
+        expr_id: ExprId,
+        elements: ExprBuffer,
     ) -> Result<MirValue, MirLoweringError> {
         let elements = match self.lower_values(&elements)? {
             ControlFlow::Continue(elements) => elements,
@@ -40,9 +45,9 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_range(
         &mut self,
-        expr_id: hir::ExprId,
-        start: Option<hir::ExprId>,
-        end: Option<hir::ExprId>,
+        expr_id: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
         _inclusive: bool,
     ) -> Result<MirValue, MirLoweringError> {
         let mut values = Vec::new();
@@ -83,8 +88,8 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_struct_init(
         &mut self,
-        expr_id: hir::ExprId,
-        fields: hir::FieldInitBuffer,
+        expr_id: ExprId,
+        fields: FieldInitBuffer,
     ) -> Result<MirValue, MirLoweringError> {
         let target = self
             .analyzed
@@ -130,7 +135,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_host_path_read(
         &mut self,
-        expr_id: hir::ExprId,
+        expr_id: ExprId,
         checked: ResolvedHostPath,
     ) -> Result<MirValue, MirLoweringError> {
         let root_or_view = self.lower_expr(checked.root)?;
@@ -164,8 +169,8 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_field(
         &mut self,
-        expr_id: hir::ExprId,
-        receiver: hir::ExprId,
+        expr_id: ExprId,
+        receiver: ExprId,
     ) -> Result<MirValue, MirLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
             return self.lower_host_path_read(expr_id, checked);
@@ -194,9 +199,9 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_index(
         &mut self,
-        expr_id: hir::ExprId,
-        receiver: hir::ExprId,
-        index: hir::ExprId,
+        expr_id: ExprId,
+        receiver: ExprId,
+        index: ExprId,
     ) -> Result<MirValue, MirLoweringError> {
         if let Some(checked) = self.analyzed.typed.type_table.host_path(expr_id).cloned() {
             return self.lower_host_path_read(expr_id, checked);

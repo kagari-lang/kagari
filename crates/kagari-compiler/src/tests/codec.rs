@@ -5,10 +5,12 @@ use kagari_abi::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_mir::{
-    BlockId, Constant, Instruction, MirModule, MirTemp, MirVerificationErrorKind, Terminator,
     codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
+    function::{MirModule, MirTemp},
+    ids::BlockId,
+    instruction::{Constant, Instruction, Terminator},
     program::{ProgramErrorKind, VerifiedMirProgram, verify_program},
-    verify_mir,
+    verify::{MirVerificationErrorKind, verify_mir},
 };
 use std::sync::Arc;
 
@@ -335,7 +337,10 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
 
 #[test]
 fn artifact_integrity_does_not_substitute_for_native_correspondence() {
-    use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
+    use kagari_bytecode::{
+        artifact::{ArtifactBuildOptions, KbcArtifact},
+        native_input::PortableMir,
+    };
 
     let first = program("fn main() -> i32 { 42 }");
     let second = program("fn main() -> i32 { 43 }");

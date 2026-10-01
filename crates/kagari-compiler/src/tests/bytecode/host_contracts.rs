@@ -1,8 +1,11 @@
-use crate::source::program::lower_program_to_mir;
-use crate::tests::bytecode::*;
+use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
+use kagari_bytecode::{
+    self as bytecode,
+    program::{BytecodeProgram, ModuleRef, verify_program},
+};
+use kagari_common::host_interface::value_type::HostValueType;
+
 use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_bytecode as bytecode;
-use kagari_bytecode::verify_program;
 
 #[test]
 fn host_imports_are_interned_and_checked_before_execution() {
@@ -25,7 +28,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .host_interface
         .functions[0]
         .params[0]
-        .ty = kagari_common::host_interface::HostValueType::Bool;
+        .ty = HostValueType::Bool;
     wrong_parameter.modules[wrong_parameter.root.index()]
         .host_interface
         .functions[0]
@@ -95,7 +98,7 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
 
 #[test]
 fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
-    use kagari_common::host_interface::HostValueType;
+    use kagari_common::host_interface::value_type::HostValueType;
 
     let module =
         host_trait_test_program("pub trait Readable<T> { fn get(self) -> T; } fn main() {}");
@@ -148,15 +151,15 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
     };
     let imported = |importer| {
         let mut program = valid.program.clone();
-        program.root = bytecode::ModuleRef::new(program.modules.len());
+        program.root = ModuleRef::new(program.modules.len());
         program.modules.push(importer);
         program
     };
-    bytecode::verify_program(&imported(importer.clone())).unwrap();
+    verify_program(&imported(importer.clone())).unwrap();
     importer.host_interface.types[0].trait_implementations[0].trait_arguments =
         vec![HostValueType::Bool];
     assert!(matches!(
-        bytecode::verify_program(&imported(importer)),
+        verify_program(&imported(importer)),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }
@@ -233,7 +236,7 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
 
 #[test]
 fn host_trait_standard_bounds_are_rechecked_after_decode() {
-    use kagari_common::host_interface::HostValueType;
+    use kagari_common::host_interface::value_type::HostValueType;
 
     let module =
         host_trait_test_program("trait Readable<T: Eq + Hash> { fn get(self) -> T; } fn main() {}");
@@ -262,8 +265,10 @@ fn host_trait_standard_bounds_are_rechecked_after_decode() {
 fn host_trait_bounds_accept_host_implementation_evidence() {
     use kagari_common::{
         host_interface::{
-            HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-            HostValueType,
+            type_declaration::{
+                HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+            },
+            value_type::HostValueType,
         },
         identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     };
@@ -324,7 +329,7 @@ fn host_trait_bounds_accept_host_implementation_evidence() {
 
 #[test]
 fn host_trait_script_bounds_are_rechecked_after_decode() {
-    use kagari_common::host_interface::HostValueType;
+    use kagari_common::host_interface::value_type::HostValueType;
 
     let module = host_trait_test_program(
         "trait Marker { fn mark(self) -> i32; } impl Marker for i32 { fn mark(self) -> i32 { self } } trait Readable<T: Marker> { fn get(self) -> T; } fn main() {}",
@@ -353,7 +358,7 @@ fn host_trait_script_bounds_are_rechecked_after_decode() {
 #[test]
 fn host_trait_bounds_use_imported_script_implementations() {
     use kagari_common::{
-        host_interface::HostValueType,
+        host_interface::value_type::HostValueType,
         identity::{ModuleIdentity, PackageId},
         source_database::{SourceDatabase, SourceLayer},
     };
@@ -392,7 +397,7 @@ fn host_trait_bounds_use_imported_script_implementations() {
     let mut program = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
     let root_index = program.root.index();
     add_readable_host(&mut program.modules[root_index]);
-    kagari_bytecode::verify_program(&program).unwrap();
+    verify_program(&program).unwrap();
     let mut forged = program.clone();
     let root = &mut forged.modules[root_index];
     root.host_interface.types[0].trait_implementations[0].trait_arguments =
@@ -400,7 +405,7 @@ fn host_trait_bounds_use_imported_script_implementations() {
     root.host_interface.types[0].methods[0].return_type = HostValueType::Bool;
     root.host_interface.functions[0].return_type = HostValueType::Bool;
     assert!(matches!(
-        bytecode::verify_program(&forged),
+        verify_program(&forged),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
     let artifact = KbcArtifact::from_program(program, ArtifactBuildOptions::default()).unwrap();
@@ -412,11 +417,11 @@ fn host_trait_bounds_use_imported_script_implementations() {
 
 #[test]
 fn program_rejects_conflicting_host_types_before_linking() {
-    use kagari_common::host_interface::{HostTypeDeclaration, HostTypeOwnership};
+    use kagari_common::host_interface::type_declaration::{HostTypeDeclaration, HostTypeOwnership};
 
     let base = HostTypeDeclaration::new("demo.Counter");
-    let program = |other: HostTypeDeclaration| kagari_bytecode::BytecodeProgram {
-        root: kagari_bytecode::ModuleRef::new(1),
+    let program = |other: HostTypeDeclaration| BytecodeProgram {
+        root: ModuleRef::new(1),
         modules: vec![
             BytecodeModule {
                 identity: ModuleIdentity {
@@ -434,7 +439,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
                     package: PackageId("pkg".into()),
                     path: vec!["consumer".into()],
                 },
-                dependencies: vec![bytecode::ModuleRef::new(0)],
+                dependencies: vec![ModuleRef::new(0)],
                 host_interface: kagari_common::host_interface::HostInterface {
                     types: vec![other],
                     ..Default::default()
@@ -445,12 +450,12 @@ fn program_rejects_conflicting_host_types_before_linking() {
     };
     let mut documentation_only = base.clone();
     documentation_only.documentation = "editor help".into();
-    kagari_bytecode::verify_program(&program(documentation_only)).unwrap();
+    verify_program(&program(documentation_only)).unwrap();
 
     let mut conflict = base.clone();
     conflict.ownership = HostTypeOwnership::HostRoot;
     assert!(matches!(
-        bytecode::verify_program(&program(conflict)),
+        verify_program(&program(conflict)),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }

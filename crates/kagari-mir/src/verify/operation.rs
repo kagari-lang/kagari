@@ -1,16 +1,16 @@
 use crate::{
-    CallTarget, Constant, Instruction, MirFunction, MirModule,
-    instruction::RuntimeHelper,
+    function::{MirFunction, MirModule},
+    instruction::{CallTarget, Constant, Instruction, RuntimeHelper},
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
-use contracts::RuntimeHelperKind;
 use kagari_abi::{
-    contracts::{self, ContractError},
+    contracts::{self, ContractError, RuntimeHelperKind},
     operations::{self, range_operands_valid},
     representation::ValueType,
     types::{self as abi, AbiType, PublicAbiItem},
 };
-use kagari_common::host_interface::{HostInterface, PathAccess};
+
+use kagari_common::host_interface::{HostInterface, type_declaration::PathAccess};
 use std::collections::HashSet;
 
 pub(super) fn verify(

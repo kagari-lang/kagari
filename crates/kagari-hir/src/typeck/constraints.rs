@@ -1,18 +1,28 @@
-use super::{
-    ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget,
-    check::function_type_context,
-    ty::{self, TypeContext, resolve_type_in},
-};
 use crate::{
     builtin::{surface, traits::intrinsic_holds},
     declarations::Declarations,
-    hir,
+    hir::{
+        item::{
+            Module,
+            behavior::{GenericParam, Impl, TraitBound, TraitRef},
+            function::Function,
+        },
+        ty::TypeKind,
+    },
     lower::LoweredModule,
+    typeck::{
+        check::function_type_context,
+        table::{ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget},
+        ty::{self, TypeContext, resolve_type_in},
+    },
     types::TypeId,
 };
-use hir::TypeKind;
+
 use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+use kagari_common::{
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
+};
 use smallvec::SmallVec;
 
 /// Resolve bounds once in their declaring context, before signatures and bodies.
@@ -117,8 +127,8 @@ pub(super) fn resolve_constraints(
 
 pub(super) fn resolve_owner(
     lowered: &LoweredModule,
-    generics: &[hir::GenericParam],
-    bounds: &[hir::TraitBound],
+    generics: &[GenericParam],
+    bounds: &[TraitBound],
     declarations: &Declarations,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
@@ -135,7 +145,7 @@ pub(super) fn resolve_owner(
 
 pub(super) fn resolve_owner_in(
     lowered: &LoweredModule,
-    bounds: &[hir::TraitBound],
+    bounds: &[TraitBound],
     context: TypeContext<'_>,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
@@ -192,7 +202,7 @@ pub(super) fn resolve_owner_in(
 
 pub(super) fn resolve_constraint(
     lowered: &LoweredModule,
-    reference: &hir::TraitRef,
+    reference: &TraitRef,
     context: TypeContext<'_>,
     table: &mut TypeTable,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
@@ -303,8 +313,8 @@ pub(super) fn resolve_constraint(
 /// Keep constraints attached to the declaring parameter, including when an
 /// implicit receiver still contains an outer parameter shadowed by the method.
 pub(super) fn function_bounds(
-    module: &hir::Module,
-    function: &hir::Function,
+    module: &Module,
+    function: &Function,
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
@@ -337,7 +347,7 @@ pub(super) fn function_bounds(
 }
 
 pub(super) fn implementation_bounds(
-    implementation: &hir::Impl,
+    implementation: &Impl,
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
@@ -360,7 +370,7 @@ pub(super) fn implementation_bounds(
 }
 
 pub(super) fn parameter_bounds(
-    params: &[hir::GenericParam],
+    params: &[GenericParam],
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {

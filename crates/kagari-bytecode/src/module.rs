@@ -1,6 +1,6 @@
 use crate::{
-    ModuleRef,
     instruction::{BytecodeInstruction, ConstantOperand, JumpTarget, LocalSlot, PathId, Register},
+    program::ModuleRef,
 };
 use kagari_abi::{
     budget::LogicalBudgetCharge,
@@ -13,9 +13,9 @@ use kagari_abi::{
     types::{AbiType, ConcreteFunctionIdentity, NativeDeclaration, PublicAbiItem, TraitContract},
 };
 use kagari_common::{
-    Span,
     host_interface::HostInterface,
     identity::{DefinitionId, ModuleIdentity},
+    span::Span,
 };
 use serde::{Deserialize, Serialize};
 

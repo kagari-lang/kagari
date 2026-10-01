@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
     types::AbiType,
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
 const OPERATIONS: &[(&str, NativeDefaultMethod)] = &[
     ("union", NativeDefaultMethod::SetUnion),

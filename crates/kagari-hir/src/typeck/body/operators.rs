@@ -3,9 +3,17 @@ use crate::{
         surface,
         traits::{self, StandardTraitSemantics, callable_signature},
     },
-    hir::{BinaryOp, ExprId, ExprKind, LiteralKind, PrefixOp},
+    hir::{
+        expr::{
+            ExprKind,
+            literal::LiteralKind,
+            ops::{BinaryOp, PrefixOp},
+        },
+        ids::ExprId,
+    },
     typeck::{
-        BodyTypeEnv, CallTarget, body::BodyChecker, completion, constraints, ty::display_type_id,
+        BodyTypeEnv, body::BodyChecker, completion, constraints, table::CallTarget,
+        ty::display_type_id,
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -16,7 +24,11 @@ use kagari_abi::{
         traits::{self as standard_traits, StandardTrait},
     },
 };
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::Cancelled, identity};
+use kagari_common::{
+    cancellation::Cancelled,
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity,
+};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(

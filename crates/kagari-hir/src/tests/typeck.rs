@@ -1,10 +1,14 @@
-use kagari_common::{DiagnosticKind, SourceFile, TypePosition, collection::CollectionAccess};
-use kagari_syntax::parse_module;
+use kagari_common::{
+    collection::CollectionAccess,
+    diagnostic::{DiagnosticKind, TypePosition},
+    source::SourceFile,
+};
+use kagari_syntax::parser::parse_module;
 
 use crate::{
     builtin::surface,
-    hir::{ExportItem, ExprKind, PatternKind, StmtKind},
-    resolver::resolve_names,
+    hir::{expr::ExprKind, item::storage::ExportItem, pattern::PatternKind, stmt::StmtKind},
+    resolver::collect::resolve_names,
     tests::common::{self, check_module},
     types::TypeId,
 };

@@ -3,18 +3,28 @@ use crate::source::lower::{
     debug::capture_origin,
     instances::{Instance, InstancePlanner},
 };
-use hir::{BodyOwner, HirOwner, StmtKind, Writeability};
-use kagari_abi::{effects::EffectSet, representation::ValueType, types::AbiType};
-use kagari_hir::types::abi::lower_type;
 use kagari_hir::{
-    AnalyzedModule, hir, resolver::ResolvedName, typeck::TypedFunction, types::TypeId,
+    AnalyzedModule,
+    hir::{
+        expr::ExprKind,
+        ids::{BodyOwner, HirOwner, LocalId as HirLocalId, ParamId},
+        item::function::Function,
+        stmt::StmtKind,
+        writeability::Writeability,
+    },
+    resolver::resolved::ResolvedName,
+    typeck::TypedFunction,
+    types::{TypeId, abi::lower_type},
 };
+
+use kagari_abi::{effects::EffectSet, representation::ValueType, types::AbiType};
+
 use std::{
     collections::{HashMap, HashSet},
     slice,
 };
 
-use kagari_common::Span;
+use kagari_common::span::Span;
 
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
@@ -37,9 +47,9 @@ pub(crate) struct FunctionLowerer<'a, 'p> {
     pub(crate) function: MirFunction,
     pub(crate) current_block: BlockId,
 
-    pub(crate) params: HashMap<hir::ParamId, LocalId>,
-    pub(crate) locals: HashMap<hir::LocalId, LocalId>,
-    pub(crate) cell_locals: HashSet<hir::LocalId>,
+    pub(crate) params: HashMap<ParamId, LocalId>,
+    pub(crate) locals: HashMap<HirLocalId, LocalId>,
+    pub(crate) cell_locals: HashSet<HirLocalId>,
     pub(crate) loops: Vec<LoopScope>,
     pub(crate) effects: EffectSet,
     pub(crate) current_scope: usize,
@@ -49,7 +59,7 @@ pub(crate) struct FunctionLowerer<'a, 'p> {
 impl<'a, 'p> FunctionLowerer<'a, 'p> {
     pub(crate) fn new(
         analyzed: &'a AnalyzedModule,
-        hir_function: &hir::Function,
+        hir_function: &Function,
         typed_function: &TypedFunction,
         instance: Instance,
         planner: &'p mut InstancePlanner<'a>,
@@ -120,7 +130,7 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .expressions()
             .filter(|(id, expr)| {
                 id.owner() == HirOwner::Body(BodyOwner::Function(hir_function.id))
-                    && matches!(expr.kind, hir::ExprKind::Closure { .. })
+                    && matches!(expr.kind, ExprKind::Closure { .. })
             })
             .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
             .filter_map(|resolved| match resolved {

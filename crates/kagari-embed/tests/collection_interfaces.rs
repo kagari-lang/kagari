@@ -1,9 +1,15 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
+
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -23,9 +29,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -321,7 +327,10 @@ fn map_snapshots_reject_calls_that_bypass_native_contracts() {
         callable::{EngineNativeBinding, NativeCall},
         standard::RuntimePrimitive,
     };
-    use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
+    use kagari_bytecode::{
+        instruction::{BytecodeInstruction, CallTarget},
+        program::verify_program,
+    };
     let engine = KagariEngine::default();
     let artifact = engine.compile_to_artifact(
         SourceFile::new("snapshot-wire.kgr", "fn main() { val map = LinkedHashMap::from([(1,2)]); map.keys(); map.values(); map.entries(); }"),

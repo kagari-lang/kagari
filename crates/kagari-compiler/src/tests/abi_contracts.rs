@@ -5,8 +5,8 @@ use kagari_abi::{
     standard::surface::StandardEnum as StandardEnumKind,
     types::{AbiType, GenericParameterAbi, NominalAbiType, PublicAbiItem},
 };
-use kagari_bytecode::BytecodeVerificationError;
-use kagari_bytecode::verify_program;
+use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
+
 use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
@@ -218,8 +218,8 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
 
 #[test]
 fn collection_access_survives_checked_host_and_wire_conversions() {
-    use CollectionAccess::{Mutable, ReadOnly};
-    use kagari_common::host_interface::HostValueType;
+    use kagari_common::collection::CollectionAccess::{Mutable, ReadOnly};
+    use kagari_common::host_interface::value_type::HostValueType;
     let integer = AbiType::Builtin(BuiltinType::I32);
     for access in [ReadOnly, Mutable] {
         for ty in [

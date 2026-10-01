@@ -1,7 +1,7 @@
 use kagari_common::{
-    Span,
     cancellation::{CancellationToken, Cancelled},
     literal,
+    span::Span,
 };
 use smallvec::SmallVec;
 

@@ -6,9 +6,13 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, FunctionAbi, PublicAbiItem},
 };
-use kagari_bytecode::KbcArtifact;
-use kagari_common::SourceFile;
-use kagari_embed::{EngineConfig, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::source::SourceFile;
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn artifact(source: &str) -> KbcArtifact {

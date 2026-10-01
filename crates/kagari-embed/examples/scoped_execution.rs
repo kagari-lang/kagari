@@ -1,9 +1,15 @@
 //! Per-call budgets and cooperative cancellation without changing runtime defaults.
 
-use kagari_common::SourceFile;
+use kagari_common::source::SourceFile;
 use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, ExecutionContext, KagariEngine, LoadOptions,
+    BytecodeArtifact,
+    context::ExecutionContext,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, CompileOptions},
+    },
     program::PreparedProgram,
+    runtime::LoadOptions,
 };
 use kagari_runtime::value::Value;
 

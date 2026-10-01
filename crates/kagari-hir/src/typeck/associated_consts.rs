@@ -1,17 +1,23 @@
 //! Scalar associated constants share the ordinary const-safe evaluator.
 
-use super::{
-    TypeTable,
-    ty::{TypeContext, resolve_type_in},
-};
 use crate::{
-    DiagnosticBuffer, aggregates::AggregateCatalog, declarations::Declarations,
-    lower::LoweredModule, types::TypeId,
+    DiagnosticBuffer,
+    aggregates::AggregateCatalog,
+    declarations::Declarations,
+    lower::LoweredModule,
+    typeck::{
+        table::TypeTable,
+        ty::{TypeContext, resolve_type_in},
+    },
+    types::TypeId,
 };
+
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
-    Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken,
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
     identity::associated_const_id,
+    span::Span,
 };
 use std::collections::HashSet;
 

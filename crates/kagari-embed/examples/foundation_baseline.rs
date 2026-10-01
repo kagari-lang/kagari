@@ -2,10 +2,13 @@
 //! Run with `cargo run --release -p kagari-embed --example foundation_baseline`.
 use std::{hint::black_box, sync::Arc, time::Instant};
 
-use kagari_common::{SourceFile, source_database::SourceLayer};
-use kagari_embed::{ArtifactOptions, CompileOptions, KagariEngine};
-use kagari_runtime::{Runtime, VerifiedProgram, value::Value};
-use kagari_vm::Vm;
+use kagari_common::{source::SourceFile, source_database::SourceLayer};
+use kagari_embed::engine::{
+    KagariEngine,
+    source::{ArtifactOptions, CompileOptions},
+};
+use kagari_runtime::{Runtime, module::VerifiedProgram, value::Value};
+use kagari_vm::vm::Vm;
 
 fn main() {
     let mut source = String::new();

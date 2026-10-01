@@ -1,11 +1,26 @@
 use crate::{
-    PreparedNativeEntry, Vm,
     tests::{common::compile_test_bytecode, native_fixtures},
+    vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
+
+use {
+    crate::debug::{DebugSession, SourceBreakpoint},
+    kagari_bytecode::{
+        artifact::KbcArtifact, instruction::BytecodeInstruction, module::BytecodeModuleSlot,
+    },
+    kagari_runtime::security::DebugVisibilityPolicy,
+};
+
 use kagari_abi::ids::FunctionRef;
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, SecurityContext,
-    gc::GcHeapConfig, value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        gc::GcHeapConfig,
+        resource::ResourcePolicy,
+        security::{LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn runtime(max_steps: Option<u64>) -> Runtime {
@@ -41,12 +56,8 @@ fn frame_roots_preserve_returned_objects_across_calls_and_collection_safepoints(
             let mut runtime = runtime(None);
             let program = module.clone();
             let program = if encoded {
-                let artifact =
-                    kagari_bytecode::KbcArtifact::from_program(program, Default::default())
-                        .unwrap();
-                let decoded =
-                    kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap())
-                        .unwrap();
+                let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
+                let decoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
                 decoded.validate_for_loader(&Default::default()).unwrap();
                 decoded.program
             } else {
@@ -139,14 +150,9 @@ fn malformed_closure_function_is_rejected_before_execution() {
         .functions
         .iter_mut()
         .flat_map(|function| &mut function.instructions)
-        .find(|instruction| {
-            matches!(
-                instruction,
-                kagari_bytecode::BytecodeInstruction::MakeClosure { .. }
-            )
-        })
+        .find(|instruction| matches!(instruction, BytecodeInstruction::MakeClosure { .. }))
         .expect("compiled closure");
-    if let kagari_bytecode::BytecodeInstruction::MakeClosure { function, .. } = instruction {
+    if let BytecodeInstruction::MakeClosure { function, .. } = instruction {
         *function = FunctionRef::new(999);
     }
     let mut runtime = runtime(None);
@@ -190,10 +196,7 @@ fn native_scalar_execution_visits_the_same_collection_safepoint() {
         PreparedNativeEntry::Native(native_fixtures::install_i32::<42>(&runtime, &loaded, false));
     let mut vm = Vm::new(runtime);
     let report = vm.execute_prepared(&loaded, "main", &native).unwrap();
-    assert_eq!(
-        report.jit.unwrap().status,
-        crate::JitExecutionStatus::Native
-    );
+    assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     assert_eq!(report.return_value, Value::I32(42));
     assert!(vm.runtime().gc().stats().collections > 0);
     assert!(vm.runtime().gc().array_len(dead).is_none());
@@ -221,7 +224,7 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
         compile_test_bytecode("fn init() -> ArrayList<i32> { [7] } fn main() -> i32 { 42 }");
     module.modules[module.root.index()]
         .module_slots
-        .push(kagari_bytecode::BytecodeModuleSlot {
+        .push(BytecodeModuleSlot {
             name: "state".into(),
             ty: kagari_abi::representation::ValueType::HeapObject,
             mutable: true,
@@ -270,16 +273,16 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
                 ..Default::default()
             },
         },
-        debug_visibility: kagari_runtime::DebugVisibilityPolicy {
+        debug_visibility: DebugVisibilityPolicy {
             allow_all_modules: true,
             ..Default::default()
         },
         ..Default::default()
     });
     let loaded = runtime.load_program("gc.kgr", module).unwrap();
-    let mut session = crate::DebugSession::new(&runtime).unwrap();
+    let mut session = DebugSession::new(&runtime).unwrap();
     session
-        .add_breakpoint(crate::SourceBreakpoint::at_source_offset(
+        .add_breakpoint(SourceBreakpoint::at_source_offset(
             "gc.kgr",
             source.find("kept.len").unwrap(),
         ))
@@ -297,7 +300,7 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
         .find(|binding| binding.name == "kept")
         .unwrap()
         .clone();
-    vm.attach_debug_session(crate::DebugSession::new(vm.runtime()).unwrap())
+    vm.attach_debug_session(DebugSession::new(vm.runtime()).unwrap())
         .unwrap();
     let Value::Array(array) = binding.value else {
         panic!("inspected array")

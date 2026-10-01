@@ -1,9 +1,12 @@
-use kagari_common::{Diagnostic, DiagnosticKind, Span};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    span::Span,
+};
 
 use crate::{
     AnalyzedModule, DiagnosticBuffer,
     builtin::BuiltinFunction,
-    typeck::{CallTarget, ResolvedCall},
+    typeck::table::{CallTarget, ResolvedCall},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -3,9 +3,9 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, PublicAbiItem},
 };
-use kagari_bytecode::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact};
+use kagari_bytecode::artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact};
 use kagari_common::{
-    SourceFile,
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};

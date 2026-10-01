@@ -5,7 +5,9 @@ use kagari_abi::{
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, ModuleAbi, NominalAbiType},
 };
-use kagari_common::{Span, host_interface::HostTypeDeclaration, identity::ModuleIdentity};
+use kagari_common::{
+    host_interface::type_declaration::HostTypeDeclaration, identity::ModuleIdentity, span::Span,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{

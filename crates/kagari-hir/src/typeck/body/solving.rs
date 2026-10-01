@@ -1,14 +1,19 @@
 use crate::{
-    hir::{BlockId, ExprId, ExprKind, TypeKind, TypeRefId},
+    hir::{
+        expr::ExprKind,
+        ids::{BlockId, ExprId, TypeRefId},
+        ty::TypeKind,
+    },
     typeck::{
-        BodyTypeEnv, ConstraintTarget,
+        BodyTypeEnv,
         body::BodyChecker,
         completion, inference,
+        table::ConstraintTarget,
         ty::{TypeContext, display_type, resolve_type_in},
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use std::collections::HashSet;
 
 impl BodyChecker<'_> {

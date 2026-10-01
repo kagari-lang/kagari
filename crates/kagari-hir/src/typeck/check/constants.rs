@@ -1,13 +1,22 @@
 use crate::{
     builtin::surface,
-    hir::{BinaryOp, ConstId, ExprId, ExprKind, PrefixOp},
+    hir::{
+        expr::{
+            ExprKind,
+            ops::{BinaryOp, PrefixOp},
+        },
+        ids::{ConstId, ExprId},
+    },
     lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
-    typeck::{TopLevelTypeIndex, TypeTable, const_budget::ConstBudget, ty::display_type_id},
+    resolver::resolved::{ResolvedName, ResolvedNames},
+    typeck::{TopLevelTypeIndex, const_budget::ConstBudget, table::TypeTable, ty::display_type_id},
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
+use kagari_common::{
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
+};
 use smallvec::SmallVec;
 use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -11,8 +11,8 @@ use cranelift_codegen::{
 use cranelift_native::builder as native_builder;
 use kagari_abi::native::{BackendId, BackendTarget, NativeCompilationProduct};
 use kagari_codegen::{
-    BackendCompileError, BackendConfiguration, BackendDiagnostic, BackendDiagnosticKind,
-    BackendFunctionInput, CodegenBackend,
+    BackendConfiguration, BackendFunctionInput, CodegenBackend,
+    diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
 };
 use std::{fmt, sync::Arc};
 

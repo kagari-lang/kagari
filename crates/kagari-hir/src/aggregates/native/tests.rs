@@ -1,12 +1,12 @@
-use crate::native::NativeBinding;
 use crate::{
     aggregates::AggregateCatalog,
     analysis::{AnalysisDatabase, AnalysisSnapshot},
     builtin::traits::{self, StandardTraitSemantics},
-    native::NativeTypeKind,
+    native::{NativeBinding, NativeTypeKind},
     typeck::FunctionImplementation,
     types::{TypeId, TypeSubstitution},
 };
+
 use kagari_abi::{
     scalar::BuiltinType,
     standard::{surface::StandardEnum, traits::StandardTrait},

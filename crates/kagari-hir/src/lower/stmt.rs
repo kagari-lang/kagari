@@ -1,16 +1,26 @@
 use crate::{
     hir::{
-        BinaryOp, BlockData, BlockId, PatternData, PatternKind, PlaceData, PlaceId, PlaceKind,
-        StmtData, StmtId, StmtKind, Writeability,
+        expr::ops::BinaryOp,
+        ids::{BlockId, PlaceId, StmtId},
+        pattern::{PatternData, PatternKind},
+        place::{PlaceData, PlaceKind},
+        stmt::{BlockData, StmtData, StmtKind},
+        writeability::Writeability,
     },
     lower::context::{Lowerer, syntax_span, token_span},
 };
-use ast::{Expr, Stmt};
-use kagari_syntax::{ast, kind::SyntaxKind};
+use kagari_syntax::{
+    ast::{
+        expr::{BlockExpr, Expr},
+        stmt::Stmt,
+    },
+    kind::SyntaxKind,
+};
+
 use smallvec::{SmallVec, smallvec};
 
 impl Lowerer {
-    pub(crate) fn lower_block(&mut self, block: &ast::BlockExpr) -> BlockId {
+    pub(crate) fn lower_block(&mut self, block: &BlockExpr) -> BlockId {
         let cancel = self.cancel.clone();
         let statements = block
             .statements()
@@ -28,7 +38,7 @@ impl Lowerer {
         )
     }
 
-    pub(crate) fn lower_stmt(&mut self, stmt: &ast::Stmt) -> StmtId {
+    pub(crate) fn lower_stmt(&mut self, stmt: &Stmt) -> StmtId {
         let kind = match stmt {
             Stmt::BindingStmt(stmt) => StmtKind::Binding {
                 local: self.source_map.push_local(
@@ -141,7 +151,7 @@ impl Lowerer {
         self.alloc_stmt(syntax_span(stmt), StmtData { kind })
     }
 
-    fn lower_place(&mut self, expr: &ast::Expr) -> PlaceId {
+    fn lower_place(&mut self, expr: &Expr) -> PlaceId {
         match expr {
             Expr::PathExpr(path) => self.alloc_place(
                 syntax_span(path),

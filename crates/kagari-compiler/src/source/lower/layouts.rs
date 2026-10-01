@@ -2,11 +2,13 @@
 
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     AnalyzedModule,
-    types::abi::{lower_nominal_type, lower_type},
-    types::{NominalType, TypeId, TypeSubstitution},
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        abi::{lower_nominal_type, lower_type},
+    },
 };
 use std::{
     collections::{HashSet, VecDeque},

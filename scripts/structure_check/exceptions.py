@@ -53,7 +53,7 @@ def apply_exceptions(report: dict, root: Path) -> dict:
             if type(ceiling) is not int or ceiling <= LOC_LIMIT:
                 raise ValueError(f"effective-loc exception requires max_loc greater than {LOC_LIMIT}")
             subject = ""
-        elif rule == "reexport-location":
+        elif rule == "reexport-whitelist":
             extra = {"declaration"}
             declaration = entry.get("declaration")
             if not isinstance(declaration, str) or not declaration.strip():

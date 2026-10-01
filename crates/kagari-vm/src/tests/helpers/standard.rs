@@ -1,5 +1,9 @@
 use super::*;
-use crate::tests::common::load_bytecode_program;
+use crate::{error::VmError, tests::common::load_bytecode_program};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    program::{BytecodeProgram, ModuleRef},
+};
 
 #[test]
 fn executes_source_lowered_print_builtin() {
@@ -131,8 +135,8 @@ fn main()->(usize,bool,usize,bool){
 }
 "#,
     );
-    let decoded = kagari_bytecode::KbcArtifact::from_bytes(
-        &kagari_bytecode::KbcArtifact::from_program(program, Default::default())
+    let decoded = KbcArtifact::from_bytes(
+        &KbcArtifact::from_program(program, Default::default())
             .unwrap()
             .to_bytes()
             .unwrap(),
@@ -192,8 +196,8 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
     let error = runtime
         .load_program(
             "standard_invalid_key.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -236,7 +240,7 @@ fn main() -> usize {
 
     assert!(matches!(
         error,
-        crate::VmError::RuntimeError(ref error)
+        VmError::RuntimeError(ref error)
             if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
     ));
 }

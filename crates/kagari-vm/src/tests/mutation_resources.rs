@@ -1,11 +1,17 @@
 use crate::{
-    Vm, VmError,
+    error::VmError,
     tests::{common::compile_test_bytecode, native_fixtures},
+    vm::Vm,
 };
-use kagari_bytecode::KbcArtifact;
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext,
+use kagari_bytecode::artifact::KbcArtifact;
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        resource::ResourcePolicy,
+        security::{LanguageProfile, SecurityContext},
+    },
 };
 
 #[test]

@@ -1,6 +1,8 @@
-use kagari_common::{DiagnosticKind, SourceFile};
+use crate::{
+    analyze_source, profile::LanguageFeatureProfile, typeck::table::ConstraintTarget, types::TypeId,
+};
+use kagari_common::{diagnostic::DiagnosticKind, source::SourceFile};
 
-use crate::{LanguageFeatureProfile, analyze_source, types::TypeId};
 use kagari_abi::scalar::BuiltinType;
 
 #[test]
@@ -180,7 +182,7 @@ fn applied_constraints_preserve_type_arguments() {
         .unwrap();
     assert!(
         matches!(facts.typed.type_table.constraint(read.generic_params[0].bounds[0].ty),
-        Some(crate::typeck::ConstraintTarget::Trait(instance))
+        Some(ConstraintTarget::Trait(instance))
             if instance.arguments == [crate::types::TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32)])
     );
     assert!(analysis.into_codegen().is_ok());

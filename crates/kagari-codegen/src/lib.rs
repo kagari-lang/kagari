@@ -1,10 +1,12 @@
 //! Native compilation consumes verified MIR and immutable ABI/link descriptions.
-mod diagnostic;
-pub use diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind};
+pub mod diagnostic;
+use crate::diagnostic::BackendCompileError;
 use kagari_abi::native::{
     BackendId, BackendTarget, NativeCompilationProduct, NativeLinkDescription,
 };
-use kagari_mir::{MirFunction, VerifiedMirModule, analysis::FunctionAnalysis, ids::InstanceId};
+use kagari_mir::{
+    analysis::FunctionAnalysis, function::MirFunction, ids::InstanceId, verify::VerifiedMirModule,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BackendFunctionInput<'a> {

@@ -1,19 +1,25 @@
 use crate::{
-    aggregates::ImplementationSearchError,
+    aggregates::implementations::ImplementationSearchError,
     builtin::traits::{self, StandardTraitSemantics},
-    hir::{ExprId, ExprKind, TypeKind},
+    hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
     native::NativeBinding,
     typeck::{
-        BodyTypeEnv, CallTarget, ConstraintTarget, FunctionImplementation, ResolvedAssociatedConst,
-        ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
+        BodyTypeEnv, FunctionImplementation,
         body::BodyChecker,
         completion, inference, members,
+        table::{
+            CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedInterfaceCoercion,
+            ResolvedInterfaceImplementation,
+        },
         ty::{self, TypeContext, resolve_type_in},
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
-use kagari_common::{Diagnostic, DiagnosticKind, identity};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity,
+};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_expr_with_coercion(
@@ -341,7 +347,7 @@ impl<'a> BodyChecker<'a> {
             _ => None,
         });
         let (receiver, member, requested) = if let Some((receiver, trait_ref, member)) = qualified {
-            let receiver = if matches!(&self.lowered.module.type_ref(receiver).kind, crate::hir::TypeKind::Named(name) if name == "Self")
+            let receiver = if matches!(&self.lowered.module.type_ref(receiver).kind, TypeKind::Named(name) if name == "Self")
             {
                 env.self_type.clone().unwrap_or(TypeId::Error)
             } else {

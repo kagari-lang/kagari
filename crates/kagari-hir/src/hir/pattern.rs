@@ -1,4 +1,7 @@
-use crate::hir::{LocalId, PatternId, expr::Literal};
+use crate::hir::{
+    expr::literal::Literal,
+    ids::{LocalId, PatternId},
+};
 
 #[derive(Debug, Clone)]
 pub struct PatternData {

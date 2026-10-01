@@ -1,6 +1,8 @@
 use crate::{
-    Instruction, MirModule, MirVerificationError, Terminator,
+    function::MirModule,
+    instruction::{Instruction, Terminator},
     passes::{PassStatistics, Work, scalar::Scalar},
+    verify::MirVerificationError,
 };
 
 pub(super) fn simplify(

@@ -1,6 +1,6 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::Span;
+use crate::span::Span;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {

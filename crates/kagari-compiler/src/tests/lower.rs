@@ -1,14 +1,25 @@
-use crate::{lower_to_mir, tests::common};
-use kagari_abi::native_import::EngineNativeOperation;
+use crate::{source::lower::lower_to_mir, tests::common};
+use {
+    crate::source::lower::{MirLoweringError, instances::MirLoweringOptions},
+    kagari_common::span::Span,
+    kagari_mir::ids::TempId,
+};
+use {
+    kagari_bytecode::instruction::BytecodeInstruction, kagari_common::diagnostic::DiagnosticKind,
+};
+
 use kagari_abi::{
+    native_import::EngineNativeOperation,
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
     standard::RuntimePrimitive,
 };
+
 use kagari_bytecode as bytecode;
 use kagari_common::integer::IntegerMethod;
 use kagari_mir::{
-    CallTarget, Instruction, MirFunction, MirValue, Terminator, instruction::RuntimeHelper,
+    function::MirFunction,
+    instruction::{CallTarget, Instruction, MirValue, RuntimeHelper, Terminator},
 };
 
 #[test]
@@ -61,7 +72,7 @@ fn generic_interface_instances_share_the_instantiation_budget() {
     );
     let ir = lower_to_mir(
         checked.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 2,
             ..Default::default()
         },
@@ -76,9 +87,9 @@ fn generic_interface_instances_share_the_instantiation_budget() {
             .count(),
         1
     );
-    let Err(crate::MirLoweringError::Diagnostic(d)) = lower_to_mir(
+    let Err(MirLoweringError::Diagnostic(d)) = lower_to_mir(
         checked.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 1,
             ..Default::default()
         },
@@ -87,7 +98,7 @@ fn generic_interface_instances_share_the_instantiation_budget() {
     };
     assert!(matches!(
         d.kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded {
+        DiagnosticKind::CompileLimitExceeded {
             resource: "generic instances",
             limit: 1
         }
@@ -101,7 +112,7 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     );
     let ir = lower_to_mir(
         checked.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 4,
             ..Default::default()
         },
@@ -117,9 +128,9 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     );
     assert_eq!(ir.functions.len(), 2);
     common::bytecode_with_edited_root(&checked, &ir);
-    let Err(crate::MirLoweringError::Diagnostic(d)) = lower_to_mir(
+    let Err(MirLoweringError::Diagnostic(d)) = lower_to_mir(
         checked.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 3,
             ..Default::default()
         },
@@ -128,7 +139,7 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     };
     assert!(matches!(
         d.kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded {
+        DiagnosticKind::CompileLimitExceeded {
             resource: "generic instances",
             limit: 3
         }
@@ -140,9 +151,9 @@ fn growing_recursive_aggregate_layouts_are_bounded() {
     let checked = common::program_ok(
         "struct Grow<T> { val next: [Grow<[T]>] } fn accept(x: Grow<i32>) {} fn main() {}",
     );
-    let Err(crate::MirLoweringError::Diagnostic(d)) = lower_to_mir(
+    let Err(MirLoweringError::Diagnostic(d)) = lower_to_mir(
         checked.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 3,
             ..Default::default()
         },
@@ -151,7 +162,7 @@ fn growing_recursive_aggregate_layouts_are_bounded() {
     };
     assert!(matches!(
         d.kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded {
+        DiagnosticKind::CompileLimitExceeded {
             resource: "generic instances",
             limit: 3
         }
@@ -165,7 +176,7 @@ fn unreachable_aggregate_constructors_do_not_consume_instance_budget() {
     );
     let ir = lower_to_mir(
         checked.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 0,
             ..Default::default()
         },
@@ -317,7 +328,7 @@ fn unreachable_calls_after_return_do_not_create_instances() {
         common::program_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { return; grow(1); }");
     let ir = lower_to_mir(
         analyzed.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 0,
             ..Default::default()
         },
@@ -335,7 +346,7 @@ fn irrefutable_match_arms_stop_unreachable_instantiation() {
         ));
         let ir = lower_to_mir(
             analyzed.root(),
-            &crate::MirLoweringOptions {
+            &MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
             },
@@ -353,7 +364,7 @@ fn returning_call_argument_stops_later_arguments_and_instantiation() {
     );
     let ir = lower_to_mir(
         analyzed.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 0,
             ..Default::default()
         },
@@ -376,7 +387,7 @@ fn returning_aggregate_member_stops_later_members() {
         ));
         let ir = lower_to_mir(
             analyzed.root(),
-            &crate::MirLoweringOptions {
+            &MirLoweringOptions {
                 max_generic_instances: 2,
                 ..Default::default()
             },
@@ -406,7 +417,7 @@ fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
         ));
         let ir = lower_to_mir(
             analyzed.root(),
-            &crate::MirLoweringOptions {
+            &MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
             },
@@ -436,7 +447,7 @@ fn terminating_place_components_stop_remaining_indexes_and_rhs() {
         ));
         let ir = lower_to_mir(
             analyzed.root(),
-            &crate::MirLoweringOptions {
+            &MirLoweringOptions {
                 max_generic_instances: 0,
                 ..Default::default()
             },
@@ -470,7 +481,7 @@ fn recursive_instantiation_reuses_the_current_instance() {
     );
     let ir = lower_to_mir(
         analyzed.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_generic_instances: 1,
             ..Default::default()
         },
@@ -485,7 +496,7 @@ fn recursive_type_growth_is_bounded_before_execution() {
     let analyzed = common::program_ok("fn grow<T>(x: T) { grow((x, x)); } fn main() { grow(1); }");
     for (options, resource, limit) in [
         (
-            crate::MirLoweringOptions {
+            MirLoweringOptions {
                 max_generic_instances: 2,
                 ..Default::default()
             },
@@ -493,7 +504,7 @@ fn recursive_type_growth_is_bounded_before_execution() {
             2,
         ),
         (
-            crate::MirLoweringOptions {
+            MirLoweringOptions {
                 max_type_nodes: 31,
                 ..Default::default()
             },
@@ -501,7 +512,7 @@ fn recursive_type_growth_is_bounded_before_execution() {
             31,
         ),
         (
-            crate::MirLoweringOptions {
+            MirLoweringOptions {
                 max_type_depth: 2,
                 ..Default::default()
             },
@@ -509,14 +520,13 @@ fn recursive_type_growth_is_bounded_before_execution() {
             2,
         ),
     ] {
-        let Err(crate::MirLoweringError::Diagnostic(diagnostic)) =
-            lower_to_mir(analyzed.root(), &options)
+        let Err(MirLoweringError::Diagnostic(diagnostic)) = lower_to_mir(analyzed.root(), &options)
         else {
             panic!("growth must be rejected");
         };
         assert_eq!(
             diagnostic.kind,
-            kagari_common::DiagnosticKind::CompileLimitExceeded { resource, limit }
+            DiagnosticKind::CompileLimitExceeded { resource, limit }
         );
         assert!(diagnostic.span.is_some());
     }
@@ -528,32 +538,32 @@ fn lowering_honors_instruction_limits_and_cancellation() {
     assert!(matches!(
         lower_to_mir(
             analyzed.root(),
-            &crate::MirLoweringOptions {
+            &MirLoweringOptions {
                 max_instructions: 1,
                 ..Default::default()
             }
         ),
-        Err(crate::MirLoweringError::Diagnostic(_))
+        Err(MirLoweringError::Diagnostic(_))
     ));
     lower_to_mir(
         analyzed.root(),
-        &crate::MirLoweringOptions {
+        &MirLoweringOptions {
             max_instructions: 2,
             max_generic_instances: 0,
             ..Default::default()
         },
     )
     .unwrap();
-    let options = crate::MirLoweringOptions::default();
+    let options = MirLoweringOptions::default();
     options.cancel.cancel();
     assert!(matches!(
         lower_to_mir(analyzed.root(), &options),
-        Err(crate::MirLoweringError::Cancelled)
+        Err(MirLoweringError::Cancelled)
     ));
     let empty = common::program_ok("");
     assert!(matches!(
         lower_to_mir(empty.root(), &options),
-        Err(crate::MirLoweringError::Cancelled)
+        Err(MirLoweringError::Cancelled)
     ));
 }
 
@@ -981,7 +991,7 @@ fn terminator_values(terminator: &Terminator) -> Vec<MirValue> {
 fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
     use kagari_abi::{representation::ValueType, types::PublicAbiItem};
     use kagari_common::cancellation::CancellationToken;
-    use kagari_mir::{MirVerificationErrorKind, verify_mir};
+    use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
 
     let checked = common::program_ok("trait Tag {} impl Tag for i32 {} fn main() -> i32 { 7 }");
     let original = lower_to_mir(checked.root(), &Default::default()).unwrap();
@@ -1009,7 +1019,7 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         unreachable!()
     };
     let dst = MirValue {
-        temp: kagari_mir::TempId::new(function.temps.len()),
+        temp: TempId::new(function.temps.len()),
         ty: ValueType::HeapObject,
     };
     function
@@ -1023,14 +1033,14 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
     };
     function.effects = function.effects.union(instruction.effects());
     block.instructions.push(instruction);
-    block.instruction_spans.push(kagari_common::Span::default());
+    block.instruction_spans.push(Span::default());
     block
         .instruction_scopes
         .push(block.terminator_scope.unwrap());
 
     let verified = verify_mir(module.clone(), &CancellationToken::default()).unwrap();
     let bytecode = common::bytecode_with_edited_root(&checked, &verified);
-    assert!(bytecode.modules[bytecode.root.index()].functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, bytecode::BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
+    assert!(bytecode.modules[bytecode.root.index()].functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
 
     let function = module
         .functions

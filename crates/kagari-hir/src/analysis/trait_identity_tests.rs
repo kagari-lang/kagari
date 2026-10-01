@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     declarations::DeclarationId,
-    resolver::ResolvedName,
-    typeck::{CallTarget, ConstraintTarget},
+    resolver::resolved::ResolvedName,
+    typeck::table::{CallTarget, ConstraintTarget},
 };
 use kagari_common::{
     identity::DefinitionId,

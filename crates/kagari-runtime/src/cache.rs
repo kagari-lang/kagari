@@ -1,6 +1,10 @@
 use kagari_bytecode::{
-    ArtifactFingerprint, BytecodeModule, BytecodeProgram, DependencyFingerprint, KbcArtifact,
-    PathDescriptorFingerprint, PublicAbiFingerprint,
+    artifact::{
+        ArtifactFingerprint, DependencyFingerprint, KbcArtifact, PathDescriptorFingerprint,
+        PublicAbiFingerprint,
+    },
+    module::BytecodeModule,
+    program::BytecodeProgram,
 };
 use kagari_common::identity::ModuleIdentity;
 use std::{cell::RefCell, collections::HashMap};

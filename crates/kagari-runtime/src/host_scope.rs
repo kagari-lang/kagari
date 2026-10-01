@@ -1,6 +1,9 @@
 use crate::{
-    ExecutionSession, HostBorrowKind, HostCallGuard, Runtime, RuntimeError,
+    Runtime,
+    error::RuntimeError,
     gc::RootSet,
+    host::{HostBorrowKind, HostCallGuard},
+    session::ExecutionSession,
     value::{EphemeralValue, Value},
 };
 use std::{cell::RefCell, rc::Rc};

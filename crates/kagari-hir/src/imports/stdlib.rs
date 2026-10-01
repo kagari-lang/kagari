@@ -1,11 +1,11 @@
 //! The installed package contributes its source namespace and declared prelude.
 
 use crate::{
-    hir::Visibility,
+    hir::item::storage::Visibility,
     imports::{ImportTarget, ModuleImports, ResolvedImport, SourceCatalog},
     lower::LoweredModule,
 };
-use kagari_common::Span;
+use kagari_common::span::Span;
 use std::{borrow::Cow, collections::HashSet};
 
 #[cfg(test)]

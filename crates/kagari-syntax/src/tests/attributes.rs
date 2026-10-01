@@ -1,9 +1,13 @@
 use crate::{
-    ast::{AstNode, Attribute, Item},
+    ast::{
+        item::{Attribute, Item},
+        traits::AstNode,
+    },
     kind::SyntaxKind,
-    parser::parse_declarations,
+    parser::{parse, parse_declarations},
 };
-use kagari_common::SourceFile;
+
+use kagari_common::source::SourceFile;
 
 #[test]
 fn outer_attributes_preserve_nested_arguments_trivia_and_item_dispatch() {
@@ -27,7 +31,7 @@ pub mod model {
 }
 "#;
     let source = SourceFile::new("attributes.kgr", text);
-    let parsed = crate::parse(&source);
+    let parsed = parse(&source);
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -87,7 +91,7 @@ fn invalid_attribute_forms_are_rejected_and_following_functions_survive() {
             "invalid-attribute.kgr",
             format!("{prefix}\nfn healthy() -> i32 {{ 42 }}"),
         );
-        let parsed = crate::parse(&source);
+        let parsed = parse(&source);
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");
         assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
         assert!(parsed.syntax().items().any(|item| matches!(item, Item::FnDef(function) if function.name_text().as_deref() == Some("healthy"))), "{prefix}");

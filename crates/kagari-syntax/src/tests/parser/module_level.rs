@@ -1,4 +1,4 @@
-use kagari_common::DiagnosticKind;
+use kagari_common::diagnostic::DiagnosticKind;
 
 use crate::tests::common;
 

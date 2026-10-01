@@ -3,9 +3,9 @@ use super::{
     cases::TYPES,
     runtime,
 };
-use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
+use crate::{error::VmError, executor::Executor, tests::common::compile_test_bytecode, vm::Vm};
 use kagari_common::host_interface::standard_log;
-use kagari_runtime::{RuntimeErrorKind, host::HostFunction, value::Value};
+use kagari_runtime::{error::RuntimeErrorKind, host::HostFunction, value::Value};
 use std::{cell::RefCell, rc::Rc};
 
 #[test]

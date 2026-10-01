@@ -1,18 +1,22 @@
 use crate::{
-    BytecodeModule, BytecodeProgram,
     artifact::{
         ArtifactSignatures, DebugMetadata, KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FUNCTIONS,
         MAX_ARTIFACT_INSTRUCTIONS, MAX_ARTIFACT_MODULES, MAX_ARTIFACT_NESTED_RECORDS,
         MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
     },
+    module::BytecodeModule,
+    program::BytecodeProgram,
 };
-use kagari_abi::callable::CallableImplementation;
-use kagari_abi::types::{
-    AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-    PublicAbiItem,
+use kagari_abi::{
+    callable::CallableImplementation,
+    types::{
+        AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
+        GenericParameterAbi, PublicAbiItem,
+    },
 };
+
 use kagari_common::{
-    host_interface::{HostInterface, HostPathSegmentDeclaration, HostValueType},
+    host_interface::{HostInterface, path::HostPathSegmentDeclaration, value_type::HostValueType},
     identity::DefinitionId,
 };
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {

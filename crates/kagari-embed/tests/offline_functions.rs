@@ -1,15 +1,29 @@
 use kagari_common::{
-    SourceFile,
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType,
     },
+    source::SourceFile,
 };
-use kagari_embed::{
-    ArtifactOptions, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
-    LoadOptions, program::PreparedProgram,
-};
-use kagari_runtime::{CapabilitySet, LanguageProfile, host::HostFunction, value::Value};
+use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
+
 use std::sync::{Arc, Mutex};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{host::HostFunction, security::LanguageProfile, value::Value},
+};
+use {
+    kagari_embed::{
+        context::ExecutionContext,
+        engine::{
+            KagariEngine,
+            source::{ArtifactOptions, CompileOptions},
+        },
+        program::PreparedProgram,
+        runtime::LoadOptions,
+    },
+    kagari_runtime::security::HostExposurePolicy,
+};
 
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
@@ -113,7 +127,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     }
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -129,9 +143,9 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };
@@ -189,7 +203,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             .unwrap();
         assert!(calls.lock().unwrap().is_empty());
         let mut denied = context.clone();
-        denied.jit_policy = kagari_embed::JitPolicy::Disabled;
+        denied.jit_policy = JitPolicy::Disabled;
         denied.host_policy.allowed_host_functions = vec!["call".into()];
         assert!(runtime.execute(&loaded, "main", &[], &denied).is_err());
         assert!(calls.lock().unwrap().is_empty());
@@ -242,7 +256,7 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .functions,
         vec![definition.clone()]
     );
-    let artifact = kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+    let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext {
         language_profile: profile,
         capabilities: CapabilitySet {

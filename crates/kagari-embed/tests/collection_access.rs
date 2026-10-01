@@ -1,9 +1,20 @@
-use kagari_common::SourceFile;
-use kagari_embed::{BytecodeArtifact, ExecutionContext, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use {
+    kagari_embed::{
+        context::JitPolicy,
+        engine::{EngineConfig, source::CompileOptions},
+    },
+    kagari_runtime::security::LanguageProfile,
+    kagari_vm::{reentry::reenter, vm::Vm},
+};
+
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
 use kagari_runtime::value::Value;
 
 fn execute(source: &str) {
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -23,9 +34,9 @@ fn execute(source: &str) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -219,7 +230,7 @@ fn make() -> Test {
     Tester { input }
 }
 "#;
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let artifact = engine
@@ -254,7 +265,7 @@ fn make() -> Test {
     let loaded = runtime
         .load_program("factory-cleanup", artifact.program)
         .unwrap();
-    let mut vm = kagari_vm::Vm::new(runtime);
+    let mut vm = Vm::new(runtime);
     let input = vm.execute(&loaded, "make").unwrap().return_value;
     let root = vm.runtime().root_value(input.clone()).unwrap();
     let error = vm
@@ -278,7 +289,10 @@ fn make() -> Test {
 #[test]
 fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
     use kagari_abi::{standard::RuntimePrimitive, types::AbiType};
-    use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
+    use kagari_bytecode::{
+        instruction::{BytecodeInstruction, CallTarget},
+        program::verify_program,
+    };
     let engine = KagariEngine::default();
     let artifact = engine
         .compile_to_artifact(
@@ -352,7 +366,7 @@ fn main() { val values = ArrayList::from([1, 2]); inspect(values); }
 fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() {
     use kagari_common::{
         collection::CollectionAccess,
-        host_interface::{HostFunctionDeclaration, HostInterface, HostValueType},
+        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
     };
     use kagari_runtime::host::HostFunction;
     let declaration = HostFunctionDeclaration::new(
@@ -368,11 +382,11 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             paths: vec![],
         })
         .unwrap();
-    let profile = kagari_runtime::LanguageProfile {
+    let profile = LanguageProfile {
         allow_host_calls: true,
         ..Default::default()
     };
-    let options = kagari_embed::CompileOptions {
+    let options = CompileOptions {
         language_profile: profile,
     };
     assert!(
@@ -438,7 +452,7 @@ fn factory_input_and_destination_survive_host_reentry_and_collection() {
     use kagari_common::host_interface::standard_log;
     use kagari_runtime::host::{HostError, HostFunction};
     use std::{cell::Cell, rc::Rc};
-    let mut config = kagari_embed::EngineConfig::default();
+    let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = KagariEngine::new(config);
     let mut context = ExecutionContext::default();
@@ -463,7 +477,7 @@ fn main() -> i32 {
 }
 "#,
             ),
-            kagari_embed::CompileOptions {
+            CompileOptions {
                 language_profile: context.language_profile,
             },
             Default::default(),
@@ -483,7 +497,7 @@ fn main() -> i32 {
         .register_host_function(HostFunction::new(standard_log(), move |call, _| {
             recorded.set(recorded.get() + 1);
             let root = call.runtime().execution_root().unwrap();
-            let result = kagari_vm::reenter(call, &root, scratch, &[])
+            let result = reenter(call, &root, scratch, &[])
                 .map_err(|error| HostError::new(format!("callback: {error:?}")))?;
             call.runtime().collect_garbage().unwrap();
             assert!(call.runtime().gc().validate_value(&result.value()));

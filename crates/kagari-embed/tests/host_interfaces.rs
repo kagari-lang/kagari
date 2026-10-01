@@ -1,23 +1,40 @@
 use kagari_abi::native_import::NativeImport;
+use kagari_bytecode::program::verify_program;
+use {
+    kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,
+    kagari_vm::reentry::reenter,
+};
+
 use kagari_common::{
     host_interface::{
-        HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
-        HostParameter, HostPassingStyle, HostTraitImplementationDeclaration,
-        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{
+            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership,
+        },
+        value_type::HostValueType,
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
-use kagari_embed::{
-    BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, KagariEngine,
-    program::PreparedProgram,
-};
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile,
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-    value::Value,
-};
 use std::{cell::RefCell, rc::Rc};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+        security::LanguageProfile,
+        value::Value,
+    },
+};
+use {
+    kagari_embed::{
+        BytecodeArtifact,
+        context::ExecutionContext,
+        engine::{KagariEngine, source::CompileOptions},
+        program::PreparedProgram,
+    },
+    kagari_runtime::security::HostExposurePolicy,
+};
 
 const SOURCE: &str = concat!(
     include_str!("../../../examples/host-interfaces.kgr"),
@@ -59,7 +76,7 @@ fn fixture() -> (
     };
     let mut host = HostTypeDeclaration::new("demo.Counter");
     host.ownership = HostTypeOwnership::HostRoot;
-    host.path_access = kagari_common::host_interface::PathAccess::ReadOnly;
+    host.path_access = PathAccess::ReadOnly;
     let method = HostMethodDeclaration::new(
         &host.id,
         "read",
@@ -131,9 +148,9 @@ fn context(jit: bool) -> ExecutionContext {
             ..Default::default()
         },
         jit_policy: if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         },
         ..Default::default()
     }
@@ -287,7 +304,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
 #[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
     use kagari_abi::types::{AbiType, PublicAbiItem};
-    use kagari_bytecode::{BytecodeInstruction, CallTarget, NativeImportId};
+    use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, NativeImportId};
     let (_, artifact, _, _) = fixture();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
@@ -361,7 +378,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
             _ => unreachable!(),
         }
         assert!(
-            kagari_bytecode::verify_program(&program).is_err(),
+            verify_program(&program).is_err(),
             "accepted mutation {mutation}"
         );
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
@@ -371,7 +388,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
 #[test]
 fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     use kagari_runtime::{Runtime, RuntimeConfig, host::HostError};
-    use kagari_vm::Vm;
+    use kagari_vm::vm::Vm;
     let (engine, artifact, host, make) = fixture();
     let context = context(false);
     let mut vm = Vm::new(Runtime::new(RuntimeConfig {
@@ -415,7 +432,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
                         .find(|function| function.name == "answer")
                         .unwrap()
                         .id;
-                    let value = kagari_vm::reenter(ctx, &version, answer, &[]).unwrap();
+                    let value = reenter(ctx, &version, answer, &[]).unwrap();
                     ctx.runtime().collect_garbage().unwrap();
                     return Ok(value.value());
                 }
@@ -563,7 +580,7 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
         .find(|host| host.symbol == "demo.Other")
         .unwrap();
     other.trait_implementations.clear();
-    assert!(kagari_bytecode::verify_program(&program).is_err());
+    assert!(verify_program(&program).is_err());
 }
 
 #[test]
@@ -649,7 +666,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
 #[test]
 fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
     use kagari_runtime::{Runtime, RuntimeConfig};
-    use kagari_vm::Vm;
+    use kagari_vm::vm::Vm;
     let (_, artifact, host, make) = fixture();
     let context = context(false);
     let mut vm = Vm::new(Runtime::new(RuntimeConfig {

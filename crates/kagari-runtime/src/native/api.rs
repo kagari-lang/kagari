@@ -1,14 +1,16 @@
 //! A native package owns declarations and implementation bindings together.
 use crate::{
-    Runtime, RuntimeError,
+    Runtime,
+    error::RuntimeError,
     native::{
-        NativeContext, NativeEntry, NativeFactory, NativeInvocationState, NativeRegistration,
-        NativeRegistry,
+        NativeContext, NativeInvocationState,
+        factory::NativeFactory,
+        registration::{NativeEntry, NativeRegistration, NativeRegistry},
     },
 };
 use kagari_abi::{
     callable::CallableImplementation,
-    native_api::{NativeApiSource, NativeModule},
+    native_api::{NativeModule, render::NativeApiSource},
 };
 use kagari_common::identity::DefinitionId;
 use std::{

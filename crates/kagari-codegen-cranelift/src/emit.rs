@@ -1,9 +1,12 @@
 //! MIR-to-CLIF emission and per-product executable memory ownership.
-use crate::internal_error;
-use crate::scalar::{
-    emit_binary, emit_constant, emit_resource_check, emit_store_result, emit_unary, emit_unit,
-    read_register, write_register,
+use crate::{
+    internal_error,
+    scalar::{
+        emit_binary, emit_constant, emit_resource_check, emit_store_result, emit_unary, emit_unit,
+        read_register, write_register,
+    },
 };
+
 use cranelift_codegen::{
     Context,
     ir::{AbiParam, InstBuilder, types},
@@ -25,8 +28,11 @@ use kagari_abi::{
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
 };
-use kagari_codegen::{BackendCompileError, BackendConfiguration, BackendFunctionInput};
-use kagari_mir::{Instruction, MirFunction, Terminator};
+use kagari_codegen::{BackendConfiguration, BackendFunctionInput, diagnostic::BackendCompileError};
+use kagari_mir::{
+    function::MirFunction,
+    instruction::{Instruction, Terminator},
+};
 use std::{fmt, rc::Rc, sync::Arc};
 
 struct CodeMemory(Option<JITModule>);

@@ -1,18 +1,35 @@
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
-use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
 use kagari_common::host_interface::{
-    HostFunctionDeclaration, HostParameter, HostPassingStyle, HostValueType,
+    HostFunctionDeclaration, HostParameter, HostPassingStyle,
+    type_declaration::HostTypeDeclaration, value_type::HostValueType,
 };
-use kagari_runtime::{
-    CapabilitySet, HostBorrowKind, HostExposurePolicy, HostObjectId, HostSchemaEpoch,
-    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, TypeId,
-    host::{HostError, HostFunction},
-    value::Value,
+use kagari_runtime::session::TraceValue;
+
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
 };
+
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+};
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostTypeOwnership, PathAccess},
+    },
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::{
+            HostBorrowKind, HostError, HostFunction, HostObjectId, HostSchemaEpoch,
+            HostTypeRegistration,
+        },
+        metadata::TypeId,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 fn runtime() -> Runtime {
@@ -36,10 +53,8 @@ fn runtime() -> Runtime {
 }
 
 fn root(runtime: &mut Runtime) -> Value {
-    let mut registration = HostTypeRegistration::new(
-        kagari_common::host_interface::HostTypeDeclaration::new("game.Object"),
-        "Object",
-    );
+    let mut registration =
+        HostTypeRegistration::new(HostTypeDeclaration::new("game.Object"), "Object");
     registration.declaration.ownership = HostTypeOwnership::HostRoot;
     registration.declaration.path_access = PathAccess::ReadWrite;
     let ty = runtime.register_host_type(registration).unwrap();
@@ -427,14 +442,8 @@ fn host_trace_keeps_invocation_order_across_reentry() {
             .collect::<Vec<_>>(),
         vec!["game.outer", "game.inner", "game.fail"]
     );
-    assert_eq!(
-        trace.host_calls[0].outcome,
-        Some(Ok(kagari_runtime::TraceValue::I32(3)))
-    );
-    assert_eq!(
-        trace.host_calls[1].outcome,
-        Some(Ok(kagari_runtime::TraceValue::I32(2)))
-    );
+    assert_eq!(trace.host_calls[0].outcome, Some(Ok(TraceValue::I32(3))));
+    assert_eq!(trace.host_calls[1].outcome, Some(Ok(TraceValue::I32(2))));
     assert_eq!(
         trace.host_calls[2].outcome,
         Some(Err(RuntimeErrorKind::HostCallFailure))

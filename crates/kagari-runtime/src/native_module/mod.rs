@@ -1,24 +1,27 @@
 //! Expansion support for `#[native_module]`; registered ABI records remain authoritative.
 //! The public surface here is used by generated code in embedding consumers.
-mod types;
-pub use types::TypeExpression;
-// Generated conversion signatures use the same ABI type as the runtime boundary.
-#[doc(hidden)]
-pub use kagari_abi::types::AbiType;
+pub mod types;
 
-use crate::{NativeApi, NativeFactory, NativeHandler, RuntimeError};
+use crate::{
+    error::RuntimeError,
+    native::{
+        api::{NativeApi, NativeHandler},
+        factory::NativeFactory,
+    },
+    native_module::types::{Scope, TypeExpression},
+};
 use kagari_abi::{
     callable::CallableImplementation,
     native_api::{NativeImplementation, NativeModule},
     native_import::binding_id,
     types::{
-        FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi, TypeAbiKind,
+        AbiType, FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi, TypeAbiKind,
         native::NativeTypeConstructor,
     },
 };
+
 use kagari_common::identity::{DefinitionId, DefinitionKind, ModuleIdentity, PackageId};
 use std::collections::{BTreeMap, HashSet};
-use types::Scope;
 
 #[doc(hidden)]
 pub struct Method {

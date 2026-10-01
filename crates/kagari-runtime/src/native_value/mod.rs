@@ -1,14 +1,14 @@
 //! Typed native adapters retain explicit roots and portable applied type checks.
-mod array;
-mod continuation;
+pub mod array;
+pub mod continuation;
 mod conversions;
-pub use array::{NativeArray, NativeIndex};
-pub use continuation::{NativeContinuation, NativeFn};
 
 use crate::{
-    LoadedModule, NativeAction, NativeContext, NativeFactory, NativeInvocationState, RuntimeError,
+    error::RuntimeError,
     gc::{GcHeap, RootSet},
-    native_module::TypeExpression,
+    module::LoadedModule,
+    native::{NativeAction, NativeContext, NativeInvocationState, factory::NativeFactory},
+    native_module::types::TypeExpression,
     value::Value,
 };
 use kagari_abi::{native_import::NativeSignature, types::AbiType};

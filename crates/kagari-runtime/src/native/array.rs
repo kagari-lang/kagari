@@ -1,7 +1,11 @@
 //! Resumable array construction preserves callback order and logical execution cost.
 use crate::{
-    NativeContinuation, NativeFn, NativeValue, RuntimeError,
+    error::RuntimeError,
     native::{NativeAction, NativeContext, NativeInvocationState},
+    native_value::{
+        NativeValue,
+        continuation::{NativeContinuation, NativeFn},
+    },
     value::Value,
 };
 use kagari_abi::types::AbiType;

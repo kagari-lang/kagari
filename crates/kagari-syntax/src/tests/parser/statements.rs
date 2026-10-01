@@ -1,16 +1,16 @@
-use kagari_common::Severity;
-
 use crate::{
-    ast::{Expr, Stmt},
+    ast::{expr::Expr, stmt::Stmt},
+    parser::parse,
     tests::common,
 };
+use kagari_common::diagnostic::Severity;
 
 #[test]
 fn compound_assignments_preserve_lossless_computed_targets() {
-    use crate::ast::AstNode;
+    use crate::ast::traits::AstNode;
     for op in ["=", "+=", "-=", "*=", "/="] {
         let source = format!("fn main() {{ (root())[index()].field {op} // rhs\n value(); }}");
-        let parsed = crate::parse(&common::source(&source));
+        let parsed = parse(&common::source(&source));
         assert!(
             parsed.diagnostics().is_empty(),
             "{:?}",

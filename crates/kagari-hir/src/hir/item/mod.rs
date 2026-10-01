@@ -1,30 +1,27 @@
-use crate::hir::{FieldId, VariantId};
-mod adt;
-mod behavior;
-mod function;
-mod module;
-mod storage;
-
-pub use adt::{
-    Enum, EnumBuffer, Field, FieldBuffer, OpaqueType, Struct, StructBuffer, Variant, VariantBuffer,
-};
-pub use behavior::{
-    AssociatedConst, AssociatedType, GenericParam, GenericParamBuffer, Impl, ImplBuffer,
-    ImplMethod, ImplMethodBuffer, Method, MethodBuffer, MethodOwner, ReceiverKind, TraitBound,
-    TraitBoundBuffer, TraitBuffer, TraitDef, TraitMethod, TraitMethodBuffer, TraitRef,
-    TraitRefBuffer,
-};
-pub use function::{Function, FunctionBuffer, FunctionKind, Param, ParamBuffer};
-pub use module::{Import, ImportBuffer, ModuleDecl, ModuleDeclBuffer};
-pub use storage::{
-    ConstBuffer, ConstItem, ConstOwner, Export, ExportBuffer, ExportItem, Visibility,
-};
-
 use crate::hir::{
-    BlockData, BlockId, Body, ConstId, EnumId, ExprData, ExprId, FunctionId, ImplId, ModuleId,
-    OpaqueTypeId, PatternData, PatternId, PlaceData, PlaceId, StmtData, StmtId, StructId, TraitId,
-    TypeData, TypeRefId,
+    body::Body,
+    expr::ExprData,
+    ids::{
+        BlockId, ConstId, EnumId, ExprId, FieldId, FunctionId, ImplId, ModuleId, OpaqueTypeId,
+        PatternId, PlaceId, StmtId, StructId, TraitId, TypeRefId, VariantId,
+    },
+    item::{
+        adt::{EnumBuffer, Field, OpaqueType, StructBuffer, Variant},
+        behavior::{ImplBuffer, MethodBuffer, TraitBuffer},
+        function::FunctionBuffer,
+        module::{ImportBuffer, ModuleDeclBuffer},
+        storage::{ConstBuffer, ConstItem, ExportBuffer},
+    },
+    pattern::PatternData,
+    place::PlaceData,
+    stmt::{BlockData, StmtData},
+    ty::TypeData,
 };
+pub mod adt;
+pub mod behavior;
+pub mod function;
+pub mod module;
+pub mod storage;
 
 #[derive(Debug, Clone, Default)]
 pub struct Module {

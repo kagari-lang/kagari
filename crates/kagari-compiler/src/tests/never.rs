@@ -1,7 +1,18 @@
-use crate::{lower_to_mir, tests::common};
+use crate::{source::lower::lower_to_mir, tests::common};
+use kagari_bytecode::{
+    self as bytecode,
+    instruction::{BytecodeInstruction, Register},
+    program::verify_program,
+    verifier::BytecodeVerificationError,
+};
+
 use kagari_abi::{contracts::ContractError, representation::ValueType};
-use kagari_bytecode::{self as bytecode, BytecodeInstruction, BytecodeVerificationError, Register};
-use kagari_mir::{MirValue, MirVerificationErrorKind, TempId, Terminator, verify_mir};
+
+use kagari_mir::{
+    ids::TempId,
+    instruction::{MirValue, Terminator},
+    verify::{MirVerificationErrorKind, verify_mir},
+};
 
 #[test]
 fn never_functions_reject_even_never_typed_return_operands() {
@@ -48,7 +59,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
         .unwrap();
     *point = BytecodeInstruction::Return(Some(Register::new(register)));
     assert!(matches!(
-        bytecode::verify_program(&bytecode).unwrap_err(),
+        verify_program(&bytecode).unwrap_err(),
         BytecodeVerificationError::InvalidOperation {
             reason: "Never function cannot return",
             ..
@@ -69,5 +80,5 @@ fn never_calls_terminate_without_emitting_following_effects() {
             .all(|block| !matches!(block.terminator, Some(Terminator::Return(_))))
     );
     let bytecode = common::bytecode_with_edited_root(&input, &mir);
-    bytecode::verify_program(&bytecode).unwrap();
+    verify_program(&bytecode).unwrap();
 }

@@ -1,11 +1,10 @@
 //! Nominal aggregate layouts used to verify field operands before bytecode emission.
 
-use crate::types::TypeAbi;
-
 use crate::{
     standard::surface::StandardEnum as StandardEnumKind,
-    types::{AbiType, PublicAbiItem, TypeAbiKind},
+    types::{AbiType, PublicAbiItem, TypeAbi, TypeAbiKind},
 };
+
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{DefinitionId, DefinitionKind, ModuleIdentity},

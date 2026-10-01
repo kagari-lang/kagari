@@ -1,14 +1,22 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
-use kagari_abi::standard::surface::StandardEnum as StandardEnumKind;
+use kagari_abi::{
+    ids::FunctionRef, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
+};
 
 use crate::{
-    LoadedModule, ResourceState, Runtime, RuntimeError, RuntimeErrorKind, frame::ExecutionFrame,
-    session::SessionState, value::Value, value_semantics,
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::ExecutionFrame,
+    module::LoadedModule,
+    resource::ResourceState,
+    session::SessionState,
+    value::Value,
+    value_semantics,
 };
-use kagari_abi::{ids::FunctionRef, types::AbiType};
-use kagari_bytecode::ArtifactFingerprint;
-use kagari_common::Span;
+
+use kagari_bytecode::artifact::ArtifactFingerprint;
+use kagari_common::span::Span;
 use std::{
     fmt::{self, Display, Formatter},
     sync::Arc,

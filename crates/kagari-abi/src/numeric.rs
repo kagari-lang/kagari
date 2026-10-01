@@ -2,8 +2,8 @@
 
 pub mod method;
 
-use crate::scalar::BuiltinType;
-use crate::{standard::surface::StandardEnum, types::AbiType};
+use crate::{scalar::BuiltinType, standard::surface::StandardEnum, types::AbiType};
+
 use kagari_common::integer::IntegerOp;
 use serde::{Deserialize, Serialize};
 

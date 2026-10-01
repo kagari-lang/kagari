@@ -3,18 +3,26 @@ use kagari_abi::{
     native::{ExecutableEntryPoint, ExecutableSafepointKind},
     native_call::JIT_CONSUME_INSTRUCTION_STEP_SYMBOL,
 };
-use kagari_common::SourceFile;
+use kagari_common::source::SourceFile;
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode, native_links::build_native_links,
     source::program::lower_program_to_mir,
 };
-use kagari_embed::KagariEngine;
-use kagari_mir::{VerifiedMirModule, program::VerifiedMirProgram};
-use kagari_runtime::{
-    BackendInvocationError, CapabilitySet, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, jit_abi::native_helper_symbols, value::Value,
-};
+use kagari_embed::engine::KagariEngine;
+use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use std::rc::Rc;
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        backend::BackendInvocationError,
+        error::RuntimeErrorKind,
+        jit_abi::native_helper_symbols,
+        resource::ResourcePolicy,
+        security::{LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 fn mir(source: &str) -> VerifiedMirProgram {
     let checked = KagariEngine::default()

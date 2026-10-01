@@ -10,7 +10,11 @@ use kagari_abi::{
     },
     types::AbiType,
 };
-use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
+use kagari_bytecode::{
+    artifact::KbcArtifact,
+    instruction::{BytecodeInstruction, CallTarget},
+    program::verify_program,
+};
 use kagari_common::collection::CollectionAccess;
 
 fn reject(artifact: &KbcArtifact, label: &str) {

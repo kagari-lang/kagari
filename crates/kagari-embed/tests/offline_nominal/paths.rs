@@ -1,9 +1,12 @@
 use super::*;
+use kagari_common::host_interface::path::HostPathSegmentDeclaration;
+use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
+
 use kagari_embed::program::PreparedProgram;
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
-    use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
+    use kagari_common::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
     let mut declarations = interface();
     declarations.types[0].fields[0].path_access = PathAccess::ReadOnly;
     let mut count =
@@ -12,10 +15,8 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
     let path = HostPathDeclaration {
         root: declarations.types[0].id.clone(),
         segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(
-                declarations.types[0].fields[0].id.clone(),
-            ),
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(count.id.clone()),
+            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id.clone()),
+            HostPathSegmentDeclaration::Field(count.id.clone()),
         ],
         access: PathAccess::ReadOnly,
         schema_epoch: 7,
@@ -50,7 +51,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
     assert_eq!(required.types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -69,9 +70,9 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };
@@ -120,7 +121,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             .runtime_mut()
             .register_host_path_adapter(
                 descriptor,
-                kagari_runtime::HostPathAdapter::new().with_read(move |context, _| {
+                HostPathAdapter::new().with_read(move |context, _| {
                     calls.borrow_mut().push("read");
                     context.runtime().collect_garbage().unwrap();
                     Ok(Value::I32(42))
@@ -135,7 +136,7 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             .unwrap();
         let mut denied = context.clone();
         denied.capabilities.fs_read = false;
-        denied.jit_policy = kagari_embed::JitPolicy::Disabled;
+        denied.jit_policy = JitPolicy::Disabled;
         let denied_error = runtime.execute(&loaded, "main", &[], &denied).unwrap_err();
         assert_eq!(*trace.borrow(), ["root"], "{denied_error:?}");
         trace.borrow_mut().clear();
@@ -174,13 +175,13 @@ fn source_host_field_index_paths_skip_intermediate_reads() {
 #[test]
 fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
     use kagari_common::host_interface::{
-        HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-        HostVirtualSegmentDeclaration, PathAccess,
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            HostVirtualSegmentDeclaration,
+        },
+        type_declaration::PathAccess,
     };
-    use kagari_runtime::{
-        HostPathAdapter,
-        host::{HostError, PreparedHostPathWrite},
-    };
+    use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
     use std::cell::Cell;
 
     let mut player = HostTypeDeclaration::new("game.Player");
@@ -255,7 +256,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
-            kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
         } else {
             artifact.clone()
         };
@@ -280,9 +281,9 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                 ..Default::default()
             },
             jit_policy: if jit {
-                kagari_embed::JitPolicy::Enabled
+                JitPolicy::Enabled
             } else {
-                kagari_embed::JitPolicy::Disabled
+                JitPolicy::Disabled
             },
             ..Default::default()
         };
@@ -388,7 +389,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
 
 #[test]
 fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
-    use kagari_common::host_interface::{HostPathDeclaration, PathAccess};
+    use kagari_common::host_interface::{path::HostPathDeclaration, type_declaration::PathAccess};
     use kagari_runtime::host::{HostError, PreparedHostPathWrite};
     use std::cell::Cell;
     let mut declarations = interface();
@@ -402,10 +403,8 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
     let path = HostPathDeclaration {
         root: declarations.types[0].id.clone(),
         segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(
-                declarations.types[0].fields[0].id.clone(),
-            ),
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(count.id.clone()),
+            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id.clone()),
+            HostPathSegmentDeclaration::Field(count.id.clone()),
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
@@ -465,7 +464,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             );
             for (encoded, jit) in [(false, false), (true, false), (true, true)] {
                 let artifact = if encoded {
-                    kagari_bytecode::KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+                    KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
                 } else {
                     artifact.clone()
                 };
@@ -485,9 +484,9 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                         ..Default::default()
                     },
                     jit_policy: if jit {
-                        kagari_embed::JitPolicy::Enabled
+                        JitPolicy::Enabled
                     } else {
-                        kagari_embed::JitPolicy::Disabled
+                        JitPolicy::Disabled
                     },
                     ..Default::default()
                 };
@@ -540,7 +539,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     .runtime_mut()
                     .register_host_path_adapter(
                         descriptor,
-                        kagari_runtime::HostPathAdapter::new()
+                        HostPathAdapter::new()
                             .with_read(move |_, path| {
                                 assert_eq!(path.root, root);
                                 reads.borrow_mut().push("read");

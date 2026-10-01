@@ -1,4 +1,6 @@
 use super::*;
+use crate::hir::expr::ExprKind;
+use kagari_common::diagnostic::DiagnosticKind;
 
 #[test]
 fn branch_and_array_merges_recover_complementary_member_facts() {
@@ -43,9 +45,9 @@ fn branch_and_array_merges_recover_complementary_member_facts() {
         assert_eq!(
             file.result().diagnostics().iter().any(|d| matches!(
                 d.kind,
-                kagari_common::DiagnosticKind::ArrayElementTypeMismatch { .. }
-                    | kagari_common::DiagnosticKind::IfBranchTypeMismatch { .. }
-                    | kagari_common::DiagnosticKind::MatchArmTypeMismatch { .. }
+                DiagnosticKind::ArrayElementTypeMismatch { .. }
+                    | DiagnosticKind::IfBranchTypeMismatch { .. }
+                    | DiagnosticKind::MatchArmTypeMismatch { .. }
             )),
             conflict,
             "{expression}"
@@ -68,10 +70,10 @@ fn recovery_members_do_not_hide_independent_argument_mismatches() {
         );
         let analysis = crate::analyze_source(&source, Default::default());
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::ArgumentTypeMismatch { .. })),
             mismatch,
             "{actual}: {:?}",
             analysis.diagnostics()
@@ -122,7 +124,7 @@ fn indexing_partial_composites_preserves_the_selected_member() {
             .module
             .body
             .expressions()
-            .filter(|(_, expr)| matches!(expr.kind, crate::hir::ExprKind::Index { .. }))
+            .filter(|(_, expr)| matches!(expr.kind, ExprKind::Index { .. }))
             .max_by_key(|(id, _)| {
                 let span = facts.lowered.source_map.expr_span(*id);
                 span.end - span.start
@@ -130,10 +132,10 @@ fn indexing_partial_composites_preserves_the_selected_member() {
             .and_then(|(id, _)| facts.typed.type_table.expr_type(id));
         assert_eq!(ty, Some(expected), "{text}");
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::InvalidIndexTarget { .. })),
             invalid_index,
             "{text}"
         );
@@ -202,9 +204,7 @@ fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
             .module
             .body
             .expressions()
-            .find_map(|(id, expr)| {
-                matches!(expr.kind, crate::hir::ExprKind::Call { .. }).then_some(id)
-            })
+            .find_map(|(id, expr)| matches!(expr.kind, ExprKind::Call { .. }).then_some(id))
             .unwrap();
         let TypeId::Struct(result) = facts.typed.type_table.expr_type(call).unwrap() else {
             panic!("known nominal return type must survive inference failure");
@@ -215,9 +215,7 @@ fn failed_call_inference_substitutes_error_without_leaking_callee_binders() {
             .module
             .body
             .expressions()
-            .find_map(|(id, expr)| {
-                matches!(expr.kind, crate::hir::ExprKind::Field { .. }).then_some(id)
-            })
+            .find_map(|(id, expr)| matches!(expr.kind, ExprKind::Field { .. }).then_some(id))
             .unwrap();
         assert_eq!(facts.typed.type_table.expr_type(field), Some(TypeId::Error));
         assert!(facts.typed.type_table.expr_field(field).is_some());
@@ -238,7 +236,7 @@ fn partial_call_inference_preserves_known_and_caller_owned_arguments() {
         .module
         .body
         .expressions()
-        .filter(|(_, expr)| matches!(expr.kind, crate::hir::ExprKind::Call { .. }))
+        .filter(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
         .map(|(id, _)| facts.typed.type_table.expr_type(id).unwrap())
         .collect();
     assert_eq!(calls.len(), 2);
@@ -273,7 +271,7 @@ fn inference_uses_valid_members_of_partially_erroneous_arguments() {
             .body
             .expressions()
             .find_map(|(id, expr)| {
-                matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                matches!(expr.kind, ExprKind::Call { .. })
                     .then(|| facts.typed.type_table.expr_type(id))
                     .flatten()
             })
@@ -305,7 +303,7 @@ fn incomplete_whole_type_does_not_poison_later_inference() {
         .body
         .expressions()
         .find_map(|(id, expr)| {
-            matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+            matches!(expr.kind, ExprKind::Call { .. })
                 .then(|| facts.typed.type_table.expr_type(id))
                 .flatten()
         });
@@ -340,7 +338,7 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
             .body
             .expressions()
             .find_map(|(id, expr)| {
-                matches!(expr.kind, crate::hir::ExprKind::Call { .. })
+                matches!(expr.kind, ExprKind::Call { .. })
                     .then(|| facts.typed.type_table.expr_type(id))
                     .flatten()
             });
@@ -352,10 +350,10 @@ fn repeated_generic_arguments_merge_partial_types_without_hiding_conflicts() {
             ]))
         );
         assert_eq!(
-            analysis.diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
-            )),
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::ArgumentTypeMismatch { .. })),
             conflict
         );
         assert!(analysis.into_codegen().is_err());
@@ -423,7 +421,7 @@ fn generic_templates_construct_and_project_distinct_instances() {
         .module
         .body
         .expressions()
-        .filter(|(_, expr)| matches!(expr.kind, crate::hir::ExprKind::StructInit { .. }))
+        .filter(|(_, expr)| matches!(expr.kind, ExprKind::StructInit { .. }))
         .map(|(id, _)| facts.typed.type_table.expr_type(id).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(instances.len(), 2);
@@ -585,13 +583,20 @@ fn failed_generic_inference_retains_known_members_inside_each_type_argument() {
         let analysis = crate::analyze_source(&source, Default::default());
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,
-            kagari_common::DiagnosticKind::CannotInferGenericArgument { .. }
+            DiagnosticKind::CannotInferGenericArgument { .. }
         )));
         let facts = analysis.facts();
-        let ty = facts.lowered.module.body.expressions().find_map(|(id, expression)| {
-            matches!(&expression.kind, crate::hir::ExprKind::Name { name, .. } if name == "item")
-                .then(|| facts.typed.type_table.expr_type(id)).flatten()
-        }).expect("local reference retains inferred type");
+        let ty = facts
+            .lowered
+            .module
+            .body
+            .expressions()
+            .find_map(|(id, expression)| {
+                matches!(&expression.kind, ExprKind::Name { name, .. } if name == "item")
+                    .then(|| facts.typed.type_table.expr_type(id))
+                    .flatten()
+            })
+            .expect("local reference retains inferred type");
         let argument = if nominal {
             match ty {
                 TypeId::Struct(ty) | TypeId::Enum(ty) => ty.arguments[0].clone(),
@@ -637,10 +642,8 @@ fn constructor_mismatch_diagnostics_use_finalized_recovery_substitutions() {
             .diagnostics()
             .iter()
             .find_map(|diagnostic| match &diagnostic.kind {
-                kagari_common::DiagnosticKind::AssignmentTypeMismatch { expected, .. }
-                | kagari_common::DiagnosticKind::ArgumentTypeMismatch { expected, .. } => {
-                    Some(expected)
-                }
+                DiagnosticKind::AssignmentTypeMismatch { expected, .. }
+                | DiagnosticKind::ArgumentTypeMismatch { expected, .. } => Some(expected),
                 _ => None,
             })
             .expect("known i32/bool conflict survives recovery");

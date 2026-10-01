@@ -1,5 +1,9 @@
 //! Link provider-qualified imports against carried declarations and witnesses.
-use crate::{CallTarget, Instruction, MirModule, VerifiedMirModule};
+use crate::{
+    function::MirModule,
+    instruction::{CallTarget, Instruction},
+    verify::VerifiedMirModule,
+};
 use kagari_abi::types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError};
 use kagari_common::{
     cancellation::CancellationToken,

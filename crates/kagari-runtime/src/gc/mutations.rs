@@ -1,11 +1,11 @@
 //! Guards prevent callbacks from modifying prepared mutation targets through aliases.
 
-use crate::error::RuntimeError;
 use crate::{
-    error::RuntimeErrorKind,
+    error::{RuntimeError, RuntimeErrorKind},
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject, HeapObjectId},
     value::Value,
 };
+
 use indexmap::IndexMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {

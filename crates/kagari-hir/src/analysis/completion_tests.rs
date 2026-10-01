@@ -1,4 +1,4 @@
-use kagari_common::SourceFile;
+use kagari_common::source::SourceFile;
 
 #[test]
 fn function_fallthrough_is_checked_only_when_reachable() {

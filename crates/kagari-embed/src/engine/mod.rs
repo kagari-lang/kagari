@@ -1,16 +1,21 @@
 //! Engine configuration and optional source compilation state.
-mod builder;
+pub mod builder;
 #[cfg(feature = "source")]
-pub(crate) mod source;
-pub use builder::KagariEngineBuilder;
+pub mod source;
+use crate::{
+    context::ExecutionContext, engine::builder::KagariEngineBuilder, runtime::KagariRuntime,
+};
 
-use crate::{context::ExecutionContext, runtime::KagariRuntime};
-use kagari_abi::native_api::NativeApiSource;
+use kagari_abi::native_api::render::NativeApiSource;
 #[cfg(feature = "source")]
 use kagari_common::source_database::SourceDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{NativeApi, Runtime, RuntimeConfig, RuntimeError, standard_library};
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeError,
+    native::{api::NativeApi, packages::standard_library},
+};
 #[cfg(feature = "source")]
 use std::cell::RefCell;
 

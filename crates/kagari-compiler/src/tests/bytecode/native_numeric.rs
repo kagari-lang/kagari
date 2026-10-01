@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{bindings::NativeProtocolMethod, traits::StandardTrait},
     types::AbiType,
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 
 #[test]
 fn numeric_providers_reject_forged_conversion_and_traversal_contracts() {

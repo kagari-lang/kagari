@@ -18,9 +18,10 @@ use kagari_common::{
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    CallTarget, Instruction, MirModule, MirVerificationError, VerifiedMirModule,
+    function::MirModule,
     ids::InstanceId,
-    verify::{VerificationBudget, verify_with_budget},
+    instruction::{CallTarget, Instruction},
+    verify::{MirVerificationError, VerificationBudget, VerifiedMirModule, verify_with_budget},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

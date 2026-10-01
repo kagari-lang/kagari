@@ -4,31 +4,18 @@
 //! `source` adds analysis and artifact emission; `native` adds frontend-free MIR
 //! preparation and trusted backend integration. Defaults enable both. Concrete
 //! native backends are supplied by the host and are not production dependencies.
-mod context;
-mod engine;
-mod error;
+pub mod context;
+pub mod engine;
+pub mod error;
 pub mod program;
-mod runtime;
+pub mod runtime;
 
-pub use context::{ExecutionContext, JitPolicy, PanicPolicy};
-#[cfg(feature = "source")]
-pub use engine::source::{ArtifactOptions, CheckedModule, CompileOptions, NativeInputExport};
-pub use engine::{EngineConfig, KagariEngine, KagariEngineBuilder};
-pub use error::{
-    CompilationPhase, DiagnosticLabel, EmbeddingDiagnostic, EmbeddingError, ReloadValidationError,
-    RuntimeFailureKind,
-};
-#[cfg(feature = "source")]
-pub use kagari_hir::typeck::ConstLimits;
-pub use kagari_runtime::HostExposurePolicy;
-#[cfg(feature = "source")]
-pub use kagari_syntax::parser::ParseLimits;
-pub use runtime::{KagariRuntime, LoadOptions, ReloadOptions};
+use crate::error::EmbeddingError;
 
 #[cfg(feature = "source")]
 pub type CompileResult<T> = Result<T, EmbeddingError>;
 pub type LoadResult<T> = Result<T, EmbeddingError>;
 pub type RunResult<T> = Result<T, EmbeddingError>;
 pub type ReloadResult<T> = Result<T, EmbeddingError>;
-use kagari_bytecode::KbcArtifact;
+use kagari_bytecode::artifact::KbcArtifact;
 pub type BytecodeArtifact = KbcArtifact;

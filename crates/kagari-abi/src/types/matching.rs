@@ -1,7 +1,12 @@
 //! Match checked implementation templates against a requested executable contract.
-use crate::standard::traits::StandardTrait;
-use crate::types::substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError};
-use crate::types::{AbiType, InterfaceTableAbi, NominalAbiType};
+use crate::{
+    standard::traits::StandardTrait,
+    types::{
+        AbiType, InterfaceTableAbi, NominalAbiType,
+        substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
+    },
+};
+
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
 
 pub fn match_implementation<'a>(

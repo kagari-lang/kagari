@@ -1,6 +1,6 @@
 //! Package selection is validated before the engine publishes its native catalog.
 use super::{EngineConfig, KagariEngine};
-use kagari_runtime::{NativeApi, RuntimeError};
+use kagari_runtime::{error::RuntimeError, native::api::NativeApi};
 
 #[derive(Default)]
 pub struct KagariEngineBuilder {

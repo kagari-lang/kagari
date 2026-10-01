@@ -2,10 +2,10 @@
 //! Locations never participate in native binding authority or ABI fingerprints.
 
 use kagari_common::{
-    Span,
     host_interface::{HostInterface, HostInterfaceError},
     identity::DefinitionId,
     source_database::normalize_source_name,
+    span::Span,
 };
 use std::collections::HashMap;
 

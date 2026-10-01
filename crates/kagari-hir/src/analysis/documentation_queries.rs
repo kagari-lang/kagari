@@ -1,12 +1,19 @@
 //! Source presentation is resolved through declarations owned by the snapshot.
 
 use crate::{
-    analysis::{AnalysisSnapshot, DeclarationSnapshot, FileAnalysis, FileDeclarations},
+    analysis::{
+        AnalysisSnapshot, FileAnalysis,
+        declaration_queries::{DeclarationSnapshot, FileDeclarations},
+    },
     declarations::{Declaration, DeclarationId},
     host::origin::HostDeclarationOrigin,
 };
-use kagari_common::{Span, identity::FileId};
-use kagari_syntax::ast::{AstNode, Field, Item, MethodDef, Name, Variant};
+use kagari_common::{identity::FileId, span::Span};
+use kagari_syntax::ast::{
+    item::{Item, MethodDef},
+    misc::{Field, Name, Variant},
+    traits::AstNode,
+};
 
 #[cfg(test)]
 mod tests;

@@ -1,12 +1,16 @@
-mod literal;
-mod ops;
+pub mod literal;
+use crate::hir::{
+    expr::{
+        literal::Literal,
+        ops::{BinaryOp, PrefixOp},
+    },
+    ids::{BlockId, ExprId, LocalId, PatternId, TypeRefId},
+    ty::TypeBuffer,
+};
 
-pub use literal::{Literal, LiteralKind};
-pub use ops::{BinaryOp, PrefixOp};
+pub mod ops;
 
 use smallvec::SmallVec;
-
-use crate::hir::{BlockId, ExprId, LocalId, PatternId, TypeRefId};
 
 #[derive(Debug, Clone)]
 pub struct ExprData {
@@ -27,7 +31,7 @@ pub enum ExprKind {
     },
     Name {
         name: String,
-        explicit_type: Option<super::TypeRefId>,
+        explicit_type: Option<TypeRefId>,
     },
     Literal(Literal),
     Propagate {
@@ -50,7 +54,7 @@ pub enum ExprKind {
     Call {
         callee: ExprId,
         args: ExprBuffer,
-        type_args: Option<super::TypeBuffer>,
+        type_args: Option<TypeBuffer>,
     },
     Field {
         receiver: ExprId,
@@ -78,7 +82,7 @@ pub enum ExprKind {
     },
     StructInit {
         path: String,
-        explicit_type: Option<super::TypeRefId>,
+        explicit_type: Option<TypeRefId>,
         fields: FieldInitBuffer,
     },
     Tuple(ExprBuffer),

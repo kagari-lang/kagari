@@ -1,9 +1,8 @@
 use super::string_iter::StringTraversal;
 use crate::{
-    LoadedModule,
     error::{RuntimeError, RuntimeErrorKind},
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject},
-    module::RetainedRuntimeProgram,
+    module::{LoadedModule, RetainedRuntimeProgram},
     session::SessionState,
     value::{EnumTag, Value},
 };

@@ -1,3 +1,4 @@
+use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use std::{
     ffi::c_void,
     rc::Rc,
@@ -16,17 +17,24 @@ use kagari_abi::{
     native_call::{JIT_STATUS_OK, JitValue},
 };
 use kagari_codegen::{
-    BackendCompileError, BackendConfiguration, BackendDiagnostic, BackendDiagnosticKind,
-    BackendFunctionInput, CodegenBackend,
+    BackendConfiguration, BackendFunctionInput, CodegenBackend,
+    diagnostic::{BackendCompileError, BackendDiagnostic, BackendDiagnosticKind},
 };
-use kagari_common::{SourceFile, cancellation::CancellationToken};
+use kagari_common::{cancellation::CancellationToken, source::SourceFile};
 use kagari_embed::{
-    ArtifactOptions, ExecutionContext, KagariEngine, NativeInputExport,
-    program::{NativePreparationError, PreparedProgram, ProgramPreparationError},
+    context::ExecutionContext,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, NativeInputExport},
+    },
+    program::{PreparedProgram, ProgramPreparationError, native::NativePreparationError},
 };
-use kagari_mir::{Constant, Instruction, Terminator};
-use kagari_runtime::{CapabilitySet, LanguageProfile, jit_abi::jit_consume_instruction_step};
-use kagari_vm::{JitExecutionStatus, PreparedNativeEntry};
+use kagari_mir::instruction::{Constant, Instruction, Terminator};
+use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{jit_abi::jit_consume_instruction_step, security::LanguageProfile},
+};
 
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);
@@ -294,9 +302,9 @@ fn mismatched_artifact_native_input_is_rejected_before_loading() {
         )
         .unwrap();
     // Construct a valid envelope with independently supplied compiler input.
-    artifact = kagari_bytecode::KbcArtifact::from_program(
+    artifact = KbcArtifact::from_program(
         artifact.program,
-        kagari_bytecode::ArtifactBuildOptions {
+        ArtifactBuildOptions {
             portable_mir: other.portable_mir,
             ..Default::default()
         },

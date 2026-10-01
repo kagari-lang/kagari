@@ -3,9 +3,15 @@ mod dispatch;
 mod value_ops;
 
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
-use kagari_bytecode::{BytecodeInstruction, ModuleRef, Register};
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, Register},
+    program::ModuleRef,
+};
 use kagari_runtime::{
-    ExecutionEvent, ExecutionFrame, ExecutionStack, LoadedModule, RootedInterfaceMethod, Runtime,
+    RootedInterfaceMethod, Runtime,
+    frame::{ExecutionFrame, ExecutionStack},
+    module::LoadedModule,
+    session::ExecutionEvent,
     value::Value,
 };
 use std::cell::{Ref, RefMut};

@@ -1,15 +1,30 @@
 use kagari_abi::representation::ValueType;
-use kagari_bytecode::{
+use {
+    crate::debug::SourceBreakpoint,
+    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
+    kagari_common::host_interface::value_type::HostValueType,
+};
+
+use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
 };
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, ResourcePolicy,
-    Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, host::HostFunction, value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::HostFunction,
+        resource::ResourcePolicy,
+        security::{DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 use crate::{
-    DebugSession, Vm, VmError,
+    debug::DebugSession,
+    error::VmError,
     tests::common::{compile_test_bytecode, test_function_module},
+    vm::Vm,
 };
 
 fn expect_capability_denied(error: VmError, capability: &str) {
@@ -50,7 +65,7 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.hidden",
                 vec![],
-                kagari_common::host_interface::HostValueType::I32,
+                HostValueType::I32,
             ),
             |_, _| unreachable!("hidden callback must not run"),
         ))
@@ -58,8 +73,8 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
     let host_module = host_runtime
         .load_program(
             "security_host_denied.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     test_function_module(
                         "main",
@@ -79,7 +94,7 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
                     vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                         "host.hidden",
                         vec![],
-                        kagari_common::host_interface::HostValueType::I32,
+                        HostValueType::I32,
                     )],
                 )],
             },
@@ -97,8 +112,8 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
     let reflection_module = reflection_runtime
         .load_program(
             "security_reflection_denied.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![test_function_module(
                     "main",
                     vec![
@@ -154,8 +169,8 @@ fn security_reflection_and_debugger_gates_remain_separate() {
     let reflection_module = metadata_only
         .load_program(
             "security_reflection_write_denied.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![super::common::point_function_module(
                     "main",
                     vec![
@@ -220,7 +235,7 @@ fn security_reflection_and_debugger_gates_remain_separate() {
     });
     let mut session = DebugSession::new(&debug_runtime).expect("attach should be allowed");
     session
-        .add_breakpoint(crate::SourceBreakpoint::at_source_offset("debug.kgr", 0))
+        .add_breakpoint(SourceBreakpoint::at_source_offset("debug.kgr", 0))
         .expect("breakpoints should be allowed");
     expect_capability_denied(
         session
@@ -300,7 +315,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.limited",
                 vec![],
-                kagari_common::host_interface::HostValueType::I32,
+                HostValueType::I32,
             ),
             |_, _| Ok(Value::I32(1)),
         ))
@@ -308,8 +323,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let host_module = host_call_limited
         .load_program(
             "security_host_call_limit.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![crate::tests::common::with_host_imports(
                     super::common::point_function_module(
                         "main",
@@ -329,7 +344,7 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
                     vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                         "host.limited",
                         vec![],
-                        kagari_common::host_interface::HostValueType::I32,
+                        HostValueType::I32,
                     )],
                 )],
             },
@@ -364,8 +379,8 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     let reflection_module = reflection_limited
         .load_program(
             "security_reflection_limit.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![super::common::point_function_module(
                     "main",
                     vec![

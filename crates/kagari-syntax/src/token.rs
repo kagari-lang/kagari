@@ -1,4 +1,4 @@
-use kagari_common::Span;
+use kagari_common::span::Span;
 
 use crate::kind::SyntaxKind;
 

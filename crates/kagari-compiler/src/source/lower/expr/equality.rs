@@ -7,8 +7,10 @@ use kagari_abi::{
 };
 use kagari_hir::{
     builtin::traits::StandardTraitSemantics,
-    types::TypeId,
-    types::abi::{lower_nominal_type, lower_type},
+    types::{
+        TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, SourceFunctionContract, Terminator, ValueBuffer,

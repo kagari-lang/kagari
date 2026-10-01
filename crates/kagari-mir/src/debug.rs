@@ -1,6 +1,6 @@
 use crate::{function::MirFunction, ids::LocalId};
 use kagari_abi::representation::ValueType;
-use kagari_common::{Span, identity::ModuleIdentity};
+use kagari_common::{identity::ModuleIdentity, span::Span};
 use serde::{Deserialize, Serialize};
 use std::iter;
 

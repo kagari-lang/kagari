@@ -1,42 +1,53 @@
-use crate::typeck::check::{
-    constants::validate_const_initializers, trait_surface::validate_trait_surface,
-};
-use kagari_abi::standard::surface as standard_surface;
-mod constants;
-mod trait_surface;
-use super::{
-    ConstraintTarget, associated, associated_consts, completion, const_budget::ConstBudget,
-    const_eval, constraints,
-};
-use crate::{
-    aggregates::{AggregateCatalog, MethodSignature},
-    declarations::Declarations,
-    hir::{Function, Module, Visibility, Writeability},
-    native::NativeBinding,
-    types::{GenericParameterType, NominalType, TypeSubstitution},
-};
-#[cfg(test)]
-use kagari_common::collection::CollectionAccess;
-use kagari_common::{Diagnostic, DiagnosticKind, TypePosition, identity::DefinitionId};
-use kagari_common::{Span, cancellation::CancellationToken};
-use smallvec::SmallVec;
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     AnalysisResult,
-    hir::FunctionKind,
+    aggregates::{AggregateCatalog, traits::MethodSignature},
+    declarations::Declarations,
+    hir::{
+        ids::BodySelection,
+        item::{
+            Module,
+            function::{Function, FunctionKind},
+            storage::Visibility,
+        },
+        writeability::Writeability,
+    },
     lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
+    native::NativeBinding,
+    resolver::resolved::{ResolvedName, ResolvedNames},
     typeck::{
         BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes,
-        TypeTable, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
-        TypedParameterBuffer,
+        TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
+        associated, associated_consts,
         body::BodyChecker,
+        check::{constants::validate_const_initializers, trait_surface::validate_trait_surface},
+        completion,
+        const_budget::ConstBudget,
+        const_eval, constraints,
+        reuse::BodyReuse,
+        table::{ConstraintTarget, TypeTable},
         ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     },
-    types::TypeId,
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::{scalar::BuiltinType, standard::surface::StandardTypeConstraint};
+
+use kagari_abi::{
+    scalar::BuiltinType,
+    standard::surface::{self as standard_surface, StandardTypeConstraint},
+};
+mod constants;
+mod trait_surface;
+
+#[cfg(test)]
+use kagari_common::collection::CollectionAccess;
+use kagari_common::{
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind, TypePosition},
+    identity::DefinitionId,
+    span::Span,
+};
+
+use smallvec::SmallVec;
+use std::collections::{HashMap, HashSet};
 
 pub(crate) fn check_signatures(
     lowered: &LoweredModule,
@@ -375,7 +386,7 @@ pub(crate) fn check_bodies_controlled(
     names: &ResolvedNames,
     declarations: &Declarations,
     inputs: super::BodyInputs<'_>,
-    reuse: Option<&super::BodyReuse<'_>>,
+    reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> AnalysisResult<TypedModule> {
     let super::BodyInputs {
@@ -388,7 +399,7 @@ pub(crate) fn check_bodies_controlled(
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
-    let mut diagnostics = if matches!(selection, crate::hir::BodySelection::All) {
+    let mut diagnostics = if matches!(selection, BodySelection::All) {
         signatures.diagnostics.clone()
     } else {
         Default::default()
@@ -713,7 +724,7 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
 
 pub(super) fn validate_standard_type_constraints(
     ty: &TypeId,
-    generic_bounds: &HashMap<TypeId, Vec<super::ConstraintTarget>>,
+    generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
@@ -771,7 +782,7 @@ pub(super) fn validate_standard_type_constraints(
 pub(super) fn validate_standard_constraint_type(
     ty: &TypeId,
     constraint: StandardTypeConstraint,
-    generic_bounds: &HashMap<TypeId, Vec<super::ConstraintTarget>>,
+    generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
 ) {

@@ -1,5 +1,5 @@
 //! Revision-bound execution facts, computed before a verified module is sealed.
-use crate::{BlockId, LocalId, TempId};
+use crate::ids::{BlockId, LocalId, TempId};
 use kagari_abi::budget::LogicalBudgetCharge;
 
 /// A dense set of logical slots. Temporaries and locals have distinct namespaces.

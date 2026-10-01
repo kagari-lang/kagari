@@ -1,12 +1,12 @@
 use crate::{
     builtin::traits::StandardTraitSemantics,
-    hir::{ExprId, ExprKind},
+    hir::{expr::ExprKind, ids::ExprId},
     native::NativeTypeKind,
-    typeck::{BodyTypeEnv, CallTarget, body::BodyChecker, completion},
+    typeck::{BodyTypeEnv, body::BodyChecker, completion, table::CallTarget},
     types::TypeId,
 };
 use kagari_abi::standard::{surface::StandardEnum, traits::StandardTrait};
-use kagari_common::{Diagnostic, DiagnosticKind};
+use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
     /// A completed branch can supply the missing payload type of a sibling None.

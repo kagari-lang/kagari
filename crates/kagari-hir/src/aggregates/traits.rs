@@ -1,11 +1,11 @@
 use crate::{
-    aggregates::{AggregateCatalog, ImplementationSearchError},
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::Writeability,
+    hir::writeability::Writeability,
     lower::LoweredModule,
     native::NativeBinding,
-    resolver::ResolvedName,
-    typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ModuleSignatures},
+    resolver::resolved::ResolvedName,
+    typeck::{FunctionImplementation, GenericBounds, ModuleSignatures, table::ConstraintTarget},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
 use kagari_abi::callable::MethodPolicy;
@@ -96,7 +96,7 @@ impl AggregateCatalog {
         interface: &NominalType,
         receiver: &TypeId,
         cancel: &CancellationToken,
-    ) -> Result<Vec<NominalType>, super::ImplementationSearchError> {
+    ) -> Result<Vec<NominalType>, ImplementationSearchError> {
         trait_inheritance_closure(interface, receiver, cancel, &|id| {
             self.trait_(id).map(|contract| {
                 (
@@ -111,7 +111,7 @@ impl AggregateCatalog {
         &self,
         bounds: &GenericBounds,
         cancel: &CancellationToken,
-    ) -> Result<GenericBounds, super::ImplementationSearchError> {
+    ) -> Result<GenericBounds, ImplementationSearchError> {
         let mut result = bounds.clone();
         for (receiver, constraints) in bounds {
             for constraint in constraints {
@@ -361,7 +361,7 @@ pub fn trait_inheritance_closure(
     receiver: &TypeId,
     cancel: &CancellationToken,
     lookup: &impl Fn(&DefinitionId) -> Option<(Vec<GenericParameterType>, Vec<NominalType>)>,
-) -> Result<Vec<NominalType>, super::ImplementationSearchError> {
+) -> Result<Vec<NominalType>, ImplementationSearchError> {
     let mut result = Vec::new();
     let mut seen = HashSet::new();
     let mut pending = vec![(interface.clone(), Vec::<DefinitionId>::new())];

@@ -3,8 +3,9 @@ use std::{collections::VecDeque, mem};
 use kagari_abi::{budget::LogicalBudgetCharge, representation::ValueType};
 
 use crate::{
-    Instruction, MirFunction,
     analysis::{BlockAnalysis, FunctionAnalysis, PointAnalysis, SafepointKind, SlotSet},
+    function::MirFunction,
+    instruction::Instruction,
     verify::{
         Context, MirVerificationError,
         flow::{self, Initialization},
@@ -301,7 +302,7 @@ fn save(point: &mut PointAnalysis, state: &[u64], heap: &[u64]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MirVerificationErrorKind;
+    use crate::verify::MirVerificationErrorKind;
     use kagari_common::cancellation::CancellationToken;
 
     #[test]

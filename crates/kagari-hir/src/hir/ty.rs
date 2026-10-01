@@ -1,6 +1,6 @@
 use smallvec::SmallVec;
 
-use crate::hir::TypeRefId;
+use crate::hir::ids::TypeRefId;
 
 #[derive(Debug, Clone)]
 pub struct TypeData {

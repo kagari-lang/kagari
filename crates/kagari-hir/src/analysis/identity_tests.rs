@@ -1,8 +1,10 @@
 use super::*;
 use crate::declarations::DeclarationId;
 use kagari_common::{
+    diagnostic::DiagnosticKind,
     identity::{DefinitionKind, ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
+    span::Span,
 };
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -145,7 +147,7 @@ fn semantic_diagnostic_budget_invalidates_cached_results_without_changing_old_sn
     assert_eq!(diagnostics.len(), 2);
     assert!(matches!(
         diagnostics[1].kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded {
+        DiagnosticKind::CompileLimitExceeded {
             resource: "semantic diagnostics",
             limit: 1
         }
@@ -167,7 +169,7 @@ fn semantic_diagnostic_budget_invalidates_cached_results_without_changing_old_sn
     let zero = snapshot(&mut db, &sources);
     assert!(matches!(
         zero.file(id).unwrap().result().diagnostics()[0].kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded {
+        DiagnosticKind::CompileLimitExceeded {
             resource: "semantic diagnostics",
             limit: 0
         }
@@ -654,7 +656,7 @@ fn bound_navigation_retains_valid_references_beside_unknown_constraints() {
     assert_eq!(diagnostic.kind.code(), "KG_TYPE_UNKNOWN_TRAIT");
     assert_eq!(
         diagnostic.span,
-        Some(kagari_common::Span::new(
+        Some(Span::new(
             text.find("Missing").unwrap(),
             text.find("Missing").unwrap() + 7
         ))

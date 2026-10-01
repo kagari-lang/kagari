@@ -1,6 +1,6 @@
-use crate::RuntimeError;
+use crate::error::RuntimeError;
 use kagari_abi::native::ExecutableDebugInfo;
-use kagari_bytecode::BytecodeFunction;
+use kagari_bytecode::module::BytecodeFunction;
 pub mod native;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

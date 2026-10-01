@@ -51,17 +51,30 @@ class ExceptionTests(unittest.TestCase):
 
     def test_reexport_exception_does_not_exempt_other_declarations(self):
         result = self.check("pub use crate::api::A; pub use crate::api::B;",
-                            self.policy("reexport-location", declaration="pub use crate::api::A;"))
+                            self.policy("reexport-whitelist", declaration="pub use crate::api::A;"))
         self.assertEqual(len(result["exceptions"]), 1)
         self.assertEqual(result["findings"][0]["declaration"], "pub use crate::api::B;")
 
+    def test_whitelist_applies_to_library_roots_and_test_only_declarations(self):
+        declaration = "pub(crate) use crate::api::A;"
+        for path, source in [("src/lib.rs", declaration),
+                             ("src/lib.rs", "#[cfg(test)] mod tests { " + declaration + " }")]:
+            with self.subTest(source=source):
+                (self.root / path).write_text(source, encoding="utf-8")
+                policy = self.policy("reexport-whitelist", declaration=declaration)
+                policy = policy.replace('path = "src/worker.rs"', f'path = "{path}"')
+                (self.root / POLICY_PATH).write_text(policy, encoding="utf-8")
+                report = apply_exceptions(check_sources({path: source.encode()}), self.root)
+                self.assertEqual(report["findings"], [])
+                self.assertEqual(len(report["exceptions"]), 1)
+
     def test_reexport_exception_does_not_exempt_glob_rule(self):
         result = self.check("pub use crate::api::*;",
-                            self.policy("reexport-location", declaration="pub use crate::api::*;"))
+                            self.policy("reexport-whitelist", declaration="pub use crate::api::*;"))
         self.assertEqual([f["rule"] for f in result["findings"]], ["wildcard-import"])
 
     def test_stale_or_ambiguous_declaration_requires_policy_update(self):
-        policy = self.policy("reexport-location", declaration="pub use crate::api::A;")
+        policy = self.policy("reexport-whitelist", declaration="pub use crate::api::A;")
         for source in ["fn f() {}", "pub use crate::api::B;",
                        "pub use crate::api::A; pub use crate::api::A;"]:
             with self.subTest(source=source), self.assertRaisesRegex(ValueError, "stale or ambiguous"):
@@ -72,7 +85,7 @@ class ExceptionTests(unittest.TestCase):
             self.check("fn f() {}", self.policy("effective-loc", max_loc=1250))
 
     def test_missing_evidence_reason_unknown_fields_and_unsupported_rules(self):
-        policy = self.policy("reexport-location", declaration="pub use crate::api::A;")
+        policy = self.policy("reexport-whitelist", declaration="pub use crate::api::A;")
         variants = [policy.replace('evidence = "design.md"', 'evidence = "missing.md"'),
                     policy.replace('reason = "One cohesive reviewed unit"', 'reason = ""'),
                     policy + 'allow_everything = true\n',
@@ -83,13 +96,13 @@ class ExceptionTests(unittest.TestCase):
                 self.check("pub use crate::api::A;", variant)
 
     def test_duplicate_exception_is_rejected(self):
-        policy = self.policy("reexport-location", declaration="pub use crate::api::A;")
+        policy = self.policy("reexport-whitelist", declaration="pub use crate::api::A;")
         with self.assertRaisesRegex(ValueError, "duplicate"):
             self.check("pub use crate::api::A;", policy + policy)
 
     def test_cli_passes_only_with_valid_documented_exception(self):
         self.check("pub use crate::api::A;",
-                   self.policy("reexport-location", declaration="pub use crate::api::A;"))
+                   self.policy("reexport-whitelist", declaration="pub use crate::api::A;"))
         subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
         result = subprocess.run([sys.executable, str(SCRIPT), "--root", str(self.root), "--json"],
                                 capture_output=True, text=True, encoding="utf-8")

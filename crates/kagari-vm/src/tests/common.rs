@@ -1,12 +1,18 @@
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
+use {
+    kagari_bytecode::{module::RootSlotLayout, program::ModuleRef},
+    kagari_hir::profile::LanguageFeatureProfile,
+};
+
 use kagari_bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeProgram, ConstantOperand,
-    FunctionMetadata, FunctionRecord,
+    instruction::{BytecodeInstruction, ConstantOperand},
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
+    program::BytecodeProgram,
 };
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{LoadedModule, Runtime};
+use kagari_runtime::{Runtime, module::LoadedModule};
 
 pub fn load_bytecode_module(name: &str, bytecode: BytecodeModule) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(Runtime::default(), name, bytecode)
@@ -20,8 +26,8 @@ pub fn load_bytecode_module_with_runtime(
     let loaded = runtime
         .load_program(
             name,
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![bytecode],
             },
         )
@@ -56,7 +62,7 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
     let snapshot = AnalysisDatabase::default()
         .snapshot(
             sources.snapshot(),
-            kagari_hir::LanguageFeatureProfile {
+            LanguageFeatureProfile {
                 allow_host_calls: true,
                 allow_reflection: true,
                 allow_reflection_write: true,
@@ -82,7 +88,7 @@ pub fn test_function_module(
     let metadata = FunctionMetadata {
         instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
-        roots: kagari_bytecode::RootSlotLayout::from_types(&[], &registers),
+        roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };

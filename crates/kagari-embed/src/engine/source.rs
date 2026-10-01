@@ -1,37 +1,44 @@
 //! Source analysis and artifact emission are optional SDK capabilities.
-use crate::engine::KagariEngine;
 use crate::{
     BytecodeArtifact, CompileResult,
+    engine::KagariEngine,
     error::{CompilationPhase, EmbeddingDiagnostic, EmbeddingError},
 };
-use kagari_bytecode::{ArtifactBuildOptions, KbcArtifact, native_input::PortableMir};
+
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, KbcArtifact},
+    native_input::PortableMir,
+};
 use kagari_common::{
-    SourceFile,
     cancellation::CancellationToken,
     host_interface::HostInterfaceError,
     identity::{DefinitionId, FileId, ModuleIdentity},
+    source::SourceFile,
     source_database::{SourceLayer, SourceSnapshot},
 };
 use kagari_compiler::{
-    MirLoweringOptions,
     bytecode::lower_program_to_bytecode,
-    source::program::{SourceProgramError, lower_program_to_mir},
+    source::{
+        lower::instances::MirLoweringOptions,
+        program::{SourceProgramError, lower_program_to_mir},
+    },
 };
 use kagari_hir::{
-    LanguageFeatureProfile,
     analysis::{
-        AnalysisError, AnalysisSnapshot, DeclarationSnapshot, FunctionAnalysis, SignatureSnapshot,
+        AnalysisSnapshot, body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
+        error::AnalysisError, signature_queries::SignatureSnapshot,
     },
     host::{HostDeclarations, origin::HostInput},
     imports::ModuleOrderError,
+    profile::LanguageFeatureProfile,
     program::{CheckedProgram, ProgramCheckError},
-    typeck::ConstLimits,
+    typeck::const_budget::ConstLimits,
 };
 use kagari_mir::{
     codec::{MirCodecError, encode_program},
     program::ProgramErrorKind,
 };
-use kagari_runtime::LanguageProfile;
+use kagari_runtime::security::LanguageProfile;
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 

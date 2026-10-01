@@ -5,22 +5,19 @@ use host::HostCallContext;
 use kagari_abi::{
     budget::LogicalBudgetCharge,
     ids::FunctionRef,
+    standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
-use kagari_bytecode::BinaryOp;
-use kagari_common::host_interface::HostPathDeclaration;
-pub use kagari_common::host_interface::{
-    HostInterface, HostParameter, HostPassingStyle, HostTypeDeclaration, HostValueType,
-};
+use kagari_bytecode::instruction::BinaryOp;
+use kagari_common::host_interface::path::HostPathDeclaration;
 use reflection::ReflectionError;
 use session::SessionState;
 use std::{
     cell::{RefCell, RefMut},
     rc::Rc,
 };
-use value::EphemeralValue;
+use value::{EphemeralValue, Value};
 pub mod error_trace;
-pub use error_trace::{ErrorFrame, ErrorTrace, ResultFailure};
 #[cfg(test)]
 extern crate self as kagari_runtime;
 pub mod backend;
@@ -28,19 +25,19 @@ pub mod builtin;
 pub mod cache;
 pub mod error;
 mod execution_state;
-mod frame;
+pub mod frame;
 pub mod gc;
 pub mod host;
-mod host_scope;
+pub mod host_scope;
 pub mod jit_abi;
 #[cfg(test)]
 #[path = "../tests/support/layouts.rs"]
 mod layout_fixtures;
 pub mod metadata;
 pub mod module;
-mod native;
+pub mod native;
 pub mod native_module;
-mod native_value;
+pub mod native_value;
 pub mod numeric;
 pub mod range;
 pub mod reflection;
@@ -51,71 +48,32 @@ pub mod session;
 pub mod value;
 pub mod value_semantics;
 
-use kagari_abi::standard::RuntimePrimitive;
-
-pub use backend::BackendInvocationError;
-pub use backend::native::{InstalledNativeFunction, NativeInvocationFailure};
-pub use cache::{
-    InterpreterCacheId, InterpreterCacheRecord, InterpreterCacheRegistry, ReloadDependencySnapshot,
-    ReloadInvalidation,
-};
-pub use error::{RuntimeError, RuntimeErrorKind};
-pub use frame::{ExecutionFrame, ExecutionStack};
-pub use host_scope::HostResourceScope;
-pub use kagari_native_macros::native_module;
-pub use module::{
-    LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId, ModuleInstance,
-    ModuleKey, ModuleStore, VerifiedProgram,
-};
-pub use native::{
-    NativeAction, NativeApi, NativeCallback, NativeContext, NativeEntry, NativeFactory,
-    NativeHandler, NativeInvocationState, NativeProgress, NativeRegistration, NativeRegistry,
-    standard_library,
-};
-pub use native_value::{
-    GenericValue, NativeArray, NativeCall, NativeContinuation, NativeFn, NativeIndex, NativeResult,
-    NativeReturn, NativeValue,
-};
-pub use reload::ReloadValidationError;
-pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
-pub use session::{
-    CandidateSession, DeterministicInputs, ExecutionCounters, ExecutionEvent, ExecutionObserver,
-    ExecutionOptions, ExecutionPhase, ExecutionSession, ExecutionTrace, HostCallTrace, TraceValue,
-};
-pub use {
-    host::BorrowEpoch, host::DynamicPathArgSlot, host::DynamicPathArgument,
-    host::DynamicPathArguments, host::DynamicPathParameter, host::FrameHostBorrowToken,
-    host::HostBorrowKind, host::HostBorrowTable, host::HostCallGuard, host::HostFrameId,
-    host::HostFunctionId, host::HostObjectId, host::HostPathAdapter, host::HostPathContext,
-    host::HostPathDescriptor, host::HostPathDescriptorId, host::HostPathDescriptorRegistration,
-    host::HostPathMutationRecord, host::HostPathOperation, host::HostPathSegment,
-    host::HostPathSegmentRegistration, host::HostPathViewHandle, host::HostRootHandle,
-    host::HostSchemaEpoch, host::HostTypeInfo, host::HostTypeRegistration,
-    kagari_common::host_interface::HostFunctionDeclaration,
-    kagari_common::host_interface::HostFunctionEffects,
-    kagari_common::host_interface::HostReflectionPolicy,
-    kagari_common::host_interface::HostTypeOwnership,
-};
-pub use {
-    kagari_common::capability::CapabilitySet, security::DebugVisibilityPolicy,
-    security::HostExposurePolicy, security::LanguageProfile, security::SecurityContext,
-};
-pub use {
-    kagari_common::host_interface::PathAccess, kagari_common::host_interface::Visibility,
-    metadata::AbiFingerprint, metadata::FieldInfo, metadata::FieldMetadataId, metadata::MethodInfo,
-    metadata::MethodMetadataId, metadata::MethodOrigin, metadata::ParameterInfo,
-    metadata::TraitInfo, metadata::TypeId, metadata::TypeInfo, metadata::TypeKind,
-    metadata::TypeRegistration, metadata::TypeRegistry, metadata::VariantInfo,
-    metadata::VariantMetadataId,
-};
-
 use crate::{
     builtin::BuiltinError,
+    cache::{
+        InterpreterCacheId, InterpreterCacheRecord, InterpreterCacheRegistry,
+        ReloadDependencySnapshot,
+    },
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::ExecutionStack,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, RootedValue},
-    host::{HostFunction, HostRegistry},
+    host::{
+        FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostFunction, HostFunctionId,
+        HostPathOperation, HostRegistry, HostTypeRegistration,
+    },
+    host_scope::HostResourceScope,
+    metadata::{TypeId, TypeRegistry},
+    module::{
+        LoadedModule, ModuleEpochRetention, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
+    },
+    native::registration::NativeRegistry,
     reload::ModuleEpochAllocator,
+    resource::{ResourcePolicy, ResourceState},
+    security::{DebugVisibilityPolicy, HostExposurePolicy, SecurityContext},
+    session::{
+        ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionPhase, ExecutionSession,
+    },
 };
-use value::Value;
 
 /// Verified and linked reload data that has not changed any runtime entry.
 struct PreparedReload {
@@ -161,7 +119,7 @@ pub struct Runtime {
     gc: Rc<GcHeap>,
     types: TypeRegistry,
     host: HostRegistry,
-    native_entries: native::NativeRegistry,
+    native_entries: NativeRegistry,
     host_borrows: HostBorrowTable,
     security: SecurityContext,
     host_exposure: Rc<HostExposurePolicy>,

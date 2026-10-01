@@ -1,24 +1,35 @@
 //! Offline host associated-output declarations and dynamic interface binding.
 //! Run with `cargo run -p kagari-embed --example host_interfaces`.
 
-use kagari_common::host_interface::PathAccess;
 use kagari_common::{
     host_interface::{
-        HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
-        HostParameter, HostPassingStyle, HostTraitImplementationDeclaration,
-        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        type_declaration::{
+            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+        },
+        value_type::HostValueType,
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
-use kagari_embed::{
-    BytecodeArtifact, CompileOptions, ExecutionContext, HostExposurePolicy, JitPolicy,
-    KagariEngine, program::PreparedProgram,
+
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+        security::LanguageProfile,
+        value::Value,
+    },
 };
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile,
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-    value::Value,
+use {
+    kagari_embed::{
+        BytecodeArtifact,
+        context::{ExecutionContext, JitPolicy},
+        engine::{KagariEngine, source::CompileOptions},
+        program::PreparedProgram,
+    },
+    kagari_runtime::security::HostExposurePolicy,
 };
 
 const SOURCE: &str = include_str!("../../../examples/host-interfaces.kgr");

@@ -1,9 +1,10 @@
 use super::runtime;
-use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact};
-use kagari_common::cancellation::CancellationToken;
-use kagari_common::host_interface::standard_log;
-use kagari_runtime::{RuntimeErrorKind, host::HostFunction, value::Value};
+use crate::{error::VmError, reentry::reenter, tests::common::compile_test_bytecode, vm::Vm};
+
+use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
+use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
+
+use kagari_runtime::{error::RuntimeErrorKind, host::HostFunction, value::Value};
 use std::{cell::RefCell, rc::Rc};
 fn route(program: &BytecodeProgram, encoded: bool) -> BytecodeProgram {
     if encoded {
@@ -88,10 +89,10 @@ fn ready()->i32 {{7}}
                             } else if cancellation.is_none() {
                                 let root = context.runtime().execution_root().unwrap();
                                 assert_eq!(
-                                    crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                                    reenter(context, &root, inner, &[]).unwrap().value(),
                                     Value::I32(7)
                                 );
-                                assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                                assert!(reenter(context, &root, fail, &[]).is_err());
                                 assert_eq!(
                                     context.runtime().resources().counters().current_call_depth,
                                     2

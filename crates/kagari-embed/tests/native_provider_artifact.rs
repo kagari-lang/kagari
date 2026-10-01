@@ -1,7 +1,12 @@
 //! Provider execution must not require the source feature or a native backend.
-use kagari_bytecode::KbcArtifact;
-use kagari_embed::{EngineConfig, ExecutionContext, KagariEngine, program::PreparedProgram};
-use kagari_runtime::value::Value;
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_runtime::{native::packages::standard_library, value::Value};
+
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{EngineConfig, KagariEngine},
+    program::PreparedProgram,
+};
 
 const ARTIFACT: &[u8] = include_bytes!("fixtures/native_provider.kbc");
 
@@ -52,7 +57,7 @@ fn provider_artifact_executes_and_releases_callback_roots() {
 #[cfg(feature = "source")]
 #[test]
 fn provider_fixture_matches_source_emission() {
-    use kagari_common::SourceFile;
+    use kagari_common::source::SourceFile;
     let artifact = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new(
@@ -69,7 +74,7 @@ fn provider_fixture_matches_source_emission() {
         .iter()
         .flat_map(|module| module.native_declarations.iter().cloned())
         .collect();
-    let api = kagari_runtime::standard_library();
+    let api = standard_library();
     let registered: Vec<_> = api
         .modules()
         .iter()

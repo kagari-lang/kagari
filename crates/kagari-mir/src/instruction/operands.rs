@@ -1,4 +1,7 @@
-use crate::{BlockId, CallTarget, Instruction, MirValue, Terminator};
+use crate::{
+    ids::BlockId,
+    instruction::{CallTarget, Instruction, MirValue, Terminator},
+};
 use smallvec::SmallVec;
 use std::iter;
 

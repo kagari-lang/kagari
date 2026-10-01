@@ -1,5 +1,7 @@
 use kagari_abi::standard::RuntimePrimitive;
-use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, value::Value};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, resource::ResourcePolicy, value::Value,
+};
 
 fn limited(heap: Option<usize>, allocation: Option<usize>) -> Runtime {
     Runtime::new(RuntimeConfig {

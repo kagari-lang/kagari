@@ -1,30 +1,36 @@
 //! Direct declaration import. Generated CST is presentation only, not semantic input.
 use crate::{
     hir::{
-        BodyOwner, Export, ExportItem, Function, FunctionId, FunctionKind, GenericParam, HirOwner,
-        Impl, ImplMethod, Item, OpaqueType, OpaqueTypeId, Param, ReceiverKind, TraitDef,
-        TraitMethod, TraitRef, TypeData, TypeKind, TypeRefId, Visibility, Writeability,
+        ids::{BodyOwner, FunctionId, HirOwner, OpaqueTypeId, TypeRefId},
+        item::{
+            Item,
+            adt::OpaqueType,
+            behavior::{
+                GenericParam, Impl, ImplMethod, ReceiverKind, TraitDef, TraitMethod, TraitRef,
+            },
+            function::{Function, FunctionKind, Param},
+            storage::{Export, ExportItem, Visibility},
+        },
+        ty::{TypeData, TypeKind},
+        writeability::Writeability,
     },
     lower::{LoweredModule, context::Lowerer},
     native::NativeTypeKind,
 };
 use kagari_abi::{
     callable::CallableImplementation,
-    native_api::{NativeApiError, NativeApiSource, NativeModule},
+    native_api::{NativeApiError, NativeModule, render::NativeApiSource},
     standard::surface::builtin_type_spec,
     types::{AbiType, FunctionAbi, GenericParameterAbi, NominalAbiType},
 };
 use kagari_common::{
-    Span,
     cancellation::CancellationToken,
     collection::CollectionAccess,
     identity::{DefinitionId, DefinitionKind},
     source_database::{SourceDatabase, SourceLayer},
+    span::Span,
 };
-use kagari_syntax::{
-    Parse,
-    parser::{ParseLimits, parse_declarations},
-};
+use kagari_syntax::parser::{Parse, ParseLimits, parse_declarations};
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,

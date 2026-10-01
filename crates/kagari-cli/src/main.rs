@@ -1,25 +1,36 @@
-use kagari_bytecode::ArtifactCompatibility;
+use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::{Diagnostic, SourceFile, host_interface};
+use kagari_common::{diagnostic::Diagnostic, host_interface, source::SourceFile};
 use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, EmbeddingDiagnostic, EmbeddingError,
-    ExecutionContext, JitPolicy, KagariEngine, KagariRuntime, LoadOptions,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, CompileOptions},
+    },
+    error::{EmbeddingDiagnostic, EmbeddingError},
     program::{PreparedProgram, ProgramPreparationError},
+    runtime::{KagariRuntime, LoadOptions},
 };
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, LoadedModule, RuntimeError,
-    host::{HostError, HostFunction},
-    value::Value,
-};
-use kagari_vm::ExecutionReport;
+use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
     path::{Path, PathBuf},
     process::ExitCode,
 };
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        error::RuntimeError,
+        host::{HostError, HostFunction},
+        module::LoadedModule,
+        security::{HostExposurePolicy, LanguageProfile},
+        value::Value,
+    },
+};
 
-use kagari_syntax::parse_module;
+use kagari_syntax::parser::parse_module;
 
 fn main() -> ExitCode {
     match Cli::parse(env::args().skip(1)).and_then(run_cli) {

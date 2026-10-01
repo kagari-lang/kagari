@@ -1,11 +1,19 @@
 use kagari_common::{
     host_interface::{
-        HostInterface, HostMethodDeclaration, HostTraitImplementationDeclaration,
-        HostTraitMethodBinding, HostTypeDeclaration, HostValueType,
+        HostInterface,
+        type_declaration::{
+            HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
+            HostTypeDeclaration,
+        },
+        value_type::HostValueType,
     },
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
-use kagari_runtime::{HostTypeRegistration, Runtime, host::HostFunction, value::Value};
+use kagari_runtime::{
+    Runtime,
+    host::{HostFunction, HostTypeRegistration},
+    value::Value,
+};
 
 fn main() {
     let mut counter = HostTypeDeclaration::new("demo.Counter");

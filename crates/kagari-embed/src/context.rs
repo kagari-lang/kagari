@@ -1,13 +1,23 @@
 //! Execution authority, budgets and entry policy.
-use crate::RunResult;
-use crate::error::{EmbeddingError, RuntimeFailureKind};
-use kagari_bytecode::{BytecodeInstruction, BytecodeModule, CallTarget, RuntimeHelper};
-use kagari_common::cancellation::CancellationToken;
-use kagari_runtime::{
-    CapabilitySet, DeterministicInputs, ExecutionOptions, ExecutionPhase, HostExposurePolicy,
-    LanguageProfile, ResourcePolicy, SecurityContext,
+use crate::{
+    RunResult,
+    error::{EmbeddingError, RuntimeFailureKind},
 };
+
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, CallTarget, RuntimeHelper},
+    module::BytecodeModule,
+};
+use kagari_common::cancellation::CancellationToken;
 use std::rc::Rc;
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        resource::ResourcePolicy,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        session::{DeterministicInputs, ExecutionOptions, ExecutionPhase},
+    },
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JitPolicy {

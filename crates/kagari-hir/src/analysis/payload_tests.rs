@@ -1,5 +1,5 @@
 use super::*;
-use crate::{declarations::DeclarationId, hir::HirOwner};
+use crate::{declarations::DeclarationId, hir::ids::HirOwner};
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},

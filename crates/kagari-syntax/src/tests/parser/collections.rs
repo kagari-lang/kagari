@@ -1,4 +1,4 @@
-use crate::{ast::Expr, tests::common};
+use crate::{ast::expr::Expr, tests::common};
 
 #[test]
 fn parses_array_literal_expression() {

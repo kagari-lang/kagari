@@ -13,8 +13,10 @@ use kagari_abi::{
 use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
 use kagari_hir::{
     AnalyzedModule,
-    types::TypeId,
-    types::abi::{lower_nominal_type, lower_type},
+    types::{
+        TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
 };
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},

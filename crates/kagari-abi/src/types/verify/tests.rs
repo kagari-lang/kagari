@@ -1,7 +1,6 @@
-use crate::types::verify::*;
 use crate::{
     callable::{CallableImplementation, EngineNativeBinding},
-    types::ParameterAbi,
+    types::{ParameterAbi, verify::*},
 };
 
 #[test]

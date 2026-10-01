@@ -3,8 +3,16 @@ use kagari_common::{
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::security::{HostExposurePolicy, LanguageProfile},
+};
+
 use kagari_embed::{
-    BytecodeArtifact, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine,
+    BytecodeArtifact,
+    context::ExecutionContext,
+    engine::{KagariEngine, source::CompileOptions},
+    error::EmbeddingError,
 };
 use kagari_runtime::value::Value;
 
@@ -38,7 +46,8 @@ fn host_fixture() -> (
     kagari_common::host_interface::HostFunctionDeclaration,
 ) {
     use kagari_common::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle, HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType,
     };
     let engine = KagariEngine::default();
     let declaration = HostFunctionDeclaration::new(
@@ -78,15 +87,15 @@ fn host_fixture() -> (
         "use pkg::left::left; use pkg::right::right; fn main() -> i32 { trace::record(4); left() + right() }",
     );
     let context = ExecutionContext {
-        language_profile: kagari_runtime::LanguageProfile {
+        language_profile: LanguageProfile {
             allow_host_calls: true,
             ..Default::default()
         },
-        capabilities: kagari_runtime::CapabilitySet {
+        capabilities: CapabilitySet {
             host_calls: true,
             ..Default::default()
         },
-        host_policy: kagari_runtime::HostExposurePolicy {
+        host_policy: HostExposurePolicy {
             allowed_host_functions: vec!["trace.record".into()],
             ..Default::default()
         },

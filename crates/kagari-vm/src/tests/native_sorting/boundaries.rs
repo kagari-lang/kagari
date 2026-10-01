@@ -1,11 +1,17 @@
 use super::runtime;
-use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
-use kagari_bytecode::{BytecodeProgram, KbcArtifact, StructId};
+use crate::{
+    error::VmError, executor::Executor, reentry::reenter, tests::common::compile_test_bytecode,
+    vm::Vm,
+};
+
+use kagari_bytecode::{artifact::KbcArtifact, instruction::StructId, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
 use kagari_runtime::{
-    LoadedModule, Runtime, RuntimeErrorKind,
+    Runtime,
+    error::RuntimeErrorKind,
     gc::{HeapObjectId, RootedValue},
     host::HostFunction,
+    module::LoadedModule,
     value::Value,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -201,10 +207,10 @@ fn sorting_and_dedup_reenter_and_cancel_at_each_callback_without_partial_commit(
                         } else if cancellation == 0 {
                             let root = context.runtime().execution_root().unwrap();
                             assert_eq!(
-                                crate::reenter(context, &root, inner, &[]).unwrap().value(),
+                                reenter(context, &root, inner, &[]).unwrap().value(),
                                 Value::I32(7)
                             );
-                            assert!(crate::reenter(context, &root, fail, &[]).is_err());
+                            assert!(reenter(context, &root, fail, &[]).is_err());
                             assert_eq!(
                                 context.runtime().resources().counters().current_call_depth,
                                 depth

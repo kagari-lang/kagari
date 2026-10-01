@@ -1,10 +1,12 @@
 mod arrays;
 mod maps_sets;
 use crate::{
-    ErrorTrace, ExecutionPhase, ModuleKey,
-    module::{LoadedModule, RetainedRuntimeProgram, StructLayoutRef},
+    error::{RuntimeError, RuntimeErrorKind},
+    error_trace::ErrorTrace,
+    module::{LoadedModule, ModuleKey, RetainedRuntimeProgram, StructLayoutRef},
     resource::ResourceState,
-    value::EnumTag,
+    session::ExecutionPhase,
+    value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value},
 };
 use kagari_abi::{
     ids::FunctionRef,
@@ -34,11 +36,6 @@ mod custom_keys;
 mod iter;
 pub mod mutations;
 mod string_iter;
-
-use crate::{
-    error::{RuntimeError, RuntimeErrorKind},
-    value::{EnumValueSnapshot, InterfaceObjectId, MapKey, StructValueField, Value},
-};
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {

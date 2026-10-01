@@ -4,9 +4,9 @@ use crate::{
     analysis::FileAnalysis,
     callable::{AppliedCallSignature, CallableSignature},
     declarations::DeclarationId,
-    hir::ExprKind,
-    resolver::ResolvedName,
-    typeck::CallTarget,
+    hir::expr::ExprKind,
+    resolver::resolved::ResolvedName,
+    typeck::table::CallTarget,
     types::TypeId,
 };
 

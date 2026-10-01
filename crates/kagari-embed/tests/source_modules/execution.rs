@@ -1,4 +1,6 @@
 use super::*;
+use kagari_runtime::session::TraceValue;
+
 use kagari_embed::program::PreparedProgram;
 use std::collections::HashSet;
 
@@ -71,7 +73,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
         let expected = [4, 2, 1, 3]
             .into_iter()
             .map(|value| {
-                let value = kagari_runtime::TraceValue::I32(value);
+                let value = TraceValue::I32(value);
                 (vec![value.clone()], Some(Ok(value)))
             })
             .collect::<Vec<_>>();
@@ -195,7 +197,7 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
 
 #[test]
 fn old_program_calls_keep_their_dependency_versions_after_reload() {
-    use kagari_runtime::ModuleEpochRetention;
+    use kagari_runtime::module::ModuleEpochRetention;
     let engine = KagariEngine::default();
     insert(&engine, "dependency", "pub fn value() -> i32 { 1 }");
     let root = insert(
@@ -293,7 +295,11 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
 #[test]
 fn malformed_programs_are_rejected_before_any_member_is_published() {
     use kagari_abi::ids::FunctionRef;
-    use kagari_bytecode::{BytecodeInstruction, BytecodeModule, CallTarget, ModuleRef};
+    use kagari_bytecode::{
+        instruction::{BytecodeInstruction, CallTarget},
+        module::BytecodeModule,
+        program::ModuleRef,
+    };
     let engine = KagariEngine::default();
     insert(
         &engine,

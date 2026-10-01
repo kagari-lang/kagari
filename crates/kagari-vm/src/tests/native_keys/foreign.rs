@@ -2,8 +2,8 @@ use super::{
     boundaries::{clean, route},
     runtime,
 };
-use crate::{Vm, tests::common::compile_test_bytecode};
-use kagari_bytecode::verify_program;
+use crate::{tests::common::compile_test_bytecode, vm::Vm};
+use kagari_bytecode::program::verify_program;
 use kagari_common::{
     host_interface::standard_log,
     identity::{ModuleIdentity, PackageId},

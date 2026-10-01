@@ -1,19 +1,31 @@
 //! Prepare a host update and reject a full dirty ledger before touching the field.
 
-use kagari_common::host_interface;
 use kagari_common::host_interface::{
-    HostFieldDeclaration, HostPathDeclaration, HostTypeDeclaration, HostValueType,
-    HostVirtualSegmentDeclaration,
+    self,
+    path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+    type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+    value_type::HostValueType,
 };
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
-    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostSchemaEpoch,
-    HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess, ResourcePolicy, Runtime,
-    RuntimeConfig, RuntimeErrorKind, SecurityContext,
-    host::{HostError, PreparedHostPathWrite},
-    value::Value,
-};
+
 use std::{cell::Cell, rc::Rc};
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostTypeOwnership, PathAccess},
+    },
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::{
+            HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
+            HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
+            PreparedHostPathWrite,
+        },
+        resource::ResourcePolicy,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -53,9 +65,7 @@ fn main() {
 
     let path_declaration = HostPathDeclaration {
         root: player.declaration.id.clone(),
-        segments: vec![
-            kagari_common::host_interface::HostPathSegmentDeclaration::Field(hp_declaration),
-        ],
+        segments: vec![HostPathSegmentDeclaration::Field(hp_declaration)],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
         capabilities: CapabilitySet::default(),

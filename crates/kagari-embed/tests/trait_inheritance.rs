@@ -1,11 +1,22 @@
-use kagari_common::SourceFile;
+use kagari_bytecode::program::verify_program;
+use kagari_common::source::SourceFile;
+use {
+    kagari_embed::{context::JitPolicy, error::EmbeddingError},
+    kagari_vm::vm::Vm,
+};
+
 use kagari_embed::{
-    ArtifactOptions, BytecodeArtifact, CompileOptions, ExecutionContext, KagariEngine,
+    BytecodeArtifact,
+    context::ExecutionContext,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, CompileOptions},
+    },
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
 
-fn compile(source: &str) -> Result<BytecodeArtifact, kagari_embed::EmbeddingError> {
+fn compile(source: &str) -> Result<BytecodeArtifact, EmbeddingError> {
     KagariEngine::default().compile_to_artifact(
         SourceFile::new("inheritance.kgr", source),
         CompileOptions::default(),
@@ -24,9 +35,9 @@ fn execute(artifact: BytecodeArtifact) {
         context.capabilities.jit = jit;
         context.language_profile.allow_jit = jit;
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = KagariEngine::default().runtime(context.clone());
         let program =
@@ -271,7 +282,7 @@ fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected()
         } else {
             module.public_items.retain(|item| !matches!(item, PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, kagari_abi::types::AbiType::Trait(ty) if ty.declaration.path.last().unwrap().name == "Parent")));
         }
-        assert!(kagari_bytecode::verify_program(&program).is_err());
+        assert!(verify_program(&program).is_err());
     }
 }
 
@@ -288,7 +299,7 @@ fn boxed() -> Child { Number {} }
 fn main() -> i32 { boxed().read() }
 "#;
     let artifact = compile(source).unwrap();
-    let mut vm = kagari_vm::Vm::new(kagari_runtime::Runtime::default());
+    let mut vm = Vm::new(kagari_runtime::Runtime::default());
     let loaded = vm
         .runtime_mut()
         .load_program("inheritance", artifact.program)

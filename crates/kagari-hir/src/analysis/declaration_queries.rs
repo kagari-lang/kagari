@@ -1,25 +1,29 @@
 //! Declaration queries stop before body name resolution, typing or const evaluation.
-use crate::declare_analysis;
-
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
-    analysis::{AnalysisDatabase, AnalysisError},
+    analysis::{AnalysisDatabase, error::AnalysisError},
     declarations::{Declaration, DeclarationId, Declarations},
+    declare_analysis,
     imports::ModuleGraph,
     lower,
     native::{api as native_api, stdlib::InstalledStdlib},
-    resolver::DeclarationNames,
+    resolver::resolved::DeclarationNames,
 };
+
 use kagari_common::{
-    Diagnostic, SourceFile, Span,
     cancellation::CancellationToken,
+    diagnostic::Diagnostic,
     identity::{FileId, Revision},
+    source::SourceFile,
     source_database::SourceSnapshot,
+    span::Span,
 };
 use kagari_syntax::{
-    Parse,
-    ast::{AstNode, Item, SourceFile as AstSourceFile},
-    parser,
+    ast::{
+        item::{Item, SourceFile as AstSourceFile},
+        traits::AstNode,
+    },
+    parser::{self, Parse},
 };
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},

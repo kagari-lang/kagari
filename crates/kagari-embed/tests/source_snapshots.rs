@@ -1,9 +1,19 @@
+use kagari_common::{
+    cancellation::CancellationToken, diagnostic::DiagnosticKind, source::SourceFile,
+    source_database::SourceLayer,
+};
+use kagari_hir::typeck::const_budget::ConstLimits;
+use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 
-use kagari_common::{SourceFile, source_database::SourceLayer};
-use kagari_embed::{ArtifactOptions, CompileOptions, EmbeddingError, KagariEngine};
-use kagari_hir::analysis::CancellationToken;
-use kagari_runtime::LanguageProfile;
+use kagari_embed::{
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, CompileOptions},
+    },
+    error::EmbeddingError,
+};
+use kagari_runtime::security::LanguageProfile;
 
 #[test]
 fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
@@ -288,7 +298,7 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
 #[test]
 fn parser_budget_reports_revision_owned_limits_before_codegen() {
     let engine = KagariEngine::default();
-    engine.set_parse_limits(kagari_embed::ParseLimits {
+    engine.set_parse_limits(ParseLimits {
         max_diagnostics: 0,
         ..Default::default()
     });
@@ -350,7 +360,7 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
         )
         .unwrap();
     assert!(before.check_program(id, &Default::default()).is_ok());
-    engine.set_parse_limits(kagari_embed::ParseLimits {
+    engine.set_parse_limits(ParseLimits {
         max_nesting: 3,
         ..Default::default()
     });
@@ -373,9 +383,9 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
 
 #[test]
 fn deep_iterative_source_is_rejected_with_queryable_prefix() {
-    for max_tree_depth in [24, kagari_embed::ParseLimits::default().max_tree_depth] {
+    for max_tree_depth in [24, ParseLimits::default().max_tree_depth] {
         let engine = KagariEngine::default();
-        engine.set_parse_limits(kagari_embed::ParseLimits {
+        engine.set_parse_limits(ParseLimits {
             max_tree_depth,
             ..Default::default()
         });
@@ -498,10 +508,10 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
             "case {index}"
         );
         assert!(
-            file.result().diagnostics().iter().any(|d| matches!(
-                d.kind,
-                kagari_common::DiagnosticKind::CompileLimitExceeded { .. }
-            )),
+            file.result()
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. })),
             "case {index}"
         );
         assert!(
@@ -520,7 +530,6 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
 
 #[test]
 fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results() {
-    use kagari_embed::ConstLimits;
     let engine = KagariEngine::default();
     let id = engine
         .set_source(
@@ -568,17 +577,19 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
         .unwrap();
     assert!(!Arc::ptr_eq(&old_body, &new_body));
     assert!(old_body.diagnostics().is_empty());
-    assert!(new_body.diagnostics().iter().any(|d| matches!(
-        d.kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded { .. }
-    )));
+    assert!(
+        new_body
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
+    );
     let diagnostics = limited.file(id).unwrap().result().diagnostics();
     assert_eq!(
         diagnostics
             .iter()
             .filter(|d| matches!(
                 d.kind,
-                kagari_common::DiagnosticKind::CompileLimitExceeded {
+                DiagnosticKind::CompileLimitExceeded {
                     resource: "const steps",
                     limit: 1
                 }
@@ -619,7 +630,6 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
 
 #[test]
 fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
-    use kagari_embed::ConstLimits;
     let engine = KagariEngine::default();
     engine.set_const_limits(ConstLimits {
         max_steps: 5,
@@ -664,7 +674,7 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
     let file = analysis.file(id).unwrap();
     assert!(file.result().diagnostics().iter().any(|d| matches!(
         d.kind,
-        kagari_common::DiagnosticKind::CompileLimitExceeded {
+        DiagnosticKind::CompileLimitExceeded {
             resource: "const depth",
             limit: 64
         }
@@ -681,7 +691,7 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
 #[test]
 fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
     let engine = KagariEngine::default();
-    engine.set_const_limits(kagari_embed::ConstLimits {
+    engine.set_const_limits(ConstLimits {
         max_steps: 0,
         max_depth: 0,
     });
@@ -717,10 +727,10 @@ fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
 
 #[test]
 fn invalid_const_types_cannot_bypass_validation_budget() {
-    use kagari_common::DiagnosticKind;
+    use kagari_common::diagnostic::DiagnosticKind;
     for max_steps in [0, 1, 3] {
         let engine = KagariEngine::default();
-        engine.set_const_limits(kagari_embed::ConstLimits {
+        engine.set_const_limits(ConstLimits {
             max_steps,
             max_depth: 64,
         });

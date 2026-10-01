@@ -1,8 +1,8 @@
 //! Installed implementation selection uses checked source contracts and provenance.
 
 use crate::{
-    aggregates::{AggregateCatalog, ImplementationSignature},
-    typeck::{GenericBounds, match_implementation},
+    aggregates::{AggregateCatalog, implementations::ImplementationSignature},
+    typeck::{GenericBounds, table::match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 

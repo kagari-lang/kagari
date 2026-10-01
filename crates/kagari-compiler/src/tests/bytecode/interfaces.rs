@@ -1,8 +1,14 @@
-use crate::source::program::lower_program_to_mir;
-use crate::tests::bytecode::*;
+use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
+use {
+    kagari_bytecode::instruction::{
+        BytecodeInstruction, CallTarget as KagaribytecodeCallTarget, Register,
+    },
+    kagari_mir::instruction::{CallTarget, Instruction},
+};
+
 use kagari_abi::types as abi;
-use kagari_bytecode as bytecode;
-use kagari_bytecode::verify_program;
+use kagari_bytecode::{self as bytecode, program::verify_program};
+
 use kagari_mir::program as mir_program;
 
 #[test]
@@ -337,7 +343,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .flat_map(|function| &mut function.blocks)
         .flat_map(|block| &mut block.instructions)
         .find_map(|instruction| match instruction {
-            kagari_mir::Instruction::MakeInterface { implementation, .. } => Some(implementation),
+            Instruction::MakeInterface { implementation, .. } => Some(implementation),
             _ => None,
         })
         .unwrap();
@@ -359,8 +365,8 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .flat_map(|function| &mut function.blocks)
         .flat_map(|block| &mut block.instructions)
         .find_map(|instruction| match instruction {
-            kagari_mir::Instruction::Call {
-                callee: kagari_mir::CallTarget::InterfaceMethod(contract),
+            Instruction::Call {
+                callee: CallTarget::InterfaceMethod(contract),
                 ..
             } => Some(&mut contract.method_slot),
             _ => None,
@@ -377,42 +383,42 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     let bytecode = crate::bytecode::lower_program_to_bytecode(&ir).unwrap();
     let root_module = &bytecode.modules[bytecode.root.index()];
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
-        |instruction| matches!(instruction, bytecode::BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
+        |instruction| matches!(instruction, BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
     ));
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
-        |instruction| matches!(instruction, bytecode::BytecodeInstruction::Call { callee: bytecode::CallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
+        |instruction| matches!(instruction, BytecodeInstruction::Call { callee: KagaribytecodeCallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
     ));
-    kagari_bytecode::verify_program(&bytecode).unwrap();
+    verify_program(&bytecode).unwrap();
     let mut invalid = bytecode.clone();
     let call = invalid.modules[bytecode.root.index()]
         .functions
         .iter_mut()
         .flat_map(|function| &mut function.instructions)
         .find_map(|instruction| match instruction {
-            kagari_bytecode::BytecodeInstruction::Call {
-                callee: kagari_bytecode::CallTarget::InterfaceMethod { method_slot, .. },
+            BytecodeInstruction::Call {
+                callee: KagaribytecodeCallTarget::InterfaceMethod { method_slot, .. },
                 ..
             } => Some(method_slot),
             _ => None,
         })
         .unwrap();
     *call = 99;
-    assert!(bytecode::verify_program(&invalid).is_err());
+    assert!(verify_program(&invalid).is_err());
     let mut wrong_owner = bytecode.clone();
     let owner_slot = wrong_owner.modules[bytecode.root.index()]
         .functions
         .iter_mut()
         .flat_map(|function| &mut function.instructions)
         .find_map(|instruction| match instruction {
-            kagari_bytecode::BytecodeInstruction::Call {
-                callee: kagari_bytecode::CallTarget::InterfaceMethod { module, .. },
+            BytecodeInstruction::Call {
+                callee: KagaribytecodeCallTarget::InterfaceMethod { module, .. },
                 ..
             } => Some(module),
             _ => None,
         })
         .unwrap();
     *owner_slot = bytecode.root;
-    assert!(bytecode::verify_program(&wrong_owner).is_err());
+    assert!(verify_program(&wrong_owner).is_err());
 }
 
 #[test]
@@ -420,7 +426,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
     let original = common::bytecode_ok(
         "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self } } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }",
     );
-    kagari_bytecode::verify_program(&original).unwrap();
+    verify_program(&original).unwrap();
     for corruption in ["slot", "owner", "argument"] {
         let mut forged = original.clone();
         let function = forged.modules[forged.root.index()]
@@ -434,17 +440,17 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
             .find(|instruction| {
                 matches!(
                     instruction,
-                    bytecode::BytecodeInstruction::Call {
-                        callee: bytecode::CallTarget::InterfaceMethod { .. },
+                    BytecodeInstruction::Call {
+                        callee: KagaribytecodeCallTarget::InterfaceMethod { .. },
                         ..
                     }
                 )
             })
             .unwrap();
-        let kagari_bytecode::BytecodeInstruction::Call { callee, args, .. } = instruction else {
+        let BytecodeInstruction::Call { callee, args, .. } = instruction else {
             unreachable!()
         };
-        let kagari_bytecode::CallTarget::InterfaceMethod {
+        let KagaribytecodeCallTarget::InterfaceMethod {
             interface,
             method_slot,
             ..
@@ -455,13 +461,10 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
         match corruption {
             "slot" => *method_slot = 99,
             "owner" => interface.declaration.path.last_mut().unwrap().name = "Other".into(),
-            "argument" => args[0] = kagari_bytecode::Register::new(999),
+            "argument" => args[0] = Register::new(999),
             _ => unreachable!(),
         }
-        assert!(
-            bytecode::verify_program(&forged).is_err(),
-            "accepted {corruption}"
-        );
+        assert!(verify_program(&forged).is_err(), "accepted {corruption}");
     }
 }
 

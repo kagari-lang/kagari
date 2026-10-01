@@ -1,21 +1,27 @@
 //! Declaration and binding identities owned by one semantic analysis.
 
 use kagari_common::{
-    SourceFile, Span,
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, FileSpan},
+    source::SourceFile,
+    span::Span,
 };
 
 use crate::{
     hir::{
-        BodyOwner, ConstOwner, EnumId, FieldId, FunctionKind, GenericParam, GenericParamId, ImplId,
-        Item, OpaqueTypeId, TypeRefId, VariantId,
+        ids::{
+            BodyOwner, EnumId, FieldId, GenericParamId, ImplId, OpaqueTypeId, TypeRefId, VariantId,
+        },
+        item::{Item, behavior::GenericParam, function::FunctionKind, storage::ConstOwner},
     },
     host::HostDeclarations,
-    imports::{ImportedTypes, ModuleImports},
+    imports::{ModuleImports, types::ImportedTypes},
     lower::LoweredModule,
     native::NativeTypeKind,
-    resolver::{DeclarationNames, NameTable, ResolvedName, ResolvedNames},
+    resolver::{
+        resolved::{DeclarationNames, ResolvedName, ResolvedNames},
+        table::NameTable,
+    },
     source_map::SourceMap,
     types::GenericParameterType,
 };

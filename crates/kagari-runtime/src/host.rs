@@ -1,13 +1,20 @@
 mod borrows;
 mod registry;
 use crate::{
-    ErrorTrace, HostResourceScope, ResourceState, Runtime, RuntimeErrorKind, numeric,
+    Runtime,
+    error::RuntimeErrorKind,
+    error_trace::ErrorTrace,
+    host_scope::HostResourceScope,
+    numeric,
+    resource::ResourceState,
     value::{EnumTag, EphemeralValue},
 };
 use kagari_common::{
     host_interface::{
-        HostFunctionDeclaration, HostIndexSegmentDeclaration, HostPassingStyle,
-        HostPathDeclaration, HostTypeDeclaration, HostValueType, HostVirtualSegmentDeclaration,
+        HostFunctionDeclaration, HostPassingStyle,
+        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::HostTypeDeclaration,
+        value_type::HostValueType,
     },
     identity::DefinitionId,
 };
@@ -22,14 +29,17 @@ use std::{
     },
 };
 
-use kagari_bytecode::BinaryOp;
+use kagari_bytecode::instruction::BinaryOp;
 
 mod path_fingerprint;
 
 use {
-    crate::error::RuntimeError, crate::metadata::AbiFingerprint, crate::metadata::FieldMetadataId,
-    crate::metadata::TypeId, crate::value::Value, kagari_common::capability::CapabilitySet,
-    kagari_common::host_interface::PathAccess,
+    crate::{
+        error::RuntimeError,
+        metadata::{AbiFingerprint, FieldMetadataId, TypeId},
+        value::Value,
+    },
+    kagari_common::{capability::CapabilitySet, host_interface::type_declaration::PathAccess},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

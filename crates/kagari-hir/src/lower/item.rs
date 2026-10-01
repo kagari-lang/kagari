@@ -1,19 +1,36 @@
 use crate::{
     hir::{
-        AssociatedConst, AssociatedType, BodyOwner, ConstItem, ConstOwner, Enum, Export,
-        ExportItem, Field, FieldId, Function, FunctionKind, GenericParam, HirOwner, Impl,
-        ImplMethod, Import, Item, ModuleDecl, OpaqueType, Param, ReceiverKind, Struct, TraitBound,
-        TraitDef, TraitMethod, TraitRef, TypeData, TypeKind, TypeRefId, Variant, VariantId,
-        Visibility, Writeability,
+        ids::{BodyOwner, FieldId, HirOwner, TypeRefId, VariantId},
+        item::{
+            Item,
+            adt::{Enum, Field, OpaqueType, Struct, Variant},
+            behavior::{
+                AssociatedConst, AssociatedType, GenericParam, Impl, ImplMethod, ReceiverKind,
+                TraitBound, TraitDef, TraitMethod, TraitRef,
+            },
+            function::{Function, FunctionKind, Param},
+            module::{Import, ModuleDecl},
+            storage::{ConstItem, ConstOwner, Export, ExportItem, Visibility},
+        },
+        ty::{TypeData, TypeKind},
+        writeability::Writeability,
     },
     lower::context::{self, Lowerer, syntax_span, token_span},
 };
-use ast::{Item as AstItem, Visibility as AstVisibility};
-use kagari_common::Span;
-use kagari_syntax::ast;
+use kagari_syntax::ast::{
+    item::{
+        AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, Item as AstItem,
+        MethodDef, ModuleDef, SourceFile, StructDef, TraitDef as AstTraitDef, UseDecl, UseTree,
+        Visibility as AstVisibility,
+    },
+    misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
+};
+
+use kagari_common::span::Span;
+
 use smallvec::SmallVec;
 
-fn lower_visibility(visibility: ast::Visibility) -> Visibility {
+fn lower_visibility(visibility: AstVisibility) -> Visibility {
     match visibility {
         AstVisibility::Private => Visibility::Private,
         AstVisibility::PublicSuper => Visibility::PublicSuper,
@@ -22,7 +39,7 @@ fn lower_visibility(visibility: ast::Visibility) -> Visibility {
 }
 
 impl Lowerer {
-    pub(crate) fn lower_module(&mut self, module: &ast::SourceFile) {
+    pub(crate) fn lower_module(&mut self, module: &SourceFile) {
         for item in module.items() {
             if self.cancel.check().is_err() {
                 break;
@@ -115,7 +132,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_opaque_type(&mut self, declaration: &ast::AssociatedType) -> OpaqueType {
+    fn lower_opaque_type(&mut self, declaration: &AstAssociatedType) -> OpaqueType {
         let id = self.source_map.push_opaque_type(syntax_span(declaration));
         if let Some(name) = declaration.name() {
             self.source_map
@@ -141,7 +158,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_module_decl(&mut self, module_def: &ast::ModuleDef) -> ModuleDecl {
+    fn lower_module_decl(&mut self, module_def: &ModuleDef) -> ModuleDecl {
         let id = self.source_map.push_module(syntax_span(module_def));
         if let Some(name) = module_def.name() {
             self.source_map
@@ -155,7 +172,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_use_decl(&mut self, use_decl: &ast::UseDecl) {
+    fn lower_use_decl(&mut self, use_decl: &UseDecl) {
         let Some(tree) = use_decl.tree() else {
             return;
         };
@@ -167,7 +184,7 @@ impl Lowerer {
         &mut self,
         visibility: Visibility,
         base_path: Option<String>,
-        tree: &ast::UseTree,
+        tree: &UseTree,
     ) {
         let path = match (base_path, tree.path().and_then(|path| path.text())) {
             (Some(base), Some(path)) => format!("{base}::{path}"),
@@ -217,7 +234,7 @@ impl Lowerer {
             glob,
         });
     }
-    fn lower_trait(&mut self, trait_def: &ast::TraitDef) -> TraitDef {
+    fn lower_trait(&mut self, trait_def: &AstTraitDef) -> TraitDef {
         let id = self.source_map.push_trait(syntax_span(trait_def));
         if let Some(name) = trait_def.name() {
             self.source_map
@@ -252,7 +269,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_impl(&mut self, impl_block: &ast::ImplBlock) -> Impl {
+    fn lower_impl(&mut self, impl_block: &ImplBlock) -> Impl {
         let generic_params = impl_block
             .generic_params()
             .map(|params| self.lower_generic_params(&params))
@@ -288,7 +305,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_associated_type(&mut self, item: &ast::AssociatedType) -> AssociatedType {
+    fn lower_associated_type(&mut self, item: &AstAssociatedType) -> AssociatedType {
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
@@ -320,7 +337,7 @@ impl Lowerer {
 
     fn lower_trait_method(
         &mut self,
-        method: &ast::MethodDef,
+        method: &MethodDef,
         inherited_generics: &[GenericParam],
     ) -> TraitMethod {
         let function =
@@ -339,7 +356,7 @@ impl Lowerer {
 
     fn lower_impl_method(
         &mut self,
-        method: &ast::MethodDef,
+        method: &MethodDef,
         receiver_ty: Option<TypeRefId>,
         inherited_generics: &[GenericParam],
     ) -> ImplMethod {
@@ -359,7 +376,7 @@ impl Lowerer {
 
     fn lower_method_function(
         &mut self,
-        method: &ast::MethodDef,
+        method: &MethodDef,
         kind: FunctionKind,
         receiver_ty: Option<TypeRefId>,
         inherited_generics: &[GenericParam],
@@ -403,7 +420,7 @@ impl Lowerer {
 
     fn lower_method_params(
         &mut self,
-        param_list: &ast::ParamList,
+        param_list: &ParamList,
         receiver_ty: Option<TypeRefId>,
     ) -> Vec<Param> {
         param_list
@@ -433,7 +450,7 @@ impl Lowerer {
             .collect::<Vec<_>>()
     }
 
-    fn lower_function(&mut self, function: &ast::FnDef) -> Function {
+    fn lower_function(&mut self, function: &FnDef) -> Function {
         let id = self.source_map.push_function(syntax_span(function));
         if let Some(name) = function.name() {
             self.source_map
@@ -486,7 +503,7 @@ impl Lowerer {
         result
     }
 
-    fn lower_generic_params(&mut self, params: &ast::GenericParamList) -> Vec<GenericParam> {
+    fn lower_generic_params(&mut self, params: &GenericParamList) -> Vec<GenericParam> {
         params
             .params()
             .map(|param| GenericParam {
@@ -505,7 +522,7 @@ impl Lowerer {
             .collect::<Vec<_>>()
     }
 
-    fn lower_where_clause(&mut self, where_clause: &ast::WhereClause) -> Vec<TraitBound> {
+    fn lower_where_clause(&mut self, where_clause: &WhereClause) -> Vec<TraitBound> {
         where_clause
             .predicates()
             .map(|predicate| {
@@ -525,12 +542,12 @@ impl Lowerer {
             .collect::<Vec<_>>()
     }
 
-    fn lower_trait_refs(&mut self, refs: impl Iterator<Item = ast::TraitRef>) -> Vec<TraitRef> {
+    fn lower_trait_refs(&mut self, refs: impl Iterator<Item = AstTraitRef>) -> Vec<TraitRef> {
         refs.map(|reference| self.lower_trait_ref(&reference))
             .collect()
     }
 
-    pub(crate) fn lower_trait_ref(&mut self, trait_ref: &ast::TraitRef) -> TraitRef {
+    pub(crate) fn lower_trait_ref(&mut self, trait_ref: &AstTraitRef) -> TraitRef {
         let name = trait_ref.path_text().unwrap_or_default();
         let args: SmallVec<[TypeRefId; 4]> = trait_ref
             .generic_args()
@@ -583,7 +600,7 @@ impl Lowerer {
         TraitRef { ty }
     }
 
-    fn lower_const(&mut self, const_def: &ast::ConstDef) -> ConstItem {
+    fn lower_const(&mut self, const_def: &ConstDef) -> ConstItem {
         let id = self.source_map.push_const(syntax_span(const_def));
         if let Some(name) = const_def.name() {
             self.source_map
@@ -607,11 +624,7 @@ impl Lowerer {
         result
     }
 
-    fn lower_associated_const(
-        &mut self,
-        item: &ast::ConstDef,
-        owner: ConstOwner,
-    ) -> AssociatedConst {
+    fn lower_associated_const(&mut self, item: &ConstDef, owner: ConstOwner) -> AssociatedConst {
         let name = item.name_text().unwrap_or_default();
         let name_ref = self.alloc_type(
             item.name()
@@ -646,7 +659,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_struct(&mut self, struct_def: &ast::StructDef) -> Struct {
+    fn lower_struct(&mut self, struct_def: &StructDef) -> Struct {
         let id = self.source_map.push_struct(syntax_span(struct_def));
         if let Some(name) = struct_def.name() {
             self.source_map
@@ -701,7 +714,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_enum(&mut self, enum_def: &ast::EnumDef) -> Enum {
+    fn lower_enum(&mut self, enum_def: &EnumDef) -> Enum {
         let id = self.source_map.push_enum(syntax_span(enum_def));
         if let Some(name) = enum_def.name() {
             self.source_map

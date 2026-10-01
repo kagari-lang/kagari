@@ -103,6 +103,16 @@ method callback.
 
 ## Function Registration
 
+Rust consumers import each API from its owning module. For example,
+`KagariEngine` belongs to `kagari_embed::engine`, `NativeApi` to
+`kagari_runtime::native::api`, typed conversions to `kagari_runtime::native_value`,
+and array handles to `kagari_runtime::native_value::array`. The `native_module`
+attribute belongs to `kagari_native_macros`; consumers declare that direct
+dependency. Native type wrapper expansions also name `kagari_abi::types::AbiType`
+and require a direct `kagari-abi` dependency. Crate roots do not re-export these
+items. Any future re-export requires a reviewed exact whitelist entry under the
+[structure-check policy](../structure-checks.md).
+
 The minimal native package API accepts actual Rust functions through
 `#[native_module("game::math")]` and `#[native]`. `#[native_type]` currently
 supports a one-parameter `NativeArray<T>` wrapper; `#[native_trait]` and

@@ -1,22 +1,36 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
 use kagari_common::collection::CollectionAccess;
+use kagari_runtime::reload::ReloadValidationError;
+use {
+    kagari_common::host_interface::value_type::HostValueType,
+    kagari_runtime::{error::RuntimeErrorKind, module::LoadedModule, resource::ResourcePolicy},
+};
+
 use std::sync::{Arc, Mutex};
 
 use kagari_bytecode::{
-    ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact, native_input::PortableMir,
+    artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+    native_input::PortableMir,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::LanguageFeatureProfile;
-use kagari_runtime::{
-    CapabilitySet, HostExposurePolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    host::{HostError, HostFunction},
-    value::Value,
+use kagari_hir::profile::LanguageFeatureProfile;
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        host::{HostError, HostFunction},
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
-use crate::{KagariRuntime, program::PreparedProgram};
-use kagari_vm::{ExecutionReport, JitExecutionStatus, PreparedNativeEntry, VmError};
+use crate::{program::PreparedProgram, runtime::KagariRuntime};
+use kagari_vm::{
+    error::VmError,
+    vm::{ExecutionReport, JitExecutionStatus, native::PreparedNativeEntry},
+};
 
 #[derive(Clone, Copy, Debug)]
 enum Route {
@@ -140,10 +154,7 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
-        kagari_common::host_interface::HostValueType::Array(
-            Box::new(kagari_common::host_interface::HostValueType::I32),
-            CollectionAccess::Mutable,
-        ),
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
     );
     use kagari_common::{
         identity::{ModuleIdentity, PackageId},
@@ -275,17 +286,15 @@ fn assert_outcome(
         ),
         (Expected::IndexTrap, Err(VmError::InvalidIndex(_))) => {}
         (Expected::HostFailure, Err(VmError::RuntimeError(error)))
-            if error.kind() == kagari_runtime::RuntimeErrorKind::HostCallFailure => {}
+            if error.kind() == RuntimeErrorKind::HostCallFailure => {}
         (Expected::ScriptTrap(message), Err(VmError::RuntimeError(error)))
-            if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
-                && error.message() == *message => {}
+            if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == *message => {}
         (Expected::BuiltinTrap(message), Err(VmError::BuiltinError(error)))
-            if error.kind() == kagari_runtime::RuntimeErrorKind::ScriptTrap
-                && error.message() == message => {}
+            if error.kind() == RuntimeErrorKind::ScriptTrap && error.message() == message => {}
         (Expected::ResourceLimit, Err(VmError::RuntimeError(error)))
-            if error.kind() == kagari_runtime::RuntimeErrorKind::ResourceLimitExceeded => {}
+            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded => {}
         (Expected::Cancelled, Err(VmError::RuntimeError(error)))
-            if error.kind() == kagari_runtime::RuntimeErrorKind::Cancelled => {}
+            if error.kind() == RuntimeErrorKind::Cancelled => {}
         (expected, actual) => panic!(
             "{} ({route:?}, attempt {attempt}): expected {expected:?}, got {actual:?}",
             case.name
@@ -296,7 +305,7 @@ fn assert_outcome(
 fn execute_route(
     runtime: &mut KagariRuntime,
     program: &PreparedProgram,
-    loaded: &kagari_runtime::LoadedModule,
+    loaded: &LoadedModule,
     case: &Case<'_>,
     route: Route,
     backend: &mut CraneliftBackend,
@@ -339,13 +348,10 @@ fn run(
     let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
-        kagari_common::host_interface::HostValueType::Array(
-            Box::new(kagari_common::host_interface::HostValueType::I32),
-            CollectionAccess::Mutable,
-        ),
+        HostValueType::Array(Box::new(HostValueType::I32), CollectionAccess::Mutable),
     );
     let mut runtime = Runtime::new(RuntimeConfig {
-        resources: kagari_runtime::ResourcePolicy {
+        resources: ResourcePolicy {
             max_instruction_steps: case.max_steps,
             ..Default::default()
         },
@@ -486,7 +492,7 @@ fn run(
         let stale_members = stale.module().members().count();
         assert!(matches!(
             vm.runtime_mut().publish_staged_reload(stale),
-            Err(kagari_runtime::ReloadValidationError::ModuleNotActive { .. })
+            Err(ReloadValidationError::ModuleNotActive { .. })
         ));
         assert_eq!(
             vm.runtime().modules().latest(case.name).unwrap().key(),

@@ -7,7 +7,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, bindings::NativeProtocolMethod, traits::StandardTrait},
     types::AbiType,
 };
-use kagari_bytecode::{KbcArtifact, verify_program};
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
 #[test]
 fn key_construction_rejects_forged_traversal_storage_and_key_methods() {

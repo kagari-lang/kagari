@@ -1,9 +1,10 @@
 use crate::hir::{
-    ConstId, FunctionId, GenericParamId, ImplId, MethodId, StructId, TraitId, TraitMethodId,
-    TypeRefId,
+    ids::{
+        ConstId, FunctionId, GenericParamId, ImplId, MethodId, StructId, TraitId, TraitMethodId,
+        TypeRefId,
+    },
+    item::storage::Visibility,
 };
-
-use super::Visibility;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiverKind {

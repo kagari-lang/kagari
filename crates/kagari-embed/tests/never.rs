@@ -1,6 +1,9 @@
-use kagari_common::{SourceFile, host_interface::standard_log};
+use kagari_common::{host_interface::standard_log, source::SourceFile};
 use kagari_embed::{
-    BytecodeArtifact, ExecutionContext, JitPolicy, KagariEngine, program::PreparedProgram,
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
 };
 use kagari_runtime::{host::HostFunction, value::Value};
 use std::sync::{Arc, Mutex};

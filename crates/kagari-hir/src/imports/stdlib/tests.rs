@@ -1,14 +1,15 @@
 use crate::{
-    hir::ExportItem,
+    hir::item::storage::ExportItem,
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, ModuleImports, SourceImport},
     lower::lower_module,
     native::stdlib::InstalledStdlib,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
 };
 use kagari_common::{
-    DiagnosticKind, SourceFile,
+    diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 use std::sync::Arc;

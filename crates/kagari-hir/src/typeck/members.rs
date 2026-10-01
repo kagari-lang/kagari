@@ -3,7 +3,7 @@
 use crate::{
     aggregates::{AggregateCatalog, InherentMethodSignature},
     builtin::traits::{self, StandardTraitSemantics},
-    typeck::{ConstraintTarget, GenericBounds, inference},
+    typeck::{GenericBounds, inference, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_abi::{

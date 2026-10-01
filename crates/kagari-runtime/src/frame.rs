@@ -1,13 +1,20 @@
 mod native;
 use crate::{
-    ExecutionSession, LoadedModule, ResourceState, RootedInterfaceMethod, Runtime, RuntimeError,
-    RuntimeErrorKind,
+    RootedInterfaceMethod, Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
     gc::{ClosureValueSnapshot, CollectionIteration, GcHeap, RootSet},
+    module::LoadedModule,
     native::NativeInvocation,
+    resource::ResourceState,
+    session::ExecutionSession,
     value::Value,
 };
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
-use kagari_bytecode::{BytecodeFunction, BytecodeInstruction, LocalSlot, ModuleRef, Register};
+use kagari_bytecode::{
+    instruction::{BytecodeInstruction, LocalSlot, Register},
+    module::BytecodeFunction,
+    program::ModuleRef,
+};
 use std::{
     cell::{Ref, RefMut},
     fmt::{self, Debug, Formatter},

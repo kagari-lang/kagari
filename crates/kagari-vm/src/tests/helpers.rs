@@ -2,27 +2,50 @@ use kagari_abi::{
     budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType,
     standard::RuntimePrimitive,
 };
-use kagari_bytecode::{
-    BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,
-    PathId, PathRecord, Register, RuntimeHelper, StructId,
+use {
+    kagari_bytecode::module::FunctionMetadata,
+    kagari_common::host_interface::{
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    },
+    kagari_runtime::module::LoadedModule,
 };
-use kagari_runtime::{
-    AbiFingerprint, CapabilitySet, HostExposurePolicy, HostObjectId, HostPathAdapter,
-    HostPathDescriptorRegistration, HostPathSegmentRegistration, HostReflectionPolicy,
-    HostSchemaEpoch, HostTypeOwnership, HostTypeRegistration, LanguageProfile, PathAccess,
-    ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, SecurityContext, TypeKind,
-    TypeRegistration,
-    host::{HostError, HostFunction, PreparedHostPathWrite},
-    value::Value,
+use {kagari_bytecode::module::FunctionRecord, kagari_runtime::host::HostPathDescriptorId};
+
+use kagari_bytecode::{
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register,
+        RuntimeHelper, StructId,
+    },
+    module::{BytecodeFunction, BytecodeModule, PathRecord},
 };
 use std::sync::{Arc, Mutex};
+use {
+    kagari_common::{
+        capability::CapabilitySet,
+        host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    },
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        host::{
+            HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration,
+            HostPathSegmentRegistration, HostSchemaEpoch, HostTypeRegistration,
+            PreparedHostPathWrite,
+        },
+        metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+        resource::ResourcePolicy,
+        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 use crate::{
-    Vm,
     tests::common::{
         compile_test_bytecode, load_bytecode_module, load_bytecode_module_with_runtime,
         load_bytecode_program_with_runtime, load_test_module, test_function_module,
     },
+    vm::Vm,
 };
 
 fn host_runtime() -> Runtime {
@@ -76,11 +99,11 @@ fn reflection_runtime() -> Runtime {
 fn load_reflection_bytecode_module(
     name: &str,
     bytecode: BytecodeModule,
-) -> (Runtime, kagari_runtime::LoadedModule) {
+) -> (Runtime, LoadedModule) {
     load_bytecode_module_with_runtime(reflection_runtime(), name, bytecode)
 }
 
-fn load_reflection_test_module(source_text: &str) -> (Runtime, kagari_runtime::LoadedModule) {
+fn load_reflection_test_module(source_text: &str) -> (Runtime, LoadedModule) {
     load_bytecode_program_with_runtime(
         reflection_runtime(),
         "test.kgr",
@@ -114,7 +137,7 @@ fn register_vm_host_path_runtime_with_capabilities(
             kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.player",
                 vec![],
-                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                HostValueType::opaque("game.Player"),
             ),
             move |_, _| Ok(Value::HostRoot(root)),
         ))
@@ -179,7 +202,7 @@ fn path_module(
             _ => None,
         })
         .collect();
-    let metadata = kagari_bytecode::FunctionMetadata {
+    let metadata = FunctionMetadata {
         instruction_budgets: vec![LogicalBudgetCharge::Step; instructions.len()],
         return_type,
         registers: vec![
@@ -199,7 +222,7 @@ fn path_module(
             functions: vec![kagari_common::host_interface::HostFunctionDeclaration::new(
                 "host.player",
                 vec![],
-                kagari_common::host_interface::HostValueType::opaque("game.Player"),
+                HostValueType::opaque("game.Player"),
             )],
         },
         module_slots: vec![],
@@ -208,7 +231,7 @@ fn path_module(
         paths: vec![PathRecord {
             contract_fingerprint: runtime
                 .host()
-                .path_descriptor(kagari_runtime::HostPathDescriptorId::new(0))
+                .path_descriptor(HostPathDescriptorId::new(0))
                 .unwrap()
                 .abi_fingerprint
                 .0,
@@ -218,7 +241,7 @@ fn path_module(
             read_only: false,
             debug_name: "game.Player.hp".to_owned(),
         }],
-        function_table: vec![kagari_bytecode::FunctionRecord {
+        function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
             name: name.to_owned(),
@@ -240,15 +263,11 @@ fn path_module(
     }
 }
 
-fn player_type_declaration() -> kagari_common::host_interface::HostTypeDeclaration {
-    let mut declaration = kagari_common::host_interface::HostTypeDeclaration::new("game.Player");
+fn player_type_declaration() -> HostTypeDeclaration {
+    let mut declaration = HostTypeDeclaration::new("game.Player");
     declaration.ownership = HostTypeOwnership::HostRoot;
     declaration.path_access = PathAccess::ReadWrite;
-    let mut hp = kagari_common::host_interface::HostFieldDeclaration::new(
-        &declaration.id,
-        "hp",
-        kagari_common::host_interface::HostValueType::I32,
-    );
+    let mut hp = HostFieldDeclaration::new(&declaration.id, "hp", HostValueType::I32);
     hp.writable = true;
     hp.path_access = PathAccess::ReadWrite;
     declaration.fields.push(hp);

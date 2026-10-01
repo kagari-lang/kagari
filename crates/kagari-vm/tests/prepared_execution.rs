@@ -8,17 +8,29 @@ use kagari_abi::{
     },
     native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
 };
-use kagari_bytecode::BytecodeProgram;
+use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use kagari_compiler::{
-    MirLoweringOptions, bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
+    bytecode::lower_program_to_bytecode,
+    source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
 };
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{
-    CapabilitySet, LanguageProfile, LoadedModule, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, jit_abi::jit_consume_instruction_step, value::Value,
+use kagari_vm::{
+    error::VmError,
+    vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
 };
-use kagari_vm::{JitExecutionStatus, PreparedNativeEntry, Vm, VmError};
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        error::RuntimeErrorKind,
+        jit_abi::jit_consume_instruction_step,
+        module::LoadedModule,
+        resource::ResourcePolicy,
+        security::{LanguageProfile, SecurityContext},
+        value::Value,
+    },
+};
 
 fn compile(source: &str, optimize: bool) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -227,8 +239,8 @@ fn optimized_execution_preserves_results_traps_and_every_budget_failure_point() 
 
 #[test]
 fn debugging_selects_interpreter_before_entering_native_code() {
-    use kagari_runtime::DebugVisibilityPolicy;
-    use kagari_vm::DebugSession;
+    use kagari_runtime::security::DebugVisibilityPolicy;
+    use kagari_vm::debug::DebugSession;
     let (mut vm, module) = setup(compile("fn main() {}", false), None);
     let preparation = prepared(&vm, &module, native_trap);
     let mut security = vm.runtime().security();

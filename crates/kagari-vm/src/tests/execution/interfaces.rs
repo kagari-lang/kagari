@@ -330,8 +330,10 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
 #[test]
 fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     use kagari_bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
-        KbcArtifact, ModuleRef, verify_module,
+        artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+        instruction::InterfaceTableRef,
+        program::{BytecodeProgram, ModuleRef},
+        verifier::verify_module,
     };
     let module = interface_instruction_module();
     verify_module(&module).unwrap();
@@ -377,8 +379,9 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
 #[test]
 fn interface_instruction_uses_a_reachable_dependency_table() {
     use kagari_bytecode::{
-        ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, InterfaceTableRef,
-        KbcArtifact, ModuleRef, verify_program,
+        artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+        instruction::InterfaceTableRef,
+        program::{BytecodeProgram, ModuleRef, verify_program},
     };
     use kagari_common::identity::ModuleIdentity;
 

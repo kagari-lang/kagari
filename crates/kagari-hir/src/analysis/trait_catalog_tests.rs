@@ -1,12 +1,13 @@
 use super::*;
 use crate::{
-    aggregates::MethodDefault, declarations::DeclarationId, native::NativeBinding,
-    typeck::CallTarget, types::NominalType,
+    aggregates::traits::MethodDefault, declarations::DeclarationId, native::NativeBinding,
+    typeck::table::CallTarget, types::NominalType,
 };
 use kagari_abi::{
     callable::EngineNativeBinding, scalar::BuiltinType, standard::bindings::NativeDefaultMethod,
 };
 use kagari_common::{
+    diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
 };
@@ -188,7 +189,7 @@ fn installed_non_overridable_default_rejects_a_script_replacement() {
     let file = snapshot.file(root).unwrap();
     assert!(file.result().diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind,
-        kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
+        DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
             if method_name == "join" && reason == "this method declaration forbids overriding"
     )));
     assert!(file.result().clone().into_codegen().is_err());
@@ -235,7 +236,7 @@ fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
 
 #[test]
 fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
-    use crate::typeck::ConstraintTarget;
+    use crate::typeck::table::ConstraintTarget;
     let mut sources = SourceDatabase::default();
     let root = insert(
         &mut sources,

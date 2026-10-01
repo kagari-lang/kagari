@@ -1,6 +1,11 @@
 use crate::tests::bytecode::*;
+use kagari_bytecode::{
+    self as bytecode,
+    artifact::KBC_ARTIFACT_FORMAT_VERSION,
+    program::{BytecodeProgram, ModuleRef},
+};
+
 use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
-use kagari_bytecode as bytecode;
 
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
@@ -19,7 +24,7 @@ fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
         positive_zero.verification.public_abi_fingerprints,
         negative_zero.verification.public_abi_fingerprints
     );
-    for version in 1..kagari_bytecode::KBC_ARTIFACT_FORMAT_VERSION {
+    for version in 1..KBC_ARTIFACT_FORMAT_VERSION {
         let mut old = literal.clone();
         old.header.format_version = version;
         assert!(KbcArtifact::from_bytes(&old.to_bytes().unwrap()).is_err());
@@ -63,7 +68,7 @@ fn main() -> i32 { add(1, 2) }
         module_id: dependency_module.identity.clone(),
         fingerprint: ArtifactFingerprint::of_serialized(&dependency_module),
     };
-    let dependency_slot = bytecode::ModuleRef::new(module.modules.len());
+    let dependency_slot = ModuleRef::new(module.modules.len());
     module.modules[module.root.index()]
         .dependencies
         .push(dependency_slot);
@@ -307,8 +312,8 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
     assert_ne!(first_main.fingerprint, second_main.fingerprint);
 
     let path_artifact = KbcArtifact::from_program(
-        kagari_bytecode::BytecodeProgram {
-            root: kagari_bytecode::ModuleRef::new(0),
+        BytecodeProgram {
+            root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::HostHandle, ValueType::I32],
                 paths: vec![PathRecord {

@@ -1,11 +1,18 @@
 use crate::{
-    hir::{LocalId, MatchArm, PatternId, PatternKind, pattern::PatternBound},
-    resolver::ResolvedName,
-    typeck::{BodyTypeEnv, ScalarValue, body::BodyChecker, ty::display_type_id},
+    hir::{
+        expr::MatchArm,
+        ids::{LocalId, PatternId},
+        pattern::{PatternBound, PatternKind},
+    },
+    resolver::resolved::ResolvedName,
+    typeck::{BodyTypeEnv, body::BodyChecker, scalar::ScalarValue, ty::display_type_id},
     types::TypeId,
 };
 use kagari_abi::scalar::BuiltinType;
-use kagari_common::{Diagnostic, DiagnosticKind, Span};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    span::Span,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod enums;

@@ -1,4 +1,18 @@
 use crate::source::lower::MirLoweringError;
+use kagari_hir::{
+    AnalyzedModule, CheckedAnalysis,
+    aggregates::{AggregateCatalog, traits::MethodDefault},
+    builtin::traits,
+    declarations::DeclarationId,
+    hir::ids::{ExprId, FunctionId},
+    resolver::resolved::ResolvedName,
+    typeck::{FunctionImplementation, TypedFunction, scalar::ScalarValue},
+    types::{
+        NominalType, TypeId, TypeSubstitution,
+        abi::{lower_nominal_type, lower_type},
+    },
+};
+
 use kagari_abi::{
     callable::CallableImplementation,
     representation::ValueType,
@@ -6,21 +20,12 @@ use kagari_abi::{
     types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
 };
 use kagari_common::{
-    Diagnostic, DiagnosticKind, Span,
     cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    span::Span,
 };
-use kagari_hir::{
-    AnalyzedModule, CheckedAnalysis,
-    aggregates::{AggregateCatalog, MethodDefault},
-    builtin::traits,
-    declarations::DeclarationId,
-    hir,
-    resolver::ResolvedName,
-    typeck::{FunctionImplementation, ScalarValue, TypedFunction},
-    types::abi::{lower_nominal_type, lower_type},
-    types::{NominalType, TypeId, TypeSubstitution},
-};
+
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     slice,
@@ -90,10 +95,10 @@ pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
     pub origin: ModuleIdentity,
     pub id: InstanceId,
-    pub function: hir::FunctionId,
+    pub function: FunctionId,
     pub key: InstanceKey,
     pub substitution: TypeSubstitution,
-    pub closure: Option<hir::ExprId>,
+    pub closure: Option<ExprId>,
     pub native_method: Option<(TypeId, NominalType, DefinitionId)>,
     pub protocol: Option<(StandardTrait, TypeId)>,
 }
@@ -655,7 +660,7 @@ impl<'a> InstancePlanner<'a> {
 
     pub fn enqueue(
         &mut self,
-        function: hir::FunctionId,
+        function: FunctionId,
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
@@ -737,7 +742,7 @@ impl<'a> InstancePlanner<'a> {
     pub fn enqueue_closure(
         &mut self,
         parent: &Instance,
-        closure: hir::ExprId,
+        closure: ExprId,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;

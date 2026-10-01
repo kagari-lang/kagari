@@ -1,10 +1,14 @@
-use crate::{MirLoweringOptions, lower_to_mir, tests::common};
+use crate::{
+    source::lower::{instances::MirLoweringOptions, lower_to_mir},
+    tests::common,
+};
 use kagari_abi::{effects::EffectSet, operations::BinaryOp};
 use kagari_common::cancellation::CancellationToken;
 use kagari_mir::{
-    BlockId, Constant, Instruction, MirVerificationErrorKind, Terminator, VerifiedMirModule,
+    ids::BlockId,
+    instruction::{Constant, Instruction, Terminator},
     passes::{PassOptions, PassResult, optimize},
-    verify_mir,
+    verify::{MirVerificationErrorKind, VerifiedMirModule, verify_mir},
 };
 
 fn checked(source: &str) -> VerifiedMirModule {

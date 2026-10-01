@@ -1,7 +1,7 @@
 //! Generic native constructors carry private next/iter across defining modules.
 use super::runtime;
-use crate::Vm;
-use kagari_bytecode::{KbcArtifact, verify_program};
+use crate::vm::Vm;
+use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::{
     host_interface::standard_log,
     identity::{ModuleIdentity, PackageId},

@@ -1,20 +1,21 @@
 //! Bounded flat encoding keeps untrusted ABI type decoding off the Rust call stack.
 
-use crate::scalar::BuiltinType;
 use crate::{
+    scalar::BuiltinType,
     standard::surface::StandardEnum,
     types::{
         AbiType, NominalAbiType,
         substitution::{MAX_TYPE_DEPTH as MAX_DEPTH, MAX_TYPE_NODES as MAX_NODES},
     },
 };
-use de::Error as DeError;
+
 use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
 use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
-    de::{self, SeqAccess, Visitor},
+    de::{self, Error as DeError, SeqAccess, Visitor},
     ser::Error,
 };
+
 use std::{
     collections::BTreeMap,
     fmt::{self, Formatter},

@@ -1,16 +1,24 @@
-use kagari_bytecode::{
+use kagari_bytecode::artifact::{
     ArtifactBuildOptions, ArtifactCompatibility, ArtifactFingerprint, ArtifactValidationError,
     DependencyFingerprint,
 };
-use kagari_common::{
-    SourceFile,
-    identity::{ModuleIdentity, PackageId},
-};
 use kagari_embed::{
-    ArtifactOptions, CompileOptions, EmbeddingError, ExecutionContext, KagariEngine, LoadOptions,
+    context::ExecutionContext,
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, CompileOptions},
+    },
+    error::{EmbeddingError, RuntimeFailureKind},
     program::{PreparedProgram, ProgramPreparationError},
+    runtime::{LoadOptions, ReloadOptions},
 };
-use kagari_runtime::{ResourcePolicy, value::Value};
+
+use kagari_common::{
+    identity::{ModuleIdentity, PackageId},
+    source::SourceFile,
+};
+
+use kagari_runtime::{resource::ResourcePolicy, value::Value};
 
 fn exact_compatibility(
     artifact: &kagari_embed::BytecodeArtifact,
@@ -257,7 +265,7 @@ pub fn main() -> usize {
             &loaded,
             &PreparedProgram::from_artifact(second, &Default::default(), &context.cancellation)
                 .unwrap(),
-            kagari_embed::ReloadOptions {
+            ReloadOptions {
                 module_name: Some("stdlib_reload".to_owned()),
             },
         )
@@ -329,7 +337,7 @@ fn main() -> usize {
     assert!(matches!(
         error,
         EmbeddingError::Runtime {
-            kind: kagari_embed::RuntimeFailureKind::ResourceLimitExceeded,
+            kind: RuntimeFailureKind::ResourceLimitExceeded,
             ..
         }
     ));

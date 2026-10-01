@@ -1,9 +1,10 @@
-use crate::{MirLoweringError, MirLoweringOptions, source::lower};
+use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
 use kagari_abi::types::ConcreteFunctionIdentity;
-use kagari_common::{DiagnosticKind, identity::ModuleIdentity};
+use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_mir::{
-    CallTarget, Instruction, MirModule,
+    function::MirModule,
+    instruction::{CallTarget, Instruction},
     program::{ProgramError, ProgramErrorKind, VerifiedMirProgram, verify_program},
 };
 use std::collections::{BTreeSet, HashMap, HashSet};

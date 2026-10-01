@@ -1,23 +1,24 @@
 //! Associated types are declaration-owned projections, never diagnostic names.
 
+use crate::{
+    aggregates::traits::trait_inheritance_closure,
+    declarations::Declarations,
+    hir::item::{Module, behavior::AssociatedType},
+    lower::LoweredModule,
+    resolver::resolved::ResolvedName,
+    typeck::{
+        constraints,
+        table::{ConstraintTarget, TypeTable, match_implementation},
+        ty::{self, TypeContext, resolve_named_type, resolve_type_in},
+    },
+    types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
+};
 use kagari_common::{
-    Diagnostic, DiagnosticKind,
     cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
     identity::{DefinitionId, associated_type_id},
 };
 
-use super::{
-    ConstraintTarget, TypeTable, constraints,
-    ty::{self, TypeContext, resolve_named_type, resolve_type_in},
-};
-use crate::{
-    aggregates,
-    declarations::Declarations,
-    hir,
-    lower::LoweredModule,
-    resolver::ResolvedName,
-    types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
-};
 use smallvec::SmallVec;
 use std::{cell::RefCell, collections::HashSet};
 
@@ -28,7 +29,7 @@ pub(super) fn prepare(
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
-    let error = |item: &hir::AssociatedType, reason: &str| {
+    let error = |item: &AssociatedType, reason: &str| {
         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
             name: item.name.clone(),
             reason: reason.into(),
@@ -243,7 +244,7 @@ pub(super) fn prepare(
 }
 
 fn family_inputs(
-    member: &hir::AssociatedType,
+    member: &AssociatedType,
     declarations: &Declarations,
     table: &TypeTable,
 ) -> AssociatedTypeParameters {
@@ -269,7 +270,7 @@ fn family_inputs(
 }
 
 pub(super) fn member_arity(
-    module: &hir::Module,
+    module: &Module,
     declarations: &Declarations,
     owner: &DefinitionId,
     name: &str,
@@ -294,7 +295,7 @@ pub(super) fn member_arity(
 }
 
 pub(super) fn members(
-    module: &hir::Module,
+    module: &Module,
     declarations: &Declarations,
     owner: &DefinitionId,
 ) -> Vec<String> {
@@ -317,7 +318,7 @@ pub(super) fn members(
 }
 
 pub(super) fn resolve_projection_name(
-    module: &hir::Module,
+    module: &Module,
     name: &str,
     arguments: Vec<TypeId>,
     context: TypeContext<'_>,
@@ -465,7 +466,7 @@ pub(super) fn resolve_projection_name(
 }
 
 pub(super) fn qualified_projection(
-    module: &hir::Module,
+    module: &Module,
     receiver: TypeId,
     interface: TypeId,
     member: (&str, Vec<TypeId>),
@@ -583,13 +584,9 @@ pub(super) fn qualified_projection(
             // then check the requested output rather than selecting another impl.
             let mut requested = interface.clone();
             requested.associated_types.clear();
-            let Some(substitution) = super::match_implementation(
-                &implemented,
-                &requested,
-                &pattern,
-                &receiver,
-                &parameters,
-            ) else {
+            let Some(substitution) =
+                match_implementation(&implemented, &requested, &pattern, &receiver, &parameters)
+            else {
                 continue;
             };
             let Some(member_definition) = item
@@ -651,7 +648,7 @@ pub(super) fn qualified_projection(
 /// Declaration surfaces are sufficient to resolve projections before function
 /// signatures and the complete implementation catalog have been assembled.
 fn inherited_traits(
-    module: &hir::Module,
+    module: &Module,
     declarations: &Declarations,
     interface: &NominalType,
     receiver: &TypeId,
@@ -659,7 +656,7 @@ fn inherited_traits(
     cancel: &CancellationToken,
 ) -> Vec<NominalType> {
     let table = RefCell::new(table);
-    aggregates::trait_inheritance_closure(interface, receiver, cancel, &|owner| {
+    trait_inheritance_closure(interface, receiver, cancel, &|owner| {
         if let Some(item) = module
             .traits
             .iter()

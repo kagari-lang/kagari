@@ -38,7 +38,7 @@ use crate::{a::{Thing, *}, b::Other};
 fn f() { use Color::*; }
 pub use crate::api::*;
 ''', "src/lib.rs")
-        self.assertEqual(result, ["wildcard-import"] * 3)
+        self.assertEqual(result, ["wildcard-import"] * 2 + ["reexport-whitelist", "wildcard-import"])
 
     def test_deep_parent_paths_include_grouped_and_commented_imports(self):
         for text in ["use super::super::Thing;", "use super::{super::Thing};",
@@ -77,13 +77,17 @@ fn f() {
 macro_rules! make { () => { $crate::private::run(); }; }
 '''), [])
 
-    def test_reexports_are_explicit_facades_only(self):
+    def test_reexports_require_whitelist_in_every_file_and_scope(self):
         text = "pub use crate::a::A; pub(crate) use crate::b::B;"
-        for path in ["src/lib.rs", "src/feature/mod.rs"]:
-            self.assertEqual(rules(text, path), [])
-        self.assertEqual(rules(text), ["reexport-location"] * 2)
+        for path in ["src/lib.rs", "src/feature/mod.rs", "src/worker.rs", "tests/api.rs"]:
+            self.assertEqual(rules(text, path), ["reexport-whitelist"] * 2)
         manifest = MANIFEST + b'[lib]\npath = "entry.rs"\n'
-        self.assertEqual(audit({"entry.rs": text}, {"Cargo.toml": manifest}), [])
+        result = audit({"entry.rs": text}, {"Cargo.toml": manifest})
+        self.assertEqual([f["rule"] for f in result], ["reexport-whitelist"] * 2)
+        for visibility in ["pub", "pub(crate)", "pub(super)", "pub(in crate::api)"]:
+            with self.subTest(visibility=visibility):
+                source = f"#[cfg(test)] mod tests {{ {visibility} use crate::a::A; }}"
+                self.assertEqual(rules(source, "src/lib.rs"), ["reexport-whitelist"])
 
     def test_comment_markers_in_literals_and_nested_comments(self):
         text = '''// Only a comment.

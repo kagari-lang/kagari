@@ -1,11 +1,19 @@
-use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, Runtime, RuntimeConfig, SecurityContext,
-    value::Value,
+use {
+    kagari_common::capability::CapabilitySet,
+    kagari_runtime::{
+        Runtime, RuntimeConfig,
+        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
+        value::Value,
+    },
 };
 
 use crate::{
-    DebugAdapterEvent, DebugAdapterRequest, DebugAdapterResponse, DebugProtocolAdapter, DebugWatch,
-    SourceBreakpoint, Vm, tests::common::compile_test_bytecode,
+    debug::{DebugWatch, SourceBreakpoint},
+    debug_protocol::{
+        DebugAdapterEvent, DebugAdapterRequest, DebugAdapterResponse, DebugProtocolAdapter,
+    },
+    tests::common::compile_test_bytecode,
+    vm::Vm,
 };
 
 fn debug_runtime(module_name: &str) -> Runtime {

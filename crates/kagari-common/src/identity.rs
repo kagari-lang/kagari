@@ -1,5 +1,5 @@
 //! Source/semantic identity is distinct from runtime slots and display spelling.
-use crate::{Span, decode_limits::bounded_vec};
+use crate::{decode_limits::bounded_vec, span::Span};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{
     fmt,

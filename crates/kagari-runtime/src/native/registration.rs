@@ -1,6 +1,6 @@
 //! IDs resolve to trusted registrations; signatures come from checked declarations.
 use crate::{
-    RuntimeError,
+    error::RuntimeError,
     host::HostFunctionId,
     native::{NativeAction, NativeContext, NativeInvocationState},
 };

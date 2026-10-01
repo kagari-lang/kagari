@@ -2,6 +2,7 @@ use super::*;
 use crate::declarations::DeclarationId;
 use kagari_abi::scalar::BuiltinType;
 use kagari_common::{
+    diagnostic::DiagnosticKind,
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
@@ -192,7 +193,12 @@ fn incomplete_member_query_keeps_receiver_and_constants_report_prerequisite_fail
     ));
     assert_eq!(result.checked_bodies(), 1);
     assert!(!result.diagnostics().is_empty());
-    assert!(result.diagnostics().iter().all(|d| !matches!(&d.kind, kagari_common::DiagnosticKind::UnknownName { name } if name == "missing")));
+    assert!(
+        result
+            .diagnostics()
+            .iter()
+            .all(|d| !matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "missing"))
+    );
 }
 
 #[test]

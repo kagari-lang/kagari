@@ -4,7 +4,10 @@ use crate::{
     aggregates::AggregateCatalog,
     analysis::FileAnalysis,
     declarations::DeclarationId,
-    typeck::{ConstraintTarget, GenericBounds, members, type_satisfies_standard_constraint},
+    typeck::{
+        GenericBounds, constraints::type_satisfies_standard_constraint, members,
+        table::ConstraintTarget,
+    },
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::cancellation::CancellationToken;

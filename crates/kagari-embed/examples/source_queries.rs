@@ -1,24 +1,31 @@
 //! Run with `cargo run -p kagari-embed --example source_queries`.
 
 use kagari_common::{
-    DiagnosticKind,
+    diagnostic::DiagnosticKind,
     identity::{ModuleIdentity, PackageId},
     line_index::PositionEncoding,
     source_database::SourceLayer,
 };
-use kagari_embed::KagariEngine;
-use kagari_hir::{declarations::DeclarationId, resolver::ResolvedName, types::TypeId};
+use kagari_hir::{
+    declarations::DeclarationId,
+    hir::ids::{BodyOwner, HirOwner},
+    resolver::resolved::ResolvedName,
+    types::TypeId,
+};
+use {kagari_hir::typeck::const_budget::ConstLimits, kagari_syntax::parser::ParseLimits};
+
+use kagari_embed::engine::KagariEngine;
 
 fn main() -> kagari_embed::CompileResult<()> {
     let engine = KagariEngine::default();
     // Bound parser recovery for incomplete editor input. A limit error prevents
     // compilation while retaining the parsed prefix for navigation.
-    engine.set_parse_limits(kagari_embed::ParseLimits {
+    engine.set_parse_limits(ParseLimits {
         max_diagnostics: 64,
         max_nesting: 32,
         max_tree_depth: 96,
     });
-    engine.set_const_limits(kagari_embed::ConstLimits {
+    engine.set_const_limits(ConstLimits {
         max_steps: 10_000,
         max_depth: 32,
     });
@@ -111,7 +118,7 @@ fn main() -> kagari_embed::CompileResult<()> {
             .body
             .expect("selected script function body")
             .owner(),
-        kagari_hir::hir::HirOwner::Body(kagari_hir::hir::BodyOwner::Function(body.function()))
+        HirOwner::Body(BodyOwner::Function(body.function()))
     );
     assert!(body.diagnostics().is_empty());
     println!(
@@ -186,7 +193,7 @@ fn main() -> kagari_embed::CompileResult<()> {
             .iter()
             .filter(|diagnostic| matches!(
                 diagnostic.kind,
-                kagari_common::DiagnosticKind::InvalidIndexTarget { .. }
+                DiagnosticKind::InvalidIndexTarget { .. }
             ))
             .count(),
         2,

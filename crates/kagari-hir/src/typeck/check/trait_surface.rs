@@ -1,22 +1,27 @@
 use crate::{
     builtin::traits,
     declarations::Declarations,
-    hir::{FunctionId, TypeKind},
+    hir::{ids::FunctionId, ty::TypeKind},
     lower::LoweredModule,
-    resolver::ResolvedName,
+    resolver::resolved::ResolvedName,
     typeck::{
-        ConstraintTarget, FunctionTypeIndex, TypeTable,
+        FunctionTypeIndex,
         check::{
             interface_method_compatible, possibly_overlapping_impls,
             validate_standard_constraint_type,
         },
         constraints,
+        table::{ConstraintTarget, TypeTable},
         ty::{display_type, display_type_id},
     },
     types::{NominalType, TypeId},
 };
 use kagari_abi::standard::traits::StandardTrait;
-use kagari_common::{Diagnostic, DiagnosticKind, Span, identity};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity,
+    span::Span,
+};
 use smallvec::SmallVec;
 use std::iter;
 pub(super) fn validate_trait_surface(

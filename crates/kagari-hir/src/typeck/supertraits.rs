@@ -1,20 +1,25 @@
 //! Validate inheritance after every module's declaration contracts are available.
 
-use super::ConstraintTarget;
-use super::{
-    TypeTable, applications,
-    ty::{self, TypeContext},
-};
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
     declarations::Declarations,
-    hir::{Module, TraitDef},
+    hir::item::{Module, behavior::TraitDef},
     host::HostDeclarations,
     lower::LoweredModule,
+    typeck::{
+        applications,
+        table::{ConstraintTarget, TypeTable},
+        ty::{self, TypeContext},
+    },
     types::{NominalType, TypeId},
 };
-use kagari_common::{Diagnostic, DiagnosticKind, Span, cancellation::CancellationToken};
+
+use kagari_common::{
+    cancellation::CancellationToken,
+    diagnostic::{Diagnostic, DiagnosticKind},
+    span::Span,
+};
 
 pub(crate) fn trait_supertrait_surface(
     module: &Module,
@@ -49,7 +54,7 @@ pub(crate) fn validate(
     lowered: &LoweredModule,
     declarations: &Declarations,
     catalog: &AggregateCatalog,
-    table: &super::TypeTable,
+    table: &TypeTable,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
@@ -58,7 +63,7 @@ pub(crate) fn validate(
         for reference in &item.supertraits {
             if matches!(
                 table.constraint(reference.ty),
-                Some(super::ConstraintTarget::Standard(_))
+                Some(ConstraintTarget::Standard(_))
             ) {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidTraitReference {

@@ -1,4 +1,6 @@
 use super::*;
+use crate::{hir::expr::ExprKind, profile::LanguageFeatureProfile};
+use {crate::typeck::table::CallTarget, kagari_common::diagnostic::DiagnosticKind};
 
 #[test]
 fn terminating_array_members_do_not_contribute_or_enable_later_type_joins() {
@@ -98,10 +100,12 @@ fn return_values_are_checked_only_when_their_expression_completes() {
             "{body}: {:?}",
             analysis.diagnostics()
         );
-        assert!(analysis.diagnostics().iter().all(|d| matches!(
-            d.kind,
-            kagari_common::DiagnosticKind::ReturnTypeMismatch { .. }
-        )));
+        assert!(
+            analysis
+                .diagnostics()
+                .iter()
+                .all(|d| matches!(d.kind, DiagnosticKind::ReturnTypeMismatch { .. }))
+        );
         assert_eq!(analysis.into_codegen().is_ok(), mismatches == 0);
     }
 }
@@ -143,10 +147,12 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
         ),
         Default::default(),
     );
-    assert!(analysis.diagnostics().iter().any(|d| matches!(
-        d.kind,
-        kagari_common::DiagnosticKind::InvalidAssignmentTarget { .. }
-    )));
+    assert!(
+        analysis
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::InvalidAssignmentTarget { .. }))
+    );
     assert!(analysis.into_codegen().is_err());
 }
 
@@ -189,10 +195,12 @@ fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
             ),
             Default::default(),
         );
-        assert!(analysis.diagnostics().iter().any(|d| matches!(
-            d.kind,
-            kagari_common::DiagnosticKind::CallArityMismatch { .. }
-        )));
+        assert!(
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::CallArityMismatch { .. }))
+        );
         assert!(analysis.into_codegen().is_err());
     }
 }
@@ -305,10 +313,12 @@ fn enum_payloads_follow_function_argument_completion_rules() {
         ),
         Default::default(),
     );
-    assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
-        diagnostic.kind,
-        kagari_common::DiagnosticKind::ArgumentTypeMismatch { .. }
-    )));
+    assert!(
+        analysis.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::ArgumentTypeMismatch { .. }
+        ))
+    );
     assert!(analysis.into_codegen().is_err());
 }
 
@@ -444,7 +454,7 @@ fn terminating_indexes_preserve_receiver_rules_without_requiring_an_index_value(
                         "fn main() -> i32 {{ val array = [1]; var tuple = (1, true); {statement} 0 }}"
                     ),
                 ),
-                crate::LanguageFeatureProfile {
+                LanguageFeatureProfile {
                     allow_reflection: true,
                     allow_reflection_write: true,
                     ..Default::default()
@@ -692,7 +702,7 @@ fn terminating_callees_retain_explicit_call_facts_and_independent_errors() {
                     .type_table
                     .call_resolution(id)
                     .is_some_and(|call| {
-                        matches!(call.target, crate::typeck::CallTarget::TerminatingCallee)
+                        matches!(call.target, CallTarget::TerminatingCallee)
                             && call.receiver.is_some()
                     })
             }));
@@ -732,9 +742,9 @@ fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
         let facts = snapshot.file(root).unwrap().result().facts();
         let mut found = false;
         for (id, expr) in facts.lowered.module.body.expressions() {
-            if let crate::hir::ExprKind::Call { callee, .. } = expr.kind {
+            if let ExprKind::Call { callee, .. } = expr.kind {
                 let call = facts.typed.type_table.call_resolution(id).unwrap();
-                assert_eq!(call.target, crate::typeck::CallTarget::TerminatingCallee);
+                assert_eq!(call.target, CallTarget::TerminatingCallee);
                 assert_eq!(call.receiver, Some(callee));
                 found = true;
             }

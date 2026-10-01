@@ -3,15 +3,14 @@ use crate::{
     manifest::{BundledSource, bundled_sources},
 };
 use kagari_common::{
-    Diagnostic, SourceFile, Span,
     cancellation::{CancellationToken, Cancelled},
+    diagnostic::Diagnostic,
     identity::{ModuleIdentity, PackageId},
+    source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
+    span::Span,
 };
-use kagari_syntax::{
-    Parse,
-    parser::{ParseLimits, parse_declarations},
-};
+use kagari_syntax::parser::{Parse, ParseLimits, parse_declarations};
 use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(Debug, thiserror::Error)]

@@ -1,14 +1,22 @@
 use crate::{
     aggregates::FieldSignature,
     builtin::traits::StandardTraitSemantics,
-    hir::{ExprId, ExprKind, PlaceId, PlaceKind},
-    resolver::ResolvedName,
-    typeck::{BodyTypeEnv, ScalarValue, body::BodyChecker, completion, ty::display_type_id},
+    hir::{
+        expr::ExprKind,
+        ids::{ExprId, PlaceId},
+        place::PlaceKind,
+    },
+    resolver::resolved::ResolvedName,
+    typeck::{
+        BodyTypeEnv, body::BodyChecker, completion, scalar::ScalarValue, ty::display_type_id,
+    },
     types::TypeId,
 };
 use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
 use kagari_common::{
-    Diagnostic, DiagnosticKind, collection::CollectionAccess, identity::DefinitionId,
+    collection::CollectionAccess,
+    diagnostic::{Diagnostic, DiagnosticKind},
+    identity::DefinitionId,
 };
 
 impl<'a> BodyChecker<'a> {

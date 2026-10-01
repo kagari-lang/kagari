@@ -2,7 +2,7 @@ use super::{
     boundaries::{clean, route},
     runtime,
 };
-use crate::{Vm, executor::Executor, tests::common::compile_test_bytecode};
+use crate::{executor::Executor, tests::common::compile_test_bytecode, vm::Vm};
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{host::HostFunction, value::Value};
 use std::{cell::RefCell, rc::Rc, slice};

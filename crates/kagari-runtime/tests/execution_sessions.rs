@@ -1,9 +1,21 @@
 use kagari_abi::budget::LogicalBudgetCharge;
-use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
-use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
-use kagari_runtime::{DeterministicInputs, Runtime, RuntimeErrorKind, value::Value};
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeErrorKind,
+    host::HostPathDescriptorId,
+    module::LoadedModule,
+    reload::ReloadValidationError,
+    session::{DeterministicInputs, ExecutionPhase},
+    value::Value,
+};
 
-fn load(runtime: &mut Runtime, name: &str) -> kagari_runtime::LoadedModule {
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess};
+
+fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
     runtime
         .load_program(
             name,
@@ -269,9 +281,11 @@ fn zero_wall_budget_rejects_before_counter_charges() {
 #[test]
 fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session() {
     use kagari_common::host_interface::{
-        HostFunctionDeclaration, HostFunctionEffects, HostValueType,
+        HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType,
     };
-    use kagari_runtime::{ExecutionPhase, HostExposurePolicy, host::HostFunction};
+    use kagari_runtime::{
+        host::HostFunction, security::HostExposurePolicy, session::ExecutionPhase,
+    };
     use std::{cell::Cell, rc::Rc};
 
     let mut runtime = Runtime::default();
@@ -354,7 +368,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
         );
     }
     // Reject before descriptor lookup, argument traversal, adapters or dirty records.
-    let missing = kagari_runtime::HostPathDescriptorId::new(99);
+    let missing = HostPathDescriptorId::new(99);
     assert_eq!(
         runtime
             .read_host_path(&Value::Unit, missing, vec![])
@@ -380,7 +394,7 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
 
 #[test]
 fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
-    use kagari_runtime::ExecutionPhase;
+    use kagari_runtime::session::ExecutionPhase;
     let mut runtime = Runtime::default();
     let module = load(&mut runtime, "main");
     let _session = runtime
@@ -401,8 +415,8 @@ fn candidate_initialization_cannot_silently_join_an_ordinary_session() {
 
 #[test]
 fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocations() {
-    use kagari_common::host_interface::{HostFunctionDeclaration, HostValueType};
-    use kagari_runtime::{HostExposurePolicy, host::HostFunction};
+    use kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
+    use kagari_runtime::{host::HostFunction, security::HostExposurePolicy};
     let mut runtime = Runtime::default();
     let mut security = runtime.security();
     security.profile.allow_host_calls = true;
@@ -609,7 +623,7 @@ fn publication_rechecks_objects_after_the_initialization_session_ends() {
                 .unwrap();
             let error = runtime.publish_staged_reload(candidate).unwrap_err();
             assert!(
-                matches!(error, kagari_runtime::ReloadValidationError::Runtime(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+                matches!(error, ReloadValidationError::Runtime(error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
             );
             assert_eq!(
                 runtime.modules().latest("main").unwrap().key(),
@@ -650,7 +664,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
             )
             .unwrap();
         let mut direct = runtime.execution_options();
-        direct.phase = kagari_runtime::ExecutionPhase::CandidateInitialization;
+        direct.phase = ExecutionPhase::CandidateInitialization;
         assert!(runtime.begin_execution(candidate.module(), direct).is_err());
         let mut options = runtime.execution_options();
         let token = CancellationToken::default();
@@ -687,9 +701,7 @@ fn candidate_termination_is_cached_after_the_session_is_dropped() {
         drop(outer);
         assert!(runtime.begin_candidate_initialization(&candidate).is_err());
         let error = runtime.publish_staged_reload(candidate).unwrap_err();
-        assert!(
-            matches!(error, kagari_runtime::ReloadValidationError::Runtime(error) if error.kind() == expected)
-        );
+        assert!(matches!(error, ReloadValidationError::Runtime(error) if error.kind() == expected));
         assert_eq!(
             runtime.modules().latest("main").unwrap().key(),
             baseline.key()

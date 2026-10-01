@@ -1,9 +1,12 @@
 use crate::{
-    ast::AstNode,
+    ast::traits::AstNode,
     kind::SyntaxKind,
-    parser::{ParseLimits, parse_with_limits},
+    parser::{ParseLimits, parse, parse_with_limits},
 };
-use kagari_common::{DiagnosticKind, SourceFile, cancellation::CancellationToken};
+
+use kagari_common::{
+    cancellation::CancellationToken, diagnostic::DiagnosticKind, source::SourceFile,
+};
 
 #[test]
 fn interpolation_is_lossless_with_nested_expressions_comments_and_escapes() {
@@ -11,7 +14,7 @@ fn interpolation_is_lossless_with_nested_expressions_comments_and_escapes() {
         f"你好 \u{1f600} {{}} {f"{if true { "a}" } else { "b" }}"} { /* } */ 7:?}";
     }"##;
     let source = SourceFile::new("interpolation.kgr", text.replace('\n', "\r\n"));
-    let parsed = crate::parse(&source);
+    let parsed = parse(&source);
     assert!(
         parsed.diagnostics().is_empty(),
         "{:?}",
@@ -52,7 +55,7 @@ fn incomplete_interpolation_and_unsupported_formats_are_diagnostics() {
         r#"f"\u{zz}""#,
     ] {
         let source = SourceFile::new("invalid.kgr", format!("fn main() {{ {literal}; }}"));
-        let parsed = crate::parse(&source);
+        let parsed = parse(&source);
         assert!(!parsed.diagnostics().is_empty(), "{literal}");
         assert_eq!(parsed.syntax().syntax().text().to_string(), source.text());
     }

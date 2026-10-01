@@ -1,10 +1,10 @@
 //! Reject impossible executable collection lengths before decoding their elements.
 
-use de::Error;
 use serde::{
     Deserialize, Deserializer,
-    de::{self, SeqAccess, Visitor},
+    de::{self, Error, SeqAccess, Visitor},
 };
+
 use std::{collections::BTreeMap, fmt, marker::PhantomData};
 
 pub const MAX_MODULES: usize = 1_024;

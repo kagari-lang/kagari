@@ -1,4 +1,5 @@
 use super::*;
+use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 
 #[test]
 fn debug_session_resolves_breakpoints_and_inspects_live_locals() {
@@ -184,8 +185,8 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     let loaded = runtime
         .load_program(
             "debug_trap.kbc",
-            kagari_bytecode::BytecodeProgram {
-                root: kagari_bytecode::ModuleRef::new(0),
+            BytecodeProgram {
+                root: ModuleRef::new(0),
                 modules: vec![verified_module(vec![main])],
             },
         )

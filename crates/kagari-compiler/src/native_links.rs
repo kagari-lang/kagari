@@ -1,6 +1,8 @@
 //! Resolve runtime-provided process symbols against ABI-owned helper contracts.
-use kagari_abi::native::{NativeHelperDeclaration, NativeHelperSymbol, NativeLinkDescription};
-use kagari_abi::native_call::NATIVE_HELPER_SIGNATURES;
+use kagari_abi::{
+    native::{NativeHelperDeclaration, NativeHelperSymbol, NativeLinkDescription},
+    native_call::NATIVE_HELPER_SIGNATURES,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("native helper bindings must contain exactly one non-null address for each ABI helper")]

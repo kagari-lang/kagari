@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeck::scalar::ScalarValue;
 
 #[test]
 fn unresolved_body_holes_preserve_neighbor_facts_without_leaking_variables() {
@@ -72,7 +73,7 @@ fn const_arithmetic_failures_preserve_other_semantic_facts() {
         assert_eq!(facts.typed.const_values.len(), 1);
         assert_eq!(
             facts.typed.const_values.values().next(),
-            Some(&crate::typeck::ScalarValue::I32(42))
+            Some(&ScalarValue::I32(42))
         );
         assert_eq!(
             facts.typed.functions[0].return_type,
@@ -930,7 +931,7 @@ fn wide_const_dependencies_keep_values_and_error_owners_by_declaration_slot() {
     for (index, item) in facts.lowered.module.consts.iter().take(2_000).enumerate() {
         assert_eq!(
             facts.typed.const_values.get(&item.id),
-            Some(&crate::typeck::ScalarValue::I32(42 + index as i32))
+            Some(&ScalarValue::I32(42 + index as i32))
         );
     }
     assert_eq!(result.diagnostics().len(), 1);

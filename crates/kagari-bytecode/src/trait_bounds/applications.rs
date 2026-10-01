@@ -1,4 +1,8 @@
-use crate::{BytecodeInstruction, BytecodeModule, CallTarget, trait_bounds::contract};
+use crate::{
+    instruction::{BytecodeInstruction, CallTarget},
+    module::BytecodeModule,
+    trait_bounds::contract,
+};
 use kagari_abi::types::{applications::ApplicationValidator, substitution::TypeTransformError};
 use kagari_common::cancellation::CancellationToken;
 

@@ -1,5 +1,8 @@
 use crate::DiagnosticBuffer;
-use kagari_common::{Diagnostic, DiagnosticKind, Span};
+use kagari_common::{
+    diagnostic::{Diagnostic, DiagnosticKind},
+    span::Span,
+};
 
 /// Per-file budget shared by const capability validation and scalar evaluation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

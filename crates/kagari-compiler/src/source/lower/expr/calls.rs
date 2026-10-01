@@ -1,21 +1,26 @@
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
-use kagari_abi::native_import::NativeImport;
-use kagari_abi::{
-    representation::ValueType,
-    standard::{RuntimePrimitive, traits::StandardTrait},
-};
-use kagari_common::host_interface;
 use kagari_hir::{
     builtin::{BuiltinFunction, traits},
     declarations::DeclarationId,
-    hir,
-    resolver::ResolvedName,
-    typeck::{CallTarget as TypeckCallTarget, ScalarValue},
-    types::abi::{lower_nominal_type, lower_type},
-    types::{NominalType, TypeId},
+    hir::{expr::ExprKind, ids::ExprId},
+    resolver::resolved::ResolvedName,
+    typeck::{scalar::ScalarValue, table::CallTarget as TypeckCallTarget},
+    types::{
+        NominalType, TypeId,
+        abi::{lower_nominal_type, lower_type},
+    },
 };
+
+use kagari_abi::{
+    native_import::NativeImport,
+    representation::ValueType,
+    standard::{RuntimePrimitive, traits::StandardTrait},
+};
+
+use kagari_common::host_interface;
+
 use kagari_mir::instruction::{
     CallTarget, Instruction, InterfaceCallContract, MirValue, RuntimeHelper,
     SourceFunctionContract, ValueBuffer,
@@ -49,8 +54,8 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn lower_call(
         &mut self,
-        expr: hir::ExprId,
-        args: &[hir::ExprId],
+        expr: ExprId,
+        args: &[ExprId],
     ) -> Result<MirValue, MirLoweringError> {
         let call = self
             .analyzed
@@ -111,7 +116,7 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Break(value) => return Ok(value),
             };
             if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
-                && matches!(&self.analyzed.lowered.module.expr(expr).kind, hir::ExprKind::Call { callee, .. } if *callee == receiver)
+                && matches!(&self.analyzed.lowered.module.expr(expr).kind, ExprKind::Call { callee, .. } if *callee == receiver)
             {
                 let receiver_type = self
                     .analyzed
@@ -564,9 +569,9 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_runtime_helper_call(
         &mut self,
         helper: BuiltinFunction,
-        args: &[hir::ExprId],
+        args: &[ExprId],
     ) -> Result<ControlFlow<MirValue, (CallTarget, ValueBuffer)>, MirLoweringError> {
-        let (target, operands): (_, SmallVec<[hir::ExprId; 3]>) = match (helper, args) {
+        let (target, operands): (_, SmallVec<[ExprId; 3]>) = match (helper, args) {
             (BuiltinFunction::TypeOf, [value]) => (
                 CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
                 smallvec::smallvec![*value],
@@ -604,7 +609,7 @@ impl FunctionLowerer<'_, '_> {
             .map_continue(|values| (target, values)))
     }
 
-    pub(super) fn checked_field_name(&self, expr: hir::ExprId) -> Result<String, MirLoweringError> {
+    pub(super) fn checked_field_name(&self, expr: ExprId) -> Result<String, MirLoweringError> {
         match self.analyzed.typed.type_table.scalar_value(expr) {
             Some(ScalarValue::String(value)) => Ok(value.clone()),
             _ => Err(MirLoweringError::MissingBinding(

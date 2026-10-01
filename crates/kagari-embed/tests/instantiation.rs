@@ -1,5 +1,17 @@
-use kagari_common::SourceFile;
-use kagari_embed::{ArtifactOptions, EmbeddingError, KagariEngine, program::PreparedProgram};
+use kagari_common::source::SourceFile;
+use {
+    kagari_compiler::source::lower::instances::MirLoweringOptions,
+    kagari_embed::{
+        context::{ExecutionContext, JitPolicy},
+        engine::source::CompileOptions,
+    },
+};
+
+use kagari_embed::{
+    engine::{KagariEngine, source::ArtifactOptions},
+    error::EmbeddingError,
+    program::PreparedProgram,
+};
 
 #[test]
 fn generic_trait_methods_infer_concrete_arguments_across_execution_routes() {
@@ -280,7 +292,7 @@ fn execute_contextual_source(source: &str, expected: i32) {
 
 fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection_write: bool) {
     let engine = KagariEngine::default();
-    let mut context = kagari_embed::ExecutionContext::default();
+    let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.language_profile.allow_reflection = true;
     context.language_profile.allow_reflection_write = reflection_write;
@@ -289,7 +301,7 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("context.kgr", source),
-            kagari_embed::CompileOptions {
+            CompileOptions {
                 language_profile: context.language_profile,
             },
             Default::default(),
@@ -302,9 +314,9 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection
             artifact.clone()
         };
         context.jit_policy = if jit {
-            kagari_embed::JitPolicy::Enabled
+            JitPolicy::Enabled
         } else {
-            kagari_embed::JitPolicy::Disabled
+            JitPolicy::Disabled
         };
         let mut runtime = engine.runtime(context.clone());
         let loaded_program =
@@ -352,7 +364,7 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
         .emit_bytecode(
             &checked,
             ArtifactOptions {
-                lowering: kagari_compiler::MirLoweringOptions {
+                lowering: MirLoweringOptions {
                     max_generic_instances: 0,
                     ..Default::default()
                 },
