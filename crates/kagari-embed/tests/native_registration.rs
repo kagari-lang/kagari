@@ -10,8 +10,8 @@ use kagari_abi::{
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
 use kagari_embed::{EngineConfig, KagariEngine};
 use kagari_runtime::{
-    NativeAction, NativeApi, NativeContext, NativeHandler, NativeInvocationState, RuntimeError,
-    standard_library, value::Value,
+    NativeAction, NativeApi, NativeContext, NativeFactory, NativeHandler, NativeInvocationState,
+    RuntimeError, native_module, standard_library, value::Value,
 };
 
 struct Answer;
@@ -42,11 +42,85 @@ fn application_module() -> NativeModule {
     module
 }
 fn application_api() -> NativeApi {
-    let module = application_module();
-    let handler = NativeHandler::new(binding_id(&module.identity, "answer"), 0, |_| {
-        Ok(Box::new(Answer))
-    });
-    NativeApi::new(vec![module], vec![handler]).unwrap()
+    native_module! {
+        module game::math;
+        /// Return the application-owned answer.
+        fn answer() -> i32 => answer;
+    }
+    .unwrap()
+}
+
+fn answer() -> NativeFactory {
+    NativeFactory::new(0, |_| Ok(Box::new(Answer)))
+}
+
+#[test]
+fn authoring_matches_explicit_records_and_preserves_documentation() {
+    let api = application_api();
+    let expected = application_module();
+    assert_eq!(
+        api.modules()[0].native_declarations(),
+        expected.native_declarations()
+    );
+    assert_eq!(api.modules()[0].documentation, expected.documentation);
+}
+
+#[test]
+fn authoring_expansion_respects_consumer_names_and_factory_scope() {
+    type Box = u8;
+    type Result = u16;
+    type Option = u32;
+    let _: (Box, Result, Option) = (0, 0, 0);
+    fn __kagari_native_builder() -> NativeFactory {
+        answer()
+    }
+    use kagari_runtime as renamed_runtime;
+    let api = native_module! {
+        runtime = renamed_runtime;
+        module game::callbacks;
+        fn call(callback: fn(i32) -> i32) -> i32 => __kagari_native_builder;
+    }
+    .unwrap();
+    assert!(
+        api.declaration_sources()[0]
+            .text
+            .contains("fn call(callback: fn(i32) -> i32) -> i32;")
+    );
+}
+
+#[test]
+fn authoring_rejects_bad_generics_parent_impls_and_factory_collisions() {
+    let duplicate = native_module! {
+        module game::math;
+        fn bad<T, T>() -> i32 => answer;
+    };
+    assert!(duplicate.is_err());
+    let bad_enum = native_module! {
+        module game::math;
+        fn bad() -> Option<i32, bool> => answer;
+    };
+    assert!(bad_enum.is_err());
+    let parent = native_module! {
+        module game::collections;
+        type Array<T> = native_array<T>;
+        trait Parent<T> { fn len(self) -> usize; }
+        trait Child<T>: Parent<T> { fn count(self) -> usize; }
+        impl<T> Child<T> for Array<T> { count => answer; }
+    };
+    assert!(parent.is_err());
+    let collision = native_module! {
+        module game::math;
+        fn first() -> i32 => answer;
+        fn second() -> i32 => factories::answer;
+    };
+    assert!(collision.is_err());
+}
+
+mod factories {
+    use super::*;
+    pub fn answer() -> NativeFactory {
+        super::answer()
+    }
 }
 
 #[test]
@@ -195,6 +269,38 @@ mod source {
             0
         );
         result
+    }
+
+    #[test]
+    fn authoring_keeps_runtime_output_contract_validation() {
+        let api = native_module! {
+            module game::math;
+            fn wrong() -> usize => answer;
+        }
+        .unwrap();
+        let engine = KagariEngine::with_native_apis(Default::default(), vec![api]).unwrap();
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "memory://wrong-native-output.kgr",
+                    "use game::math::wrong; fn main() -> usize { wrong() }",
+                ),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        assert!(runtime.execute(&loaded, "main", &[], &context).is_err());
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
     }
 
     #[test]

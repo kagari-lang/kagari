@@ -1,8 +1,11 @@
 //! A frame-owned invocation drives native entry state without identifying library methods.
+mod api;
 pub(crate) mod array;
 mod array_api;
-pub use array_api::standard_library;
-mod api;
+mod factory;
+mod packages;
+pub use factory::NativeFactory;
+pub use packages::standard_library;
 pub(crate) mod registration;
 use crate::{
     LoadedModule, Runtime, RuntimeError,

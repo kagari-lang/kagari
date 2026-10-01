@@ -39,6 +39,7 @@ mod layout_fixtures;
 pub mod metadata;
 pub mod module;
 mod native;
+pub mod native_module;
 pub mod numeric;
 pub mod range;
 pub mod reflection;
@@ -60,13 +61,15 @@ pub use cache::{
 pub use error::{RuntimeError, RuntimeErrorKind};
 pub use frame::{ExecutionFrame, ExecutionStack};
 pub use host_scope::HostResourceScope;
+pub use kagari_native_macros::native_module;
 pub use module::{
     LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId, ModuleInstance,
     ModuleKey, ModuleStore, VerifiedProgram,
 };
 pub use native::{
-    NativeAction, NativeApi, NativeCallback, NativeContext, NativeEntry, NativeHandler,
-    NativeInvocationState, NativeProgress, NativeRegistration, NativeRegistry, standard_library,
+    NativeAction, NativeApi, NativeCallback, NativeContext, NativeEntry, NativeFactory,
+    NativeHandler, NativeInvocationState, NativeProgress, NativeRegistration, NativeRegistry,
+    standard_library,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};

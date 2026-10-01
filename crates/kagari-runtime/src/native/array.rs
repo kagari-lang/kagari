@@ -1,11 +1,10 @@
 //! Array algorithms and entry registration, independent of generic call dispatch.
 use crate::{
     RuntimeError,
-    native::{NativeAction, NativeContext, NativeHandler, NativeInvocationState},
+    native::{NativeAction, NativeContext, NativeFactory, NativeInvocationState},
     value::{EnumTag, Value},
 };
-use kagari_abi::{native_import::binding_id, types::AbiType};
-use kagari_common::identity::ModuleIdentity;
+use kagari_abi::types::AbiType;
 
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("array native argument or result")
@@ -32,71 +31,84 @@ fn direct(
     context.retain(0, value)?;
     Ok(Box::new(ReturnValue { wait: false }))
 }
-pub(crate) fn handlers(module: &ModuleIdentity) -> Vec<NativeHandler> {
-    vec![
-        NativeHandler::new(binding_id(module, "array_new"), 1, |context| {
-            let array = Value::Array(context.heap().alloc_array(vec![])?);
-            direct(context, array)
-        }),
-        NativeHandler::new(binding_id(module, "array_len"), 1, |context| {
-            let Some(Value::Array(id)) = context.argument(0) else {
-                return Err(invalid());
-            };
-            let length = context.heap().array_len(id).ok_or_else(invalid)?;
-            direct(context, Value::U64(length as u64))
-        }),
-        NativeHandler::new(binding_id(module, "array_push"), 1, |context| {
-            let Some(Value::Array(id)) = context.argument(0) else {
-                return Err(invalid());
-            };
-            context
-                .heap()
-                .array_push(id, context.argument(1).ok_or_else(invalid)?)?;
-            context.retain(0, Value::Unit)?;
-            Ok(Box::new(ReturnValue { wait: true }))
-        }),
-        NativeHandler::new(binding_id(module, "array_from_fn"), 2, |context| {
-            let Some(Value::U64(count)) = context.argument(0) else {
-                return Err(invalid());
-            };
-            Ok(Box::new(FromFn {
-                count,
-                index: 0,
-                phase: Phase::Allocate,
-                more: false,
-            }))
-        }),
-        NativeHandler::new(binding_id(module, "array_get"), 1, |context| {
-            let Some(Value::Array(id)) = context.argument(0) else {
-                return Err(invalid());
-            };
-            let Some(Value::U64(index)) = context.argument(1) else {
-                return Err(invalid());
-            };
-            let value = usize::try_from(index)
-                .ok()
-                .and_then(|index| context.heap().array_get(id, index));
-            let (tag, fields) = match value {
-                Some(value) => (EnumTag::OptionSome, vec![value]),
-                None => (EnumTag::OptionNone, vec![]),
-            };
-            let result = Value::Enum(context.heap().alloc_enum(tag, fields)?);
-            direct(context, result)
-        }),
-        NativeHandler::new(binding_id(module, "array_set"), 1, |context| {
-            let Some(Value::Array(id)) = context.argument(0) else {
-                return Err(invalid());
-            };
-            let Some(Value::U64(index)) = context.argument(1) else {
-                return Err(invalid());
-            };
-            let index = usize::try_from(index).map_err(|_| invalid())?;
-            context
-                .heap()
-                .array_set(id, index, context.argument(2).ok_or_else(invalid)?)?;
-            direct(context, Value::Unit)
-        }),
-    ]
+pub(super) fn array_new() -> NativeFactory {
+    NativeFactory::new(1, |context| {
+        let array = Value::Array(context.heap().alloc_array(vec![])?);
+        direct(context, array)
+    })
+}
+
+pub(super) fn array_len() -> NativeFactory {
+    NativeFactory::new(1, |context| {
+        let Some(Value::Array(id)) = context.argument(0) else {
+            return Err(invalid());
+        };
+        let length = context.heap().array_len(id).ok_or_else(invalid)?;
+        direct(context, Value::U64(length as u64))
+    })
+}
+
+pub(super) fn array_push() -> NativeFactory {
+    NativeFactory::new(1, |context| {
+        let Some(Value::Array(id)) = context.argument(0) else {
+            return Err(invalid());
+        };
+        context
+            .heap()
+            .array_push(id, context.argument(1).ok_or_else(invalid)?)?;
+        context.retain(0, Value::Unit)?;
+        Ok(Box::new(ReturnValue { wait: true }))
+    })
+}
+
+pub(super) fn array_from_fn() -> NativeFactory {
+    NativeFactory::new(2, |context| {
+        let Some(Value::U64(count)) = context.argument(0) else {
+            return Err(invalid());
+        };
+        Ok(Box::new(FromFn {
+            count,
+            index: 0,
+            phase: Phase::Allocate,
+            more: false,
+        }))
+    })
+}
+
+pub(super) fn array_get() -> NativeFactory {
+    NativeFactory::new(1, |context| {
+        let Some(Value::Array(id)) = context.argument(0) else {
+            return Err(invalid());
+        };
+        let Some(Value::U64(index)) = context.argument(1) else {
+            return Err(invalid());
+        };
+        let value = usize::try_from(index)
+            .ok()
+            .and_then(|index| context.heap().array_get(id, index));
+        let (tag, fields) = match value {
+            Some(value) => (EnumTag::OptionSome, vec![value]),
+            None => (EnumTag::OptionNone, vec![]),
+        };
+        let result = Value::Enum(context.heap().alloc_enum(tag, fields)?);
+        direct(context, result)
+    })
+}
+
+pub(super) fn array_set() -> NativeFactory {
+    NativeFactory::new(1, |context| {
+        let Some(Value::Array(id)) = context.argument(0) else {
+            return Err(invalid());
+        };
+        let Some(Value::U64(index)) = context.argument(1) else {
+            return Err(invalid());
+        };
+        let index = usize::try_from(index).map_err(|_| invalid())?;
+        context
+            .heap()
+            .array_set(id, index, context.argument(2).ok_or_else(invalid)?)?;
+        direct(context, Value::Unit)
+    })
 }
 
 // Keep the predecessor's logical step sequence, including the first allocation.

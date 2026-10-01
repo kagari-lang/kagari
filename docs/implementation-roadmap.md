@@ -23,7 +23,7 @@ and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
 specifications, whole-workspace acceptance, structural review and matched baseline
-measurements. Generated host declaration documents, Rust registration macros, LSP
+measurements. Legacy host declaration documents, automatic Rust signature extraction, LSP
 transport and further backend expansion remain later work. This migration does not
 reopen completed historical phase ledgers.
 
@@ -54,7 +54,11 @@ The latest registration-owned checkpoint replaces the array declaration binary
 with native API definitions shared by direct HIR import, runtime installation and
 `.kgr` generation for tooling. Default array installation can be disabled; user
 native packages use the same path. MutableList.set and ArrayList's derived trait
-implementation provide the minimal proof. Other library declarations and legacy
+implementation provide the minimal proof. A declarative `native_module!` authoring
+checkpoint now keeps documentation, contracts and handler bindings together and
+generates identities/generic binders. Standard-library selection only aggregates
+ordinary native packages. Automatic typed Rust adapters are still pending.
+Other library declarations and legacy
 host type/path adapters remain migration work. No NR implementation phase has been
 accepted yet.
 

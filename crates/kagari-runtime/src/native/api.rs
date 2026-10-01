@@ -2,7 +2,8 @@
 use crate::{
     Runtime, RuntimeError,
     native::{
-        NativeContext, NativeEntry, NativeInvocationState, NativeRegistration, NativeRegistry,
+        NativeContext, NativeEntry, NativeFactory, NativeInvocationState, NativeRegistration,
+        NativeRegistry,
     },
 };
 use kagari_abi::{
@@ -23,6 +24,13 @@ pub struct NativeHandler {
     entry: Rc<NativeEntry>,
 }
 impl NativeHandler {
+    pub(crate) fn from_factory(binding: DefinitionId, factory: NativeFactory) -> Self {
+        Self {
+            binding,
+            scratch_slots: factory.scratch_slots,
+            entry: factory.entry,
+        }
+    }
     pub fn new(
         binding: DefinitionId,
         scratch_slots: usize,

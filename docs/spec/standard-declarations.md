@@ -8,6 +8,16 @@ Signatures, documentation and navigation locations must describe the same API.
 Generated text does not authorize installation. Runtime owns storage and execution.
 All comments, documentation and examples are written in English.
 
+The `native_module!` Rust macro is a registration authoring entrypoint. It emits
+native records and factory bindings without reading Kagari source. Trait methods
+own their signatures and documentation; impl entries only bind method names to
+Rust descriptor factory paths. Shared registration derives impl signatures,
+identities and generic binders before existing NativeApi validation/publication.
+Factory descriptors declare scratch roots and contain the low-level resumable
+entry. The macro does not yet infer signatures from arbitrary Rust functions.
+See [the authoring checkpoint](../native-provider-refactor.md#declarative-authoring-checkpoint-2026-10-01).
+
+
 The minimal NR implementation registers ArrayList new/len/push/from_fn, List
 len/get and MutableList.set. Trait implementation signatures are derived from the
 registered trait declaration rather than authored a second time. Remaining source

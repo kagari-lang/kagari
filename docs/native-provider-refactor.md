@@ -35,6 +35,21 @@ scoped borrow validation, roots, callback cleanup, budgets and generation pinnin
 Primitive representations and language protocols remain engine capabilities.
 Existing synchronous host adapters retain their checks during the bounded migration.
 
+### Declarative authoring implementation
+
+The user requested replacing the raw ABI assembly in `standard_library()` with a
+readable registration entrypoint. This bounded NR01 follow-up owns authoring and
+preserves existing executable contracts; it does not activate the queued typed
+Rust interoperability work.
+
+- [x] Add a Rust-token native declaration macro and common expansion support.
+- [x] Keep trait signatures/docs with declarations and bind impl methods without
+  repeating signatures; generate definition IDs and generic owner/position records.
+- [x] Colocate inherent/free-function signatures with their Rust descriptor factories.
+- [x] Reduce default-library selection to ordinary package composition.
+- [x] Prove external application authoring and retain exact generated source/artifact
+  agreement, runtime output validation, callbacks, GC and feature boundaries.
+
 ### Registration-owned minimal implementation
 
 Task: implement one complete native registration path before broader restoration.
@@ -1185,3 +1200,101 @@ Carried errors and limitations (owning phase NR04; final NR05 acceptance stays o
 Transient evidence lives under ignored `target/nr-registration-*.log`; reproduction
 commands and durable scope/results are retained here. No structural allowances or
 compatibility readers were added.
+
+
+### Declarative authoring checkpoint (2026-10-01)
+
+Starting from clean `b97579c7`, the user requested improving the registration form
+of `standard_library()`. This checkpoint replaces handwritten ABI assembly in the
+array package with `native_module!`, preserving the previously accepted minimal
+execution behavior and keeping broader NR acceptance open.
+
+- Added `kagari-native-macros`, a proc-macro crate using syn/quote to read Rust
+  authoring tokens at host build time. It has no Kagari syntax, HIR, compiler,
+  ABI or runtime dependency. It emits construction calls into shared runtime
+  authoring support; portable NativeModule records and NativeApi validation remain
+  authoritative. No generated `.kgr` is parsed to establish registered semantics.
+- The authoring block contains storage, required traits, inherent declarations,
+  trait impl bindings and free functions. Documentation stays beside declarations.
+  Trait impls bind names only and retain the existing signature-substitution and
+  supertrait checks. Shared construction generates generic owners/positions and
+  declaration IDs; authoring callers no longer assemble ABI structs or doc maps.
+- `NativeFactory` separates execution descriptors (scratch roots plus entry closure)
+  from script declaration identities. Entry factories still execute only through
+  the existing invocation driver; descriptor construction does not invoke entries.
+  Shared factory paths in one module install one binding, and conflicting paths
+  with the same final name reject before publication. Binding names currently use
+  the factory path's final segment; renaming that segment changes the binding ID
+  and requires rebuilding consumers. Existing array binding IDs are unchanged.
+- `standard_library()` only composes ordinary native packages. The array package
+  declares List/MutableList and binds ArrayList methods in one readable block.
+  Separate array factory functions preserve previous scratch counts, state steps,
+  heap guards and callback/GC cleanup. No VM/HIR/linking algorithm is added.
+- The application test and runnable MutableList example use the same macro.
+  Example `demo::math::answer` supplies the second value while the default package
+  supplies MutableList: execution remains `I32(42)`. Generated array text and the
+  encoded fixture remain byte-for-byte equal; executable ABI versions are unchanged.
+
+The implemented trait authoring form is:
+
+```rust
+trait MutableList<T>: List<T> {
+    /// Replace a valid slot, trapping before mutation for an invalid index.
+    fn set(self, index: usize, value: T);
+}
+
+impl<T> MutableList<T> for ArrayList<T> {
+    set => array::array_set;
+}
+```
+
+See [the complete array declaration](../crates/kagari-runtime/src/native/array_api.rs),
+[default package selection](../crates/kagari-runtime/src/native/packages.rs) and
+[the runnable external registration](../crates/kagari-embed/examples/native_mutable_list.rs).
+The macro returns `Result<NativeApi, RuntimeError>`. Its default generated runtime
+path is `::kagari_runtime`; `runtime = renamed_runtime;` supports renamed imports
+and `runtime = crate;` supports authoring inside runtime itself.
+
+Supported authoring forms match the minimal registration model: one-parameter
+array storage, unbounded generic traits/impls/free functions, script `self`, scalar,
+array-view, tuple, callback and standard enum types, and nominal supertrait bindings.
+Unsupported Rust references, bounds, method-local generics, required method bodies
+and non-documentation attributes receive compile-time diagnostics. Structural
+contract errors still flow through NativeApi validation before package publication.
+This is declaration/factory authoring, not automatic Rust signature extraction:
+handlers remain low-level NativeContext/state-machine factories. Incorrect actual
+returns still trap through invocation output checks. Typed Rust adapters, associated
+declarations, full-library restoration and old host adapter migration remain pending.
+
+Validation actually performed:
+
+- `cargo check -p kagari-runtime` and `cargo clippy --workspace --lib -- -D warnings` pass.
+- 34 focused tests pass: two proc-macro tests plus the native_registration (11),
+  native_provider_artifact (3), native_provider_reset (10) and host_interfaces (8)
+  integration targets. These retain ordinary/generic/dynamic calls, serialized
+  fixture agreement, readonly rejection, callback budgets, GC, traps and reentry.
+  Added declaration equivalence, duplicate generics, missing supertrait impls,
+  malformed enum arity, factory-name collisions, consumer name/runtime-alias hygiene
+  and incorrect output cleanup checks. Compile-time rejection tests cover unsupported
+  references, bounds, required bodies and attributes.
+- The MutableList example passes with `I32(42)` and prints default/application views.
+  Focused Clippy for the macro crate's all-targets, those integration targets and
+  both native examples passes with warnings denied.
+- `uv run python scripts/check_features.py --native-proof` passes artifact-only,
+  source-only, native-only and source+native standalone consumers and all production
+  graph checks. The macro is a Rust build-time dependency and introduces no Kagari
+  source-analysis dependency into source-free runtime execution.
+- `uv run --locked scripts/check_structure.py`: 798 Rust files, zero violations,
+  zero exceptions. Format, documentation link and diff checks pass. Manual review
+  checked generated paths for hygiene: standard constructors use absolute paths,
+  helper identifiers use mixed-site spans, and factory paths retain caller scope.
+  The expansion support's public types are required by generated consumer code;
+  they are not compatibility aliases or broad re-export facades. Source-token
+  parsing, expansion, record construction and type-template construction have
+  separate module owners, with no handwritten include files or new allowances.
+
+The previous checkpoint's full-workspace/all-target and legacy stdlib fixture
+failures are unchanged and remain NR04 restoration obligations. Those unchanged
+commands were not repeated; no tests are disabled and no NR phase exit or whole-
+workspace acceptance is claimed. Transient logs are `target/nr-authoring-*.log`;
+these commands and results are durable resumption evidence.

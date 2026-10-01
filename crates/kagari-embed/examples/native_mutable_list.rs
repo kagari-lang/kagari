@@ -1,15 +1,36 @@
 //! Run MutableList through a native package and inspect its generated declaration view.
 use kagari_common::SourceFile;
 use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    NativeAction, NativeContext, NativeFactory, NativeInvocationState, RuntimeError, native_module,
+    value::Value,
+};
+
+struct Answer;
+impl NativeInvocationState for Answer {
+    fn advance(&mut self, _: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        Ok(NativeAction::Complete(Value::I32(22)))
+    }
+}
+fn answer() -> NativeFactory {
+    NativeFactory::new(0, |_| Ok(Box::new(Answer)))
+}
 
 fn main() {
-    let engine = KagariEngine::default();
+    let application = native_module! {
+        module demo::math;
+        /// Return a value supplied by the application.
+        fn answer() -> i32 => answer;
+    }
+    .expect("register application native API");
+    let engine = KagariEngine::with_native_apis(Default::default(), vec![application])
+        .expect("install default and application packages");
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
                 "memory://mutable-list.kgr",
                 r#"
+            use demo::math::answer;
             fn update<L: MutableList<i32>>(values: L) {
                 values.set(0usize, 20);
             }
@@ -17,7 +38,7 @@ fn main() {
                 val values = [0, 0];
                 update(values);
                 val mutable: MutableList<i32> = values;
-                mutable.set(1usize, 22);
+                mutable.set(1usize, answer());
                 values[0usize] + values[1usize]
             }
         "#,

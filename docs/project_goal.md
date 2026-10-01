@@ -31,7 +31,7 @@ The specification keeps the language comfortable for game server development whi
 
 The repository separates source analysis, verified executable contracts, lowering,
 runtime services and execution. [Architecture](architecture.md) defines the current
-thirteen-crate layout; [the completed refactor plan](mir-architecture-refactor.md) records its
+crate boundaries; [the completed refactor plan](mir-architecture-refactor.md) records its
 validation and acceptance.
 
 - Syntax/HIR own source recovery, resolved names, typing and language meaning.

@@ -425,6 +425,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari-native-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "kagari-runtime"
 version = "0.1.0"
 dependencies = [
@@ -435,6 +444,7 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-mir",
+ "kagari-native-macros",
  "thiserror",
 ]
 

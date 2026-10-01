@@ -11,6 +11,8 @@ the semantic specifications.
 The [native registration plan](native-provider-refactor.md#current-design-decision-2026-10-01)
 records the active declaration direction. Native API definitions authored in Rust
 own signatures, generic parameters, trait contracts, documentation and binding IDs.
+`native_module!` generates these records from colocated declarations, docs and Rust
+factory bindings; shared expansion support supplies identities and generic binders.
 The bundled array library is a default, optional package using the same NativeApi
 installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
@@ -90,6 +92,7 @@ crates/
   kagari-bytecode           interpreter model, validation, codec and artifact envelope
   kagari-codegen            compilation-only verified MIR interface and diagnostics
   kagari-codegen-cranelift  MIR-to-CLIF emission and executable code ownership
+  kagari-native-macros      compile-time native declaration authoring (Rust tokens only)
   kagari-runtime            values, GC, host state, authority, sessions, native calls and reload
   kagari-vm                 interpreter/frame driver, debugger and prepared native selection
   kagari-embed              host SDK, features, preparation/cache and execution orchestration
@@ -103,7 +106,9 @@ not on runtime, bytecode, compiler or SDK. Source-based tests may use dev-depend
 they do not define the production graph. ABI has no source generator or syntax
 build dependency. HIR depends on stdlib for source ownership; stdlib depends only
 on syntax/common and error support. The feature audit checks ABI's build graph as
-well as its production dependencies. LLVM is deferred; no placeholder
+well as its production dependencies. The native authoring macro uses syn/quote at
+Rust build time; neither it nor runtime declaration construction consumes Kagari
+source or calls its parser/compiler. LLVM is deferred; no placeholder
 crate exists.
 
 ## Compilation Pipeline
