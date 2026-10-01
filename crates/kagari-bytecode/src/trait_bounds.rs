@@ -16,7 +16,7 @@ use kagari_abi::{
     types::{
         self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
         TraitAbi, inheritance as trait_inheritance,
-        proofs::{ProofCatalog, host_application},
+        proofs::{ProofCatalog, host_application, implementation::Implementation},
         substitution::TypeTransformError,
         verify,
     },
@@ -172,7 +172,11 @@ fn linked_bounds_match(
         })
         .collect();
     let catalog = ProofCatalog::new(
-        tables.clone(),
+        tables
+            .iter()
+            .copied()
+            .map(Implementation::Interface)
+            .collect(),
         closure
             .iter()
             .flat_map(|module| &module.host_interface.types)

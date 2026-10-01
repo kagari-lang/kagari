@@ -1,0 +1,8 @@
+use game::concrete_defaults::{Run, invoke};
+struct Item { val value: i32 }
+impl Run for Item { fn marker(self) -> i32 { self.value } }
+fn direct_native() -> i32 { 1usize.answer() }
+fn dynamic_native() -> i32 { val value: Run = 1usize; value.answer() }
+fn direct_script() -> i32 { Item { value: 42 }.answer() }
+fn dynamic_script() -> i32 { val value: Run = Item { value: 42 }; value.answer() }
+fn selected_default() -> i32 { invoke(1usize) }

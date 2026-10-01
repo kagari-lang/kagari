@@ -167,6 +167,12 @@ pub(super) fn resolve_owner_in(
             return;
         }
         resolve_type_in(&lowered.module, bound.target_ref, context, table, cancel);
+        // Registered predicates already have checked ABI binders. They may name
+        // fixed receivers; defaults/applications still prove their obligations.
+        let registered_predicate = lowered.registered_native_api
+            && table
+                .type_ref(bound.target_ref)
+                .is_some_and(|reference| !reference.ty.is_unresolved());
         if !matches!(
             table
                 .type_ref(bound.target_ref)
@@ -186,6 +192,7 @@ pub(super) fn resolve_owner_in(
                 }),
                 _ => false,
             })
+            && !registered_predicate
         {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidBoundTarget {

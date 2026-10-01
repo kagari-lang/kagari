@@ -2,12 +2,20 @@
 use crate::{
     standard::traits::StandardTrait,
     types::{
-        AbiType, InterfaceTableAbi, NominalAbiType,
+        AbiType, AssociatedTypeFamilyAbi, GenericParameterAbi, InterfaceTableAbi, NominalAbiType,
         substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
     },
 };
 
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+
+/// The actual checked header, independently of its declaration/executable source.
+#[derive(Clone, Copy)]
+pub struct ImplementationPattern<'a> {
+    pub parameters: &'a [GenericParameterAbi],
+    pub receiver: &'a AbiType,
+    pub interface: &'a NominalAbiType,
+}
 
 pub fn match_implementation<'a>(
     table: &'a InterfaceTableAbi,
@@ -18,9 +26,27 @@ pub fn match_implementation<'a>(
     let AbiType::Trait(implemented) = &table.trait_type else {
         return Err(TypeTransformError::InvalidContract);
     };
-    if table.generic_params.len() > MAX_TYPE_NODES
-        || !table.for_type.within_wire_limits()
-        || !table.trait_type.within_wire_limits()
+    match_pattern(
+        ImplementationPattern {
+            parameters: &table.generic_params,
+            receiver: &table.for_type,
+            interface: implemented,
+        },
+        interface,
+        receiver,
+        cancel,
+    )
+}
+
+pub fn match_pattern<'a>(
+    pattern: ImplementationPattern<'a>,
+    interface: &'a NominalAbiType,
+    receiver: &'a AbiType,
+    cancel: &CancellationToken,
+) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
+    let implemented = pattern.interface;
+    if pattern.parameters.len() > MAX_TYPE_NODES
+        || !pattern.receiver.within_wire_limits()
         || !receiver.within_wire_limits()
     {
         return Err(TypeTransformError::LimitExceeded);
@@ -33,6 +59,7 @@ pub fn match_implementation<'a>(
     // Validate the requested nominal as one tree before comparisons or borrowing
     // nested arguments into the returned substitution.
     TypeSubstitution::default().apply_nominal(interface, cancel)?;
+    TypeSubstitution::default().apply_nominal(implemented, cancel)?;
     // Readonly native capabilities admit either storage view. Other impls must
     // match access exactly; storage arguments remain invariant in either case.
     let readonly = StandardTrait::from_id(&implemented.declaration).is_some_and(|kind| {
@@ -46,19 +73,19 @@ pub fn match_implementation<'a>(
         )
     });
     let mut bindings = TypeSubstitution::default();
-    let mut pending = vec![(&table.for_type, receiver)];
+    let mut pending = vec![(pattern.receiver, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
     let mut remaining = MAX_TYPE_NODES * 2;
-    while let Some((pattern, actual)) = pending.pop() {
+    while let Some((template, actual)) = pending.pop() {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         if remaining == 0 {
             return Err(TypeTransformError::LimitExceeded);
         }
         remaining -= 1;
-        match (pattern, actual) {
+        match (template, actual) {
             (AbiType::Parameter { owner, position }, actual)
-                if table
-                    .generic_params
+                if pattern
+                    .parameters
                     .iter()
                     .any(|p| p.owner == *owner && p.position == *position) =>
             {
@@ -136,7 +163,7 @@ pub fn match_implementation<'a>(
             return Err(TypeTransformError::LimitExceeded);
         }
     }
-    let target = bindings.apply(&table.for_type, cancel)?;
+    let target = bindings.apply(pattern.receiver, cancel)?;
     if target != *receiver && !(readonly && target.can_weaken_to(receiver)) {
         return Ok(None);
     }
@@ -158,22 +185,19 @@ pub fn match_implementation<'a>(
 }
 
 pub(crate) fn projection_output(
-    table: &InterfaceTableAbi,
+    pattern: ImplementationPattern<'_>,
+    families: &[AssociatedTypeFamilyAbi],
     interface: &NominalAbiType,
     receiver: &AbiType,
     member: &DefinitionId,
     arguments: &[AbiType],
     cancel: &CancellationToken,
 ) -> Result<Option<AbiType>, TypeTransformError> {
-    let Some(mut substitution) = match_implementation(table, interface, receiver, cancel)? else {
+    let Some(mut substitution) = match_pattern(pattern, interface, receiver, cancel)? else {
         return Ok(None);
     };
     if !arguments.is_empty() {
-        let Some(family) = table
-            .associated_type_families
-            .iter()
-            .find(|family| family.declaration == *member)
-        else {
+        let Some(family) = families.iter().find(|family| family.declaration == *member) else {
             return Ok(None);
         };
         if family.generic_params.len() != arguments.len() {
@@ -184,10 +208,8 @@ pub(crate) fn projection_output(
         }
         return substitution.apply(&family.value, cancel).map(Some);
     }
-    let AbiType::Trait(implemented) = &table.trait_type else {
-        return Err(TypeTransformError::InvalidContract);
-    };
-    implemented
+    pattern
+        .interface
         .associated_types
         .get(member)
         .map(|value| substitution.apply(value, cancel))
@@ -344,7 +366,15 @@ mod tests {
         );
         assert_eq!(
             projection_output(
-                &table,
+                ImplementationPattern {
+                    parameters: &table.generic_params,
+                    receiver: &table.for_type,
+                    interface: match &table.trait_type {
+                        AbiType::Trait(value) => value,
+                        _ => unreachable!(),
+                    },
+                },
+                &table.associated_type_families,
                 &interface,
                 &receiver,
                 &member,

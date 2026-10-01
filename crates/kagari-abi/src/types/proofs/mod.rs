@@ -5,17 +5,18 @@
 mod callables;
 mod composition;
 pub mod defaults;
+pub mod implementation;
 mod normalize;
 mod ownership;
 mod search;
 mod structural;
 
 use crate::{
-    layout::EnumLayout,
-    layout::LayoutValidationError,
+    layout::{EnumLayout, LayoutValidationError},
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-        InterfaceTableAbi, NativeDeclaration, NominalAbiType, TraitAbi, inheritance,
+        NativeDeclaration, NominalAbiType, TraitAbi, inheritance,
+        proofs::implementation::Implementation,
         substitution::{TypeSubstitution, TypeTransformError},
         verify::validate_native_declarations,
     },
@@ -37,7 +38,7 @@ const MAX_CHECKS: usize = 100_000;
 const MAX_DEPTH: usize = 64;
 
 pub struct ProofCatalog<'a> {
-    tables: Vec<&'a InterfaceTableAbi>,
+    implementations: Vec<Implementation<'a>>,
     hosts: Vec<&'a HostTypeDeclaration>,
     enumerations: BTreeMap<NominalAbiType, Vec<&'a AbiType>>,
     contracts: BTreeMap<DefinitionId, &'a TraitAbi>,
@@ -69,7 +70,7 @@ impl<'a> Budget<'a> {
 
 impl<'a> ProofCatalog<'a> {
     pub fn new(
-        tables: Vec<&'a InterfaceTableAbi>,
+        implementations: Vec<Implementation<'a>>,
         hosts: Vec<&'a HostTypeDeclaration>,
         enumerations: impl IntoIterator<Item = &'a EnumLayout>,
         contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitAbi)>,
@@ -80,12 +81,11 @@ impl<'a> ProofCatalog<'a> {
         let copier = TypeSubstitution::default();
         let mut ids = HashSet::new();
         let mut count = 0;
-        for table in &tables {
+        for implementation in &implementations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            if !ids.insert(table.declaration.clone())
-                || table.host_bridge
-                || table.native_bridge
-                || !matches!(table.trait_type, AbiType::Trait(_))
+            if !ids.insert(implementation.declaration().clone())
+                || implementation.is_bridge()
+                || implementation.interface().is_none()
             {
                 return Err(TypeTransformError::InvalidContract);
             }
@@ -93,9 +93,12 @@ impl<'a> ProofCatalog<'a> {
             if count > MAX_IMPLEMENTATIONS {
                 return Err(TypeTransformError::LimitExceeded);
             }
-            copier.apply(&table.trait_type, cancel)?;
-            copier.apply(&table.for_type, cancel)?;
-            copier.apply_bounds(&table.bounds, cancel)?;
+            copier.apply_nominal(
+                implementation.interface().expect("checked trait source"),
+                cancel,
+            )?;
+            copier.apply(implementation.receiver(), cancel)?;
+            copier.apply_bounds(implementation.bounds(), cancel)?;
         }
         let mut host_ids = HashSet::new();
         let mut unique_hosts = Vec::new();
@@ -175,7 +178,7 @@ impl<'a> ProofCatalog<'a> {
             }
         }
         let result = Self {
-            tables,
+            implementations,
             hosts: unique_hosts,
             enumerations: payloads,
             contracts: declarations,

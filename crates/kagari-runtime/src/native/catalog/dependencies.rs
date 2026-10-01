@@ -5,7 +5,8 @@ use kagari_abi::{
     native_api::NativeModule,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, NativeDeclaration, NominalAbiType,
-        proofs::ProofCatalog,
+        matching::{ImplementationPattern, match_pattern},
+        proofs::{ProofCatalog, implementation::Implementation},
     },
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
@@ -15,6 +16,8 @@ use std::{collections::BTreeSet, iter};
 enum Reference {
     Trait(DefinitionId),
     Template(DefinitionId),
+    Obligation(AbiType, NominalAbiType),
+    Implementation(DefinitionId),
 }
 
 #[derive(Default)]
@@ -99,6 +102,12 @@ impl References {
         for bound in bounds {
             self.ty(&bound.ty)?;
             self.constraints(&bound.constraints)?;
+            for constraint in &bound.constraints {
+                if let ConstraintAbi::Trait(interface) = constraint {
+                    self.pending
+                        .push(Reference::Obligation(bound.ty.clone(), interface.clone()));
+                }
+            }
         }
         Ok(())
     }
@@ -167,6 +176,53 @@ impl NativeCatalog {
                 continue;
             }
             match reference {
+                Reference::Obligation(receiver, interface) => {
+                    for (id, implementation) in self.implementations.iter() {
+                        let Some(implemented) = &implementation.trait_type else {
+                            continue;
+                        };
+                        if match_pattern(
+                            ImplementationPattern {
+                                parameters: &implementation.generic_params,
+                                receiver: &implementation.for_type,
+                                interface: implemented,
+                            },
+                            &interface,
+                            &receiver,
+                            &CancellationToken::default(),
+                        )
+                        .map_err(|_| {
+                            RuntimeError::metadata_conflict(
+                                "invalid native implementation dependency",
+                            )
+                        })?
+                        .is_some()
+                        {
+                            references
+                                .pending
+                                .push(Reference::Implementation(id.clone()));
+                        }
+                    }
+                }
+                Reference::Implementation(id) => {
+                    let implementation = self.implementations.get(&id).ok_or_else(|| {
+                        RuntimeError::metadata_conflict("missing native implementation dependency")
+                    })?;
+                    references.bounds(&implementation.bounds)?;
+                    references.ty(&implementation.for_type)?;
+                    if let Some(interface) = &implementation.trait_type {
+                        references.nominal(interface)?;
+                    }
+                    for method in &implementation.methods {
+                        references
+                            .pending
+                            .push(Reference::Template(NativeModule::method_id(
+                                &id,
+                                &method.name,
+                            )));
+                    }
+                    result.insert_implementation(id, implementation.clone())?;
+                }
                 Reference::Trait(id) => {
                     let contract = self.get(&id).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
@@ -218,7 +274,13 @@ impl NativeCatalog {
             return Ok(());
         }
         ProofCatalog::new(
-            vec![],
+            self.implementations
+                .iter()
+                .map(|(declaration, implementation)| Implementation::Native {
+                    declaration,
+                    implementation,
+                })
+                .collect(),
             vec![],
             [],
             self.traits

@@ -67,10 +67,13 @@ impl ProofCatalog<'_> {
                     }
                 }
                 let mut selected = None;
-                for table in &self.tables {
+                for implementation in &self.implementations {
                     budget.step(depth)?;
                     if let Some(output) = matching::projection_output(
-                        table,
+                        implementation
+                            .pattern()
+                            .ok_or(TypeTransformError::InvalidContract)?,
+                        implementation.families(),
                         interface,
                         receiver,
                         member,

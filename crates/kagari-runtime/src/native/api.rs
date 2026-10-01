@@ -13,7 +13,7 @@ use kagari_abi::{
     callable::CallableImplementation,
     native_api::{NativeModule, render::NativeApiSource},
 };
-use kagari_common::identity::DefinitionId;
+use kagari_common::identity::{DefinitionId, DefinitionKind};
 use std::{
     collections::{BTreeMap, HashSet},
     fmt,
@@ -66,7 +66,7 @@ impl NativeApi {
     /// Composition and installation also validate foreign trait contracts against
     /// actual providers; a declaration catalog alone cannot install a dependency.
     pub fn new(
-        modules: Vec<NativeModule>,
+        mut modules: Vec<NativeModule>,
         handlers: Vec<NativeHandler>,
         catalog: NativeCatalog,
     ) -> Result<Self, RuntimeError> {
@@ -117,6 +117,29 @@ impl NativeApi {
         checked.merge(&dependencies)?;
         checked.check_implementations(&modules)?;
         checked.validate_defaults()?;
+        for module in &mut modules {
+            let required = checked.dependencies(
+                module
+                    .traits
+                    .iter()
+                    .map(|contract| module.definition(DefinitionKind::Trait, &contract.name))
+                    .collect::<Vec<_>>()
+                    .iter(),
+                module.native_declarations().iter(),
+                [&*module],
+            )?;
+            module.dependencies = required
+                .traits
+                .keys()
+                .chain(required.declarations.keys())
+                .chain(required.implementations.keys())
+                .map(|id| id.module.clone())
+                .filter(|identity| *identity != module.identity)
+                .collect();
+            module
+                .validate()
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        }
         for registration in &mut registrations {
             registration.required_catalog =
                 checked.dependencies(owned.traits.keys(), &registration.declarations, &modules)?;

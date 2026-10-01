@@ -86,6 +86,45 @@ pub(crate) fn import(
     importer.import_traits()?;
     importer.import_implementations()?;
     importer.import_functions()?;
+    let mut occupied: HashSet<String> = importer
+        .lowerer
+        .module
+        .exports
+        .iter()
+        .map(|export| export.name.clone())
+        .chain(
+            definition
+                .functions
+                .iter()
+                .map(|function| function.name.clone()),
+        )
+        .chain(
+            importer
+                .lowerer
+                .module
+                .imports
+                .iter()
+                .map(|import| import.alias.clone()),
+        )
+        .collect();
+    for (index, identity) in definition.dependencies.iter().enumerate() {
+        let package = if identity.package.0 == "kagari-std" {
+            "std"
+        } else {
+            &identity.package.0
+        };
+        let mut alias = format!("__native_dependency_{index}");
+        while !occupied.insert(alias.clone()) {
+            alias.push('_');
+        }
+        importer.lowerer.module.imports.push(Import {
+            visibility: Visibility::Private,
+            alias,
+            path: format!("{}::{}", package, identity.path.join("::")),
+            span: Span::default(),
+            glob: false,
+        });
+    }
     let (module, source_map) = importer.lowerer.finish();
     Ok((
         parsed,

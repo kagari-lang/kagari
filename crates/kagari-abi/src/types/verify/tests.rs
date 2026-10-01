@@ -332,7 +332,15 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
             ty,
             &|interface, receiver, member, arguments| {
                 matching::projection_output(
-                    &dependency,
+                    matching::ImplementationPattern {
+                        parameters: &dependency.generic_params,
+                        receiver: &dependency.for_type,
+                        interface: match &dependency.trait_type {
+                            AbiType::Trait(interface) => interface,
+                            _ => unreachable!(),
+                        },
+                    },
+                    &dependency.associated_type_families,
                     interface,
                     receiver,
                     member,

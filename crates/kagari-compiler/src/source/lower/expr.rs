@@ -197,6 +197,12 @@ impl FunctionLowerer<'_, '_> {
                 let TypeId::Trait(interface) = &types[1] else {
                     return Err(MirLoweringError::MissingBinding("interface demand type"));
                 };
+                // Boxing changes representation; retain the checked input type
+                // before replacing the expression's register with the interface.
+                self.function
+                    .semantic
+                    .registers
+                    .insert(value.temp.index(), lower_type(&types[0]));
                 self.planner
                     .require_parent_interfaces(&types[0], interface, span)?;
                 let (implementation, arguments) = match coercion.implementation {

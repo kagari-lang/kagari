@@ -2,7 +2,7 @@
 mod dependencies;
 use crate::{error::RuntimeError, native::api::NativeApi};
 use kagari_abi::{
-    native_api::NativeModule,
+    native_api::{NativeImplementation, NativeModule},
     types::{NativeDeclaration, TraitAbi},
 };
 use kagari_common::identity::{DefinitionId, DefinitionKind};
@@ -13,6 +13,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub struct NativeCatalog {
     pub(crate) traits: Arc<BTreeMap<DefinitionId, TraitAbi>>,
     pub(crate) declarations: Arc<BTreeMap<DefinitionId, NativeDeclaration>>,
+    pub(crate) implementations: Arc<BTreeMap<DefinitionId, NativeImplementation>>,
 }
 
 impl NativeCatalog {
@@ -37,6 +38,14 @@ impl NativeCatalog {
             }
             for declaration in module.native_declarations() {
                 result.insert_declaration(declaration)?;
+            }
+            for (index, implementation) in module.implementations.iter().enumerate() {
+                if implementation.trait_type.is_some() {
+                    result.insert_implementation(
+                        module.implementation_id(index),
+                        implementation.clone(),
+                    )?;
+                }
             }
         }
         Ok(result)
@@ -70,6 +79,31 @@ impl NativeCatalog {
         for declaration in other.declarations.values() {
             self.insert_declaration(declaration.clone())?;
         }
+        for (id, implementation) in other.implementations.iter() {
+            self.insert_implementation(id.clone(), implementation.clone())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn insert_implementation(
+        &mut self,
+        id: DefinitionId,
+        implementation: NativeImplementation,
+    ) -> Result<(), RuntimeError> {
+        if let Some(previous) = self.implementations.get(&id) {
+            if previous != &implementation {
+                return Err(RuntimeError::metadata_conflict(
+                    "conflicting native implementation contracts",
+                ));
+            }
+        } else {
+            if self.implementations.len() >= 4096 {
+                return Err(RuntimeError::metadata_conflict(
+                    "native implementation catalog exceeds proof limits",
+                ));
+            }
+            Arc::make_mut(&mut self.implementations).insert(id, implementation);
+        }
         Ok(())
     }
 
@@ -98,11 +132,16 @@ impl NativeCatalog {
                 .declarations
                 .iter()
                 .all(|(id, declaration)| installed.declarations.get(id) == Some(declaration))
+            && self.implementations.iter().all(|(id, implementation)| {
+                installed.implementations.get(id) == Some(implementation)
+            })
     }
 
     pub(crate) fn foreign_to(mut self, owned: &Self) -> Self {
         Arc::make_mut(&mut self.traits).retain(|id, _| !owned.traits.contains_key(id));
         Arc::make_mut(&mut self.declarations).retain(|id, _| !owned.declarations.contains_key(id));
+        Arc::make_mut(&mut self.implementations)
+            .retain(|id, _| !owned.implementations.contains_key(id));
         self
     }
 

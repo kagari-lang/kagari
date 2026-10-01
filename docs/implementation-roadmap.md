@@ -74,6 +74,13 @@ proofs. Typed Rust templates now add owned default members and final policies
 without duplicate Rust trait signatures; helper templates stay private. Complete
 external default/template catalogs and projected requirements remain NR02 work.
 
+The concrete-default checkpoint retains actual registered implementation headers
+and methods in the common proof catalog, derives provider module dependencies and
+allows typed concrete selected receivers. A three-package application proves
+native/script direct and dynamic defaults plus nested callbacks with default
+packages disabled. Projected receivers, sorting, managed returned state, remaining
+library restoration and final acceptance remain open.
+
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
 refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;
 complete selected trait calls, typed callbacks and managed returned state before

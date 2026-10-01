@@ -194,21 +194,28 @@ impl ProofCatalog<'_> {
         }
         let result = (|| {
             let mut count = 0;
-            for table in &self.tables {
+            for implementation in &self.implementations {
                 budget.step(depth)?;
-                let Some(substitution) =
-                    matching::match_implementation(table, interface, receiver, budget.cancel)?
+                let Some(substitution) = matching::match_pattern(
+                    implementation
+                        .pattern()
+                        .ok_or(TypeTransformError::InvalidContract)?,
+                    interface,
+                    receiver,
+                    budget.cancel,
+                )?
                 else {
                     continue;
                 };
-                if table.generic_params.iter().any(|parameter| {
+                if implementation.parameters().iter().any(|parameter| {
                     substitution
                         .parameter(&parameter.owner, parameter.position)
                         .is_none()
                 }) {
                     continue;
                 }
-                let obligations = substitution.apply_bounds(&table.bounds, budget.cancel)?;
+                let obligations =
+                    substitution.apply_bounds(implementation.bounds(), budget.cancel)?;
                 if self.obligations(&obligations, assumptions, search, budget, depth + 1)? {
                     count += 1;
                 }

@@ -254,7 +254,7 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Registered native default import and checked-source call/slot materialization.
   - [x] Typed Rust owned default authoring from real function templates and private helper identities.
   - [x] Retain and validate external default/template declaration dependencies before publication, installation and portable linking.
-  - [ ] Complete concrete default obligations against actual registered implementation facts.
+  - [x] Complete concrete default obligations against actual registered implementation facts.
   - [ ] Projected receivers and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
@@ -2705,3 +2705,93 @@ model, and restore Ord/Ordering plus prepared sort_by/sort. Then complete manage
 returned state and the remaining library families, retire the legacy source crate
 and consumers, and finish NR05/ST06 behavior matrices and matched measurements.
 The original complete-library goal remains active.
+
+### NR02 checkpoint: actual concrete implementation facts (2026-10-02)
+
+The former concrete selected probe now constructs and executes a validated NativeApi.
+This checkpoint completes the concrete-default obligation item in restoration step
+2. It does not accept all NR02 capabilities or the full library. Projected receiver
+and method-generic authoring, Ord/sorting, managed returned iterator state, remaining
+families, NR04 migration and NR05/ST06 acceptance remain open in the active goal.
+
+- Add an explicit Implementation source to the shared ProofCatalog: an existing
+  verified executable InterfaceTableAbi or an actual registered NativeImplementation
+  with its owning DefinitionId. Both use the same bounded header matching,
+  conditional-obligation, associated-output, uniqueness and callable selection
+  machinery. Registration creates no invented interface table, script body or
+  second trait resolver. Native inherited methods apply their real trait-owned
+  default template; explicit methods retain their actual registered ABI.
+- NativeCatalog retains immutable actual implementation headers/methods in addition
+  to traits and templates. Dependency collection follows applicable obligation
+  candidates, their inherited bounds and their exact native method declarations.
+  Composition and staged installation compare expected facts with actual owning
+  providers. Portable linking matches retained headers and explicit methods against
+  verified executable tables, whose independently checked omitted default slots may
+  add materialized methods. Unrelated functions in a provider do not become callback
+  requirements.
+- Accept concrete typed selected receivers through the existing signature checks.
+  Registered fixed predicates enter HIR with their already validated ABI binders;
+  source-written bound target rules remain unchanged. Default proof still requires
+  the actual concrete implementation, not just the corresponding trait declaration.
+- Derive NativeModule dependency edges from the checked registration closure.
+  A default may require a bool implementation from another module without importing
+  any of that provider's public functions in application source. Direct HIR import
+  carries an ordinary private module dependency with a fresh nonconflicting alias.
+  Validate edge count/identity limits; callers cannot supply installation authority
+  through generated tooling text or a declaration catalog.
+- Add game::fact_contract, game::fact_provider and game::concrete_defaults as real
+  Rust packages. A usize Run implementation and script Item both inherit a generic
+  default whose continuation selects Check::read on bool. Exercise native/script
+  direct and dynamic calls, a concrete selected default and its nested callback,
+  independent source-free loading, frequent GC and every budget cut. Missing and
+  changed implementation providers reject construction/composition/installation;
+  failed installations publish no entries. A function named __native_dependency_0
+  proves generated dependency-alias hygiene.
+- Fix a common producer bug found by boxing 1usize into Run. Record the checked
+  concrete receiver's semantic register type before replacing it with the boxed
+  interface register. The old product labeled the input only with its physical u64
+  representation, causing the ordinary access verifier to reject it. Keep that
+  verifier strict; the new fixture proves forged u64 input metadata still rejects.
+  Re-emit the five affected exact-comparison fixtures (associated, selected,
+  provider, typed defaults and external defaults). No equality assertion is relaxed.
+- Runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 stay unchanged: all wire
+  records already express these facts. ProofCatalog's Rust input type now explicitly
+  names its implementation source, and NativeModule includes derived dependencies.
+  Migrate actual owners directly without compatibility aliases or re-exports.
+
+Validation actually performed:
+
+- The default-feature concrete SDK proof passes all nine tests, including exact
+  emission, ordinary source-bound rejection and forged boxing-input rejection.
+  Eleven ABI integration default tests pass, including inherited native/table
+  agreement and conditional generic implementation matching with a negative item.
+- All nine Rust-authoring cases pass. Workspace library Clippy and focused
+  ABI/SDK/test/example Clippy pass with warnings denied. Formatting, whole-repository
+  structure (857 Rust files, zero violations/exceptions) and diff checks pass.
+  Manual review covers imports and the empty re-export whitelist, genuine fact
+  ownership, bounded proof work, exact carried declarations, dependency hygiene,
+  typed callbacks, staged publication and cleanup.
+- `cargo test -p kagari-abi --lib --no-run` still fails in the inherited NR04 test
+  consumers: removed EngineNativeBinding and old RuntimePrimitive Integer,
+  ArrayListNew and string/map variants, plus dependent ValueType diagnostics
+  (fourteen compiler errors). There are no remaining new ProofCatalog/matching
+  migration diagnostics in that attempt. Reproduction output is under
+  target/native-facts-abi-lib-build.log. The obsolete all-target/workspace consumers
+  and legacy kagari-stdlib failures remain open; no test is removed or disabled.
+
+- `uv run python scripts/check_features.py --native-proof` passes all fourteen
+  targets in every standalone consumer: 69 artifact-only, 113 source, 69 native
+  and 114 source+native tests. All eight production dependency boundaries and the
+  source-independent ABI build graph pass. Five predecessor source-emission
+  assertions initially failed solely because of the repaired semantic registers;
+  after independent fixture regeneration, their original exact assertions pass
+  across the complete matrix. Logs are under target/native-facts-features.log and
+  target/architecture-features/native-proof/. Other focused outputs are under
+  target/native-concrete-tests.log, target/native-facts-abi-tests.log,
+  target/native-facts-authoring.log, target/native-facts-clippy.log and
+  target/native-facts-focused-clippy.log.
+
+The original unbounded full-library goal remains active. Next, extend projected
+receiver authoring through actual registered contracts and restore the complete
+cmp declaration/provider surface and prepared sorting. Follow with managed
+returned state, remaining families, legacy retirement and NR05/ST06 acceptance.

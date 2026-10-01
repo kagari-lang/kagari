@@ -51,10 +51,10 @@ impl ProofCatalog<'_> {
             return Ok(None);
         }
         let mut selected = None;
-        for table in &self.tables {
+        for table in &self.implementations {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            let Some(bindings) = matching::match_implementation(
-                table,
+            let Some(bindings) = matching::match_pattern(
+                table.pattern().ok_or(TypeTransformError::InvalidContract)?,
                 &requirement.interface,
                 &requirement.receiver,
                 cancel,
@@ -63,12 +63,12 @@ impl ProofCatalog<'_> {
                 continue;
             };
             let arguments = table
-                .generic_params
+                .parameters()
                 .iter()
                 .map(|param| bindings.parameter(&param.owner, param.position).cloned())
                 .collect::<Option<Vec<_>>>()
                 .ok_or(TypeTransformError::InvalidContract)?;
-            let obligations = bindings.apply_bounds(&table.bounds, cancel)?;
+            let obligations = bindings.apply_bounds(table.bounds(), cancel)?;
             let mut applicable = true;
             for bound in obligations {
                 applicable &= self.constraints_hold(&bound.ty, &bound.constraints, &[], cancel)?;
@@ -79,13 +79,14 @@ impl ProofCatalog<'_> {
             if selected.is_some() {
                 return Ok(None);
             }
-            let applied = table
-                .instantiate(&arguments)
-                .ok_or(TypeTransformError::InvalidContract)?;
-            let Some(method) = applied
-                .methods
-                .iter()
-                .find(|method| method.name == member.name)
+            let Some(method) = table.method(
+                &member.name,
+                &arguments,
+                self.contracts
+                    .get(&requirement.interface.declaration)
+                    .copied(),
+                cancel,
+            )?
             else {
                 return Ok(None);
             };
@@ -104,7 +105,7 @@ impl ProofCatalog<'_> {
                 }
             }
             let normalize = |ty| self.normalize(&substitution.apply(ty, cancel)?, cancel);
-            let mut declaration = table.declaration.clone();
+            let mut declaration = table.declaration().clone();
             declaration.path.push(DefinitionPathSegment {
                 kind: DefinitionKind::Method,
                 name: member.name.clone(),

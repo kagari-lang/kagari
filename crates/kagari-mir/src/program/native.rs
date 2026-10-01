@@ -4,7 +4,8 @@ use kagari_abi::{
     callable::CallableImplementation,
     native_import::NativeSignature,
     types::{
-        ConcreteFunctionIdentity, PublicAbiItem, proofs::ProofCatalog,
+        ConcreteFunctionIdentity, PublicAbiItem,
+        proofs::{ProofCatalog, implementation::Implementation},
         substitution::TypeTransformError,
     },
 };
@@ -23,7 +24,8 @@ pub(super) fn validate(
         .flat_map(|module| &module.abi.public_items)
         .filter_map(|item| {
             if let PublicAbiItem::InterfaceTable(table) = item {
-                (!table.host_bridge && !table.native_bridge).then_some(table.as_ref())
+                (!table.host_bridge && !table.native_bridge)
+                    .then_some(Implementation::Interface(table.as_ref()))
             } else {
                 None
             }

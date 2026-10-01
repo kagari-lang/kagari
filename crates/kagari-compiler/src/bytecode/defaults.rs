@@ -1,6 +1,9 @@
 //! Normalize already checked default applications over the portable MIR closure.
 use crate::bytecode::BytecodeLoweringError;
-use kagari_abi::types::{PublicAbiItem, proofs::ProofCatalog};
+use kagari_abi::types::{
+    PublicAbiItem,
+    proofs::{ProofCatalog, implementation::Implementation},
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
@@ -48,7 +51,8 @@ pub(super) fn catalog<'a>(
                 let PublicAbiItem::InterfaceTable(table) = item else {
                     return None;
                 };
-                (!table.native_bridge && !table.host_bridge).then_some(table.as_ref())
+                (!table.native_bridge && !table.host_bridge)
+                    .then_some(Implementation::Interface(table.as_ref()))
             })
             .collect(),
         closure

@@ -23,13 +23,20 @@ not distinguish standard functions from application native functions.
 Cross-package Rust authoring uses explicit NativeCatalog declaration views and
 fully qualified script identities. Consumers retain exact expected trait contracts,
 declared parents, referenced bounds and private default-template declarations.
+They also retain applicable actual NativeImplementation records and their method
+declarations. Shared ProofCatalog matching accepts validated registration facts or
+verified executable interface tables; registration does not fabricate a table.
 The complete expected closure is collected before default proof validation.
 NativeApi composition and staged installation require actual owning providers,
 check foreign implementation signatures and publish atomically.
 Rust trait paths remain actual Rust paths; an explicit contract mapping names the
 script declaration without guessing aliases. Parent mappings preserve imported
 Rust paths and copy their actual generic arguments. Portable linking compares retained
-trait and template contracts with the verified dependency closure. Catalog views do not install
+trait, template and implementation contracts with the verified dependency closure.
+Registration derives module dependency edges from that closure, including concrete
+implementations in providers whose functions need no source import. Typed selected
+receivers may be concrete; their generated predicates still require actual proof.
+Catalog views do not install
 handlers or replace ordinary generic applicability and parent-witness proofs.
 
 HIR imports registered declaration records directly, using ordinary declaration

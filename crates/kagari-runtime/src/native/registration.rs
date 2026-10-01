@@ -1,4 +1,5 @@
 //! IDs resolve to trusted registrations; signatures come from checked declarations.
+mod dependencies;
 use crate::{
     error::RuntimeError,
     host::HostFunctionId,
@@ -10,7 +11,7 @@ use kagari_abi::{
     native_api::NativeModule,
     native_import::NativeImport,
     types::{
-        NativeDeclaration, PublicAbiItem,
+        NativeDeclaration,
         verify::{concrete_type_valid, validate_native_declarations},
     },
 };
@@ -168,35 +169,7 @@ impl NativeRegistry {
             .entries
             .get(&import.binding)
             .ok_or_else(|| RuntimeError::module_validation("native entry is not installed"))?;
-        if entry.required_catalog.traits.iter().any(|(id, expected)| {
-            !program.modules().iter().any(|module| {
-                module.identity == id.module && module.public_items.iter().any(|item| {
-                    matches!(item, PublicAbiItem::Trait(contract) if contract == expected)
-                })
-            })
-        }) {
-            return Err(RuntimeError::module_validation(
-                "native dependency differs from its registered trait contract",
-            ));
-        }
-        if entry
-            .required_catalog
-            .declarations
-            .iter()
-            .any(|(id, expected)| {
-                !program.modules().iter().any(|module| {
-                    module.identity == id.module
-                        && module
-                            .native_declarations
-                            .iter()
-                            .any(|declaration| declaration == expected)
-                })
-            })
-        {
-            return Err(RuntimeError::module_validation(
-                "native dependency differs from its registered template contract",
-            ));
-        }
+        dependencies::validate(&entry.required_catalog, program)?;
         let declaration = program
             .modules()
             .iter()

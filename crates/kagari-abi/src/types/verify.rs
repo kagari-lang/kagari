@@ -628,7 +628,22 @@ fn same_method_contract(
         normalize_projections(
             ty,
             &|interface, receiver, member, arguments| {
-                matching::projection_output(table, interface, receiver, member, arguments, cancel)
+                let AbiType::Trait(implemented) = &table.trait_type else {
+                    return Err(TypeTransformError::InvalidContract);
+                };
+                matching::projection_output(
+                    matching::ImplementationPattern {
+                        parameters: &table.generic_params,
+                        receiver: &table.for_type,
+                        interface: implemented,
+                    },
+                    &table.associated_type_families,
+                    interface,
+                    receiver,
+                    member,
+                    arguments,
+                    cancel,
+                )
             },
             cancel,
         )

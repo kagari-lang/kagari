@@ -25,11 +25,6 @@ pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, R
     let cancel = CancellationToken::default();
     for selected in &method.selected {
         let receiver = scope.resolve(&selected.receiver)?;
-        if !matches!(receiver, AbiType::Parameter { .. }) {
-            return Err(invalid(
-                "typed selected bounds require a generic receiver parameter",
-            ));
-        }
         let interface = nominal(scope.resolve(&selected.interface)?)?;
         let local = scope.module.traits.iter().find(|contract| {
             scope

@@ -1,7 +1,8 @@
 use crate::{
     standard::{intrinsic, traits::StandardTrait},
     types::{
-        AbiType, InterfaceTableAbi,
+        AbiType,
+        proofs::implementation::Implementation,
         proofs::{Budget, ProofCatalog},
         substitution::TypeTransformError,
     },
@@ -31,7 +32,7 @@ impl ProofCatalog<'_> {
                 }
             }
         }
-        for table in &self.tables {
+        for table in &self.implementations {
             budget.step(0)?;
             if !self.table_override_valid(table, &budget)? {
                 return Ok(false);
@@ -51,11 +52,11 @@ impl ProofCatalog<'_> {
         } else {
             StandardTrait::Iterator
         };
-        for table in &self.tables {
+        for table in &self.implementations {
             budget.step(0)?;
-            if let AbiType::Trait(applied) = &table.trait_type
+            if let Some(applied) = table.interface()
                 && StandardTrait::from_id(&applied.declaration) == Some(other)
-                && overlapping(&table.for_type, receiver)
+                && overlapping(table.receiver(), receiver)
             {
                 return Ok(true);
             }
@@ -75,16 +76,16 @@ impl ProofCatalog<'_> {
 
     fn table_override_valid(
         &self,
-        table: &InterfaceTableAbi,
+        table: &Implementation<'_>,
         budget: &Budget<'_>,
     ) -> Result<bool, TypeTransformError> {
-        let AbiType::Trait(interface) = &table.trait_type else {
+        let Some(interface) = table.interface() else {
             return Ok(false);
         };
         let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
             return Ok(true);
         };
-        if kind.iteration() && self.iteration_conflict(kind, &table.for_type, budget)? {
+        if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
             return Ok(false);
         }
         if kind.reverse_conversion() {
@@ -92,36 +93,36 @@ impl ProofCatalog<'_> {
         }
         if kind == StandardTrait::From
             && interface.arguments.first().is_some_and(|input| {
-                input == &table.for_type
-                    || match (input, &table.for_type) {
+                input == table.receiver()
+                    || match (input, table.receiver()) {
                         (AbiType::Parameter { .. }, target) => {
                             !occurs_in_constructor(input, target)
                         }
                         (source, AbiType::Parameter { .. }) => {
-                            !occurs_in_constructor(&table.for_type, source)
+                            !occurs_in_constructor(table.receiver(), source)
                         }
-                        _ => overlapping(input, &table.for_type),
+                        _ => overlapping(input, table.receiver()),
                     }
             })
         {
             return Ok(false);
         }
         if kind.conversion() {
-            if iter::once(&table.for_type)
+            if iter::once(table.receiver())
                 .chain(&interface.arguments)
                 .any(|ty| matches!(ty, AbiType::Host(_)))
             {
                 return Ok(false);
             }
-            return Ok(iter::once(&table.for_type).chain(&interface.arguments).any(|ty| matches!(ty, AbiType::Struct(n) | AbiType::Enum(n) if n.declaration.module == table.declaration.module)));
+            return Ok(iter::once(table.receiver()).chain(&interface.arguments).any(|ty| matches!(ty, AbiType::Struct(n) | AbiType::Enum(n) if n.declaration.module == table.declaration().module)));
         }
         if kind.host_implementable() {
             return Ok(true);
         }
-        let (AbiType::Struct(nominal) | AbiType::Enum(nominal)) = &table.for_type else {
-            return Ok(interface.declaration.module == table.declaration.module);
+        let (AbiType::Struct(nominal) | AbiType::Enum(nominal)) = table.receiver() else {
+            return Ok(interface.declaration.module == table.declaration().module);
         };
-        if nominal.declaration.module != table.declaration.module {
+        if nominal.declaration.module != table.declaration().module {
             return Ok(false);
         }
         if !kind.equality_protocol() {
@@ -136,8 +137,8 @@ impl ProofCatalog<'_> {
             // All nested checks share the override audit's work/cancellation budget.
             if self.explicit(
                 &intrinsic::applied(required, vec![]),
-                &table.for_type,
-                &table.bounds,
+                table.receiver(),
+                table.bounds(),
                 &mut Default::default(),
                 budget,
                 0,

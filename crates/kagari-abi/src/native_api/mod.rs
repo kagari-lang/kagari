@@ -31,7 +31,7 @@ impl fmt::Display for NativeApiError {
 }
 impl Error for NativeApiError {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeImplementation {
     pub generic_params: Vec<GenericParameterAbi>,
     /// Obligations inherited by every method's registered callable template.
@@ -50,6 +50,9 @@ pub struct NativeImplementation {
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     pub identity: ModuleIdentity,
+    /// Owning modules required by the checked registration closure. NativeApi
+    /// derives these edges from actual traits, templates and implementation facts.
+    pub dependencies: BTreeSet<ModuleIdentity>,
     pub types: Vec<TypeAbi>,
     pub traits: Vec<TraitAbi>,
     pub implementations: Vec<NativeImplementation>,
@@ -66,6 +69,7 @@ impl NativeModule {
     pub fn new(identity: ModuleIdentity) -> Self {
         Self {
             identity,
+            dependencies: BTreeSet::new(),
             types: vec![],
             traits: vec![],
             implementations: vec![],
@@ -265,6 +269,13 @@ impl NativeModule {
         if self.identity.package.0.is_empty()
             || self.identity.path.is_empty()
             || self.identity.path.iter().any(|name| !identifier(name))
+            || self.dependencies.len() > 4096
+            || self.dependencies.iter().any(|dependency| {
+                dependency == &self.identity
+                    || dependency.package.0.is_empty()
+                    || dependency.path.is_empty()
+                    || dependency.path.iter().any(|name| !identifier(name))
+            })
             || self.types.len()
                 + self.traits.len()
                 + self.functions.len()

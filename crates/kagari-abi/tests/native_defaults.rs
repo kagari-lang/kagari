@@ -1,19 +1,21 @@
 //! Portable defaults select actual native templates without source analysis.
 use kagari_abi::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
+    native_api::NativeImplementation,
     native_import::callables::NativeCallableRequirement,
     scalar::BuiltinType,
     types::{
         AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
         GenericParameterAbi, InterfaceTableAbi, NativeDeclaration, NominalAbiType, ParameterAbi,
         PublicAbiItem, TraitAbi,
-        proofs::ProofCatalog,
+        proofs::{ProofCatalog, implementation::Implementation},
         substitution::{TypeSubstitution, TypeTransformError},
         verify,
     },
 };
 use kagari_common::{
     cancellation::CancellationToken,
+    collection::CollectionAccess,
     identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity, PackageId,
         associated_type_id,
@@ -138,7 +140,7 @@ impl Fixture {
 
     fn catalog(&self) -> Result<ProofCatalog<'_>, TypeTransformError> {
         ProofCatalog::new(
-            vec![&self.table],
+            vec![(&self.table).into()],
             vec![],
             [],
             [(self.owner.clone(), &self.contract)],
@@ -205,7 +207,7 @@ fn default_contracts_reject_missing_templates_wrong_shapes_and_stronger_bounds()
     let original = Fixture::new();
     assert!(
         ProofCatalog::new(
-            vec![&original.table],
+            vec![(&original.table).into()],
             vec![],
             [],
             [(original.owner.clone(), &original.contract)],
@@ -581,4 +583,109 @@ fn default_application_transforms_and_decoding_remain_bounded_and_cancellable() 
         catalog.resolve_native_default(application, &cancel),
         Err(TypeTransformError::Cancelled)
     ));
+}
+
+#[test]
+fn registered_impl_inherits_the_same_checked_default_as_an_executable_table() {
+    let fixture = Fixture::new();
+    let cancel = CancellationToken::default();
+    let native = NativeImplementation {
+        generic_params: vec![],
+        bounds: vec![],
+        trait_type: Some(interface(&fixture.owner, vec![])),
+        for_type: scalar(),
+        methods: vec![],
+    };
+    let catalog = ProofCatalog::new(
+        vec![Implementation::Native {
+            declaration: &fixture.table.declaration,
+            implementation: &native,
+        }],
+        vec![],
+        [],
+        [(fixture.owner.clone(), &fixture.contract)],
+        [&fixture.template],
+        &cancel,
+    )
+    .unwrap();
+    let requirement = fixture.requirement();
+    assert_eq!(
+        catalog.select_callable(&requirement, &cancel).unwrap(),
+        fixture
+            .catalog()
+            .unwrap()
+            .select_callable(&requirement, &cancel)
+            .unwrap(),
+    );
+}
+
+#[test]
+fn registered_generic_impl_checks_nested_obligations_before_selecting_its_default() {
+    let fixture = Fixture::new();
+    let cancel = CancellationToken::default();
+    let declaration = identity(DefinitionKind::Impl, "array");
+    let parameter = GenericParameterAbi {
+        owner: declaration.clone(),
+        position: 0,
+    };
+    let applied = interface(&fixture.owner, vec![]);
+    let native = NativeImplementation {
+        generic_params: vec![parameter.clone()],
+        bounds: vec![GenericBoundAbi {
+            ty: parameter.as_type(),
+            constraints: vec![ConstraintAbi::Trait(applied.clone())],
+        }],
+        trait_type: Some(applied.clone()),
+        for_type: AbiType::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
+        methods: vec![],
+    };
+    let catalog = ProofCatalog::new(
+        vec![
+            Implementation::Interface(&fixture.table),
+            Implementation::Native {
+                declaration: &declaration,
+                implementation: &native,
+            },
+        ],
+        vec![],
+        [],
+        [(fixture.owner.clone(), &fixture.contract)],
+        [&fixture.template],
+        &cancel,
+    )
+    .unwrap();
+    let mut requirement = fixture.requirement();
+    requirement.receiver = AbiType::Array(Box::new(scalar()), CollectionAccess::Mutable);
+    assert!(
+        catalog
+            .holds(&applied, &requirement.receiver, &[], &cancel)
+            .unwrap()
+    );
+    let selected = catalog
+        .select_callable(&requirement, &cancel)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        selected.signature.params,
+        vec![requirement.receiver.clone()]
+    );
+    assert_eq!(
+        selected.instance.arguments,
+        vec![requirement.receiver.clone()]
+    );
+    requirement.receiver = AbiType::Array(
+        Box::new(AbiType::Builtin(BuiltinType::Bool)),
+        CollectionAccess::Mutable,
+    );
+    assert!(
+        !catalog
+            .holds(&applied, &requirement.receiver, &[], &cancel)
+            .unwrap()
+    );
+    assert!(
+        catalog
+            .select_callable(&requirement, &cancel)
+            .unwrap()
+            .is_none()
+    );
 }
