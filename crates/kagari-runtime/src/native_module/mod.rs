@@ -22,7 +22,7 @@ use kagari_abi::{
     native_import::{binding_id, callables::NativeCallableRequirement},
     types::{
         AbiType, AssociatedTypeAbi, FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi,
-        TypeAbiKind, native::NativeTypeConstructor,
+        TypeAbiKind, VariantAbi, native::NativeTypeConstructor,
     },
 };
 
@@ -100,17 +100,19 @@ impl NativeModuleBuilder {
         })
     }
 
-    pub fn array_type(
+    pub fn representation_type(
         &mut self,
         name: &str,
         names: &[&'static str],
         doc: &str,
+        constructor: NativeTypeConstructor,
+        variant_names: &[&str],
     ) -> Result<(), RuntimeError> {
         self.check_names(names)?;
-        if names.len() != 1 {
-            return Err(invalid("native array storage requires one type parameter"));
+        if names.len() != constructor.arity() {
+            return Err(invalid("native representation has different generic arity"));
         }
-        let owner = self.module.definition(DefinitionKind::AssociatedType, name);
+        let owner = self.module.definition(constructor.declaration_kind(), name);
         let scope = Scope {
             module: &self.module,
             catalog: &self.catalog,
@@ -119,13 +121,36 @@ impl NativeModuleBuilder {
             receiver: None,
             associated: &[],
         };
+        let generic_params = scope.generics();
+        let variants = if let NativeTypeConstructor::Enum(kind) = constructor {
+            if variant_names.len() != kind.variants().len() {
+                return Err(invalid("native enum has different variant arity"));
+            }
+            variant_names
+                .iter()
+                .zip(kind.variants())
+                .map(|(name, variant)| VariantAbi {
+                    name: (*name).into(),
+                    payload: variant
+                        .payload()
+                        .map(|slot| generic_params[slot].as_type())
+                        .into_iter()
+                        .collect(),
+                })
+                .collect()
+        } else {
+            if !variant_names.is_empty() {
+                return Err(invalid("native storage cannot declare enum variants"));
+            }
+            vec![]
+        };
         self.module.types.push(TypeAbi {
             name: name.into(),
-            kind: TypeAbiKind::Native(NativeTypeConstructor::Array),
-            generic_params: scope.generics(),
+            kind: TypeAbiKind::Native(constructor),
+            generic_params,
             bounds: vec![],
             fields: vec![],
-            variants: vec![],
+            variants,
         });
         self.document(owner, doc);
         Ok(())

@@ -1,10 +1,10 @@
 //! Direct declaration import. Generated CST is presentation only, not semantic input.
 use crate::{
     hir::{
-        ids::{BodyOwner, FunctionId, HirOwner, OpaqueTypeId, TypeRefId},
+        ids::{BodyOwner, EnumId, FunctionId, HirOwner, OpaqueTypeId, TypeRefId, VariantId},
         item::{
             Item,
-            adt::OpaqueType,
+            adt::{Enum, OpaqueType, Variant},
             behavior::{
                 AssociatedType, GenericParam, Impl, ImplMethod, ReceiverKind, TraitBound, TraitDef,
                 TraitMethod, TraitRef,
@@ -28,12 +28,13 @@ use kagari_abi::{
     standard::surface::builtin_type_spec,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
+        TypeAbiKind, native::NativeTypeConstructor,
     },
 };
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind, associated_type_id},
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
     span::Span,
 };
@@ -76,6 +77,7 @@ pub(crate) fn import(
         generated: &generated,
         lowerer: Lowerer::new(cancel.clone()),
         native_types: HashMap::new(),
+        native_enums: HashMap::new(),
         native_functions: HashMap::new(),
         method_policies: HashMap::new(),
         external_imports: HashSet::new(),
@@ -95,7 +97,7 @@ pub(crate) fn import(
             registered_native_api: true,
             registered_declarations: definition.native_declarations(),
             native_types: importer.native_types,
-            native_enums: HashMap::new(),
+            native_enums: importer.native_enums,
             native_functions: importer.native_functions,
             method_policies: importer.method_policies,
             native_attributes: HashSet::new(),
@@ -109,6 +111,7 @@ struct Importer<'a> {
     generated: &'a NativeApiSource,
     lowerer: Lowerer,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
+    native_enums: HashMap<EnumId, NativeTypeKind>,
     native_functions: HashMap<FunctionId, NativeBinding>,
     method_policies: HashMap<FunctionId, MethodPolicy>,
     external_imports: HashSet<String>,
@@ -119,8 +122,59 @@ impl Importer<'_> {
         let definition = self.definition;
         let generated = self.generated;
         for ty in &definition.types {
-            let owner = definition.definition(DefinitionKind::AssociatedType, &ty.name);
+            let TypeAbiKind::Native(constructor) = ty.kind else {
+                return Err(NativeApiError("missing native representation".into()));
+            };
+            let owner = definition.definition(constructor.declaration_kind(), &ty.name);
             let site = &generated.sites[&owner];
+            if let NativeTypeConstructor::Enum(kind) = constructor {
+                let id = self.lowerer.source_map.push_enum(site.span);
+                self.lowerer
+                    .source_map
+                    .insert_item_name(Item::Enum(id), site.name_span);
+                let generic_params = self.generics(&owner, &ty.generic_params);
+                let mut variants = vec![];
+                for (index, variant) in ty.variants.iter().enumerate() {
+                    let mut declaration = owner.clone();
+                    declaration.path.push(DefinitionPathSegment {
+                        kind: DefinitionKind::Variant,
+                        name: variant.name.clone(),
+                        occurrence: 0,
+                    });
+                    let site = &generated.sites[&declaration];
+                    let variant_id = VariantId::new(self.lowerer.source_map.arena(), id, index);
+                    self.lowerer
+                        .source_map
+                        .insert_variant(variant_id, site.name_span);
+                    let payload = variant
+                        .payload
+                        .iter()
+                        .zip(&site.parameters)
+                        .map(|(ty, span)| self.ty(ty, *span))
+                        .collect::<Result<_, _>>()?;
+                    variants.push(Variant {
+                        id: variant_id,
+                        name: variant.name.clone(),
+                        payload,
+                    });
+                }
+                self.lowerer.module.enums.push(Enum {
+                    id,
+                    visibility: Visibility::Public,
+                    name: ty.name.clone(),
+                    generic_params,
+                    variants,
+                    methods: vec![],
+                    impls: vec![],
+                });
+                self.lowerer.module.items.push(Item::Enum(id));
+                self.lowerer.module.exports.push(Export {
+                    name: ty.name.clone(),
+                    item: ExportItem::Enum(id),
+                });
+                self.native_enums.insert(id, NativeTypeKind::Enum(kind));
+                continue;
+            }
             let id = self.lowerer.source_map.push_opaque_type(site.span);
             self.lowerer
                 .source_map
@@ -140,7 +194,18 @@ impl Importer<'_> {
                 name: ty.name.clone(),
                 item: ExportItem::OpaqueType(id),
             });
-            self.native_types.insert(id, NativeTypeKind::ArrayList);
+            self.native_types.insert(
+                id,
+                match constructor {
+                    NativeTypeConstructor::Array => NativeTypeKind::ArrayList,
+                    NativeTypeConstructor::String => NativeTypeKind::String,
+                    NativeTypeConstructor::Map => NativeTypeKind::LinkedHashMap,
+                    NativeTypeConstructor::Set => NativeTypeKind::LinkedHashSet,
+                    NativeTypeConstructor::Iter => NativeTypeKind::Iter,
+                    NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
+                    NativeTypeConstructor::Enum(_) => unreachable!("enum imported separately"),
+                },
+            );
         }
         Ok(())
     }
@@ -566,12 +631,7 @@ impl Importer<'_> {
                 if *access == CollectionAccess::ReadOnly {
                     TypeKind::Array(arg)
                 } else {
-                    let name = self
-                        .definition
-                        .types
-                        .first()
-                        .map(|ty| ty.name.clone())
-                        .unwrap_or("ArrayList".into());
+                    let name = self.representation_name(NativeTypeConstructor::Array, "ArrayList");
                     TypeKind::Generic {
                         name,
                         args: [arg].into_iter().collect(),
@@ -594,11 +654,12 @@ impl Importer<'_> {
                     .map(|ty| self.ty(ty, span))
                     .collect::<Result<_, _>>()?,
             ),
-            AbiType::StandardEnum { kind, args } if args.is_empty() => {
-                TypeKind::Named(format!("{kind:?}"))
-            }
+            AbiType::StandardEnum { kind, args } if args.is_empty() => TypeKind::Named(
+                self.representation_name(NativeTypeConstructor::Enum(*kind), &format!("{kind:?}")),
+            ),
             AbiType::StandardEnum { kind, args } => TypeKind::Generic {
-                name: format!("{kind:?}"),
+                name: self
+                    .representation_name(NativeTypeConstructor::Enum(*kind), &format!("{kind:?}")),
                 args: args
                     .iter()
                     .map(|ty| self.ty(ty, span))
@@ -607,8 +668,32 @@ impl Importer<'_> {
                 positional_after_binding: false,
                 callable_syntax: false,
             },
+            AbiType::Range(item, kind) => {
+                let name =
+                    self.representation_name(NativeTypeConstructor::Range(*kind), kind.name());
+                if NativeTypeConstructor::Range(*kind).arity() == 0 {
+                    TypeKind::Named(name)
+                } else {
+                    TypeKind::Generic {
+                        name,
+                        args: [self.ty(item, span)?].into_iter().collect(),
+                        bindings: vec![],
+                        positional_after_binding: false,
+                        callable_syntax: false,
+                    }
+                }
+            }
             _ => return Err(NativeApiError("unsupported native HIR type".into())),
         };
         Ok(self.lowerer.alloc_type(span, TypeData { kind }))
+    }
+
+    fn representation_name(&self, constructor: NativeTypeConstructor, fallback: &str) -> String {
+        self.definition
+            .types
+            .iter()
+            .find(|ty| ty.kind == TypeAbiKind::Native(constructor))
+            .map(|ty| ty.name.clone())
+            .unwrap_or_else(|| fallback.into())
     }
 }

@@ -29,7 +29,7 @@ impl NativeTypeConstructor {
         }
     }
 
-    pub(crate) fn declaration_kind(self) -> DefinitionKind {
+    pub fn declaration_kind(self) -> DefinitionKind {
         match self {
             Self::Enum(_) => DefinitionKind::Enum,
             _ => DefinitionKind::AssociatedType,

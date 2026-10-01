@@ -210,14 +210,11 @@ pub(crate) fn value_type(
 }
 
 pub(crate) fn nominal(path: &Path, names: &[Ident], runtime: &Path) -> SyntaxResult<TokenStream> {
-    let mut segments: Vec<_> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let segments: Vec<_> = path.segments.iter().map(|s| s.ident.to_string()).collect();
     let last = path
         .segments
         .last()
         .ok_or_else(|| SyntaxError::new_spanned(path, "native trait path is empty"))?;
-    if last.ident == "NativeIndex" {
-        segments = vec!["std".into(), "ops".into(), "Index".into()];
-    }
     let mut arguments = vec![];
     let mut bindings = vec![];
     if let PathArguments::AngleBracketed(args) = &last.arguments {

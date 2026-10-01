@@ -1,79 +1,94 @@
-pub trait Add<Rhs> {
-    type Output;
-    fn add(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Sub<Rhs> {
-    type Output;
-    fn sub(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Mul<Rhs> {
-    type Output;
-    fn mul(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Div<Rhs> {
-    type Output;
-    fn div(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Rem<Rhs> {
-    type Output;
-    fn rem(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Neg {
-    type Output;
-    fn neg(self) -> Self::Output;
-}
-pub trait Not {
-    type Output;
-    fn not(self) -> Self::Output;
-}
-pub trait Index<Rhs> {
-    type Output;
-    fn index(self, rhs: Rhs) -> Self::Output;
-}
-pub trait BitAnd<Rhs> {
-    type Output;
-    fn bitand(self, rhs: Rhs) -> Self::Output;
-}
-pub trait BitOr<Rhs> {
-    type Output;
-    fn bitor(self, rhs: Rhs) -> Self::Output;
-}
-pub trait BitXor<Rhs> {
-    type Output;
-    fn bitxor(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Shl<Rhs> {
-    type Output;
-    fn shl(self, rhs: Rhs) -> Self::Output;
-}
-pub trait Shr<Rhs> {
-    type Output;
-    fn shr(self, rhs: Rhs) -> Self::Output;
-}
-#[builtin_type(Range)]
-pub type Range<T>;
-#[builtin_type(RangeInclusive)]
-pub type RangeInclusive<T>;
-#[builtin_type(RangeFrom)]
-pub type RangeFrom<T>;
-#[builtin_type(RangeTo)]
-pub type RangeTo<T>;
-#[builtin_type(RangeToInclusive)]
-pub type RangeToInclusive<T>;
-#[builtin_type(RangeFull)]
+// Generated from native registration definitions. Do not edit.
+
+pub type Range<T0>;
+
+pub type RangeInclusive<T0>;
+
+pub type RangeFrom<T0>;
+
+pub type RangeTo<T0>;
+
+pub type RangeToInclusive<T0>;
+
 pub type RangeFull;
-#[builtin_enum(Bound)]
-pub enum Bound<T> {
-    Included(T),
-    Excluded(T),
+
+pub enum Bound<T0> {
+    Included(T0),
+    Excluded(T0),
     Unbounded,
 }
-pub trait RangeBounds<T> {
-    fn start_bound(self) -> Bound<T>;
-    fn end_bound(self) -> Bound<T>;
+
+pub trait Add<T0> {
+    type Output;
+    fn add(self, rhs: T0) -> <Self as Add<T0>>::Output;
 }
 
-pub trait Fn<Args> {
+pub trait Sub<T0> {
     type Output;
-    fn call(self, args: Args) -> Self::Output;
+    fn sub(self, rhs: T0) -> <Self as Sub<T0>>::Output;
+}
+
+pub trait Mul<T0> {
+    type Output;
+    fn mul(self, rhs: T0) -> <Self as Mul<T0>>::Output;
+}
+
+pub trait Div<T0> {
+    type Output;
+    fn div(self, rhs: T0) -> <Self as Div<T0>>::Output;
+}
+
+pub trait Rem<T0> {
+    type Output;
+    fn rem(self, rhs: T0) -> <Self as Rem<T0>>::Output;
+}
+
+pub trait Neg {
+    type Output;
+    fn neg(self) -> <Self as Neg>::Output;
+}
+
+pub trait Not {
+    type Output;
+    fn not(self) -> <Self as Not>::Output;
+}
+
+pub trait Index<T0> {
+    type Output;
+    fn index(self, rhs: T0) -> <Self as Index<T0>>::Output;
+}
+
+pub trait BitAnd<T0> {
+    type Output;
+    fn bitand(self, rhs: T0) -> <Self as BitAnd<T0>>::Output;
+}
+
+pub trait BitOr<T0> {
+    type Output;
+    fn bitor(self, rhs: T0) -> <Self as BitOr<T0>>::Output;
+}
+
+pub trait BitXor<T0> {
+    type Output;
+    fn bitxor(self, rhs: T0) -> <Self as BitXor<T0>>::Output;
+}
+
+pub trait Shl<T0> {
+    type Output;
+    fn shl(self, rhs: T0) -> <Self as Shl<T0>>::Output;
+}
+
+pub trait Shr<T0> {
+    type Output;
+    fn shr(self, rhs: T0) -> <Self as Shr<T0>>::Output;
+}
+
+pub trait RangeBounds<T0> {
+    fn start_bound(self) -> Bound<T0>;
+    fn end_bound(self) -> Bound<T0>;
+}
+
+pub trait Fn<T0> {
+    type Output;
+    fn call(self, args: T0) -> <Self as Fn<T0>>::Output;
 }

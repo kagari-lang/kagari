@@ -127,14 +127,14 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | --- | --- | --- |
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function/impl/inherent-method named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
-| Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
+| Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies, NativeArray, six immutable NativeRange shapes and generic Rust Bound payloads work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
 | Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; injected NativeSelected handles derive local or external requirements; portable defaults resolve explicit template applications and execute through ordinary native slots | Projected receivers, Rust/source default authoring and materialization, associated families and remaining value representations |
-| Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
+| Type authoring | native_type accepts aliases and single-field tuple wrappers backed by actual NativeRepresentation adapters; generic authoring accepts T: NativeValue; enum shapes enter HIR directly with tooling coordinates | Extend the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
 | Integration | Minimal source, encoded, source-free and external consumer proofs pass at 2b212880 | Migrate old ABI/HIR/compiler/runtime/VM/SDK fixtures and restore their missing library dependencies; full workspace acceptance is still open |
 
-The current .kgr source package still supplies non-array declarations. That is
+The current .kgr source package still supplies declarations outside restored ops/array/math. That is
 migration debt, not the target compiler boundary. All restored declarations must
 come from registrations; generated text serves tooling only. Remove the existing
 source-package route after its last declaration consumer has migrated.
@@ -258,6 +258,7 @@ an execution owner without rebuilding a central method catalog in production.
   - [ ] Projected receivers and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
+  - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
 - [ ] 6: Map/Set and custom keys/snapshots/grouping.
@@ -2601,3 +2602,106 @@ the full native-proof feature matrix. Then retain actual implementation facts fo
 concrete default obligations and resume projected receivers, Ord/Ordering,
 sort_by/sort and managed iterator state. The complete library, legacy retirement
 and NR05/ST06 acceptance remain in the active unbounded goal.
+
+### NR03 prerequisite checkpoint: owning ops declarations (2026-10-01)
+
+This checkpoint closes the preceding default-package Index registration failure.
+Default Engine construction and the complete current native-proof feature suite
+work again. It accepts the restored ops declaration surface, not all ops
+implementations, primitive facts or the complete library. NR02 concrete/default
+obligations and projected authoring, the remaining NR03 families, NR04 migration
+and NR05/ST06 final acceptance remain open.
+
+- Add an ordinary optional std::ops NativeApi containing the complete preceding
+  public surface: fifteen actual Rust required traits, six range constructors
+  and generic Bound. Construct its provider before array and supply its catalog
+  to array authoring. List's explicit Index parent now has an actual owning
+  declaration. Remove the NativeIndex adapter trait and its macro name shortcut;
+  NativeArray implements the actual ops_api::ops::Index Rust contract. Existing
+  engine-owned primitive implementations are not new registered proof facts.
+- Extend native_type through a checked NativeRepresentation trait implemented
+  by actual resolved Rust adapters. Support aliases and single-field tuple
+  wrappers; derive constructor, generic arity and enum variants without reading
+  generated text or matching the spelling NativeArray. Alias bounds are checked
+  by authoring/adapters and removed from emitted Rust aliases, where Rust does
+  not enforce them. Unsupported scalar aliases fail Rust conformance checks;
+  malformed variant payloads/counts and constructor arity reject registration.
+- Add immutable NativeRange<T, Shape> proxies for all six shapes. Keep the exact
+  engine integer representation, pinned call owner and checked argument/result
+  types. Bridge Rust Bound<T> through actual NativeValue payload conversions,
+  roots and checked enum tags; arbitrary rooted script objects remain supported.
+  No unrestricted Rust reference or host object is put into the script heap.
+- Import registered opaque/enum records directly into ordinary HIR. Generate
+  matching enum/variant coordinates and use each module's actual local alias
+  spelling for its closed representations. Mutable array import now selects its
+  actual constructor instead of assuming the first type in a package is Array.
+  Remove ops from the legacy source manifest and regenerate stdlib/ops.kgr as a
+  tooling view. The legacy source crate remains for other unmigrated modules.
+- Add an application-owned game::shapes fixture with Span/Closed/Tail/Head/
+  ClosedHead/Whole/Edge Rust aliases, typed bounds and immutable range returns.
+  Its product uses nested generic range calls, all bound variants, GC payloads
+  and the complete u64 endpoint domain with default packages disabled. Add its
+  regeneration example and native_ops to every standalone native-proof route.
+  Refresh the four existing affected exact-emission products after restoring
+  their default providers; do not replace assertions with relaxed comparisons.
+- Fix two ordinary producer/executor bugs exposed by the new proof. Generic
+  argument context could leave a range's item Unknown even after concrete
+  endpoint inference, reaching lower_type's non-concrete ABI assertion. Recover
+  the item from checked operands, as array inference already does. Standard enum
+  Test/Read incorrectly used Bound discriminants as payload counts and type
+  argument indices. Preserve arity/variant/representation checks while using
+  correct Bound payload counts and the shared variant payload slot.
+- Runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 remain unchanged; the wire
+  already carries these constructors/shapes. Removing NativeIndex and replacing
+  the hidden array_type authoring primitive are breaking Rust API changes, with
+  owner imports and consumers migrated directly and no compatibility re-exports.
+
+Validation actually performed:
+
+- `uv run python scripts/check_features.py --native-proof` passes all thirteen
+  targets in every standalone consumer: 62 artifact-only, 104 source, 62 native
+  and 105 source+native tests. All eight production dependency boundaries and the
+  source-independent ABI build graph pass. This restores the complete runner
+  that failed at the preceding bundled Index dependency checkpoint.
+- The seven new native_ops tests exercise optional installation, complete ops
+  declaration coverage, source-independent execution with and without defaults,
+  exact source emission, full-width endpoints, generic heap payloads, every
+  budget cut, roots/frames/object cleanup, malformed representation rejection,
+  static element type errors, and generated enum/variant navigation and docs.
+  Existing thirteen registration and thirteen selected tests retain their
+  signature, parent, output, callback and generation assertions.
+- Three native macro tests and the nine-case separate Rust-authoring consumer
+  pass, including renamed runtimes, aliased Bound/range types and rejection of an
+  i32 native_type alias that has no NativeRepresentation implementation.
+  Workspace library and focused test/example Clippy pass with warnings denied.
+  Format, structure (852 Rust files, zero violations/exceptions) and diff checks
+  pass. Manual review covers macro token trees, constructor/variant ownership,
+  explicit imports, the empty Rust re-export whitelist, roots and exact ABI checks.
+- `cargo test -p kagari-native-macros -p kagari-stdlib` confirms the three macro
+  passes and the already recorded legacy package result: four pass/three fail.
+  Two old fixtures expect removed intrinsic markers; map documentation is absent.
+  NR04 retains these unchanged failures, obsolete all-target/workspace consumers
+  and the remaining source declaration route. No failing test is disabled.
+
+An exploratory application confirms another NR02 authoring limit. An actual Check
+trait with a Rust bool implementation, Run with a usize implementation, and a
+derived `#[native_default(T: Run::answer)]` template requesting
+`#[selected(bool: Check::read)]` reject construction with
+`typed selected bounds require a generic receiver parameter`, before default
+proof. The real continuation requests `(true,)` and returns the checked i32
+result; it is not a metadata-only declaration or a fake handler. The observed
+command is `cargo run --offline --manifest-path
+target/native-concrete-default-probe/Cargo.toml --target-dir target`, with output
+in target/native-concrete-default-probe.log. Recreate that small application from
+these trait/default/continuation definitions after cache cleanup. Concrete selected
+receivers need ordinary owned obligations, and NativeCatalog::validate_defaults
+still constructs its shared ProofCatalog without actual implementation facts.
+These are next capabilities to close, not grounds to waive default validation or
+claim complete Rust function/trait inference.
+
+Next: retain and verify actual registered implementation facts and concrete
+default obligations, extend selected receiver authoring through the shared checked
+model, and restore Ord/Ordering plus prepared sort_by/sort. Then complete managed
+returned state and the remaining library families, retire the legacy source crate
+and consumers, and finish NR05/ST06 behavior matrices and matched measurements.
+The original complete-library goal remains active.

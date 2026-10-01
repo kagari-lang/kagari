@@ -101,7 +101,7 @@ fn authoring_resolves_rust_aliases_and_generic_value_contracts() {
     assert!(text.contains("fn identity<T0>(value: T0) -> T0;"));
     assert!(text.contains("fn positive(value: i32) -> bool;"));
     let engine = KagariEngine::builder().install(Ok(api)).build().unwrap();
-    assert_eq!(engine.native_declaration_sources().len(), 3);
+    assert_eq!(engine.native_declaration_sources().len(), 4);
     assert!(
         KagariEngine::builder()
             .install(math::native_api())
@@ -207,7 +207,12 @@ fn registration_rejects_missing_duplicate_unknown_and_invalid_contracts() {
 #[test]
 fn trait_implementations_cannot_change_signatures_or_omit_supertraits() {
     let api = standard_library();
-    let module = api.modules()[0].as_ref();
+    let module = api
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["array"])
+        .unwrap()
+        .as_ref();
     let mut changed = module.clone();
     changed.implementations[2].methods[0].params[1].ty = AbiType::Builtin(BuiltinType::String);
     assert!(changed.validate().is_err());

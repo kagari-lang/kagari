@@ -9,7 +9,7 @@ use crate::{
 };
 use kagari_common::{
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind, associated_type_id},
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, associated_type_id},
     span::Span,
 };
 use std::collections::BTreeMap;
@@ -44,18 +44,53 @@ impl NativeModule {
             sites: BTreeMap::new(),
         };
         for ty in &self.types {
-            if ty.kind != TypeAbiKind::Native(NativeTypeConstructor::Array) {
+            let TypeAbiKind::Native(constructor) = ty.kind else {
                 return Err(NativeApiError(
-                    "initial native API importer supports array storage only".into(),
+                    "native declaration requires an engine representation".into(),
                 ));
-            }
-            let id = self.definition(DefinitionKind::AssociatedType, &ty.name);
+            };
+            let id = self.definition(constructor.declaration_kind(), &ty.name);
             output.doc(&id);
             let start = output.text.len();
-            output.text.push_str("pub type ");
+            output
+                .text
+                .push_str(if matches!(constructor, NativeTypeConstructor::Enum(_)) {
+                    "pub enum "
+                } else {
+                    "pub type "
+                });
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params);
-            output.text.push_str(";\n\n");
+            if matches!(constructor, NativeTypeConstructor::Enum(_)) {
+                output.text.push_str(" {\n");
+                for variant in &ty.variants {
+                    let start = output.text.len();
+                    output.text.push_str("    ");
+                    let name_span = output.name(&variant.name);
+                    let mut payload = vec![];
+                    if !variant.payload.is_empty() {
+                        output.text.push('(');
+                        for (index, ty) in variant.payload.iter().enumerate() {
+                            if index > 0 {
+                                output.text.push_str(", ");
+                            }
+                            payload.push(output.name(&self.type_spelling(ty)?));
+                        }
+                        output.text.push(')');
+                    }
+                    output.text.push_str(",\n");
+                    let mut owner = id.clone();
+                    owner.path.push(DefinitionPathSegment {
+                        kind: DefinitionKind::Variant,
+                        name: variant.name.clone(),
+                        occurrence: 0,
+                    });
+                    output.site(owner, start, name_span, vec![], payload);
+                }
+                output.text.push_str("}\n\n");
+            } else {
+                output.text.push_str(";\n\n");
+            }
             output.site(id, start, name_span, generics, vec![]);
         }
         for item in &self.traits {
@@ -241,14 +276,42 @@ impl NativeModule {
                     self.nominal_spelling(interface)?
                 )
             }
-            AbiType::StandardEnum { kind, args } if args.is_empty() => format!("{kind:?}"),
-            AbiType::StandardEnum { kind, args } => format!("{kind:?}<{}>", join(args)?),
+            AbiType::Range(item, kind) => {
+                let name =
+                    self.representation_name(NativeTypeConstructor::Range(*kind), kind.name());
+                if NativeTypeConstructor::Range(*kind).arity() == 0 {
+                    name.into()
+                } else {
+                    format!("{name}<{}>", self.spell(item)?)
+                }
+            }
+            AbiType::StandardEnum { kind, args } => {
+                let fallback = format!("{kind:?}");
+                let name = self.representation_name(NativeTypeConstructor::Enum(*kind), &fallback);
+                if args.is_empty() {
+                    name.into()
+                } else {
+                    format!("{name}<{}>", join(args)?)
+                }
+            }
             _ => {
                 return Err(NativeApiError(
                     "unsupported type in initial native API importer".into(),
                 ));
             }
         })
+    }
+
+    fn representation_name<'a>(
+        &'a self,
+        constructor: NativeTypeConstructor,
+        fallback: &'a str,
+    ) -> &'a str {
+        self.types
+            .iter()
+            .find(|ty| ty.kind == TypeAbiKind::Native(constructor))
+            .map(|ty| ty.name.as_str())
+            .unwrap_or(fallback)
     }
 
     fn nominal_spelling(&self, ty: &NominalAbiType) -> Result<String, NativeApiError> {

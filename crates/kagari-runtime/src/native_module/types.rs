@@ -5,11 +5,14 @@ use kagari_abi::{
     native_api::NativeModule,
     scalar::BuiltinType,
     standard::surface::{StandardEnum, builtin_type},
-    types::{AbiType, GenericParameterAbi, NominalAbiType},
+    types::{
+        AbiType, GenericParameterAbi, NominalAbiType, TypeAbiKind, native::NativeTypeConstructor,
+    },
 };
 use kagari_common::{
     collection::CollectionAccess,
     identity::{DefinitionId, DefinitionKind, ModuleIdentity, PackageId, associated_type_id},
+    range::RangeKind,
 };
 use std::collections::BTreeMap;
 
@@ -25,6 +28,7 @@ pub enum TypeExpression {
     },
     Array(Box<Self>),
     MutableArray(Box<Self>),
+    Range(Box<Self>, RangeKind),
     Tuple(Vec<Self>),
     Function {
         params: Vec<Self>,
@@ -90,6 +94,9 @@ impl Scope<'_> {
             }
             TypeExpression::Array(item) => {
                 AbiType::Array(Box::new(self.resolve(item)?), CollectionAccess::ReadOnly)
+            }
+            TypeExpression::Range(item, kind) => {
+                AbiType::Range(Box::new(self.resolve(item)?), *kind)
             }
             TypeExpression::Tuple(items) if items.is_empty() => AbiType::Builtin(BuiltinType::Unit),
             TypeExpression::Tuple(items) => AbiType::Tuple(self.resolve_arguments(items)?),
@@ -161,14 +168,40 @@ impl Scope<'_> {
                     args: self.resolve_arguments(arguments)?,
                 });
             }
-            if self.module.types.iter().any(|ty| ty.name == name) {
-                if arguments.len() != 1 || !bindings.is_empty() {
+            if let Some(ty) = self.module.types.iter().find(|ty| ty.name == name) {
+                let TypeAbiKind::Native(constructor) = ty.kind else {
+                    return Err(invalid());
+                };
+                if arguments.len() != constructor.arity() || !bindings.is_empty() {
                     return Err(invalid());
                 }
-                return Ok(AbiType::Array(
-                    Box::new(self.resolve(&arguments[0])?),
-                    CollectionAccess::Mutable,
-                ));
+                let arguments = self.resolve_arguments(arguments)?;
+                return Ok(match constructor {
+                    NativeTypeConstructor::Array => {
+                        AbiType::Array(Box::new(arguments[0].clone()), CollectionAccess::Mutable)
+                    }
+                    NativeTypeConstructor::String => AbiType::Builtin(BuiltinType::String),
+                    NativeTypeConstructor::Range(RangeKind::Full) => AbiType::Range(
+                        Box::new(AbiType::Builtin(BuiltinType::Unit)),
+                        RangeKind::Full,
+                    ),
+                    NativeTypeConstructor::Range(kind) => {
+                        AbiType::Range(Box::new(arguments[0].clone()), kind)
+                    }
+                    NativeTypeConstructor::Enum(kind) => AbiType::StandardEnum {
+                        kind,
+                        args: arguments,
+                    },
+                    NativeTypeConstructor::Map => AbiType::Map {
+                        key: Box::new(arguments[0].clone()),
+                        value: Box::new(arguments[1].clone()),
+                        access: CollectionAccess::Mutable,
+                    },
+                    NativeTypeConstructor::Set => {
+                        AbiType::Set(Box::new(arguments[0].clone()), CollectionAccess::Mutable)
+                    }
+                    NativeTypeConstructor::Iter => AbiType::Iter(Box::new(arguments[0].clone())),
+                });
             }
         }
         let declaration = if path.len() == 1 {

@@ -3,9 +3,9 @@ use crate::{defaults, parents, selected, signature};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Attribute, Error as SyntaxError, Fields, File, FnArg, Ident, ImplItem, Item, ItemImpl, ItemMod,
-    LitInt, LitStr, Meta, Path, Result as SyntaxResult, ReturnType, Signature, Token, TraitItem,
-    Type, TypeParamBound,
+    Attribute, Error as SyntaxError, Fields, File, FnArg, GenericParam, Ident, ImplItem, Item,
+    ItemImpl, ItemMod, LitInt, LitStr, Meta, Path, Result as SyntaxResult, ReturnType, Signature,
+    Token, TraitItem, Type, TypeParamBound,
     parse::{Parse, ParseStream},
     parse_quote, parse_str, parse2,
 };
@@ -342,36 +342,24 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                 let Fields::Unnamed(fields) = &ty.fields else {
                     return Err(SyntaxError::new_spanned(
                         ty,
-                        "native types wrap one NativeArray field",
+                        "native types wrap one checked representation field",
                     ));
                 };
                 if fields.unnamed.len() != 1 {
                     return Err(SyntaxError::new_spanned(
                         fields,
-                        "native types wrap one NativeArray field",
+                        "native types wrap one checked representation field",
                     ));
                 }
                 let field = &fields.unnamed[0].ty;
-                let Type::Path(field_path) = field else {
-                    return Err(SyntaxError::new_spanned(field, "expected NativeArray<T>"));
-                };
-                if field_path
-                    .path
-                    .segments
-                    .last()
-                    .is_none_or(|part| part.ident != "NativeArray")
-                {
-                    return Err(SyntaxError::new_spanned(
-                        field,
-                        "this native type adapter supports NativeArray storage",
-                    ));
-                }
                 let ident = &ty.ident;
                 let name = ident.to_string();
                 let doc = signature::documentation(&ty.attrs);
                 let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
-                declarations
-                    .push(quote!(__builder.array_type(#name, &[#(#generic_names),*], #doc)?;));
+                let concrete = signature::concrete(field, &names, runtime, None);
+                declarations.push(quote!(__builder.representation_type(#name, &[#(#generic_names),*], #doc,
+                    <#concrete as #runtime::native_value::representation::NativeRepresentation>::CONSTRUCTOR,
+                    <#concrete as #runtime::native_value::representation::NativeRepresentation>::VARIANT_NAMES)?;));
                 let (impl_generics, type_generics, where_clause) = ty.generics.split_for_impl();
                 value_impls.push(quote! {
                     impl #impl_generics #runtime::native_value::NativeValue for #ident #type_generics #where_clause {
@@ -386,6 +374,29 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                         }
                     }
                 });
+            }
+            Item::Type(ty)
+                if ty
+                    .attrs
+                    .iter()
+                    .any(|attr| attr.path().is_ident("native_type")) =>
+            {
+                signature::marker(&mut ty.attrs, "native_type");
+                let names = signature::generics(&ty.generics)?;
+                let name = ty.ident.to_string();
+                let doc = signature::documentation(&ty.attrs);
+                let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
+                let concrete = signature::concrete(&ty.ty, &names, runtime, None);
+                declarations.push(quote!(__builder.representation_type(#name, &[#(#generic_names),*], #doc,
+                    <#concrete as #runtime::native_value::representation::NativeRepresentation>::CONSTRUCTOR,
+                    <#concrete as #runtime::native_value::representation::NativeRepresentation>::VARIANT_NAMES)?;));
+                // Rust aliases do not enforce parameter bounds; adapters enforce NativeValue.
+                for parameter in &mut ty.generics.params {
+                    if let GenericParam::Type(parameter) = parameter {
+                        parameter.bounds.clear();
+                        parameter.colon_token = None;
+                    }
+                }
             }
             Item::Trait(ty)
                 if ty

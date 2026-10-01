@@ -407,7 +407,7 @@ impl<'a> BodyChecker<'a> {
                 };
                 for operand in start.iter().chain(end) {
                     let actual = self.infer_expr_with_coercion(*operand, env, element.as_ref());
-                    if let Some(expected) = &element {
+                    if let Some(expected) = &mut element {
                         if expected.conflicts_with(&actual) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
@@ -418,6 +418,7 @@ impl<'a> BodyChecker<'a> {
                                 .with_span(self.lowered.source_map.expr_span(*operand)),
                             );
                         }
+                        expected.recover_from(&actual);
                     } else {
                         element = Some(actual);
                     }

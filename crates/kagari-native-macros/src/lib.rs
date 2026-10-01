@@ -8,8 +8,10 @@ mod signature;
 use proc_macro::TokenStream;
 use syn::{Error as SyntaxError, ItemMod, parse_macro_input};
 
-/// Export annotated Rust functions, native array types and trait implementations.
+/// Export annotated Rust functions, checked native types and trait implementations.
 /// Signatures come from `NativeValue`/`NativeReturn`, including Rust type aliases.
+/// `#[native_type]` aliases and tuple wrappers derive their closed representation
+/// from the resolved Rust adapter's `NativeRepresentation` implementation.
 /// The `catalog` option generates `native_api(&NativeCatalog)` for external trait
 /// dependencies. A trait impl may declare an explicit `contract = "pkg::mod::Trait"`
 /// mapping while preserving its actual Rust trait path and conformance checks.

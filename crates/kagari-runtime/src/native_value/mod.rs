@@ -5,6 +5,8 @@ pub mod continuation;
 mod conversions;
 #[doc(hidden)]
 pub mod declaration;
+pub mod range;
+pub mod representation;
 pub mod result;
 pub mod selected;
 mod tuples;

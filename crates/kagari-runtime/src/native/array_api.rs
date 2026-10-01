@@ -1,13 +1,13 @@
 //! Rust contracts supply signatures, executable adapters and generated tooling views.
 use kagari_native_macros::native_module;
 
-#[native_module("std::array", runtime = crate)]
+#[native_module("std::array", runtime = crate, catalog)]
 pub(super) mod array {
     use crate::{
-        native::array,
+        native::{array, ops_api::ops::Index},
         native_value::{
             NativeCall, NativeResult, NativeValue,
-            array::{NativeArray, NativeIndex},
+            array::NativeArray,
             continuation::{NativeContinuation, NativeFn},
         },
     };
@@ -17,8 +17,8 @@ pub(super) mod array {
     pub struct ArrayList<T: NativeValue>(NativeArray<T>);
 
     /// Shared read access with checked indexing.
-    #[native_trait]
-    pub trait List<T: NativeValue>: NativeIndex<usize, Output = T> {
+    #[native_trait(parents("std::ops::Index"))]
+    pub trait List<T: NativeValue>: Index<usize, Output = T> {
         /// Return the current slot count.
         fn len(&self) -> usize;
         /// Return the addressed value, or None when index is outside the array.
@@ -56,7 +56,7 @@ pub(super) mod array {
         }
     }
 
-    impl<T: NativeValue> NativeIndex<usize> for ArrayList<T> {
+    impl<T: NativeValue> Index<usize> for ArrayList<T> {
         type Output = T;
         fn index(&self, index: usize) -> NativeResult<T> {
             self.0.index(index)

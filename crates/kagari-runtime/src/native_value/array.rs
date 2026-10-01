@@ -3,16 +3,17 @@ use super::{NativeCall, NativeResult, NativeValue, invalid};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{HeapObjectId, RootSet},
+    native::ops_api::ops::Index,
     native_module::types::TypeExpression,
+    native_value::representation::NativeRepresentation,
     value::Value,
 };
-use kagari_abi::types::AbiType;
+use kagari_abi::types::{AbiType, native::NativeTypeConstructor};
 use kagari_common::collection::CollectionAccess;
 use std::marker::PhantomData;
 
-pub trait NativeIndex<I> {
-    type Output: NativeValue;
-    fn index(&self, index: I) -> NativeResult<Self::Output>;
+impl<T: NativeValue> NativeRepresentation for NativeArray<T> {
+    const CONSTRUCTOR: NativeTypeConstructor = NativeTypeConstructor::Array;
 }
 
 pub struct NativeArray<T: NativeValue> {
@@ -101,7 +102,7 @@ impl<T: NativeValue> NativeValue for NativeArray<T> {
         call.retain(Value::Array(self.id))
     }
 }
-impl<T: NativeValue> NativeIndex<usize> for NativeArray<T> {
+impl<T: NativeValue> Index<usize> for NativeArray<T> {
     type Output = T;
     fn index(&self, index: usize) -> NativeResult<T> {
         self.get(index)?.ok_or_else(|| {

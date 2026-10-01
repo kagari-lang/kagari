@@ -113,9 +113,13 @@ and require a direct `kagari-abi` dependency. Crate roots do not re-export these
 items. Any future re-export requires a reviewed exact whitelist entry under the
 [structure-check policy](../structure-checks.md).
 
-The minimal native package API accepts actual Rust functions through
-`#[native_module("game::math")]` and `#[native]`. `#[native_type]` currently
-supports a one-parameter `NativeArray<T>` wrapper; `#[native_trait]` and
+The native package API accepts actual Rust functions through
+`#[native_module("game::math")]` and `#[native]`. `#[native_type]` supports
+type aliases and single-field tuple wrappers backed by `NativeRepresentation`.
+The adapter's resolved Rust type supplies the closed engine constructor and enum
+variant shape; registration checks generic arity and payload slots. Checked
+`NativeArray<T>`, six immutable `NativeRange<T, Shape>` proxies and Rust `Bound<T>`
+provide current storage representations; `#[native_trait]` and
 `#[native_impl]` export actual Rust required traits and implementations. Rust
 checks bodies, return types and trait conformance. `NativeValue` conversions
 supply scalar, String, Option and checked array metadata, including Rust aliases.
@@ -125,11 +129,13 @@ Open generics require inline `T: NativeValue` and compile once using checked roo
 `NativeResult<T>` returns T to script and propagates RuntimeError as a trap.
 `#[context]` injects a checked NativeCall without adding a script argument.
 NativeArray operations preserve bounds, aliasing and heap guards. Readonly
-applications permit reads and reject mutations. NativeFn<usize, T> supplies the
+applications permit reads and reject mutations. NativeFn<(usize,), T> supplies the
 checked index callback for the current array proof; NativeContinuation<T> reuses
-the rooted resumable driver and logical budget steps. NativeIndex is a by-value
-Rust bridge for the existing script indexing contract, not an unrestricted
-Rust reference returned by std::ops::Index.
+the rooted resumable driver and logical budget steps. The registered ops Index is a by-value
+Rust bridge for the existing script indexing contract. It returns checked values
+and does not expose unrestricted Rust references. NativeRange preserves complete
+integer widths without converting endpoints to signed offsets. Bound payloads
+use ordinary NativeValue conversions and roots, including arbitrary script objects.
 
 `module::native_api()` builds validated NativeModule records and typed factories.
 `KagariEngine::builder().install(module::native_api()).build()` installs application

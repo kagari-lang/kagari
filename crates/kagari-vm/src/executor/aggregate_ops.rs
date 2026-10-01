@@ -30,7 +30,7 @@ impl Executor<'_> {
             .ok_or(VmError::TypeMismatch("invalid enum pattern layout"))?;
         Ok(Value::Bool(matches!(
             snapshot.tag,
-            kagari_runtime::value::EnumTag::Declared(actual) if actual == expected
+            EnumTag::Declared(actual) if actual == expected
         )))
     }
 
@@ -53,8 +53,7 @@ impl Executor<'_> {
             .current_loaded()?
             .enum_variant(enumeration, variant)
             .ok_or(VmError::TypeMismatch("invalid enum pattern layout"))?;
-        if !matches!(snapshot.tag, kagari_runtime::value::EnumTag::Declared(actual) if actual == expected)
-        {
+        if !matches!(snapshot.tag, EnumTag::Declared(actual) if actual == expected) {
             return Err(VmError::TypeMismatch("enum pattern variant mismatch"));
         }
         snapshot
@@ -300,9 +299,8 @@ impl Executor<'_> {
                     StandardEnumKind::Ordering,
                     EnumTag::OrderingLess | EnumTag::OrderingEqual | EnumTag::OrderingGreater,
                 ) => 0,
-                (StandardEnumKind::Bound, EnumTag::BoundIncluded) => 0,
-                (StandardEnumKind::Bound, EnumTag::BoundExcluded) => 1,
-                (StandardEnumKind::Bound, EnumTag::BoundUnbounded) => 2,
+                (StandardEnumKind::Bound, EnumTag::BoundIncluded | EnumTag::BoundExcluded) => 1,
+                (StandardEnumKind::Bound, EnumTag::BoundUnbounded) => 0,
                 (StandardEnumKind::ParseError, EnumTag::ParseError(index)) if *index < 5 => 0,
                 (StandardEnumKind::TryFromIntError, EnumTag::TryFromIntError) => 0,
                 (StandardEnumKind::Option, EnumTag::OptionNone) => 0,
@@ -324,8 +322,13 @@ impl Executor<'_> {
                     .first()
                     .cloned()
                     .ok_or(VmError::TypeMismatch("standard enum payload"))?;
-                let output = args
+                let slot = kind
+                    .variants()
                     .get(variant as usize)
+                    .and_then(|variant| variant.payload())
+                    .ok_or(VmError::TypeMismatch("standard enum payload type"))?;
+                let output = args
+                    .get(slot)
                     .ok_or(VmError::TypeMismatch("standard enum payload type"))?
                     .representation();
                 if !value.has_representation(output) {

@@ -44,7 +44,6 @@ pub fn bundled_sources() -> &'static [BundledSource] {
         source!("cmp"),
         source!("hash"),
         source!("fmt"),
-        source!("ops"),
         source!("convert"),
         source!("numeric"),
     ]

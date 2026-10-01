@@ -11,11 +11,12 @@ pub fn api() -> Result<NativeApi, RuntimeError> {
 #[native_module("game::external_selected", catalog)]
 pub mod consumer {
     use super::selected;
-    use kagari_runtime::native_value::{
-        NativeCall, NativeResult, NativeValue,
-        array::{NativeArray, NativeIndex},
-        continuation::NativeContinuation,
-        selected::NativeSelected,
+    use kagari_runtime::{
+        native::ops_api::ops::Index,
+        native_value::{
+            NativeCall, NativeResult, NativeValue, array::NativeArray,
+            continuation::NativeContinuation, selected::NativeSelected,
+        },
     };
 
     #[native_type]
@@ -69,12 +70,10 @@ pub mod consumer {
 #[native_module("game::selected")]
 pub mod selected {
     use kagari_runtime::{
-        native::{NativeAction, NativeContext, NativeInvocationState},
+        native::{NativeAction, NativeContext, NativeInvocationState, ops_api::ops::Index},
         native_value::{
-            NativeCall, NativeResult, NativeValue,
-            array::{NativeArray, NativeIndex},
-            continuation::NativeContinuation,
-            selected::NativeSelected,
+            NativeCall, NativeResult, NativeValue, array::NativeArray,
+            continuation::NativeContinuation, selected::NativeSelected,
         },
         value::Value,
     };

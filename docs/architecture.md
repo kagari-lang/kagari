@@ -12,11 +12,11 @@ The [native registration plan](native-provider-refactor.md#current-design-decisi
 records the active declaration direction. Native API definitions authored in Rust
 own signatures, generic parameters, trait contracts, documentation and binding IDs.
 `#[native_module]` generates records and checked invocation adapters from actual
-Rust functions, native array wrappers, traits and impls. `NativeValue` supplies
+Rust functions, checked representation aliases/wrappers, traits and impls. `NativeValue` supplies
 metadata and conversions, so aliases use their resolved Rust types. Rust checks
 function bodies and trait method signatures; shared support supplies identities
 and generic binders. Open script generics use rooted checked value proxies.
-The bundled array and math modules compose the default, optional library using
+The bundled ops, array and math modules compose the default, optional library using
 the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
 
@@ -35,7 +35,7 @@ handlers or replace ordinary generic applicability and parent-witness proofs.
 HIR imports registered declaration records directly, using ordinary declaration
 checking and selected implementations. Generated `.kgr` files are tooling views
 with syntax, documentation and navigation coordinates; they are never lowered to
-establish registered semantics. The array and math packages do not consume binary
+establish registered semantics. The ops, array and math packages do not consume binary
 source-derived declaration payloads. Remaining library declarations temporarily
 use `kagari-stdlib` source preparation until their NR04 restoration.
 

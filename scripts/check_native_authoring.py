@@ -72,6 +72,8 @@ def run() -> None:
                     fn check(&self, value: bool) -> usize { 0 }
                 }
             }''', "E0053"),
+        "unsupported-representation": ('''#[native_module("game::shapes")]
+            mod shapes { #[native_type] pub type Shape = i32; }''', "E0277"),
     }
     positive = """use kagari_runtime as renamed_runtime;
         #[native_module("game::math", runtime = crate::renamed_runtime)]
@@ -91,6 +93,15 @@ def run() -> None:
         #[native_module("game::provider", runtime = crate::renamed_runtime)]
         pub mod provider {
             #[native_trait] pub trait Check { fn check(&self, value: usize) -> usize; }
+        }
+        #[native_module("game::shapes", runtime = crate::renamed_runtime)]
+        pub mod shapes {
+            use crate::renamed_runtime::native_value::{NativeValue, range::{NativeRange, Exclusive}};
+            use std::ops::Bound as Boundary;
+            #[native_type] pub type Interval<T: NativeValue> = NativeRange<T, Exclusive>;
+            #[native_type] pub type Edge<T: NativeValue> = Boundary<T>;
+            #[native] pub fn edge<T: NativeValue>(value: Edge<T>) -> Edge<T> { value }
+            pub fn verify() { native_api().unwrap(); }
         }
         #[native_module("game::consumer", catalog, runtime = crate::renamed_runtime)]
         pub mod consumer {
