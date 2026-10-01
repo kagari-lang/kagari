@@ -1,7 +1,11 @@
 #![cfg(feature = "source")]
 mod contracts;
 mod external;
-use contracts::alter_contracts;
+use contracts::alter_bindings;
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AbiType, FunctionAbi, PublicAbiItem},
+};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::SourceFile;
 use kagari_embed::{EngineConfig, ExecutionContext, KagariEngine, program::PreparedProgram};
@@ -81,7 +85,7 @@ fn zero_length_initialization_does_not_call_the_callback() {
 }
 
 #[test]
-fn read_access_is_declared_by_the_provider_and_write_access_stays_checked() {
+fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flags() {
     execute(
         "fn main() -> i32 { val a = [20, 22]; val view: [i32] = a; if view.len() == 2usize { view[0usize] + view[1usize] } else { 0 } }",
     );
@@ -100,13 +104,28 @@ fn read_access_is_declared_by_the_provider_and_write_access_stays_checked() {
 }
 
 #[test]
-fn structural_agreement_does_not_authorize_an_uninstalled_or_changed_provider() {
+fn readonly_list_script_methods_observe_mutation_through_a_concrete_alias() {
+    execute(
+        r#"fn main() -> i32 {
+            val storage = [20];
+            val view: List<i32> = storage;
+            storage.push(22);
+            match view.get(1usize) {
+                Some(value) => view[0usize] + value,
+                None => 0,
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
     for change in 0..3 {
         let mut original = artifact("fn main() -> usize { [1, 2].len() }");
-        alter_contracts(&mut original, |contract| match change {
-            0 => contract.key.provider ^= 1,
-            1 => contract.version += 1,
-            _ => contract.effects.allocates = !contract.effects.allocates,
+        alter_bindings(&mut original, |id| match change {
+            0 => id.module.package.0.push_str("-unknown"),
+            1 => id.path.last_mut().unwrap().name.push_str("-unknown"),
+            _ => id.path.last_mut().unwrap().name = "array_new".into(),
         });
         // Consistent unsigned contract assertions remain structurally checkable.
         let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
@@ -122,6 +141,66 @@ fn structural_agreement_does_not_authorize_an_uninstalled_or_changed_provider() 
             0
         );
     }
+}
+
+#[test]
+fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
+    fn change_result(function: &mut FunctionAbi) {
+        if function.return_type == AbiType::Builtin(BuiltinType::USize) {
+            function.return_type = AbiType::Builtin(BuiltinType::U64);
+        }
+    }
+    let mut original = artifact("fn main() -> usize { [1, 2].len() }");
+    for module in &mut original.program.modules {
+        for import in &mut module.native_imports {
+            if import.signature.result == AbiType::Builtin(BuiltinType::USize) {
+                import.signature.result = AbiType::Builtin(BuiltinType::U64);
+            }
+        }
+        for declaration in &mut module.native_declarations {
+            change_result(&mut declaration.function);
+        }
+        for contract in &mut module.trait_contracts {
+            for method in &mut contract.abi.methods {
+                change_result(method);
+            }
+        }
+        for item in &mut module.public_items {
+            match item {
+                PublicAbiItem::Function(function) => change_result(function),
+                PublicAbiItem::Trait(record) => {
+                    for method in &mut record.methods {
+                        change_result(method);
+                    }
+                }
+                PublicAbiItem::InterfaceTable(table) => {
+                    for method in &mut table.methods {
+                        change_result(method);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for function in &mut module.functions {
+            let semantic = &mut function.metadata.semantic;
+            if semantic.result == Some(AbiType::Builtin(BuiltinType::USize)) {
+                semantic.result = Some(AbiType::Builtin(BuiltinType::U64));
+            }
+            for ty in semantic.registers.values_mut() {
+                if *ty == AbiType::Builtin(BuiltinType::USize) {
+                    *ty = AbiType::Builtin(BuiltinType::U64);
+                }
+            }
+        }
+    }
+    // usize and u64 have the same physical representation: portable checks can
+    // accept this consistent forgery, but installation must check the source ABI.
+    let forged = KbcArtifact::from_program(original.program, Default::default()).unwrap();
+    let program =
+        PreparedProgram::from_artifact(forged, &Default::default(), &Default::default()).unwrap();
+    let mut runtime = KagariEngine::default().runtime(Default::default());
+    assert!(runtime.load_program(&program, Default::default()).is_err());
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
 
 #[test]

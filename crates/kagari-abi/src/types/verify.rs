@@ -1,9 +1,8 @@
 //! Validate serialized semantic types independently of display strings.
 use crate::types::matching;
 use crate::{
-    callable::{CallableImplementation, NativeBinding},
+    callable::CallableImplementation,
     layout::LayoutValidationError,
-    native_import::NativeSignature,
     scalar::BuiltinType,
     standard::native,
     types::{
@@ -95,11 +94,8 @@ pub fn validate(
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let valid = match item {
             PublicAbiItem::Function(function) => {
-                (matches!(
-                    function.implementation,
-                    CallableImplementation::Native(NativeBinding::Provider(_))
-                ) || (function.generic_params.is_empty() && function.bounds.is_empty()))
-                    && provider_signature_valid(function, &[], &[])
+                (matches!(function.implementation, CallableImplementation::Native(_))
+                    || (function.generic_params.is_empty() && function.bounds.is_empty()))
                     && function_valid(function, module, &[], &Parameters::new(), None, cancel)
             }
             PublicAbiItem::Const(value) => type_valid(&value.ty, &Parameters::new(), None, cancel),
@@ -162,11 +158,6 @@ pub fn validate(
                         && type_valid(&table.for_type, &params, None, cancel)
                         && table.methods.iter().all(|method| {
                             methods.insert(&method.name)
-                                && provider_signature_valid(
-                                    method,
-                                    &table.bounds,
-                                    &table.generic_params,
-                                )
                                 && function_valid(
                                     method,
                                     module,
@@ -247,8 +238,11 @@ pub fn validate_native_declarations(
                     && part.name == function.name
             })
             || !matches!(
-                function.implementation,
-                CallableImplementation::Native(NativeBinding::Provider(_))
+                &function.implementation,
+                CallableImplementation::Native(binding)
+                    if binding.within_path_limit()
+                        && (nominal_valid(binding, DefinitionKind::Function)
+                            || nominal_valid(binding, DefinitionKind::Method))
             )
         {
             return Err(LayoutValidationError::Invalid);
@@ -282,7 +276,6 @@ pub fn validate_native_declarations(
             .then_some(&receiver);
         if !bounds_valid_in(&function.bounds, &params, self_owner, cancel)
             || !signature_valid(function, &params, self_owner, cancel)
-            || !provider_signature_valid(function, &[], &[])
         {
             return Err(LayoutValidationError::Invalid);
         }
@@ -417,7 +410,6 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
                     methods.insert(&method.name)
                         && (method.method_policy.override_allowed
                             || !matches!(method.implementation, CallableImplementation::Required))
-                        && provider_signature_valid(method, &ty.bounds, &ty.generic_params)
                         && function_valid(
                             method,
                             module,
@@ -843,8 +835,7 @@ fn function_valid(
             .is_some_and(|owner| owner.kind == DefinitionKind::Trait),
         CallableImplementation::Script => true,
         // Provider authentication and signature matching are linked-program checks.
-        CallableImplementation::Native(NativeBinding::Provider(_)) => true,
-        CallableImplementation::Native(NativeBinding::Host(id)) => {
+        CallableImplementation::Native(id) => {
             (nominal_valid(id, DefinitionKind::Function)
                 || nominal_valid(id, DefinitionKind::Method))
                 && id.within_path_limit()
@@ -870,33 +861,6 @@ fn function_valid(
             && signature_valid(function, &params, self_owner, cancel)
     })
 }
-pub fn provider_signature_valid(
-    function: &FunctionAbi,
-    inherited: &[GenericBoundAbi],
-    outer_parameters: &[GenericParameterAbi],
-) -> bool {
-    match &function.implementation {
-        CallableImplementation::Native(NativeBinding::Provider(contract)) => {
-            inherited
-                .iter()
-                .chain(&function.bounds)
-                .all(|bound| bound.constraints.is_empty())
-                && contract.matches_signature(
-                    &outer_parameters
-                        .iter()
-                        .chain(&function.generic_params)
-                        .cloned()
-                        .collect::<Vec<_>>(),
-                    &NativeSignature {
-                        params: function.params.iter().map(|p| p.ty.clone()).collect(),
-                        result: function.return_type.clone(),
-                    },
-                )
-        }
-        _ => true,
-    }
-}
-
 fn signature_valid(
     function: &FunctionAbi,
     params: &Parameters,

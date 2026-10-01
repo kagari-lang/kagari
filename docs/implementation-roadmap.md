@@ -18,7 +18,7 @@ native standard algorithm through shared Rust helpers or rooted continuations,
 including lazy adapters, prepared mutations, custom keys and selected script calls.
 Core language primitives keep generic typed instructions. The plan's final ownership
 map covers the complete ST00 inventory. These are predecessor results; the NR reset removed its old algorithms.
-Current products use runtime ABI v135, KBC v112, KMIR v10, per-provider contracts
+Current products use runtime ABI v136, KBC v113, KMIR v11, source-owned native declarations
 and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
@@ -44,8 +44,10 @@ explicit. NR00 audits the current checkpoint and retained primitive inventory;
 NR05 restores full coverage and closes carried ST06 acceptance and measurements.
 The first implementation checkpoint separates method override policy from native
 default identities and carries it through HIR, MIR/bytecode ABI and offline checking.
-The reset removes old algorithms/binding catalogs and installs provider descriptors,
-unified imports and a common native driver. ArrayList new/len/push/from_fn and List
+The reset removes old algorithms/binding catalogs. The source-owned follow-up
+removes the separate provider crate and handwritten contract/access tables: HIR
+checks declarations, native imports carry opaque IDs and runtime links registered
+handlers against exported checked declarations using the common native driver. ArrayList new/len/push/from_fn and List
 methods pass source, encoded and source-free execution. Broader witness/default
 metadata, persistent state, library restoration and legacy tests remain pending.
 No NR implementation phase has been accepted yet.

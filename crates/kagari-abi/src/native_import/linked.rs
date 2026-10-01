@@ -1,5 +1,5 @@
 use crate::{
-    callable::{CallableImplementation, NativeBinding},
+    callable::CallableImplementation,
     native_import::NativeImport,
     types::{
         NativeDeclaration,
@@ -17,10 +17,7 @@ pub(super) fn matches_declaration(
 ) -> Result<bool, TypeTransformError> {
     let function = &declaration.function;
     if import.instance.declaration != declaration.declaration
-        || function.implementation
-            != CallableImplementation::Native(NativeBinding::Provider(Box::new(
-                import.contract.clone(),
-            )))
+        || function.implementation != CallableImplementation::Native(import.binding.clone())
         || import.instance.arguments.len() != function.generic_params.len()
         || !import.structurally_valid()
     {
@@ -40,16 +37,8 @@ pub(super) fn matches_declaration(
     {
         return Ok(false);
     }
-    for (slot, (parameter, actual)) in function
-        .params
-        .iter()
-        .zip(&import.signature.params)
-        .enumerate()
-    {
-        if !import
-            .contract
-            .accepts_parameter(slot, &normalize(&parameter.ty)?, actual)
-        {
+    for (parameter, actual) in function.params.iter().zip(&import.signature.params) {
+        if normalize(&parameter.ty)? != *actual {
             return Ok(false);
         }
     }

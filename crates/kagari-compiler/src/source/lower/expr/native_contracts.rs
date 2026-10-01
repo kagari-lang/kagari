@@ -24,7 +24,7 @@ pub(super) struct NativeApplication<'a> {
 }
 
 impl FunctionLowerer<'_, '_> {
-    pub(super) fn engine_native_contract(
+    pub(super) fn checked_native_import(
         &mut self,
         target: &CallTarget,
         application: &AppliedCallSignature,
@@ -63,7 +63,7 @@ impl FunctionLowerer<'_, '_> {
             }
             _ => return Err(invalid()),
         };
-        let FunctionImplementation::Native(NativeBinding::Provider(binding)) =
+        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
             &function.implementation
         else {
             return Err(invalid());
@@ -100,7 +100,8 @@ impl FunctionLowerer<'_, '_> {
                 declaration,
                 arguments,
             },
-            contract: (*binding).clone(),
+            binding,
+            host: None,
             signature: NativeSignature {
                 params: params.iter().map(lower_type).collect(),
                 result: lower_type(&result[0]),
@@ -121,7 +122,7 @@ impl FunctionLowerer<'_, '_> {
     ) -> Result<MirValue, MirLoweringError> {
         if !import.structurally_valid() {
             return Err(MirLoweringError::MissingBinding(
-                "concrete provider application",
+                "concrete native entry application",
             ));
         }
         let dst = self.alloc_temp(self.value_type(result)?);
@@ -149,14 +150,14 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .native_function(declaration)
             .ok_or(MirLoweringError::MissingBinding(
-                "selected provider declaration",
+                "selected native entry declaration",
             ))?
             .clone();
-        let FunctionImplementation::Native(NativeBinding::Provider(binding)) =
+        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
             &function.implementation
         else {
             return Err(MirLoweringError::MissingBinding(
-                "selected provider implementation",
+                "selected native entry implementation",
             ));
         };
         let substitution: HirSubstitution = function
@@ -183,7 +184,8 @@ impl FunctionLowerer<'_, '_> {
                     declaration: declaration.clone(),
                     arguments: arguments.iter().map(lower_type).collect(),
                 },
-                contract: (**binding).clone(),
+                binding: binding.clone(),
+                host: None,
                 signature: NativeSignature {
                     params: params.iter().map(lower_type).collect(),
                     result: lower_type(result),
@@ -208,13 +210,12 @@ impl FunctionLowerer<'_, '_> {
             .catalog
             .trait_method(method)
             .ok_or(MirLoweringError::MissingBinding(
-                "selected provider default",
+                "selected native entry default",
             ))?
             .clone();
-        let Some(MethodDefault::Native(NativeBinding::Provider(binding))) = &signature.default
-        else {
+        let Some(MethodDefault::Native(NativeBinding::Entry(binding))) = &signature.default else {
             return Err(MirLoweringError::MissingBinding(
-                "provider default implementation",
+                "native entry default implementation",
             ));
         };
         let arguments = interface
@@ -248,7 +249,8 @@ impl FunctionLowerer<'_, '_> {
                     declaration: method.clone(),
                     arguments: arguments.iter().map(lower_type).collect(),
                 },
-                contract: (**binding).clone(),
+                binding: binding.clone(),
+                host: None,
                 signature: NativeSignature {
                     params: params.iter().map(lower_type).collect(),
                     result: lower_type(&result),

@@ -63,5 +63,15 @@ fn provider_fixture_matches_source_emission() {
             Default::default(),
         )
         .unwrap();
+    let declarations: Vec<_> = artifact
+        .program
+        .modules
+        .iter()
+        .flat_map(|module| module.native_declarations.iter().cloned())
+        .collect();
+    assert_eq!(
+        bincode::serialize(&declarations).unwrap(),
+        include_bytes!("../../kagari-runtime/src/native/stdlib-declarations.bin").as_slice()
+    );
     assert_eq!(artifact.to_bytes().unwrap(), ARTIFACT);
 }

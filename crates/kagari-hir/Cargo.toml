@@ -5,7 +5,6 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-kagari-stdlib-provider.workspace = true
 kagari-abi.workspace = true
 kagari-common.workspace = true
 kagari-syntax.workspace = true

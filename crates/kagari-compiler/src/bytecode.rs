@@ -300,7 +300,7 @@ impl BytecodeLoweringContext<'_> {
     }
 
     fn native_import(&mut self, contract: &NativeImport) -> NativeImportId {
-        if let Some(host) = &contract.contract.host
+        if let Some(host) = &contract.host
             && !self
                 .host_interface
                 .functions

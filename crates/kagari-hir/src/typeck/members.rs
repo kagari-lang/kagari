@@ -14,8 +14,8 @@ use kagari_common::{
     cancellation::CancellationToken, identity::associated_type_id, range::RangeKind,
 };
 
-/// Inference alone does not prove that an impl owns this receiver. Access
-/// compatibility is checked separately against the selected self parameter.
+/// Inference alone does not prove that an impl owns this receiver. A method
+/// on writable storage cannot be selected through a readonly storage type.
 pub(crate) fn inherent_substitution(
     aggregates: &AggregateCatalog,
     method: &InherentMethodSignature,
@@ -32,10 +32,7 @@ pub(crate) fn inherent_substitution(
     )
     .ok()?;
     let owner = aggregates.normalize_type(&method.owner.instantiate(&substitution));
-    (!owner.conflicts_with(receiver)
-        || owner.can_weaken_to(receiver)
-        || receiver.can_weaken_to(&owner))
-    .then_some(substitution)
+    (!owner.conflicts_with(receiver) || receiver.can_weaken_to(&owner)).then_some(substitution)
 }
 
 pub(crate) fn interfaces(

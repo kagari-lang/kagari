@@ -1,4 +1,3 @@
-use crate::native::signatures as native_signatures;
 use analysis::AnalysisDatabase;
 use declarations::Declarations;
 use hir::BodySelection;
@@ -129,13 +128,6 @@ impl PreparedAnalysis {
         typeck::validate_signature_applications(
             &self.lowered,
             &self.declarations,
-            self.signatures.facts(),
-            aggregates,
-            &mut diagnostics,
-            cancel,
-        );
-        native_signatures::validate(
-            &self.lowered,
             self.signatures.facts(),
             aggregates,
             &mut diagnostics,

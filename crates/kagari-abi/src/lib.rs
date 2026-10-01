@@ -13,7 +13,6 @@ pub mod native_call;
 pub mod native_import;
 pub mod numeric;
 pub mod operations;
-pub mod provider;
 pub mod representation;
 pub mod scalar;
 pub mod slots;

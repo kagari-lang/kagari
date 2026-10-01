@@ -37,7 +37,7 @@ Non-returning operations use `-> !`, including `std::debug::panic`. Checked
 signatures and native execution contracts retain Never rather than Unit.
 
 Outer `///` comments belong to the immediately following declaration. They retain
-Markdown including fenced Kagari examples. The CST remains lossless. `#[native(binding)]` resolves an installed provider descriptor. The old intrinsic,
+Markdown including fenced Kagari examples. The CST remains lossless. `#[native(binding)]` supplies an opaque module-qualified binding ID. The old intrinsic,
 numeric, radix, protocol and default marker families are removed. User annotations
 cannot install handlers or acquire provider authority. Instance methods are declared with
 `self` inside an inherent or native trait `impl`; there is no method-alias attribute.
@@ -51,8 +51,8 @@ The implementation sequence and acceptance status are tracked in
 `kagari-stdlib` reads the installed `.kgr` manifest with the declaration parser
 and retains the exact text, syntax trees, annotations, documentation and declaration
 coordinates. HIR imports that package through ordinary declaration collection and
-checks signatures, bounds and installed native bindings. Unknown binding IDs or a
-native declaration with a script body are errors. Ordinary script bodies are
+checks signatures and bounds through ordinary HIR. A native declaration with a
+script body is an error; an unknown binding ID fails executable linking. Ordinary script bodies are
 retained for checking and execution. Public declarations must be documented;
 documentation examples remain part of acceptance. The ABI does not parse sources
 or generate source descriptors. Consumer migration and validation status are
@@ -91,7 +91,8 @@ supertraits, generic parameters, methods, associated types and associated bounds
 Trait solving and native implementations remain engine code. Declaration identities
 and member locations refer to the bundled source text, not placeholder spans.
 Method-local generic parameters and enclosing impl binders are retained in ABI
-signature checks. Native read access comes from provider metadata. List retains its
+signature checks. Readonly interfaces expose their declared methods through
+ordinary bridges; native bindings carry no receiver Read/Write flags. List retains its
 Index supertrait; its len entry is native and get is an ordinary script body.
 Selected default callable/witness metadata remains NR02 work, rather than the old
 method-specific traversal and conversion catalogs.
@@ -116,24 +117,25 @@ the same example on every associated type.
 ## Checked callable execution
 
 Required declarations have no body or executable target. Script declarations retain
-ordinary checked bodies; native declarations have provider bindings and no synthetic
+ordinary checked bodies; native declarations have opaque binding IDs and no synthetic
 script body. Engine functions, native impl methods and native defaults carry concrete
 callable identities, checked substitutions, full parameter/result types, bounds and
 selected protocol applications. Compiler lowering encodes these facts without
 looking up declaration syntax or expanding public standard algorithms.
 
-Portable linking validates each binding against its carried declaration and trusted
-operation contract, including associated outputs, generic method arguments, selected
-private dependencies and runtime/binding versions. Host bindings additionally retain
+Portable verification validates each native application against its carried source
+declaration. Runtime linking resolves its ID and checks the applied signature against
+the trusted installed declaration before pinning the implementation. Source compilation
+exports those declarations; no independently authored standard contract table exists. Host bindings additionally retain
 their offline host declaration and authority contract. A user declaration with a
 native-looking attribute cannot claim installed engine provenance.
 
 Runtime continuations own callback-heavy standard algorithms, buffered construction
 and all lazy adapter steps. They use the caller's frames, roots and resource scope;
 selected script implementations and explicit overrides use ordinary linked calls.
-Readonly native receiver applications may weaken only outer storage access for read
-capabilities, preserving invariant nested payload types. Mutable providers cannot
-accept readonly access. The final ownership map is in the
+Readonly interfaces hide mutation methods; ordinary checked bridges retain the
+concrete implementation signature. Native imports cannot independently weaken or
+upgrade receiver access. The final ownership map is in the
 [integration plan](../stdlib-hir-refactor.md#final-implementation-ownership-audit).
 
 ## Tool queries

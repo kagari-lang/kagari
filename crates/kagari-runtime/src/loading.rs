@@ -19,7 +19,7 @@ impl Runtime {
         &mut self,
         registration: NativeRegistration,
     ) -> Result<(), RuntimeError> {
-        self.providers.install(registration)
+        self.native_entries.install(registration)
     }
     fn link_native_module(
         &self,
@@ -30,7 +30,7 @@ impl Runtime {
             .native_imports
             .iter()
             .map(|import| {
-                if let Some(required) = &import.contract.host {
+                if let Some(required) = &import.host {
                     let slot = module
                         .host_interface
                         .functions
@@ -44,7 +44,7 @@ impl Runtime {
                     })?;
                     Ok(host_registration(import, binding))
                 } else {
-                    self.providers.link(import)
+                    self.native_entries.link(import)
                 }
             })
             .collect::<Result<_, _>>()?;

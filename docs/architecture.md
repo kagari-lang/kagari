@@ -16,8 +16,12 @@ resolution, declaration checking and snapshot tool queries. Installed provenance
 controls native binding authority; copied attributes or source URIs confer none.
 
 HIR carries one callable model with Required, Script and Native implementations.
-Native calls distinguish Engine and Host providers while retaining host signatures,
-passing styles, capabilities and scoped borrow validation. Compiler lowering consumes
+Standard declarations follow AST -> HIR -> MIR and own native signatures. Portable
+Native implementations carry a binding DefinitionId; runtime registration maps it
+to a handler. Source compilation exports ordinary checked declaration data for
+source-free installation, without a separate standard provider crate or handwritten
+signature/access/effect catalog. Host adapters retain passing styles, capabilities
+and scoped borrow validation while sharing native imports and invocation. Compiler lowering consumes
 checked selections, substitutions, associated outputs and witnesses. Portable MIR
 and bytecode carry their complete dependency closure and executable contracts.
 ABI validates those facts without syntax, HIR or source catalogs.

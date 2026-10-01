@@ -1,22 +1,20 @@
 use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding},
-    provider::NativeContract,
+    callable::CallableImplementation,
     types::{FunctionAbi, PublicAbiItem},
 };
 use kagari_bytecode::KbcArtifact;
+use kagari_common::identity::DefinitionId;
 
-fn alter_function(function: &mut FunctionAbi, alter: &impl Fn(&mut NativeContract)) {
-    if let CallableImplementation::Native(NativeBinding::Provider(contract)) =
-        &mut function.implementation
-    {
-        alter(contract);
+fn alter_function(function: &mut FunctionAbi, alter: &impl Fn(&mut DefinitionId)) {
+    if let CallableImplementation::Native(id) = &mut function.implementation {
+        alter(id);
     }
 }
 
-pub(super) fn alter_contracts(artifact: &mut KbcArtifact, alter: impl Fn(&mut NativeContract)) {
+pub(super) fn alter_bindings(artifact: &mut KbcArtifact, alter: impl Fn(&mut DefinitionId)) {
     for module in &mut artifact.program.modules {
         for import in &mut module.native_imports {
-            alter(&mut import.contract);
+            alter(&mut import.binding);
         }
         for declaration in &mut module.native_declarations {
             alter_function(&mut declaration.function, &alter);
@@ -24,7 +22,7 @@ pub(super) fn alter_contracts(artifact: &mut KbcArtifact, alter: impl Fn(&mut Na
         for item in &mut module.public_items {
             match item {
                 PublicAbiItem::Function(function) => alter_function(function, &alter),
-                PublicAbiItem::Type(_) => {}
+                PublicAbiItem::Type(_) | PublicAbiItem::Const(_) => {}
                 PublicAbiItem::Trait(ty) => {
                     for method in &mut ty.methods {
                         alter_function(method, &alter);
@@ -35,7 +33,6 @@ pub(super) fn alter_contracts(artifact: &mut KbcArtifact, alter: impl Fn(&mut Na
                         alter_function(method, &alter);
                     }
                 }
-                PublicAbiItem::Const(_) => {}
             }
         }
     }

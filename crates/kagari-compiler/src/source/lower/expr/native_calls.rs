@@ -39,7 +39,7 @@ impl FunctionLowerer<'_, '_> {
             FunctionImplementation::Required => Err(MirLoweringError::MissingBinding(
                 "unimplemented callable requirement",
             )),
-            FunctionImplementation::Native(NativeBinding::Provider(_)) => Ok(true),
+            FunctionImplementation::Native(NativeBinding::Entry(_)) => Ok(true),
             FunctionImplementation::Native(NativeBinding::Host(_)) => Err(
                 MirLoweringError::MissingBinding("source callable has a host binding"),
             ),
@@ -53,7 +53,7 @@ impl FunctionLowerer<'_, '_> {
         application: NativeApplication<'_>,
     ) -> Result<MirValue, MirLoweringError> {
         let span = self.analyzed.lowered.source_map.expr_span(expr);
-        let contract = self.engine_native_contract(
+        let contract = self.checked_native_import(
             application.target,
             application.signature,
             application.arguments,

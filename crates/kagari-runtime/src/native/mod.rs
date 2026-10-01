@@ -1,4 +1,4 @@
-//! A frame-owned invocation drives provider state without identifying library methods.
+//! A frame-owned invocation drives native entry state without identifying library methods.
 pub(crate) mod array;
 pub(crate) mod registration;
 use crate::{
@@ -32,7 +32,7 @@ pub enum NativeAction {
 }
 
 /// Values retained across allocation/callbacks belong in explicit root slots.
-/// Provider state must never retain a heap/host borrow or an execution-frame borrow.
+/// Native invocation state must never retain a heap/host borrow or an execution-frame borrow.
 /// Each advance/receive call performs bounded work. Longer loops must charge and
 /// poll explicitly; returning Continue requests another charged driver step.
 pub trait NativeInvocationState {
@@ -213,7 +213,7 @@ impl NativeInvocation {
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
         // The returning script frame has been popped. Keep its result reachable
-        // while the provider receives it, including allocations before retain().
+        // while the native entry receives it, including allocations before retain().
         let _result_root = runtime
             .gc()
             .root_execution_values(vec![value.clone()])

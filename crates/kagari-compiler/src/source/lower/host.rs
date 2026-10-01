@@ -58,7 +58,7 @@ pub(super) fn collect(
             callee: CallTarget::Native(import),
             ..
         } = instruction
-            && let Some(function) = &import.contract.host
+            && let Some(function) = &import.host
         {
             for ty in function
                 .params

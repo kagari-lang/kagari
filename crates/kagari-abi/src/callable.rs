@@ -1,7 +1,6 @@
 //! Portable callable implementation identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
 
-use crate::provider::NativeContract;
 use kagari_common::identity::DefinitionId;
 use serde::{Deserialize, Serialize};
 
@@ -21,16 +20,10 @@ impl Default for MethodPolicy {
 }
 
 /// A requirement has no executable entry until implementation selection resolves
-/// it. Script bodies and provider-qualified Rust bindings are executable targets.
+/// it. Script bodies and registered Rust entries are executable targets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CallableImplementation {
     Required,
     Script,
-    Native(NativeBinding),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NativeBinding {
-    Provider(Box<NativeContract>),
-    Host(DefinitionId),
+    Native(DefinitionId),
 }

@@ -1,6 +1,6 @@
 use crate::source::types::lower_native_constructor;
 use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding as PortableNativeBinding},
+    callable::CallableImplementation,
     types::{
         AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
         ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
@@ -8,7 +8,7 @@ use kagari_abi::{
         TraitContract, TypeAbi, TypeAbiKind, VariantAbi,
     },
 };
-use kagari_common::identity;
+use kagari_common::identity::{self, DefinitionId};
 use kagari_hir::{
     AnalyzedModule,
     aggregates::MethodDefault,
@@ -413,7 +413,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 .find(|typed| typed.id == function.id)?;
             if !matches!(
                 typed.implementation,
-                FunctionImplementation::Native(NativeBinding::Provider(_))
+                FunctionImplementation::Native(NativeBinding::Entry(_))
             ) {
                 return None;
             }
@@ -609,20 +609,16 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
     })
 }
 
-fn native_binding_abi(module: &AnalyzedModule, binding: NativeBinding) -> PortableNativeBinding {
+fn native_binding_abi(module: &AnalyzedModule, binding: NativeBinding) -> DefinitionId {
     match binding {
-        NativeBinding::Provider(binding) => {
-            PortableNativeBinding::Provider(Box::new((*binding).clone()))
-        }
-        NativeBinding::Host(id) => PortableNativeBinding::Host(
-            module
-                .names
-                .hosts
-                .function(id)
-                .expect("checked host callable")
-                .id
-                .clone(),
-        ),
+        NativeBinding::Entry(binding) => binding,
+        NativeBinding::Host(id) => module
+            .names
+            .hosts
+            .function(id)
+            .expect("checked host callable")
+            .id
+            .clone(),
     }
 }
 

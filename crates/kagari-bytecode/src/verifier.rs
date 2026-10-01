@@ -8,7 +8,7 @@ use crate::{
     StructId, access, trait_bounds,
 };
 use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding},
+    callable::CallableImplementation,
     contracts::{self, ContractError},
     host,
     ids::FunctionRef,
@@ -405,10 +405,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .iter()
                 .filter(|method| method.generic_params.is_empty())
                 .filter(|method| {
-                    !matches!(
-                        method.implementation,
-                        CallableImplementation::Native(NativeBinding::Provider(_))
-                    )
+                    !matches!(method.implementation, CallableImplementation::Native(_))
                 })
                 .any(|method| {
                     table
@@ -463,7 +460,7 @@ fn host_bridge_method_matches(
         || !module
             .native_imports
             .get(import.index())
-            .and_then(|import| import.contract.host.as_ref())
+            .and_then(|import| import.host.as_ref())
             .is_some_and(|contract| contract.id == mapping.host_method)
     {
         return false;

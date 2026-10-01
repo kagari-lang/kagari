@@ -1,8 +1,0 @@
-[package]
-name = "kagari-stdlib-provider"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-[dependencies]
-kagari-abi.workspace = true
-kagari-common.workspace = true

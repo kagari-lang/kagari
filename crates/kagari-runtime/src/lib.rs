@@ -1,4 +1,4 @@
-use crate::native::array as array_provider;
+use crate::native::array;
 mod authority;
 mod loading;
 mod objects;
@@ -154,7 +154,7 @@ pub struct Runtime {
     gc: Rc<GcHeap>,
     types: TypeRegistry,
     host: HostRegistry,
-    providers: native::NativeRegistry,
+    native_entries: native::NativeRegistry,
     host_borrows: HostBorrowTable,
     security: SecurityContext,
     host_exposure: Rc<HostExposurePolicy>,
@@ -209,9 +209,9 @@ impl Runtime {
             gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
-            providers: {
+            native_entries: {
                 let mut registry = NativeRegistry::default();
-                array_provider::install(&mut registry);
+                array::install(&mut registry);
                 registry
             },
             host_borrows: HostBorrowTable::with_resources(&resources),

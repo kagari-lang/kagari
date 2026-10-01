@@ -383,6 +383,7 @@ dependencies = [
 name = "kagari-embed"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "kagari-abi",
  "kagari-bytecode",
  "kagari-codegen",
@@ -405,7 +406,6 @@ dependencies = [
  "kagari-abi",
  "kagari-common",
  "kagari-stdlib",
- "kagari-stdlib-provider",
  "kagari-syntax",
  "serde",
  "smallvec",
@@ -428,13 +428,13 @@ dependencies = [
 name = "kagari-runtime"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "indexmap",
  "kagari-abi",
  "kagari-bytecode",
  "kagari-common",
  "kagari-compiler",
  "kagari-mir",
- "kagari-stdlib-provider",
  "thiserror",
 ]
 
@@ -445,14 +445,6 @@ dependencies = [
  "kagari-common",
  "kagari-syntax",
  "thiserror",
-]
-
-[[package]]
-name = "kagari-stdlib-provider"
-version = "0.1.0"
-dependencies = [
- "kagari-abi",
- "kagari-common",
 ]
 
 [[package]]

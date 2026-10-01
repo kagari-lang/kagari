@@ -1,15 +1,13 @@
 use crate::{hir::FunctionKind, lower::LoweredModule, native::stdlib::invalid};
+use kagari_abi::native_import::binding_id;
 use kagari_common::cancellation::CancellationToken;
 use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile};
-use kagari_stdlib_provider::contracts;
-use std::{collections::HashMap, sync::Arc};
 
 pub(super) fn install(
     file: &ParsedStdlibFile,
     lowered: &mut LoweredModule,
     cancel: &CancellationToken,
 ) -> Result<(), PackageError> {
-    let contracts: HashMap<_, _> = contracts().into_iter().collect();
     for site in file.declarations() {
         cancel.check()?;
         for marker in &site.markers {
@@ -35,16 +33,8 @@ pub(super) fn install(
                     "a native function cannot also have a script body",
                 ));
             }
-            let contract = contracts.get(marker.binding.as_str()).ok_or_else(|| {
-                invalid(
-                    file,
-                    marker.span,
-                    format!("native provider has no binding `{}`", marker.binding),
-                )
-            })?;
-            lowered
-                .native_functions
-                .insert(function.id, Arc::new(contract.clone()));
+            let binding = binding_id(file.source().module_identity(), &marker.binding);
+            lowered.native_functions.insert(function.id, binding);
             lowered
                 .native_attributes
                 .insert((marker.span.start, marker.span.end));

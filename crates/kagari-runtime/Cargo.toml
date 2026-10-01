@@ -9,7 +9,7 @@ default = []
 jit = []
 
 [dependencies]
-kagari-stdlib-provider.workspace = true
+bincode.workspace = true
 kagari-abi.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true

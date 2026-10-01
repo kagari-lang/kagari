@@ -78,7 +78,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             .unwrap();
         assert_eq!(
             method.default,
-            Some(MethodDefault::Native(NativeBinding::Provider(
+            Some(MethodDefault::Native(NativeBinding::Entry(
                 EngineNativeBinding::TraitDefault(binding)
             )))
         );

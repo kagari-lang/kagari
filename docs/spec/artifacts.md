@@ -28,17 +28,19 @@ Artifacts may be used by:
 
 ## Current executable contract
 
-Current products use KBC format v112, `kagari-runtime-abi-v135`, `KMIR` v10
-and runtime-helper ABI v6. Each provider contract has its own version; the closed
-engine binding version is removed. Older products are rejected before execution
-with no migration reader. Historical notes below describe predecessor formats.
+Current products use KBC format v113, `kagari-runtime-abi-v136`, `KMIR` v11
+and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
+the provider descriptor and its separate per-contract version are removed. Older
+products are rejected before execution without a migration reader.
 
-One native import table carries source identity, concrete type arguments,
-provider/entry key, versioned descriptor, applied signature and declaration bounds.
-Descriptor signatures use independent binders. Generic verification checks carried
-source declarations and instantiation; structural agreement does not grant provider
-authority. Optimizers treat Native effects conservatively. Runtime requires a full
-matching installed contract, including access/effects, and pins the entry owner.
+One native import table carries source identity, concrete type arguments, binding
+ID, applied signature and declaration bounds. Generic verification checks carried
+source declarations and instantiation. Native effects use a common conservative
+classification, independent of artifact claims. Runtime resolves the installed ID,
+checks the application against its trusted source-derived declaration and pins the
+entry owner. No per-function effect/access table or duplicate signature template is
+serialized. The generated standard declaration payload uses ordinary declaration
+records exported from the source pipeline and is checked against source emission.
 
 Synchronous host calls use the same import table and invocation driver. Their full
 optional HostFunctionDeclaration must match the required HostInterface and installed
@@ -57,7 +59,7 @@ live heap state/Rust references. Generic persistent traced state remains NR03 wo
 The reset native_provider.kbc fixture covers array direct/interface/callback calls
 with serialized and source-free execution. The old feature_artifact.kbc remains
 tracked for NR04 restoration: its bytes/API are superseded and do not load under
-v112. This does not reduce the required final feature matrix.
+v113. This does not reduce the required final feature matrix.
 
 ## SDK Feature Boundary
 

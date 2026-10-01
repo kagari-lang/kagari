@@ -167,7 +167,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .iter()
                     .find(|function| {
                         function.implementation
-                            == FunctionImplementation::Native(NativeBinding::Provider(
+                            == FunctionImplementation::Native(NativeBinding::Entry(
                                 EngineNativeBinding::Intrinsic(binding),
                             ))
                     })
@@ -189,9 +189,9 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     ] {
         assert_eq!(
             signature(binding).implementation,
-            FunctionImplementation::Native(NativeBinding::Provider(
-                EngineNativeBinding::Intrinsic(binding)
-            ))
+            FunctionImplementation::Native(NativeBinding::Entry(EngineNativeBinding::Intrinsic(
+                binding
+            )))
         );
     }
     assert!(!facts.aggregates.inherent_methods().any(|method| matches!(
@@ -209,7 +209,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         .unwrap();
     assert_eq!(
         difference.default,
-        Some(MethodDefault::Native(NativeBinding::Provider(
+        Some(MethodDefault::Native(NativeBinding::Entry(
             EngineNativeBinding::TraitDefault(
                 kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference
             )
@@ -401,7 +401,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("keys tail expr");
     assert_eq!(
         binding(keys_tail),
-        crate::typeck::FunctionImplementation::Native(NativeBinding::Provider(
+        crate::typeck::FunctionImplementation::Native(NativeBinding::Entry(
             EngineNativeBinding::Intrinsic(RuntimePrimitive::MapKeys)
         ))
     );
@@ -419,7 +419,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("chars tail expr");
     assert_eq!(
         binding(chars_tail),
-        crate::typeck::FunctionImplementation::Native(NativeBinding::Provider(
+        crate::typeck::FunctionImplementation::Native(NativeBinding::Entry(
             EngineNativeBinding::Intrinsic(RuntimePrimitive::StringLenChars)
         ))
     );

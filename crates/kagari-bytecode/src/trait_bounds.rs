@@ -187,7 +187,7 @@ fn linked_bounds_match(
         return Ok(false);
     }
     for import in &module.native_imports {
-        if let Some(host) = &import.contract.host {
+        if let Some(host) = &import.host {
             if !import.structurally_valid() || !module.host_interface.functions.contains(host) {
                 return Ok(false);
             }

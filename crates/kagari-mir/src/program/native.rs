@@ -77,7 +77,7 @@ pub(super) fn validate(
             }
         })
     {
-        if import.contract.host.is_some() {
+        if import.host.is_some() {
             if !import.structurally_valid() {
                 return Ok(false);
             }

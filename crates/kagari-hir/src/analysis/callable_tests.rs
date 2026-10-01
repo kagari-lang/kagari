@@ -63,7 +63,7 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
             assert_eq!(imported.declaration.module.path, ["numeric"]);
             assert!(call.type_arguments.is_empty());
             match imported.signature.implementation {
-                FunctionImplementation::Native(NativeBinding::Provider(
+                FunctionImplementation::Native(NativeBinding::Entry(
                     EngineNativeBinding::Integer(IntegerMethod::WrappingAdd),
                 )) => {
                     assert_eq!(imported.signature.params[0].ty, TypeId::Builtin(expected));
@@ -72,7 +72,7 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
                         Some(TypeId::Builtin(expected))
                     );
                 }
-                FunctionImplementation::Native(NativeBinding::Provider(
+                FunctionImplementation::Native(NativeBinding::Entry(
                     EngineNativeBinding::ParseRadix,
                 )) => {
                     let TypeId::StandardEnum { args, .. } = &imported.signature.return_type else {
@@ -131,7 +131,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         ("next", FunctionImplementation::Required),
         (
             "map",
-            FunctionImplementation::Native(NativeBinding::Provider(
+            FunctionImplementation::Native(NativeBinding::Entry(
                 EngineNativeBinding::TraitDefault(NativeDefaultMethod::Map),
             )),
         ),
@@ -195,10 +195,10 @@ fn main() -> i32 {
         };
         let expected = match name {
             "identity" => FunctionImplementation::Script,
-            "bound" => FunctionImplementation::Native(NativeBinding::Provider(
+            "bound" => FunctionImplementation::Native(NativeBinding::Entry(
                 EngineNativeBinding::Intrinsic(RuntimePrimitive::MathClamp),
             )),
-            "unwrap_or" => FunctionImplementation::Native(NativeBinding::Provider(
+            "unwrap_or" => FunctionImplementation::Native(NativeBinding::Entry(
                 EngineNativeBinding::Intrinsic(RuntimePrimitive::OptionUnwrapOr),
             )),
             _ => continue,

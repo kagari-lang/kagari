@@ -230,7 +230,7 @@ fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIden
             Instruction::Call {
                 callee: CallTarget::Native(contract),
                 ..
-            } if contract.contract.host.is_none() => Some(contract),
+            } if contract.host.is_none() => Some(contract),
             _ => None,
         })
         .map(|contract| contract.instance.declaration.module.clone());

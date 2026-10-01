@@ -26,7 +26,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             callee: CallTarget::Native(import),
             ..
         } = instruction
-            && let Some(function) = &import.contract.host
+            && let Some(function) = &import.host
             && functions
                 .insert(function.id.clone(), function.clone())
                 .is_some_and(|previous| !previous.matches_binding(function))

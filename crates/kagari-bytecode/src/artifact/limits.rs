@@ -6,13 +6,10 @@ use crate::{
         MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
     },
 };
+use kagari_abi::callable::CallableImplementation;
 use kagari_abi::types::{
     AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
     PublicAbiItem,
-};
-use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding},
-    provider::NativeContract,
 };
 use kagari_common::{
     host_interface::{HostInterface, HostPathSegmentDeclaration, HostValueType},
@@ -32,7 +29,10 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     for import in &module.native_imports {
         if !add(import.instance.arguments.len())
             || !add(import.signature.params.len())
-            || !add_provider_contract(&import.contract, &mut add)
+            || !import
+                .host
+                .as_ref()
+                .is_none_or(|host| add(host.params.len()))
             || !add(import.requirements.len())
             || !add_abi_bounds(&import.requirements, &mut add)
         {
@@ -207,20 +207,9 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     true
 }
 
-fn add_provider_contract(contract: &NativeContract, add: &mut impl FnMut(usize) -> bool) -> bool {
-    add(contract.signature.params.len())
-        && add(contract.parameter_access.len())
-        && contract
-            .host
-            .as_ref()
-            .is_none_or(|host| add(host.params.len()))
-}
-
 fn add_function_contract(function: &FunctionAbi, add: &mut impl FnMut(usize) -> bool) -> bool {
     match &function.implementation {
-        CallableImplementation::Native(NativeBinding::Provider(contract)) => {
-            add_provider_contract(contract, add)
-        }
+        CallableImplementation::Native(id) => add(id.module.path.len()) && add(id.path.len()),
         _ => true,
     }
 }

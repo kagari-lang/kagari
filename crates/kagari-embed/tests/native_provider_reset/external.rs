@@ -1,6 +1,6 @@
 //! This integration target owns its handler and uses only exported runtime APIs.
-use super::{artifact, contracts::alter_contracts};
-use kagari_abi::types::AbiType;
+use super::{artifact, contracts::alter_bindings};
+use kagari_abi::{callable::CallableImplementation, types::AbiType};
 use kagari_bytecode::KbcArtifact;
 use kagari_embed::{EngineConfig, ExecutionContext, KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
@@ -59,32 +59,35 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
     let mut original = artifact(
         "fn main() -> i32 { val values = ArrayList::from_fn(2usize, |i| { [21] }); values[0usize][0usize] + values[1usize][0usize] }",
     );
-    let original_key = original
+    let original_binding = original
         .program
         .modules
         .iter()
         .flat_map(|m| &m.native_imports)
         .find(|i| {
-            i.contract.signature.params.len() == 2
-                && matches!(i.contract.signature.params[1], AbiType::Function { .. })
+            i.signature.params.len() == 2
+                && matches!(i.signature.params[1], AbiType::Function { .. })
         })
         .unwrap()
-        .contract
-        .key;
-    alter_contracts(&mut original, |contract| {
-        if contract.key == original_key {
-            contract.key.provider = 0x65787465726e616c;
+        .binding
+        .clone();
+    alter_bindings(&mut original, |id| {
+        if *id == original_binding {
+            id.module.package.0 = "external".into();
         }
     });
-    let contract = original
+    let declarations = original
         .program
         .modules
         .iter()
-        .flat_map(|m| &m.native_imports)
-        .find(|i| i.contract.key.provider == 0x65787465726e616c)
-        .unwrap()
-        .contract
-        .clone();
+        .flat_map(|m| &m.native_declarations)
+        .filter(|declaration| {
+            matches!(&declaration.function.implementation,
+            CallableImplementation::Native(id)
+                if id.module.package.0 == "external")
+        })
+        .cloned()
+        .collect();
     let checked = KbcArtifact::from_program(original.program, Default::default()).unwrap();
     let checked = KbcArtifact::from_bytes(&checked.to_bytes().unwrap()).unwrap();
     let program =
@@ -95,7 +98,7 @@ fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
     let mut runtime = KagariEngine::new(config).runtime(context.clone());
     runtime
         .runtime_mut()
-        .register_native(NativeRegistration::new(contract, 1, |context| {
+        .register_native(NativeRegistration::new(declarations, 1, |context| {
             assert!(context.retained(usize::MAX).is_none());
             assert!(context.retain(usize::MAX, Value::Unit).is_err());
             let Value::U64(count) = context.argument(0).unwrap() else {

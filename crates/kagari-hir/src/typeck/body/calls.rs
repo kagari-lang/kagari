@@ -51,7 +51,7 @@ impl<'a> BodyChecker<'a> {
                 && !imported.signature.generic_params.is_empty()
                 && !matches!(
                     imported.signature.implementation,
-                    FunctionImplementation::Native(NativeBinding::Provider(_))
+                    FunctionImplementation::Native(NativeBinding::Entry(_))
                 )
             {
                 self.infer_typed_args(
