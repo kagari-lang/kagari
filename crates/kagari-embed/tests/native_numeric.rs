@@ -3,6 +3,7 @@ use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, ConstantOperand},
 };
+use kagari_common::identity::DefinitionKind;
 use kagari_embed::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -735,7 +736,28 @@ fn registered_numeric_inventory_and_generated_sources_have_actual_signature_owne
         .iter()
         .find(|module| module.identity.path == ["string"])
         .unwrap();
-    assert_eq!(string.implementations.len(), 13);
+    assert_eq!(string.implementations.len(), 14);
+    let from_str = string.definition(DefinitionKind::Trait, "FromStr");
+    assert_eq!(
+        string
+            .implementations
+            .iter()
+            .filter(|implementation| {
+                implementation
+                    .trait_type
+                    .as_ref()
+                    .is_some_and(|ty| ty.declaration == from_str)
+            })
+            .count(),
+        13
+    );
+    let inherent: Vec<_> = string
+        .implementations
+        .iter()
+        .filter(|implementation| implementation.trait_type.is_none())
+        .collect();
+    assert_eq!(inherent.len(), 1);
+    assert_eq!(inherent[0].methods.len(), 27);
     assert_eq!(string.traits[0].name, "FromStr");
     assert_eq!(string.traits[0].methods[0].params.len(), 1);
     for source in api.declaration_sources() {

@@ -230,8 +230,8 @@ an execution owner without rebuilding a central method catalog in production.
 | --- | --- | --- |
 | math's eleven helpers | 1 and 3 | All eleven restored as actual Rust native functions, including shared closed numeric adapters and source-free boundary proofs |
 | 175 numeric methods and thirteen FromStr impls | 3 | Registered and exercised across all widths; dedicated portable numeric fixture and budget-cut coverage added |
-| String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | Pending |
-| Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | is_some/is_none/is_ok/is_err/unwrap_or restored; remaining direct queries and composition pending |
+| String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | All 27 ordinary helpers restored with shared checked text construction and UTF-8/source-free proofs; parse and lazy traversal remain pending |
+| Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | All six direct queries restored with rooted payload/error provenance; combinators and FromIterator remain pending in 7 |
 | ArrayList plus List/MutableList methods and impls | 2 and 4 | Prepared supplied/selected stable sorting and rooted application preparation proved; remaining surface pending |
 | Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Application returned-state proof complete in 2; remaining declarations/primitive prerequisites in 3 and full traversal in 5 |
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
@@ -264,6 +264,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
   - [x] Restore 175 integer methods and thirteen primitive parsers through actual native signatures.
   - [x] Restore all eleven math helpers with closed numeric authoring adapters and application/source-free proofs.
+  - [x] Restore all 27 direct String helpers with shared checked text construction, UTF-8 behavior and application/source-free proofs.
+  - [x] Restore all six direct Option/Result queries with rooted payloads and preserved error provenance.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
 - [ ] 6: Map/Set and custom keys/snapshots/grouping.
@@ -3411,3 +3413,97 @@ Next continue step 3 with the complete non-lazy String helper family and its
 shared checked output/work accounting, then remaining direct families and primitive
 ownership. Method-generic String.parse and lazy traversal retain their planned
 shared-capability dependencies; no required API is dropped from the active goal.
+
+### NR04 checkpoint: complete direct String helpers and shared text construction (2026-10-02)
+
+Step 3 restores all 27 non-lazy String helpers. String.parse remains owned by step
+7 and the six lazy helpers plus Iterable.iter by step 5. Debug operations,
+remaining declarations and primitive facts still keep step 3 open; full library,
+source-crate retirement and NR05/ST06 acceptance remain required by the active goal.
+
+Changes:
+
+- The registered String is an owned Rust wrapper with actual native inherent
+  methods, plus ordinary Rust as_str/into_string accessors. Primitive FromStr
+  implementations continue accepting the actual Rust String input; the wrapper
+  does not change that Rust trait's input signature or script value representation.
+- Register byte/scalar lengths, ASCII checks, concatenation, substring queries,
+  UTF-8 boundaries/slicing, optional strips and first/last splits, Unicode trimming,
+  ASCII/Unicode casing, repetition and replacement from those real methods.
+  Generated signatures/docs come from the same registration, with no named String
+  instruction, declaration-source interpretation or compiler/verifier/VM policy.
+- NativeTextBuffer is shared with application native providers. It prepays exact
+  declared output-byte work before a fallible reservation and checks every append
+  against that capacity; loops also observe cancellation/deadlines between appends.
+  It owns Rust text and does not expose mutable script-heap references. Checked
+  capacity arithmetic precedes repeat/concat/replacement allocation. String bytes
+  retain their existing inline representation and allocation-unit accounting;
+  this checkpoint does not introduce a different GC or Rust-allocation model.
+- Queries/scans charge length-dependent work before execution. Replacement counts
+  non-overlapping matches before reserving its exact result, including empty-pattern
+  Unicode scalar boundaries. Uppercase counts actual mapped UTF-8 output before
+  construction. Lowercase preserves Rust's context-sensitive Unicode algorithm,
+  charging input before mapping and actual output after mapping rather than
+  substituting a per-character approximation that breaks final sigma.
+- An independently installed game::text provider owns its Text representation name
+  and reverse/prefix algorithms. It compiles and executes with every default package
+  disabled, using the same text buffer and ordinary portable declarations.
+- Refresh the generated String view and all affected current native proof products.
+  Changed public String declarations correctly change dependency fingerprints;
+  unaffected regenerated products stay byte-identical. Runtime ABI 139 / KBC 116 /
+  KMIR 14 / helper ABI 6 remain unchanged; existing dependent products require rebuild.
+- The first feature run exposed the numeric inventory test's obsolete total of
+  thirteen String implementation blocks. Keep its exact parser coverage by
+  checking thirteen implementations of the actual FromStr identity separately
+  from the one new inherent block with exactly 27 methods. The ST00 inventory also
+  confirms all six direct Option/Result queries are already restored; composition
+  retains its step 7 owner.
+
+Behavioral verification:
+
+- Source-free tests cover UTF-8 byte offsets, all slicing index pairs including
+  reversed/out-of-range/non-boundary ranges, scalar versus grapheme counts, empty
+  strings/patterns, overlapping queries, once-only strips, first/last splits,
+  whitespace, NUL/CRLF, ASCII folding, contextual sigma and expanding Unicode case
+  maps. Replacement/repetition/concat match the predecessor rules and preserve the
+  original string.
+- Overflow/impossible capacities and an intentionally underreserved application
+  buffer trap without leaked roots/frames or quarantining the runtime. Every
+  instruction and Option allocation-budget cut preserves completed eager host
+  effects. Cancellation after reservation stops before append and its following
+  host effect; the next fresh invocation succeeds. Forced GC releases all results.
+- Source tests check exact canonical bytes, real registered-method navigation/docs,
+  invalid parameter/result contexts and an application-owned Text-only installation.
+  Prepared source-free backend execution exercises the actual interpreter fallback
+  for inline text/native calls and preserves returned values and host effect order;
+  this does not claim compiled String/native-call backend support.
+
+The inherited fourteen ABI/seventeen HIR removed-model lib-test errors and missing
+implicit user-struct equality binding remain NR04-owned. Existing string_extensions
+still includes debug and lazy APIs owned by later restoration work; it is retained
+with its assertions, rather than treated as passing or weakened. Complete workspace
+and all-target acceptance stay open.
+
+Logs: target/native-string-tests.log, target/native-string-generate.log,
+target/native-string-provider.log, target/native-string-*-generate.log,
+target/native-string-clippy.log, target/native-string-focused-clippy.log,
+target/native-string-structure.log and target/native-string-feature-matrix.log.
+Consolidated validation:
+
+- The direct String target passes 8 artifact/source-free tests, 11 with source,
+  9 with native and 12 with source+native. The final focused numeric/String run
+  passes 10/12 tests, including canonical bytes and actual prepared-backend fallback.
+- uv run --locked scripts/check_features.py --native-proof passes all twenty-one
+  standalone targets in artifact-only/source/native/source+native modes:
+  123/193/125/196 tests. All eight production boundaries and the source-independent
+  ABI build graph pass. Source-free dependency routes exclude source analysis.
+- cargo clippy --workspace --lib -- -D warnings and focused String/numeric tests
+  and String-generator Clippy pass. Formatting and git diff --check pass.
+- Structure checks pass for 892 Rust files with zero violations/exceptions.
+  Manual review includes macro tokens, explicit owner imports, the empty Rust
+  re-export whitelist, fallible capacity growth, actual registered signature
+  authority and the unchanged generic compiler/verifier/VM execution boundary.
+
+Next restore the three direct debug operations and remaining registered protocol
+declarations/implicit implementation facts. Preserve the complete outstanding
+collection, state, composition, retirement and NR05/ST06 acceptance obligations.

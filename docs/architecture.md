@@ -89,8 +89,17 @@ queries also derive from actual Rust implementations. Script pointer-sized integ
 use fixed 64-bit carriers independent of the host. Parsers charge input work before
 running Rust parsing and return business Result errors, distinct from native traps.
 Explicit native enum variant exports are validated for owners and collisions, then
-projected into ordinary HIR exports and generated views. Full String/enum composition
-and remaining namespace/prelude migration remain NR04 work.
+projected into ordinary HIR exports and generated views. All 27 direct String
+helpers derive from an owned Rust wrapper's actual methods. NativeTextBuffer is a
+shared fallible capacity builder: it prepays output-byte work before reservation,
+rejects appends beyond that capacity and checks cancellation/deadlines between
+appends. It owns Rust text rather than a mutable script-heap reference. Strings
+retain the existing inline value representation and allocation-unit semantics;
+this builder does not introduce GC objects or a new memory-accounting model.
+Unicode lowercase preserves Rust's context-sensitive mapping, charging input work
+before mapping and actual output-byte work afterward. Application text providers
+can use the same builder with the default library disabled. String traversal/parse,
+enum composition and remaining namespace/prelude migration remain NR04 work.
 
 Required, Script and Native implementations share checked callable facts.
 NativeDefault is symbolic declaration metadata: an explicit application of an

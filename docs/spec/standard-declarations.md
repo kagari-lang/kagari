@@ -533,6 +533,16 @@ casing uses context-sensitive, locale-independent Unicode mappings and may chang
 length. `bytes` yields u8 values; `char_indices` yields (byte offset, one-scalar
 String). `is_char_boundary` accepts the start/end and rejects out-of-range offsets.
 
+The restored direct helpers are registered from actual Rust methods; tooling views
+derive from these checked declarations. NativeTextBuffer prepays output-byte work,
+uses a fallible reservation and prevents unchecked capacity growth. Input scans
+charge length-dependent work before running; append loops also check cancellation
+and deadlines. These checks preserve the existing inline String representation
+and allocation-unit accounting, rather than charging Rust string bytes as GC
+object allocations. Unicode lowercase uses Rust's context-sensitive algorithm,
+with input work charged before mapping and output work charged afterward. Lazy
+traversal and method-generic parse remain later restoration steps in the active plan.
+
 ## Option and Result combinations
 
 `unwrap_or_else`, `or_else`, and `map_or_else` invoke only the selected callback,

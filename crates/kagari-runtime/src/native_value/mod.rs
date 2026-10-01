@@ -14,6 +14,7 @@ pub mod reorder;
 pub mod representation;
 pub mod result;
 pub mod selected;
+pub mod text;
 mod tuples;
 
 use crate::{

@@ -13,7 +13,9 @@ The native-provider restoration currently installs these optional registered mod
 - [numeric](numeric.kgr): 175 integer methods across all ten widths, including
   wrapping, checked, overflowing and saturating arithmetic, rotations and radix parsing.
 - [string](string.kgr): String, ParseError and thirteen actual primitive FromStr
-  implementations. Direct String helpers and String.parse remain open.
+  implementations, plus all 27 direct String helpers for UTF-8 queries, slicing,
+  case mapping, trimming, concatenation, repetition and replacement. String.parse
+  and lazy traversal remain open under their planned composition/state steps.
 - [option](option.kgr) and [result](result.kgr): rooted is_some/is_none/is_ok/is_err
   and unwrap_or queries, with explicit constructor exports and preserved error origins.
 - Other modules retain required protocols and native representations; their old
