@@ -392,7 +392,7 @@ impl<'a> BodyChecker<'a> {
                     }
                     ConstraintTarget::Trait(trait_type) => {
                         let trait_type = trait_type.instantiate(substitution);
-                        self.constrain_declared_bound(actual, &trait_type);
+                        self.constrain_declared_bound(actual, &trait_type, env);
                         let satisfied = self.aggregates.intrinsic_implementation(
                             &trait_type,
                             actual,

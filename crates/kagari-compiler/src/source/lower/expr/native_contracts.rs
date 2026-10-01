@@ -84,11 +84,13 @@ impl FunctionLowerer<'_, '_> {
         for (parameter, argument) in function.generic_params.iter().zip(&arguments) {
             substitution.bind(&parameter.owner, parameter.position, argument);
         }
+        let bounds = self
+            .planner
+            .registered_native_declaration(&declaration)
+            .map(|registered| registered.function.bounds.clone())
+            .unwrap_or_else(|| checked_bounds(&function.bounds));
         let requirements = substitution
-            .apply_bounds(
-                &checked_bounds(&function.bounds),
-                &self.planner.options.cancel,
-            )
+            .apply_bounds(&bounds, &self.planner.options.cancel)
             .map_err(|_| invalid())?;
         let params =
             self.planner
@@ -191,11 +193,13 @@ impl FunctionLowerer<'_, '_> {
         for (param, argument) in function.generic_params.iter().zip(&applied_arguments) {
             bindings.bind(&param.owner, param.position, argument);
         }
+        let bounds = self
+            .planner
+            .registered_native_declaration(declaration)
+            .map(|registered| registered.function.bounds.clone())
+            .unwrap_or_else(|| checked_bounds(&function.bounds));
         let requirements = bindings
-            .apply_bounds(
-                &checked_bounds(&function.bounds),
-                &self.planner.options.cancel,
-            )
+            .apply_bounds(&bounds, &self.planner.options.cancel)
             .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {

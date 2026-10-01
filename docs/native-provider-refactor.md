@@ -128,7 +128,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function/impl/inherent-method named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies, NativeArray, six immutable NativeRange shapes and generic Rust Bound payloads work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; injected NativeSelected handles derive local or external requirements; portable defaults resolve explicit template applications and execute through ordinary native slots | Projected receivers, Rust/source default authoring and materialization, associated families and remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; injected NativeSelected handles derive local/external and ordinary projected requirements; portable defaults resolve explicit template applications and execute through ordinary native slots | Associated families, method-generic selected authoring and remaining value representations |
 | Type authoring | native_type accepts aliases and single-field tuple wrappers backed by actual NativeRepresentation adapters; generic authoring accepts T: NativeValue; enum shapes enter HIR directly with tooling coordinates | Extend the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -255,7 +255,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Typed Rust owned default authoring from real function templates and private helper identities.
   - [x] Retain and validate external default/template declaration dependencies before publication, installation and portable linking.
   - [x] Complete concrete default obligations against actual registered implementation facts.
-  - [ ] Projected receivers and Ord/sort_by/sort.
+  - [x] Ordinary projected selected receivers, implied base bounds and exact registered template retention.
+  - [ ] Ord/Ordering and sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
   - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
@@ -2795,3 +2796,91 @@ The original unbounded full-library goal remains active. Next, extend projected
 receiver authoring through actual registered contracts and restore the complete
 cmp declaration/provider surface and prepared sorting. Follow with managed
 returned state, remaining families, legacy retirement and NR05/ST06 acceptance.
+
+### NR02 checkpoint: ordinary projected selected receivers (2026-10-02)
+
+Restoration step 2 now accepts an ordinary qualified associated receiver in a
+typed selection marker. This closes the projected receiver substep; Ord/Ordering,
+prepared sorting, managed returned state, remaining families and final acceptance
+remain open in the original unbounded goal. Associated families and method-generic
+selected authoring are not claimed by this proof.
+
+- Rust authors keep actual `T: NativeValue, U: NativeValue` value parameters and a
+  `NativeSelected<(U,), i32>` handle. The marker
+  `#[selected(<T as game::selected::Echo<Output = U>>::Output:
+  game::selected::Echo<Output = i32>::echo)]` names the script projection explicitly;
+  it does not require a fictitious Rust Echo implementation for GenericValue.
+  Only selection-marker receivers use this syntax. Ordinary Rust function/impl
+  types retain their actual Rust NativeValue conversion and trait conformance.
+- Resolve the real owning trait and ordinary associated declaration from the local
+  module or explicit NativeCatalog. Reject absent members, undeclared output
+  bindings, unsupported families and incompatible typed callback signatures before
+  publication. Derive each projected receiver's base obligation as well as its
+  selected output obligation. An embedded output equality alone cannot supply the
+  base receiver's trait authority.
+- During generic forwarding inference, use a unique compatible caller trait bound
+  to constrain associated equalities before searching concrete implementations.
+  The checked pass still validates applicability; missing caller bounds and
+  incompatible equalities remain ordinary analysis errors.
+- Preserve registration-owned NativeDeclaration templates exactly in executable
+  ABI. HIR normalizes bounds for static checking; mixing those normalized bounds
+  with original selected requirements produced `InvalidPublicAbi`. Preserving only
+  the declaration then exposed `InvalidGraph`, because direct-call requirements
+  still came from normalized HIR. Emit both template and applied requirements from
+  the same registered facts while retaining checked call signatures. Legacy
+  nonregistered entries keep their existing HIR-owned route pending NR04. Portable
+  validators and exact runtime contract matching remain unchanged and strict.
+- The real game::projected package consumes game::selected's actual Echo/Bag
+  contracts. `echo_twice` resumes one callback, roots its associated output, forces
+  allocation and invokes the selected member on that output. `inspect_output`
+  exercises the implied base constraint without requesting a base callback.
+  Native/native, script/script, mixed and generic forwarding entries return 42.
+  Compare generated tooling text, implied bounds and the carried declarations with
+  actual registration, without parsing generated text to establish semantics.
+- Encoded/source-free tests reject erased projected obligations and a changed
+  second selected target. Runtime tests cover frequent GC, every budget cut,
+  traps in either callback and retained script generations across reload.
+  Registration negatives cover an absent catalog, absent associated member and
+  wrong callback result. Source negatives cover missing bounds, contradictory output
+  equalities and a projection whose base receiver has no applicable implementation.
+- Runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 stay unchanged. The existing
+  wire types already express these projections, predicates and concrete targets.
+  A new independently regenerable native_projected fixture joins the standalone
+  proof matrix; existing exact fixture assertions are retained.
+
+Validation actually performed:
+
+- `uv run python scripts/check_features.py --native-proof` passes all fifteen
+  targets in every standalone consumer: 74 artifact-only, 122 source, 74 native
+  and 123 source+native tests. The projected proof contributes five offline tests
+  and four source tests. All eight production dependency boundaries and the
+  source-independent ABI build graph pass. Existing source-emission byte equality
+  assertions pass without regenerating older products.
+- Four native-macro unit tests pass, including rejection of unqualified,
+  multi-member and family projection syntax. Workspace library Clippy and focused
+  projected SDK/test/example Clippy pass with warnings denied. Formatting, the
+  whole-repository structure check (860 Rust files, zero violations/exceptions)
+  and diff checks pass. The added tooling-coordinate assertion initially assumed
+  the reverse canonical order of the two bounds; correct the assertion to the
+  actual sorted contract and rerun the entire feature matrix successfully.
+- Manual review covers explicit owner imports and the empty re-export whitelist,
+  exact registered template/application retention, genuine declaration ownership,
+  generic inference and negative applicability checks, callback root lifetimes,
+  cleanup and generation retention. No forwarding API, synthesized script body,
+  alternate trait solver or validation bypass is added.
+- Full all-target/workspace acceptance is still blocked by the inherited NR04
+  legacy test/example consumers and remaining library restoration. The preceding
+  checkpoint's fourteen ABI lib-test compiler errors still belong to NR04; this
+  checkpoint does not disable those tests or repeat an unchanged failing build.
+  See target/native-facts-abi-lib-build.log and the preceding ledger entry for the
+  reproduction and diagnostics.
+
+New outputs are under target/native-projected-features.log,
+target/architecture-features/native-proof/, target/native-projected-tests.log,
+target/native-projected-macros.log, target/native-projected-clippy.log,
+target/native-projected-focused-clippy.log and target/native-projected-structure.log.
+
+The original goal remains active. Next, restore the complete cmp declarations,
+actual selected ordering implementations and prepared sort_by/sort. Follow with
+managed returned state, remaining families, legacy retirement and NR05/ST06
+acceptance. This checkpoint accepts no entire NR phase.

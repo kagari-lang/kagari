@@ -65,6 +65,10 @@ name = "regenerate_native_concrete_artifact"
 required-features = ["source"]
 
 [[example]]
+name = "regenerate_native_projected_artifact"
+required-features = ["source"]
+
+[[example]]
 name = "native_mutable_list"
 required-features = ["source"]
 

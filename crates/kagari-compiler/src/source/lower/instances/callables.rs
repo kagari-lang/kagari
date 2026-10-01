@@ -21,7 +21,7 @@ use kagari_hir::{
 };
 
 impl InstancePlanner<'_> {
-    pub(super) fn registered_native_declaration(
+    pub(crate) fn registered_native_declaration(
         &self,
         declaration: &DefinitionId,
     ) -> Option<&NativeDeclaration> {

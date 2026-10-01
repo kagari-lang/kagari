@@ -21,6 +21,11 @@ use std::collections::BTreeMap;
 pub enum TypeExpression {
     Parameter(usize),
     Associated(usize),
+    Projection {
+        receiver: Box<Self>,
+        interface: Box<Self>,
+        member: &'static str,
+    },
     Named {
         path: Vec<&'static str>,
         arguments: Vec<Self>,
@@ -59,6 +64,53 @@ impl Scope<'_> {
 
     pub fn resolve(&self, expression: &TypeExpression) -> Result<AbiType, RuntimeError> {
         Ok(match expression {
+            TypeExpression::Projection {
+                receiver,
+                interface,
+                member,
+            } => {
+                let AbiType::Trait(interface) = self.resolve(interface)? else {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native projection requires a trait",
+                    ));
+                };
+                let declaration = self
+                    .module
+                    .traits
+                    .iter()
+                    .find(|contract| {
+                        self.module
+                            .definition(DefinitionKind::Trait, &contract.name)
+                            == interface.declaration
+                    })
+                    .or_else(|| self.catalog.get(&interface.declaration))
+                    .ok_or_else(|| {
+                        RuntimeError::metadata_conflict(
+                            "native projection requires a registered trait",
+                        )
+                    })?;
+                let member = associated_type_id(&interface.declaration, member);
+                if interface.arguments.len() != declaration.generic_params.len()
+                    || !declaration.associated_types.iter().any(|declared| {
+                        declared.declaration == member && declared.generic_params.is_empty()
+                    })
+                    || interface.associated_types.keys().any(|bound| {
+                        !declaration.associated_types.iter().any(|declared| {
+                            &declared.declaration == bound && declared.generic_params.is_empty()
+                        })
+                    })
+                {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native projection names an absent or unsupported associated type",
+                    ));
+                }
+                AbiType::Projection {
+                    receiver: Box::new(self.resolve(receiver)?),
+                    interface: Box::new(interface),
+                    member,
+                    arguments: vec![],
+                }
+            }
             TypeExpression::Associated(position) => {
                 let name = self.associated.get(*position).ok_or_else(|| {
                     RuntimeError::metadata_conflict("native associated slot is not declared")

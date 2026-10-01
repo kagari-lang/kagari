@@ -75,6 +75,21 @@ pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, R
                 "typed selected argument/result signature differs from its trait",
             ));
         }
+        // A projected callback also requires its base receiver's actual trait
+        // application. An embedded Output = U cannot establish that authority.
+        let mut base = &receiver;
+        while let AbiType::Projection {
+            receiver,
+            interface,
+            ..
+        } = base
+        {
+            bounds
+                .entry((**receiver).clone())
+                .or_default()
+                .insert(ConstraintAbi::Trait((**interface).clone()));
+            base = receiver;
+        }
         bounds
             .entry(receiver.clone())
             .or_default()

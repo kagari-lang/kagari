@@ -145,8 +145,32 @@ impl BodyChecker<'_> {
         }
     }
 
-    pub(super) fn constrain_declared_bound(&mut self, actual: &TypeId, interface: &NominalType) {
+    pub(super) fn constrain_declared_bound(
+        &mut self,
+        actual: &TypeId,
+        interface: &NominalType,
+        env: &BodyTypeEnv,
+    ) {
         if !self.solving {
+            return;
+        }
+        // A caller's checked bound supplies associated equalities even when its
+        // receiver is generic and has no concrete implementation to inspect.
+        let assumptions: Vec<_> = self
+            .trait_bounds_for(actual, env)
+            .into_iter()
+            .filter(|bound| {
+                bound.declaration == interface.declaration
+                    && !TypeId::Trait(bound.clone())
+                        .conflicts_with(&TypeId::Trait(interface.clone()))
+            })
+            .collect();
+        if let [assumed] = assumptions.as_slice() {
+            let _ = self.solver.constrain(
+                &TypeId::Trait(assumed.clone()),
+                &TypeId::Trait(interface.clone()),
+                self.cancel,
+            );
             return;
         }
         // A unique declaration shape supplies equalities, including through its

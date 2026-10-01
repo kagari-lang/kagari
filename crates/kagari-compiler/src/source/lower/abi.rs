@@ -432,6 +432,18 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
             else {
                 return None;
             };
+            // Registration owns the executable template, including unreduced
+            // projections and their selected requirements. HIR may normalize
+            // them for checking, but mixing that view with the original
+            // requirements changes the sealed contract used by portable linking.
+            if let Some(registered) = module
+                .lowered
+                .registered_native_declarations()
+                .iter()
+                .find(|item| &item.declaration == declaration)
+            {
+                return Some(registered.clone());
+            }
             let mut abi = function_abi(module, function)?;
             // Native method applications bind the owner parameters as well as the
             // method parameters; public trait method contracts keep their own scope.
@@ -444,13 +456,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 })
                 .collect();
             Some(NativeDeclaration {
-                callable_requirements: module
-                    .lowered
-                    .registered_native_declarations()
-                    .iter()
-                    .find(|item| &item.declaration == declaration)
-                    .map(|item| item.callable_requirements.clone())
-                    .unwrap_or_default(),
+                callable_requirements: vec![],
                 declaration: declaration.clone(),
                 function: abi,
             })

@@ -36,6 +36,11 @@ trait, template and implementation contracts with the verified dependency closur
 Registration derives module dependency edges from that closure, including concrete
 implementations in providers whose functions need no source import. Typed selected
 receivers may be concrete; their generated predicates still require actual proof.
+Selected markers may name an ordinary qualified associated projection and its
+explicit output binding. Registration checks the actual associated declaration,
+derives its base trait obligation and compares the real typed callback signature.
+HIR can normalize these predicates for static checking; executable declarations
+and application requirements retain the original registered template together.
 Catalog views do not install
 handlers or replace ordinary generic applicability and parent-witness proofs.
 
@@ -61,8 +66,9 @@ source lowering applies checked substitutions and materializes ordinary native
 calls, selected callbacks and interface slots. No implementation-owned script body
 is synthesized. Native-module authoring adds owned default members from actual Rust
 function templates with explicit binder correspondences. Templates retain private
-registered identities; only the generated trait members are public. Complete
-external default/template closure and projected requirements remain open under NR02.
+registered identities; only the generated trait members are public. External
+default/template closure and ordinary projected requirements are exercised;
+method-generic selected authoring and sorting remain open under NR02.
 Portable Native implementations carry a binding DefinitionId; registered Rust
 factories supply execution. Source-free runtimes receive the same checked native
 records directly from installed packages. Host adapters retain passing styles,

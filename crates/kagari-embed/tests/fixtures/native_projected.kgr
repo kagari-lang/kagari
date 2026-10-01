@@ -1,0 +1,25 @@
+use game::selected::Echo;
+use game::projected::{echo_twice, inspect_output};
+struct Inner { val value: i32 }
+struct Outer { val value: Inner }
+impl Echo for Inner {
+    type Output = i32;
+    fn echo(self) -> i32 { self.value }
+    fn offset(self, by: i32) -> i32 { self.value + by }
+}
+impl Echo for Outer {
+    type Output = Inner;
+    fn echo(self) -> Inner { self.value }
+    fn offset(self, by: i32) -> Inner { self.value }
+}
+impl Echo for i32 {
+    type Output = ArrayList<i32>;
+    fn echo(self) -> ArrayList<i32> { [self] }
+    fn offset(self, by: i32) -> ArrayList<i32> { [self + by] }
+}
+fn generic<T: Echo<Output = U>, U: Echo<Output = i32>>(value: T) -> i32 { echo_twice(value) }
+fn native_main() -> i32 { echo_twice([[42]]) }
+fn script_main() -> i32 { echo_twice(Outer { value: Inner { value: 42 } }) }
+fn mixed_main() -> i32 { echo_twice(42) }
+fn generic_main() -> i32 { generic(Outer { value: Inner { value: 42 } }) }
+fn inspect_main() -> i32 { inspect_output::<Outer, Inner>(Inner { value: 42 }) }

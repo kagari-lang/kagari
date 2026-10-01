@@ -78,7 +78,9 @@ The concrete-default checkpoint retains actual registered implementation headers
 and methods in the common proof catalog, derives provider module dependencies and
 allows typed concrete selected receivers. A three-package application proves
 native/script direct and dynamic defaults plus nested callbacks with default
-packages disabled. Projected receivers, sorting, managed returned state, remaining
+packages disabled. Ordinary projected selected receivers now retain actual
+associated contracts and implied base obligations, with exact registered templates
+carried through artifact emission and linking. Sorting, managed returned state, remaining
 library restoration and final acceptance remain open.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)

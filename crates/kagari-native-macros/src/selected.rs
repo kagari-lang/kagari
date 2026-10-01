@@ -3,8 +3,8 @@ use crate::signature;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    Attribute, Error as SyntaxError, FnArg, Ident, Path, Result as SyntaxResult, Signature, Token,
-    Type,
+    Attribute, Error as SyntaxError, FnArg, Ident, Path, PathArguments, Result as SyntaxResult,
+    Signature, Token, Type,
     parse::{Parse, ParseStream},
 };
 
@@ -71,7 +71,7 @@ pub(crate) fn descriptors(
             ));
         }
         let selected: Selected = attr.parse_args()?;
-        let selected_receiver = signature::value_type(&selected.receiver, names, runtime, receiver);
+        let selected_receiver = receiver_expression(&selected.receiver, names, runtime, receiver)?;
         let contract = signature::nominal(&selected.contract, names, runtime)?;
         let member = selected.member.to_string();
         let ty = signature::concrete(&argument.ty, names, runtime, receiver);
@@ -81,4 +81,65 @@ pub(crate) fn descriptors(
         }));
     }
     Ok(descriptors)
+}
+
+fn receiver_expression(
+    ty: &Type,
+    names: &[Ident],
+    runtime: &Path,
+    receiver: Option<&Type>,
+) -> SyntaxResult<TokenStream> {
+    let Type::Path(path) = ty else {
+        return Ok(signature::value_type(ty, names, runtime, receiver));
+    };
+    let Some(qualified) = &path.qself else {
+        return Ok(signature::value_type(ty, names, runtime, receiver));
+    };
+    if qualified.position == 0 || path.path.segments.len() != qualified.position + 1 {
+        return Err(SyntaxError::new_spanned(
+            ty,
+            "selected projections use <Receiver as Trait>::Member",
+        ));
+    }
+    let mut interface = path.path.clone();
+    let member = interface
+        .segments
+        .pop()
+        .expect("checked projection member")
+        .into_value();
+    if !matches!(member.arguments, PathArguments::None) {
+        return Err(SyntaxError::new_spanned(
+            member,
+            "selected associated families are not supported",
+        ));
+    }
+    interface.segments.pop_punct();
+    let receiver = receiver_expression(&qualified.ty, names, runtime, receiver)?;
+    let interface = signature::nominal(&interface, names, runtime)?;
+    let member = member.ident.to_string();
+    Ok(
+        quote!(#runtime::native_module::types::TypeExpression::Projection {
+            receiver: ::std::boxed::Box::new(#receiver),
+            interface: ::std::boxed::Box::new(#interface), member: #member,
+        }),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::parse_quote;
+
+    #[test]
+    fn selected_projection_syntax_requires_a_qualified_ordinary_member() {
+        let runtime = parse_quote!(kagari_runtime);
+        let names = [parse_quote!(T), parse_quote!(U)];
+        for ty in [
+            parse_quote!(<T>::Output),
+            parse_quote!(<T as Reader>::Output::Nested),
+            parse_quote!(<T as Reader>::Output<U>),
+        ] {
+            assert!(receiver_expression(&ty, &names, &runtime, None).is_err());
+        }
+    }
 }
