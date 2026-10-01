@@ -26,8 +26,9 @@ verification proves against the executable dependency closure. Runtime linking
 uses the sealed VerifiedProgram and requires exact equality of the complete
 carried declaration with an installed registration, including bounds and passing
 metadata. A weaker installed signature cannot authorize a stronger product.
-The typed macro still accepts only its bounded NativeValue generic form; broader
-Rust constraint authoring and selected trait-member callbacks remain later steps.
+The typed macro retains its bounded NativeValue Rust generic form. Injected selected
+parameters additionally declare checked script constraints; broader Rust constraint
+authoring remains queued.
 Applicability bounds alone do not declare a callable dependency.
 
 Registered traits may declare ordinary associated types with named output bounds;
@@ -43,8 +44,8 @@ same registered signatures. Rust checks the actual associated method signatures;
 adapters use qualified concrete Rust impl types. NativeValue is a Rust conversion
 requirement, not a script trait bound. Associated families, defaults, inherited
 slot authoring and broader script constraint authoring remain later work. General
-application-native interface slots and selected-member callbacks are still pending;
-the current proof covers direct and statically specialized generic calls.
+application-native interface slots and selected-member callbacks share ordinary
+checked target applications, including dynamic calls and retained dependency versions.
 
 Typed callback parameters use `NativeFn<A, R>` from the continuation owner module.
 `A` is an explicit outer tuple implementing NativeArguments: `()` means no
@@ -56,7 +57,32 @@ creates a checked rooted callback; NativeFn.result converts the resumed value.
 The common frame driver owns execution, logical steps, callback-result roots and
 cleanup. This replaces the earlier usize-only callback adapter; from_fn now uses
 `NativeFn<(usize,), T>` with the same generated/executable script signature.
-Returned persistent state and checked trait-member targets remain later NR work.
+Returned persistent state remains later NR work.
+
+`native_value::selected::NativeSelected<A, R>` is an injected checked trait-member
+handle. For example, a generic free/inherent native entry can declare:
+
+```rust
+#[selected(T: Echo<Output = NativeArray<i32>>::echo)]
+echo: NativeSelected<(T,), NativeArray<i32>>,
+```
+
+This parameter adds the script bound `T: Echo<Output = ArrayList<i32>>` and the exact
+callable requirement; it is absent from the script parameter list. The registered
+trait owns the member signature. Registration rejects a mismatched argument pack
+or result type before publication. The Rust receiver remains `T: NativeValue` and
+does not pretend that a runtime script type implements a Rust trait. The typed
+authoring checkpoint supports generic receiver parameters and local registered
+traits; external trait catalogs, projected receivers and member-local generics
+remain queued. Required Rust trait signatures do not inject implementation handles.
+
+NativeSelected.request converts its full argument pack and enters the common
+callback driver. NativeSelected.result decodes the resumed value under the checked
+selected result type. The handle retains the application and original dependency
+generation instead of looking up a slot in each new context. Neither the handle
+nor a script closure becomes an unrestricted Rust reference. NativeResult may wrap
+any NativeReturn, including a fallible NativeContinuation; its scratch requirement
+and cleanup semantics come from the wrapped return type.
 
 Ordinary Rust tuples of one through eight NativeValue members describe script
 tuple values, including nested and single-element tuples; unit remains `()`.

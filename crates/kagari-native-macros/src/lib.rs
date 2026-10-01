@@ -1,5 +1,6 @@
 //! Compile-time adapters from checked Rust definitions to native API records.
 mod author;
+mod selected;
 mod signature;
 
 use proc_macro::TokenStream;

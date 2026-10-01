@@ -6,6 +6,7 @@ mod conversions;
 #[doc(hidden)]
 pub mod declaration;
 pub mod result;
+pub mod selected;
 mod tuples;
 
 use crate::{
@@ -16,7 +17,10 @@ use crate::{
     native_module::types::TypeExpression,
     value::Value,
 };
-use kagari_abi::{native_import::NativeSignature, types::AbiType};
+use kagari_abi::{
+    native_import::{NativeSignature, callables::NativeCallableApplication},
+    types::AbiType,
+};
 use std::{cell::RefCell, rc::Rc};
 
 pub type NativeResult<T> = Result<T, RuntimeError>;
@@ -35,6 +39,7 @@ pub struct NativeCall {
     pub(super) heap: Rc<GcHeap>,
     pub(super) owner: LoadedModule,
     signature: NativeSignature,
+    pub(super) callables: Vec<NativeCallableApplication>,
     arguments: RootSet,
     temporaries: Rc<RefCell<Vec<RootSet>>>,
 }
@@ -51,6 +56,7 @@ impl NativeCall {
             heap,
             owner: context.module_owner(),
             signature: context.signature().clone(),
+            callables: context.selected_applications().to_vec(),
             arguments,
             temporaries: Rc::new(RefCell::new(vec![])),
         })
@@ -140,7 +146,8 @@ impl<T: NativeValue> NativeReturn for T {
         Ok(Box::new(Completed { delay }))
     }
 }
-impl<T: NativeValue> NativeReturn for NativeResult<T> {
+impl<T: NativeReturn> NativeReturn for NativeResult<T> {
+    const SCRATCH_SLOTS: usize = T::SCRATCH_SLOTS;
     fn type_expression(generics: &[&'static str]) -> TypeExpression {
         T::type_expression(generics)
     }

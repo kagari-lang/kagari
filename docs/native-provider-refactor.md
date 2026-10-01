@@ -128,7 +128,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function/impl/inherent-method named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered free-function requirements select script/native targets | Complete typed requirement authoring, native defaults and remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered requirements select script/native targets; injected NativeSelected handles derive local-trait requirements for free/inherent entries | External trait catalogs, projected receivers, native defaults and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -248,7 +248,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Typed outer argument packs and checked resumed results; external repeated/nested proof.
   - [x] Named free-function bounds, associated outputs and checked selected trait-member callback proof.
   - [x] Impl/inherent-method bounds, native method requirements and checked MIR target materialization.
-  - [ ] Native default requirements, typed authoring, Ord/sort_by/sort.
+  - [x] Typed local-trait selected handles, generated bounds and registration signature checks for free/inherent entries.
+  - [ ] External typed trait catalogs, projected receivers, native default requirements and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
@@ -2158,3 +2159,57 @@ NR04; unchanged failures were not rerun or disabled, and final acceptance is ope
 Next: expose typed selected-call requirements in Rust authoring and complete native
 default metadata, then restore Ord/Ordering and sort_by/sort. Prove managed iterator
 state before dependent restoration. Goal mode remains active.
+
+
+### NR02 checkpoint: typed selected dependency authoring (2026-10-01)
+
+Checkpoint 2 exposes selected dependencies in the typed Rust authoring API. This
+accepts only the bounded local-trait/free-or-inherent authoring proof, not the
+complete checkpoint or any NR phase. Cross-module typed catalogs, projected
+receivers, member-local generics, native defaults, sorting and managed returned
+state remain open.
+
+- Add injected `#[selected(T: Trait::method)]` parameters with
+  `NativeSelected<A, R>` handles. Derive the generic script bound and exact member
+  requirement from the annotation; exclude the injected parameter from the script
+  signature. Preserve Rust body/type checking and generated tooling coordinates.
+- Resolve typed packs and results against the registered trait signature at
+  publication, including declared associated output bindings. Reject absent
+  members, wrong packs/results, non-generic receiver targets and conflicting or
+  malformed markers. Canonical bounds deduplicate repeated obligations while
+  ordered requirements preserve distinct injected selections.
+- Keep the checked application and original dependency generation in the typed
+  handle. Convert requests/results through NativeArguments/NativeValue and reuse
+  the existing selected callback driver. Do not select an unrelated slot from a
+  later context or introduce another dispatcher.
+- Generalize NativeResult's NativeReturn adapter to wrap a continuation as well
+  as immediate values; retain the wrapped return's scratch requirement. A native
+  execution failure remains distinct from a script Result value.
+- Add an independent application fixture with associated-output Echo methods,
+  generic native array implementations, private script implementations, a selected
+  free entry and an inherent entry. Two ordered selections share one bound; the
+  second receives a binary argument pack while the first heap result stays rooted.
+  Exercise forced GC, default opt-out, encoded execution, factory/callback traps,
+  every logical budget cut and pinned script generations after reload.
+- Extend independent feature consumers and Rust compile-rejection checks with the
+  typed selected proof. Keep ABI v138, KBC v115, KMIR v13 and helper ABI v6: this
+  authoring change uses the already checked executable requirement schema. The new
+  fixture has its own source-to-artifact generator; existing products remain exact.
+
+Validation actually performed: 86 SDK tests pass across the ten focused targets,
+including eight typed selected tests and 26 associated tests. All four standalone
+native-proof feature consumers, eight production crate boundaries and the
+source-free ABI build graph pass. The macro rejection suite passes; the separate
+Rust consumer rejects six invalid contracts and compiles the alias/runtime-path
+hygiene case. Workspace library and focused SDK/example Clippy pass with
+-D warnings. Format, structure (829 Rust files, zero findings/exceptions) and diff
+checks pass. Manual review covers generated token paths, explicit owner imports,
+the empty re-export whitelist, hidden descriptor ownership, typed/checked signature
+agreement, callback roots and generation retention. The new artifact matches
+source emission exactly. Full-workspace/all-target obsolete fixture failures remain
+NR04-owned; unchanged failures were not rerun or disabled. Final acceptance is open.
+
+Next: provide the checked external trait catalog and native default contracts
+needed by Ord/Ordering and sort_by/sort, then prove managed iterator state. Keep
+NR04 integration failures and the full NR05/ST06 behavior/measurement obligations
+in scope. Goal mode remains active.

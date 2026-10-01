@@ -1,4 +1,5 @@
 //! Rust signatures and type substitution for a single compiled generic adapter.
+use crate::selected;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
@@ -293,7 +294,9 @@ pub(crate) fn method(
                 params.push(quote!(("self", #ty)));
             }
             FnArg::Typed(arg) => {
-                if arg.attrs.iter().any(|attr| attr.path().is_ident("context")) {
+                if arg.attrs.iter().any(|attr| attr.path().is_ident("context"))
+                    || selected::marker(&arg.attrs).is_some()
+                {
                     continue;
                 }
                 let Pat::Ident(pattern) = &*arg.pat else {
@@ -313,9 +316,11 @@ pub(crate) fn method(
         ReturnType::Type(_, ty) => *ty.clone(),
     };
     let result = concrete(&result, names, runtime, receiver);
+    let selected = selected::descriptors(sig, names, runtime, receiver)?;
     let names: Vec<_> = names.iter().map(ToString::to_string).collect();
     Ok(quote!(#runtime::native_module::Method {
         name: #name, documentation: #doc, params: ::std::vec![#(#params),*],
         result: <#result as #runtime::native_value::NativeReturn>::type_expression(&[#(#names),*]), binding: #binding,
+        selected: ::std::vec![#(#selected),*],
     }))
 }

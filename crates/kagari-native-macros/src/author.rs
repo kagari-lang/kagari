@@ -1,5 +1,5 @@
 //! Attribute expansion keeps original Rust definitions and emits checked adapters.
-use crate::signature;
+use crate::{selected, signature};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
@@ -89,6 +89,7 @@ impl Expansion<'_> {
         let mut declarations = vec![];
         let mut arguments = vec![];
         let mut slot = 0usize;
+        let mut selected_slot = 0usize;
         let concrete_receiver = receiver.map(|ty| signature::concrete(ty, names, runtime, None));
         let concrete_contract = contract.map(|path| {
             let ty: Type = parse_quote!(#path);
@@ -109,6 +110,19 @@ impl Expansion<'_> {
                     if signature::marker(&mut arg.attrs, "context").is_some() {
                         // Rust verifies the injected call against the actual parameter type.
                         arguments.push(quote!(__call));
+                    } else if signature::marker(&mut arg.attrs, "selected").is_some() {
+                        let ty = signature::concrete_method(
+                            &arg.ty,
+                            names,
+                            runtime,
+                            concrete_receiver.as_ref(),
+                            concrete_contract.as_ref(),
+                        );
+                        let var = format_ident!("__selected_{selected_slot}");
+                        declarations
+                            .push(quote!(let #var: #ty = __call.selected(#selected_slot)?;));
+                        arguments.push(quote!(#var));
+                        selected_slot += 1;
                     } else {
                         let ty = signature::concrete_method(
                             &arg.ty,
@@ -213,6 +227,11 @@ impl Expansion<'_> {
                 ));
             };
             signature::validate(&method.sig)?;
+            if contract.is_some() && method.sig.inputs.iter().any(|argument| {
+                matches!(argument, FnArg::Typed(argument) if selected::marker(&argument.attrs).is_some())
+            }) {
+                return Err(SyntaxError::new_spanned(&method.sig, "injected selected dependencies belong to free or inherent native entries"));
+            }
             let original = method.sig.clone();
             let default = format!(
                 "{}_{}_{}",
@@ -383,6 +402,9 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                 let methods = ty.items.iter().filter(|item| !matches!(item, TraitItem::Type(_))).map(|item| {
                     let TraitItem::Fn(method) = item else { return Err(SyntaxError::new_spanned(item, "native traits export required methods and ordinary associated types")); };
                     if method.default.is_some() { return Err(SyntaxError::new_spanned(method, "native trait defaults require a separate executable implementation")); }
+                    if method.sig.inputs.iter().any(|argument| matches!(argument, FnArg::Typed(argument) if selected::marker(&argument.attrs).is_some())) {
+                        return Err(SyntaxError::new_spanned(method, "required trait signatures do not inject selected dependencies"));
+                    }
                     signature::validate(&method.sig)?;
                     let sig = signature::trait_signature(&method.sig, &ty.ident, &names, &associated_names, runtime);
                     signature::method(&sig, &method.attrs, &names, runtime, None, quote!(::std::option::Option::None))
@@ -450,6 +472,42 @@ mod tests {
     #[test]
     fn unsupported_rust_contracts_report_errors() {
         for module in [
+            quote!(
+                mod native {
+                    #[native]
+                    fn bad<T: NativeValue>(
+                        #[selected(T: Check::check)]
+                        #[context]
+                        value: NativeSelected<(T,), ()>,
+                    ) {
+                    }
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native]
+                    fn bad<T: NativeValue>(
+                        #[selected(T: Check::check)]
+                        #[selected(T: Check::check)]
+                        value: NativeSelected<(T,), ()>,
+                    ) {
+                    }
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native]
+                    fn bad<T: NativeValue>(#[selected(T: check)] value: NativeSelected<(T,), ()>) {}
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_trait]
+                    trait Bad {
+                        fn bad(&self, #[selected(Self: Bad::bad)] value: NativeSelected<(), ()>);
+                    }
+                }
+            ),
             quote!(
                 mod native {
                     #[native_trait]

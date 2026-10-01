@@ -1,5 +1,6 @@
 //! Expansion support for `#[native_module]`; registered ABI records remain authoritative.
 //! The public surface here is used by generated code in embedding consumers.
+mod selection;
 pub mod types;
 
 use crate::{
@@ -8,12 +9,15 @@ use crate::{
         api::{NativeApi, NativeHandler},
         factory::NativeFactory,
     },
-    native_module::types::{Scope, TypeExpression},
+    native_module::{
+        selection::Selection,
+        types::{Scope, TypeExpression},
+    },
 };
 use kagari_abi::{
     callable::CallableImplementation,
     native_api::{NativeImplementation, NativeModule},
-    native_import::binding_id,
+    native_import::{binding_id, callables::NativeCallableRequirement},
     types::{
         AbiType, AssociatedTypeAbi, FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi,
         TypeAbiKind, native::NativeTypeConstructor,
@@ -32,6 +36,15 @@ pub struct Method {
     pub params: Vec<(&'static str, TypeExpression)>,
     pub result: TypeExpression,
     pub binding: Option<Binding>,
+    pub selected: Vec<Selected>,
+}
+
+#[doc(hidden)]
+pub struct Selected {
+    pub receiver: TypeExpression,
+    pub interface: TypeExpression,
+    pub member: &'static str,
+    pub signature: TypeExpression,
 }
 
 #[doc(hidden)]
@@ -133,10 +146,11 @@ impl NativeModuleBuilder {
         let functions = methods
             .iter()
             .map(|method| {
-                if method.binding.is_some() {
+                if method.binding.is_some() || !method.selected.is_empty() {
                     return Err(invalid("required trait methods cannot bind a handler"));
                 }
                 function(&scope, method, CallableImplementation::Required, false)
+                    .map(|(function, _)| function)
             })
             .collect::<Result<_, _>>()?;
         self.module.traits.push(TraitAbi {
@@ -205,12 +219,18 @@ impl NativeModuleBuilder {
                 receiver: Some(&for_type),
                 associated: &[],
             };
-            functions.push(function(
+            let (function, requirements) = function(
                 &scope,
                 method,
                 CallableImplementation::Native(binding),
                 true,
-            )?);
+            )?;
+            functions.push(function);
+            if !requirements.is_empty() {
+                self.module
+                    .callable_requirements
+                    .insert(NativeModule::method_id(&owner, method.name), requirements);
+            }
         }
         let scope = Scope {
             module: &self.module,
@@ -300,13 +320,18 @@ impl NativeModuleBuilder {
             receiver: None,
             associated: &[],
         };
-        let function = function(
+        let (function, requirements) = function(
             &scope,
             &method,
             CallableImplementation::Native(binding),
             true,
         )?;
         self.module.functions.push(function);
+        if !requirements.is_empty() {
+            self.module
+                .callable_requirements
+                .insert(owner.clone(), requirements);
+        }
         self.document(owner, method.documentation);
         Ok(())
     }
@@ -358,30 +383,37 @@ fn function(
     method: &Method,
     implementation: CallableImplementation,
     include_generics: bool,
-) -> Result<FunctionAbi, RuntimeError> {
-    Ok(FunctionAbi {
-        name: method.name.into(),
-        implementation,
-        method_policy: Default::default(),
-        generic_params: if include_generics {
-            scope.generics()
-        } else {
-            vec![]
-        },
-        bounds: vec![],
-        params: method
-            .params
-            .iter()
-            .map(|(name, ty)| {
-                Ok(ParameterAbi {
-                    name: (*name).into(),
-                    ty: scope.resolve(ty)?,
-                    mutable: false,
+) -> Result<(FunctionAbi, Vec<NativeCallableRequirement>), RuntimeError> {
+    let Selection {
+        bounds,
+        requirements,
+    } = selection::resolve(scope, method)?;
+    Ok((
+        FunctionAbi {
+            name: method.name.into(),
+            implementation,
+            method_policy: Default::default(),
+            generic_params: if include_generics {
+                scope.generics()
+            } else {
+                vec![]
+            },
+            bounds,
+            params: method
+                .params
+                .iter()
+                .map(|(name, ty)| {
+                    Ok(ParameterAbi {
+                        name: (*name).into(),
+                        ty: scope.resolve(ty)?,
+                        mutable: false,
+                    })
                 })
-            })
-            .collect::<Result<_, RuntimeError>>()?,
-        return_type: scope.resolve(&method.result)?,
-    })
+                .collect::<Result<_, RuntimeError>>()?,
+            return_type: scope.resolve(&method.result)?,
+        },
+        requirements,
+    ))
 }
 
 fn nominal(ty: AbiType) -> Result<NominalAbiType, RuntimeError> {

@@ -86,8 +86,10 @@ Ordinary native interface slots now enter real native frames. Registered generic
 free functions also carry checked selected trait-member callbacks, including
 associated-output receivers, script/private implementations and retained versions.
 Impl/inherent-method bounds and selected method callbacks now share checked MIR
-target records, including source-free dynamic slots. Typed bound/requirement
-authoring, native defaults, sorting and managed returned state remain pending.
+target records, including source-free dynamic slots. Injected typed selected
+handles now derive local-trait requirements for free/inherent entries. External
+typed trait catalogs, projected receivers, native defaults, sorting and managed
+returned state remain pending.
 
 ## Permissions and execution protection refactor queued
 

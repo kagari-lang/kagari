@@ -54,6 +54,13 @@ def run() -> None:
                 use kagari_runtime::native_value::continuation::NativeFn;
                 #[native] fn callback(value: NativeFn<usize, i32>) -> i32 { 0 }
             }''', "E0277"),
+        "selected-handle-type": ('''#[native_module("game::calls")]
+            mod calls {
+                use kagari_runtime::native_value::{NativeValue, continuation::NativeFn};
+                #[native_trait] trait Check { fn check(&self); }
+                #[native] fn selected<T: NativeValue>(value: T,
+                    #[selected(T: Check::check)] check: NativeFn<(T,), ()>) { }
+            }''', "E0599"),
     }
     positive = """use kagari_runtime as renamed_runtime;
         #[native_module("game::math", runtime = crate::renamed_runtime)]

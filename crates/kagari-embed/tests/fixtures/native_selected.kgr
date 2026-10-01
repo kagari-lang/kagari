@@ -1,0 +1,11 @@
+use game::selected::{Echo, invoke, invoke_both};
+impl Echo for i32 {
+    type Output = ArrayList<i32>;
+    fn echo(self) -> ArrayList<i32> { [self] }
+    fn offset(self, by: i32) -> ArrayList<i32> { [self + by] }
+}
+fn script_main() -> i32 { invoke(42)[0usize] }
+fn native_main() -> i32 { invoke([[42]])[0usize] }
+fn method_main() -> i32 { [[[42]]].invoke_first()[0usize] }
+fn both_script_main() -> i32 { invoke_both(41)[0usize] }
+fn both_native_main() -> i32 { invoke_both([[42]])[0usize] }

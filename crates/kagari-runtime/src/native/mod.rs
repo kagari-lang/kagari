@@ -83,6 +83,9 @@ impl NativeContext<'_> {
     pub(crate) fn module_owner(&self) -> LoadedModule {
         self.owner.clone()
     }
+    pub(crate) fn selected_applications(&self) -> &[NativeCallableApplication] {
+        self.callables
+    }
     pub fn heap(&self) -> &GcHeap {
         self.runtime.gc()
     }
@@ -164,8 +167,16 @@ impl NativeContext<'_> {
     ) -> Result<NativeCallback, RuntimeError> {
         let invalid = || RuntimeError::module_validation("selected native callable contract");
         let selected = self.callables.get(slot).ok_or_else(invalid)?;
-        let implementation = self
-            .owner
+        self.selected_application(self.owner, selected, arguments)
+    }
+    pub(crate) fn selected_application(
+        &self,
+        owner: &LoadedModule,
+        selected: &NativeCallableApplication,
+        arguments: Vec<Value>,
+    ) -> Result<NativeCallback, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("selected native callable contract");
+        let implementation = owner
             .members()
             .find(|owner| owner.bytecode.identity == selected.instance.declaration.module)
             .ok_or_else(invalid)?;
