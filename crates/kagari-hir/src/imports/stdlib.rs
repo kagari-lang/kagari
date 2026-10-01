@@ -14,6 +14,13 @@ mod tests;
 impl SourceCatalog<'_> {
     /// Translate the installed package alias without interpreting any declarations.
     pub(super) fn source_path<'p>(&self, path: &'p str) -> Cow<'p, str> {
+        if let Some((alias, member)) = path.split_once("::")
+            && let Some(packages) = self.package_aliases.get(alias)
+            && packages.len() == 1
+        {
+            let package = packages.first().expect("one installed package alias");
+            return Cow::Owned(format!("{package}::{member}"));
+        }
         let Some(root) = &self.standard_root else {
             return Cow::Borrowed(path);
         };

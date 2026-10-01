@@ -24,6 +24,7 @@ use kagari_runtime::{
     native::{
         NativeAction, NativeContext, NativeInvocationState,
         api::{NativeApi, NativeHandler},
+        cmp_api::cmp,
         packages::standard_library,
     },
     value::Value,
@@ -38,13 +39,16 @@ fn engine(calls: Rc<Cell<usize>>) -> KagariEngine {
 fn configured_engine(calls: Rc<Cell<usize>>, defaults: bool) -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::builder()
+    let mut builder = KagariEngine::builder()
         .config(config)
         .install_standard_library(defaults)
         .install(Ok(fixture_api::api(fixture_api::module(), calls)))
-        .install(fixture_api::typed::native_api())
-        .build()
-        .unwrap()
+        .install(fixture_api::typed::native_api());
+    // This product was emitted with the default prelude's cmp dependency.
+    if !defaults {
+        builder = builder.install(cmp::native_api());
+    }
+    builder.build().unwrap()
 }
 fn prepared() -> PreparedProgram {
     PreparedProgram::from_artifact(
@@ -374,6 +378,7 @@ fn selected_callbacks_reject_invalid_slots_and_arguments_before_target_entry() {
         .collect();
         let engine = KagariEngine::builder()
             .install_standard_library(false)
+            .install(cmp::native_api())
             .install(NativeApi::new(vec![module], handlers, Default::default()))
             .install(fixture_api::typed::native_api())
             .build()

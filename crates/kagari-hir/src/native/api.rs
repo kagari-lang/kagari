@@ -25,6 +25,7 @@ use kagari_abi::{
         NativeApiError, NativeModule,
         render::{NativeApiSource, NativeBoundSite},
     },
+    scalar::BuiltinType,
     standard::surface::builtin_type_spec,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
@@ -46,6 +47,7 @@ use std::{
 
 pub(crate) fn import(
     definition: &NativeModule,
+    providers: &[Arc<NativeModule>],
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), NativeApiError> {
@@ -74,6 +76,7 @@ pub(crate) fn import(
     }
     let mut importer = Importer {
         definition,
+        providers,
         generated: &generated,
         lowerer: Lowerer::new(cancel.clone()),
         native_types: HashMap::new(),
@@ -108,11 +111,6 @@ pub(crate) fn import(
         )
         .collect();
     for (index, identity) in definition.dependencies.iter().enumerate() {
-        let package = if identity.package.0 == "kagari-std" {
-            "std"
-        } else {
-            &identity.package.0
-        };
         let mut alias = format!("__native_dependency_{index}");
         while !occupied.insert(alias.clone()) {
             alias.push('_');
@@ -120,7 +118,7 @@ pub(crate) fn import(
         importer.lowerer.module.imports.push(Import {
             visibility: Visibility::Private,
             alias,
-            path: format!("{}::{}", package, identity.path.join("::")),
+            path: format!("{}::{}", identity.package.0, identity.path.join("::")),
             span: Span::default(),
             glob: false,
         });
@@ -134,6 +132,7 @@ pub(crate) fn import(
             source_map,
             attributes: vec![],
             registered_native_api: true,
+            native_package_alias: definition.package_alias.clone(),
             registered_declarations: definition.native_declarations(),
             native_types: importer.native_types,
             native_enums: importer.native_enums,
@@ -147,6 +146,7 @@ pub(crate) fn import(
 
 struct Importer<'a> {
     definition: &'a NativeModule,
+    providers: &'a [Arc<NativeModule>],
     generated: &'a NativeApiSource,
     lowerer: Lowerer,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
@@ -575,12 +575,12 @@ impl Importer<'_> {
             name.name.clone()
         } else {
             let module = &nominal.declaration.module;
-            let package = if module.package.0 == "kagari-std" {
-                "std"
-            } else {
-                &module.package.0
-            };
-            format!("{}::{}::{}", package, module.path.join("::"), name.name)
+            format!(
+                "{}::{}::{}",
+                module.package.0,
+                module.path.join("::"),
+                name.name
+            )
         };
         if nominal.declaration.module != self.definition.identity
             && self.external_imports.insert(name.clone())
@@ -637,6 +637,11 @@ impl Importer<'_> {
     }
     fn ty(&mut self, ty: &AbiType, span: Span) -> Result<TypeRefId, NativeApiError> {
         let kind = match ty {
+            AbiType::Builtin(BuiltinType::String) => TypeKind::Named(self.representation_name(
+                NativeTypeConstructor::String,
+                "String",
+                span,
+            )?),
             AbiType::Builtin(kind) => TypeKind::Named(
                 builtin_type_spec(*kind)
                     .ok_or_else(|| NativeApiError("unknown native scalar".into()))?
@@ -670,7 +675,8 @@ impl Importer<'_> {
                 if *access == CollectionAccess::ReadOnly {
                     TypeKind::Array(arg)
                 } else {
-                    let name = self.representation_name(NativeTypeConstructor::Array, "ArrayList");
+                    let name =
+                        self.representation_name(NativeTypeConstructor::Array, "ArrayList", span)?;
                     TypeKind::Generic {
                         name,
                         args: [arg].into_iter().collect(),
@@ -693,12 +699,19 @@ impl Importer<'_> {
                     .map(|ty| self.ty(ty, span))
                     .collect::<Result<_, _>>()?,
             ),
-            AbiType::StandardEnum { kind, args } if args.is_empty() => TypeKind::Named(
-                self.representation_name(NativeTypeConstructor::Enum(*kind), &format!("{kind:?}")),
-            ),
+            AbiType::StandardEnum { kind, args } if args.is_empty() => {
+                TypeKind::Named(self.representation_name(
+                    NativeTypeConstructor::Enum(*kind),
+                    &format!("{kind:?}"),
+                    span,
+                )?)
+            }
             AbiType::StandardEnum { kind, args } => TypeKind::Generic {
-                name: self
-                    .representation_name(NativeTypeConstructor::Enum(*kind), &format!("{kind:?}")),
+                name: self.representation_name(
+                    NativeTypeConstructor::Enum(*kind),
+                    &format!("{kind:?}"),
+                    span,
+                )?,
                 args: args
                     .iter()
                     .map(|ty| self.ty(ty, span))
@@ -708,8 +721,11 @@ impl Importer<'_> {
                 callable_syntax: false,
             },
             AbiType::Range(item, kind) => {
-                let name =
-                    self.representation_name(NativeTypeConstructor::Range(*kind), kind.name());
+                let name = self.representation_name(
+                    NativeTypeConstructor::Range(*kind),
+                    kind.name(),
+                    span,
+                )?;
                 if NativeTypeConstructor::Range(*kind).arity() == 0 {
                     TypeKind::Named(name)
                 } else {
@@ -727,12 +743,66 @@ impl Importer<'_> {
         Ok(self.lowerer.alloc_type(span, TypeData { kind }))
     }
 
-    fn representation_name(&self, constructor: NativeTypeConstructor, fallback: &str) -> String {
-        self.definition
+    fn representation_name(
+        &mut self,
+        constructor: NativeTypeConstructor,
+        fallback: &str,
+        span: Span,
+    ) -> Result<String, NativeApiError> {
+        if let Some(owned) = self
+            .definition
             .types
             .iter()
             .find(|ty| ty.kind == TypeAbiKind::Native(constructor))
-            .map(|ty| ty.name.clone())
-            .unwrap_or_else(|| fallback.into())
+        {
+            return Ok(owned.name.clone());
+        }
+        let candidates: Vec<_> = self
+            .providers
+            .iter()
+            .flat_map(|module| {
+                module
+                    .types
+                    .iter()
+                    .filter(move |ty| ty.kind == TypeAbiKind::Native(constructor))
+                    .map(move |ty| (module, ty))
+            })
+            .collect();
+        let preferred: Vec<_> = candidates
+            .iter()
+            .copied()
+            .filter(|(_, ty)| ty.name == fallback)
+            .collect();
+        let candidates = if preferred.is_empty() {
+            &candidates
+        } else {
+            &preferred
+        };
+        let [(module, ty)] = candidates.as_slice() else {
+            if candidates.is_empty() {
+                // Carried source-owned declarations still resolve through their
+                // actual installed prelude until their NR04 provider migrates.
+                return Ok(fallback.into());
+            }
+            return Err(NativeApiError(
+                "ambiguous installed native representation".into(),
+            ));
+        };
+        let name = format!(
+            "{}::{}::{}",
+            module.identity.package.0,
+            module.identity.path.join("::"),
+            ty.name
+        );
+        if self.external_imports.insert(name.clone()) {
+            self.lowerer.module.imports.push(Import {
+                visibility: Visibility::Private,
+                alias: name.clone(),
+                path: name.clone(),
+                span,
+                glob: false,
+            });
+        }
+        Ok(name)
     }
 }

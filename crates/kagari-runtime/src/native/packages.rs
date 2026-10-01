@@ -1,5 +1,5 @@
 //! Engine's default selection; every selected module is an ordinary native package.
-use crate::native::{api::NativeApi, array_api::array, math_api, ops_api::ops};
+use crate::native::{api::NativeApi, array_api::array, cmp_api::cmp, math_api, ops_api::ops};
 
 pub fn standard_library() -> NativeApi {
     let ops = ops::native_api().expect("bundled operator API");
@@ -7,6 +7,7 @@ pub fn standard_library() -> NativeApi {
     NativeApi::combine(vec![
         ops,
         array,
+        cmp::native_api().expect("bundled comparison API"),
         math_api::math::native_api().expect("bundled math API"),
     ])
     .expect("default native packages")

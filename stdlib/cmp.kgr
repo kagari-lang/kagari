@@ -1,17 +1,253 @@
-pub trait PartialEq {
-    fn eq(self, other: Self) -> bool;
-}
-pub trait Eq: PartialEq {
-}
-pub trait PartialOrd: PartialEq {
-    fn partial_cmp(self, other: Self) -> Option<Ordering>;
-}
-pub trait Ord: Eq + PartialOrd {
-    fn cmp(self, other: Self) -> Ordering;
-}
-#[builtin_enum(Ordering)]
+// Generated from native registration definitions. Do not edit.
+
+/// The checked result of a total ordering comparison.
 pub enum Ordering {
     Less,
     Equal,
     Greater,
+}
+
+/// Equality, which need not be reflexive for floating-point values.
+pub trait PartialEq {
+    fn eq(self, other: Self) -> bool;
+}
+
+/// Reflexive equality.
+pub trait Eq: PartialEq {
+}
+
+/// Ordering that may leave two values incomparable.
+pub trait PartialOrd: PartialEq {
+    fn partial_cmp(self, other: Self) -> Option<Ordering>;
+}
+
+/// A total ordering consistent with equality and partial ordering.
+pub trait Ord: Eq + PartialOrd {
+    fn cmp(self, other: Self) -> Ordering;
+}
+
+impl PartialEq for i8 {
+    pub fn eq(self, other: i8) -> bool;
+}
+
+impl Eq for i8 {
+}
+
+impl PartialOrd for i8 {
+    pub fn partial_cmp(self, other: i8) -> Option<Ordering>;
+}
+
+impl Ord for i8 {
+    pub fn cmp(self, other: i8) -> Ordering;
+}
+
+impl PartialEq for i16 {
+    pub fn eq(self, other: i16) -> bool;
+}
+
+impl Eq for i16 {
+}
+
+impl PartialOrd for i16 {
+    pub fn partial_cmp(self, other: i16) -> Option<Ordering>;
+}
+
+impl Ord for i16 {
+    pub fn cmp(self, other: i16) -> Ordering;
+}
+
+impl PartialEq for i32 {
+    pub fn eq(self, other: i32) -> bool;
+}
+
+impl Eq for i32 {
+}
+
+impl PartialOrd for i32 {
+    pub fn partial_cmp(self, other: i32) -> Option<Ordering>;
+}
+
+impl Ord for i32 {
+    pub fn cmp(self, other: i32) -> Ordering;
+}
+
+impl PartialEq for i64 {
+    pub fn eq(self, other: i64) -> bool;
+}
+
+impl Eq for i64 {
+}
+
+impl PartialOrd for i64 {
+    pub fn partial_cmp(self, other: i64) -> Option<Ordering>;
+}
+
+impl Ord for i64 {
+    pub fn cmp(self, other: i64) -> Ordering;
+}
+
+impl PartialEq for isize {
+    pub fn eq(self, other: isize) -> bool;
+}
+
+impl Eq for isize {
+}
+
+impl PartialOrd for isize {
+    pub fn partial_cmp(self, other: isize) -> Option<Ordering>;
+}
+
+impl Ord for isize {
+    pub fn cmp(self, other: isize) -> Ordering;
+}
+
+impl PartialEq for u8 {
+    pub fn eq(self, other: u8) -> bool;
+}
+
+impl Eq for u8 {
+}
+
+impl PartialOrd for u8 {
+    pub fn partial_cmp(self, other: u8) -> Option<Ordering>;
+}
+
+impl Ord for u8 {
+    pub fn cmp(self, other: u8) -> Ordering;
+}
+
+impl PartialEq for u16 {
+    pub fn eq(self, other: u16) -> bool;
+}
+
+impl Eq for u16 {
+}
+
+impl PartialOrd for u16 {
+    pub fn partial_cmp(self, other: u16) -> Option<Ordering>;
+}
+
+impl Ord for u16 {
+    pub fn cmp(self, other: u16) -> Ordering;
+}
+
+impl PartialEq for u32 {
+    pub fn eq(self, other: u32) -> bool;
+}
+
+impl Eq for u32 {
+}
+
+impl PartialOrd for u32 {
+    pub fn partial_cmp(self, other: u32) -> Option<Ordering>;
+}
+
+impl Ord for u32 {
+    pub fn cmp(self, other: u32) -> Ordering;
+}
+
+impl PartialEq for u64 {
+    pub fn eq(self, other: u64) -> bool;
+}
+
+impl Eq for u64 {
+}
+
+impl PartialOrd for u64 {
+    pub fn partial_cmp(self, other: u64) -> Option<Ordering>;
+}
+
+impl Ord for u64 {
+    pub fn cmp(self, other: u64) -> Ordering;
+}
+
+impl PartialEq for usize {
+    pub fn eq(self, other: usize) -> bool;
+}
+
+impl Eq for usize {
+}
+
+impl PartialOrd for usize {
+    pub fn partial_cmp(self, other: usize) -> Option<Ordering>;
+}
+
+impl Ord for usize {
+    pub fn cmp(self, other: usize) -> Ordering;
+}
+
+impl PartialEq for bool {
+    pub fn eq(self, other: bool) -> bool;
+}
+
+impl Eq for bool {
+}
+
+impl PartialOrd for bool {
+    pub fn partial_cmp(self, other: bool) -> Option<Ordering>;
+}
+
+impl Ord for bool {
+    pub fn cmp(self, other: bool) -> Ordering;
+}
+
+impl PartialEq for String {
+    pub fn eq(self, other: String) -> bool;
+}
+
+impl Eq for String {
+}
+
+impl PartialOrd for String {
+    pub fn partial_cmp(self, other: String) -> Option<Ordering>;
+}
+
+impl Ord for String {
+    pub fn cmp(self, other: String) -> Ordering;
+}
+
+impl PartialEq for Ordering {
+    pub fn eq(self, other: Ordering) -> bool;
+}
+
+impl Eq for Ordering {
+}
+
+impl PartialOrd for Ordering {
+    pub fn partial_cmp(self, other: Ordering) -> Option<Ordering>;
+}
+
+impl Ord for Ordering {
+    pub fn cmp(self, other: Ordering) -> Ordering;
+}
+
+impl PartialEq for () {
+    pub fn eq(self, other: ()) -> bool;
+}
+
+impl Eq for () {
+}
+
+impl PartialOrd for () {
+    pub fn partial_cmp(self, other: ()) -> Option<Ordering>;
+}
+
+impl Ord for () {
+    pub fn cmp(self, other: ()) -> Ordering;
+}
+
+impl PartialEq for f32 {
+    pub fn eq(self, other: f32) -> bool;
+}
+
+impl PartialOrd for f32 {
+    pub fn partial_cmp(self, other: f32) -> Option<Ordering>;
+}
+
+impl PartialEq for f64 {
+    pub fn eq(self, other: f64) -> bool;
+}
+
+impl PartialOrd for f64 {
+    pub fn partial_cmp(self, other: f64) -> Option<Ordering>;
 }

@@ -50,6 +50,8 @@ pub struct NativeImplementation {
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     pub identity: ModuleIdentity,
+    /// Installed script package spelling, independent of the canonical package ID.
+    pub package_alias: Option<String>,
     /// Owning modules required by the checked registration closure. NativeApi
     /// derives these edges from actual traits, templates and implementation facts.
     pub dependencies: BTreeSet<ModuleIdentity>,
@@ -68,6 +70,7 @@ pub struct NativeModule {
 impl NativeModule {
     pub fn new(identity: ModuleIdentity) -> Self {
         Self {
+            package_alias: (identity.package.0 == "kagari-std").then(|| "std".into()),
             identity,
             dependencies: BTreeSet::new(),
             types: vec![],
@@ -267,6 +270,10 @@ impl NativeModule {
     pub fn validate(&self) -> Result<(), NativeApiError> {
         let fail = || NativeApiError("invalid or unsupported native declaration".into());
         if self.identity.package.0.is_empty()
+            || self
+                .package_alias
+                .as_ref()
+                .is_some_and(|alias| !identifier(alias))
             || self.identity.path.is_empty()
             || self.identity.path.iter().any(|name| !identifier(name))
             || self.dependencies.len() > 4096

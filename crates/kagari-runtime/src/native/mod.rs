@@ -3,11 +3,14 @@ pub mod api;
 pub(crate) mod array;
 mod array_api;
 pub mod catalog;
+pub mod cmp_api;
 pub mod factory;
 mod math_api;
 pub mod ops_api;
+pub mod option_api;
 pub mod packages;
 pub mod registration;
+pub mod string_api;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,

@@ -17,7 +17,7 @@ use kagari_embed::{
 use kagari_native_macros::native_module;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    native::{api::NativeApi, catalog::NativeCatalog},
+    native::{api::NativeApi, catalog::NativeCatalog, cmp_api::cmp},
     value::Value,
 };
 use std::collections::BTreeMap;
@@ -130,12 +130,15 @@ fn external_implementation_signatures_are_checked_before_package_publication() {
 fn engine(defaults: bool) -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::builder()
+    let mut builder = KagariEngine::builder()
         .config(config)
         .install_standard_library(defaults)
-        .install(fixture_api::api())
-        .build()
-        .unwrap()
+        .install(fixture_api::api());
+    // The encoded product retains the compiler's default prelude dependency.
+    if !defaults {
+        builder = builder.install(cmp::native_api());
+    }
+    builder.build().unwrap()
 }
 fn prepared(bytes: &[u8]) -> PreparedProgram {
     PreparedProgram::from_artifact(

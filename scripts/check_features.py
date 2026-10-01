@@ -66,7 +66,7 @@ def run(native_proof: bool = False) -> None:
         if name in {"codegen", "mir", "codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'kagari-{name} = {{ {", ".join(options)} }}')
-    targets = ["native_provider_artifact", "native_registration", "native_math", "native_callbacks", "native_values", "native_bounds", "native_associated", "native_selected", "native_defaults", "native_default_source", "native_default_typed", "native_default_external", "native_ops", "native_concrete", "native_projected"] if native_proof else ["artifact_features"]
+    targets = ["native_provider_artifact", "native_registration", "native_math", "native_callbacks", "native_values", "native_bounds", "native_associated", "native_selected", "native_defaults", "native_default_source", "native_default_typed", "native_default_external", "native_ops", "native_concrete", "native_projected", "native_cmp"] if native_proof else ["artifact_features"]
     for target in targets:
         lines += ['[[test]]', f'name = "{target}"',
                   f'path = {json.dumps(str(ROOT / "crates/kagari-embed/tests" / f"{target}.rs"))}']

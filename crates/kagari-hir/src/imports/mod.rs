@@ -851,6 +851,7 @@ fn source_module_accessible(
 
 struct SourceCatalog<'a> {
     paths: BTreeMap<String, Vec<SourceCatalogEntry<'a>>>,
+    package_aliases: BTreeMap<String, BTreeSet<String>>,
     standard_root: Option<ModuleIdentity>,
 }
 
@@ -875,8 +876,15 @@ impl<'a> SourceCatalog<'a> {
     ) -> Result<Self, Cancelled> {
         let mut paths = BTreeMap::<_, Vec<_>>::new();
         let mut standard_root = None;
+        let mut package_aliases = BTreeMap::<String, BTreeSet<String>>::new();
         for module in sources {
             cancel.check()?;
+            if let Some(alias) = &module.native_package_alias {
+                package_aliases
+                    .entry(alias.clone())
+                    .or_default()
+                    .insert(module.source.module_identity().package.0.clone());
+            }
             if module.installed_stdlib.is_some() && module.source.module_identity().path == ["std"]
             {
                 standard_root = Some(module.source.module_identity().clone());
@@ -1042,12 +1050,14 @@ impl<'a> SourceCatalog<'a> {
         }
         Ok(Self {
             paths,
+            package_aliases,
             standard_root,
         })
     }
 
     fn same_members(&self, other: &Self) -> bool {
-        self.standard_root == other.standard_root
+        self.package_aliases == other.package_aliases
+            && self.standard_root == other.standard_root
             && self.paths.len() == other.paths.len()
             && self.paths.iter().all(|(path, entries)| {
                 other.paths.get(path).is_some_and(|old| {

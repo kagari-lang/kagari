@@ -80,7 +80,11 @@ allows typed concrete selected receivers. A three-package application proves
 native/script direct and dynamic defaults plus nested callbacks with default
 packages disabled. Ordinary projected selected receivers now retain actual
 associated contracts and implied base obligations, with exact registered templates
-carried through artifact emission and linking. Sorting, managed returned state, remaining
+carried through artifact emission and linking. The registered cmp package now owns
+comparison protocols, Ordering and actual scalar implementation facts, including
+all integer widths and partial floating-point ordering. Installed namespace aliases
+and real representation providers work with default packages disabled. Sorting,
+managed returned state, remaining
 library restoration and final acceptance remain open.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)

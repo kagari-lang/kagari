@@ -70,6 +70,7 @@ impl NativeApi {
         handlers: Vec<NativeHandler>,
         catalog: NativeCatalog,
     ) -> Result<Self, RuntimeError> {
+        validate_package_aliases(&modules)?;
         let invalid =
             || RuntimeError::metadata_conflict("duplicate, missing or unknown native API binding");
         let mut identities = HashSet::new();
@@ -184,6 +185,7 @@ impl NativeApi {
                 registrations.push(registration);
             }
         }
+        validate_package_aliases(modules.iter().map(AsRef::as_ref))?;
         let declared = NativeCatalog::declared(modules.iter().map(AsRef::as_ref))?;
         declared.check_implementations(modules.iter().map(AsRef::as_ref))?;
         if !required_catalog.satisfied_by(&declared) {
@@ -227,4 +229,27 @@ impl NativeApi {
         *registry = staged;
         Ok(())
     }
+}
+
+fn validate_package_aliases<'a>(
+    modules: impl IntoIterator<Item = &'a NativeModule>,
+) -> Result<(), RuntimeError> {
+    let mut aliases = BTreeMap::new();
+    for module in modules {
+        let package = module.identity.package.0.as_str();
+        for alias in [Some(package), module.package_alias.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            if aliases
+                .insert(alias, package)
+                .is_some_and(|previous| previous != package)
+            {
+                return Err(RuntimeError::metadata_conflict(
+                    "conflicting installed native package alias",
+                ));
+            }
+        }
+    }
+    Ok(())
 }

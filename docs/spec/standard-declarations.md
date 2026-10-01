@@ -170,6 +170,25 @@ across subsequent conversions. This value tuple is independent of NativeArgument
 outer callback argument pack. Rust `std::cmp::Ordering` converts to the existing
 script Ordering enum through checked tags, without changing comparison policy.
 
+The optional registered `std::cmp` package owns Ordering and the PartialEq, Eq,
+PartialOrd and Ord protocols. Its actual Rust implementations cover all signed
+and unsigned integer widths, bool, UTF-8 String, Ordering and unit. f32/f64
+implement PartialEq and PartialOrd, preserving NaN incomparability; they do not
+gain Ord. Script types implement the same registered protocols. Selected Ord
+calls use the shared checked native callback path and pin the selected generation.
+Self-parameter protocols retain their static applicability and cannot be boxed
+as dynamic interface values. Narrow unsigned values use the ABI's I64 runtime
+representation with checked range conversion; u64/usize use U64.
+
+Installed native modules may declare a package alias independently of canonical
+identity. Conflicting aliases or an alias shadowing another installed canonical
+package reject composition. HIR resolves registered representation references
+from actual owning declarations, including application names, with ordinary
+checked imports. Minimal optional String and Option type providers allow this
+path without installing the default library. Their methods and default
+namespace/prelude exports remain pending restoration; no missing provider is
+replaced with a synthesized type declaration.
+
 `native_value::result::NativeResultValue<T, E>` represents a rooted script Result.
 Reading and returning it preserve the original enum value and Err error trace.
 Its payload method decodes the selected checked branch; from_result constructs a

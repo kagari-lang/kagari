@@ -164,7 +164,9 @@ impl AnalysisDatabase {
                 let prepared = self
                     .native_modules
                     .iter()
-                    .map(|module| native_api::import(module, self.parse_limits, cancel))
+                    .map(|module| {
+                        native_api::import(module, &self.native_modules, self.parse_limits, cancel)
+                    })
                     .collect::<Result<Vec<_>, _>>();
                 cancel.check()?;
                 self.native_files

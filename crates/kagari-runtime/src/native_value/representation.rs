@@ -8,12 +8,26 @@ use kagari_abi::{
     standard::surface::StandardEnum,
     types::{AbiType, native::NativeTypeConstructor},
 };
-use std::ops::Bound;
+use std::{cmp::Ordering, ops::Bound};
 
 /// A registered alias takes its representation from its resolved Rust value type.
 pub trait NativeRepresentation: NativeValue {
     const CONSTRUCTOR: NativeTypeConstructor;
     const VARIANT_NAMES: &'static [&'static str] = &[];
+}
+
+impl NativeRepresentation for Ordering {
+    const CONSTRUCTOR: NativeTypeConstructor = NativeTypeConstructor::Enum(StandardEnum::Ordering);
+    const VARIANT_NAMES: &'static [&'static str] = &["Less", "Equal", "Greater"];
+}
+
+impl NativeRepresentation for String {
+    const CONSTRUCTOR: NativeTypeConstructor = NativeTypeConstructor::String;
+}
+
+impl<T: NativeValue> NativeRepresentation for Option<T> {
+    const CONSTRUCTOR: NativeTypeConstructor = NativeTypeConstructor::Enum(StandardEnum::Option);
+    const VARIANT_NAMES: &'static [&'static str] = &["Some", "None"];
 }
 
 impl<T: NativeValue> NativeRepresentation for Bound<T> {

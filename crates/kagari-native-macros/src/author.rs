@@ -208,19 +208,22 @@ impl Expansion<'_> {
         let contract = implementation.trait_.as_ref().map(|(_, path, _)| path);
         let mut methods = vec![];
         let mut associated = vec![];
-        let Type::Path(receiver_path) = receiver else {
-            return Err(SyntaxError::new_spanned(
-                receiver,
-                "native impl requires a named type",
-            ));
+        // macro_rules type captures arrive in transparent syntax groups.
+        // Retain the real receiver for metadata/conversion; unwrap only its name.
+        let mut binding_type = receiver;
+        while let Type::Group(group) = binding_type {
+            binding_type = &group.elem;
+        }
+        let owner = match binding_type {
+            Type::Path(path) => path.path.segments.last().unwrap().ident.to_string(),
+            Type::Tuple(tuple) if tuple.elems.is_empty() => "unit".into(),
+            _ => {
+                return Err(SyntaxError::new_spanned(
+                    receiver,
+                    "native impl requires a named type or unit",
+                ));
+            }
         };
-        let owner = receiver_path
-            .path
-            .segments
-            .last()
-            .unwrap()
-            .ident
-            .to_string();
         for item in &mut implementation.items {
             if let ImplItem::Type(member) = item {
                 if contract.is_none()

@@ -1,0 +1,28 @@
+use std::cmp::{PartialEq, Eq, PartialOrd, Ord, Ordering};
+use game::rank::{compare, echo_u8, echo_u16, echo_u32, nan};
+use std::option::Option;
+use std::option::Option::Some;
+use std::option::Option::None;
+struct Rank { val key: i32 }
+impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
+impl Eq for Rank {}
+impl PartialOrd for Rank {
+    fn partial_cmp(self, other: Self) -> Option<Ordering> { Some(self.cmp(other)) }
+}
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        if self.key < other.key { Ordering::Less }
+        else if self.key == other.key { Ordering::Equal }
+        else { Ordering::Greater }
+    }
+}
+fn less(order: Ordering) -> bool { match order { Ordering::Less => true, _ => false } }
+fn equal(order: Ordering) -> bool { match order { Ordering::Equal => true, _ => false } }
+fn greater(order: Ordering) -> bool { match order { Ordering::Greater => true, _ => false } }
+fn signed_main() -> bool { less(compare(-128i8, 127i8)) && less(compare(-32768i16, 32767i16)) && less(compare(-1i32, 1i32)) && less(compare(-1i64, 1i64)) && less(compare(-1isize, 1isize)) }
+fn unsigned_main() -> bool { less(compare(0u8, 255u8)) && less(compare(0u16, 65535u16)) && greater(compare(4294967295u32, 0u32)) && greater(compare(18446744073709551615u64, 0u64)) && less(compare(0usize, 1usize)) }
+fn other_main() -> bool { less(compare(false, true)) && less(compare("a", "é")) && less(compare(Ordering::Less, Ordering::Greater)) && equal(compare((), ())) }
+fn script_main() -> bool { less(compare(Rank { key: 1 }, Rank { key: 2 })) }
+fn partial_main() -> bool { match 1.0f32.partial_cmp(2.0f32) { Some(Ordering::Less) => true, _ => false } }
+fn roundtrip_main() -> bool { echo_u8(255u8) == 255u8 && echo_u16(65535u16) == 65535u16 && echo_u32(4294967295u32) == 4294967295u32 }
+fn incomparable_main() -> bool { val value = nan(); match value.partial_cmp(1.0f64) { None => !value.eq(value), _ => false } }

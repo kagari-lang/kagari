@@ -1,6 +1,8 @@
 //! Provider execution must not require the source feature or a native backend.
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_runtime::{native::packages::standard_library, value::Value};
+#[cfg(feature = "source")]
+use kagari_runtime::native::packages::standard_library;
+use kagari_runtime::value::Value;
 
 use kagari_embed::{
     context::ExecutionContext,

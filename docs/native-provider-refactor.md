@@ -134,7 +134,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
 | Integration | Minimal source, encoded, source-free and external consumer proofs pass at 2b212880 | Migrate old ABI/HIR/compiler/runtime/VM/SDK fixtures and restore their missing library dependencies; full workspace acceptance is still open |
 
-The current .kgr source package still supplies declarations outside restored ops/array/math. That is
+The current .kgr source package still supplies declarations outside restored ops/array/cmp/math. That is
 migration debt, not the target compiler boundary. All restored declarations must
 come from registrations; generated text serves tooling only. Remove the existing
 source-package route after its last declaration consumer has migrated.
@@ -237,7 +237,7 @@ an execution owner without rebuilding a central method catalog in production.
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
 | collect/partition, destination impls, Sum/Product and conversion blankets | 7 | Pending selected destinations and complete composition |
 | debug direct entries / assert_eq | 3 / 7 | Pending |
-| cmp/hash/fmt/ops/convert/iter contracts, seven enums and thirteen type constructors | 2-3 | Required Ord/Ordering starts in 2; remaining registration and primitive ownership in 3 |
+| cmp/hash/fmt/ops/convert/iter contracts, seven enums and thirteen type constructors | 2-3 | cmp/Ordering/scalar comparison facts and ops/range/Bound registered; remaining declarations and primitive ownership pending in 3 |
 | Implicit scalar/operator/index/range/closure implementation facts | 3 and 7 | Classify validated engine primitives in 3; composed/blanket contracts finish in 7 |
 | Namespace, variant exports, prelude and legacy source crate | 8 | Pending migration and retirement |
 | Existing fixture constructors and full artifact | Affected checkpoints 1-3 / 8 | Minimal math/array artifact updated in 1; carried old-model targets remain NR04 debt |
@@ -256,7 +256,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Retain and validate external default/template declaration dependencies before publication, installation and portable linking.
   - [x] Complete concrete default obligations against actual registered implementation facts.
   - [x] Ordinary projected selected receivers, implied base bounds and exact registered template retention.
-  - [ ] Ord/Ordering and sort_by/sort.
+  - [x] Ord/Ordering and actual checked scalar comparison implementations.
+  - [ ] Prepared sort_by/sort through supplied and selected comparators.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
   - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
@@ -2884,3 +2885,100 @@ The original goal remains active. Next, restore the complete cmp declarations,
 actual selected ordering implementations and prepared sort_by/sort. Follow with
 managed returned state, remaining families, legacy retirement and NR05/ST06
 acceptance. This checkpoint accepts no entire NR phase.
+
+### NR02 checkpoint: registered comparison protocols and implementations (2026-10-02)
+
+Restoration step 2 now owns the complete cmp declaration surface and actual scalar
+implementation facts. Prepared sort_by/sort and traceable returned state remain
+open. The original unbounded restoration goal and NR04/NR05/ST06 obligations stay
+active; this checkpoint accepts no entire NR phase.
+
+- The optional Rust cmp package declares PartialEq, Eq, PartialOrd, Ord and the
+  actual Ordering representation. Real Rust impls cover the ten integer widths,
+  bool, String, Ordering and unit. f32/f64 implement only the two partial protocols;
+  NaN remains incomparable and unequal to itself. Sixty actual implementation
+  records and forty-six executable declarations derive from those Rust items.
+  macro_rules expands real Rust impls before native_module processes them; no
+  placeholder script body or synthetic implementation table supplies authority.
+- Native impl authoring accepts unit and transparently grouped type captures.
+  Unwrap groups only to derive a binding name; preserve the actual Rust receiver
+  for representation metadata, conversions and trait method conformance.
+- Compose cmp with ops, array and math in the default optional library. Remove
+  cmp from the legacy source manifest and regenerate stdlib/cmp.kgr as a tooling
+  view. Compilation imports its real records directly. Minimal optional Option
+  and String representation providers enable independent comparison installation.
+  They own actual typed aliases and enum variants, but their methods and default
+  prelude/variant exports still use the legacy declaration route pending NR04.
+- NativeModule carries an optional package_alias. Registration validates the
+  spelling; composition rejects conflicting aliases and shadowed canonical
+  packages before source namespace publication. HIR imports use installed alias
+  records with defaults disabled. Internal registered references use canonical
+  identities. Foreign representation references resolve against actual installed
+  type declarations and add ordinary checked imports. Own names take precedence;
+  ambiguous foreign providers reject rather than inventing a declaration. When
+  no native provider has migrated, the existing installed source prelude remains
+  the explicit carried dependency.
+- A real game::rank generic native function requests the selected Ord::cmp target
+  through the shared continuation driver. The independently generated product
+  compiles with defaults disabled and manually installed cmp, rank, Option and
+  String packages. Offline execution covers all integer widths, bool, UTF-8,
+  Ordering, unit, a script Rank implementation, partial f32 and NaN f64 comparisons.
+  Additional source proof replaces String with an actual application-owned Text
+  alias under an installed app namespace, keeping default packages disabled.
+- Preserve the static Self-protocol boundary: floats fail Ord constraints and Ord
+  is not a dynamic interface value. Forged selected scalar signatures reject
+  portable verification. Missing actual comparison providers and conflicting or
+  malformed package aliases reject. Generated enum/trait/variant navigation and
+  documentation use the actual registration coordinates; the tracked cmp tooling
+  view matches those records exactly.
+- The first integer-width run exposed incorrect u8/u16/u32 NativeValue conversion:
+  adapters expected U64 while executable ABI uses I64. Correct both reads and
+  writes to I64 with checked range conversion. The complete width and maximum-value
+  round-trip assertions remain. Frequent GC, every budget cut, script comparator
+  traps and retained script generations across reload pass with roots and frames
+  released. Runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 stay unchanged.
+
+Validation and integration evidence:
+
+- `uv run python scripts/check_features.py --native-proof` passes all sixteen
+  targets in four standalone consumers: 80 artifact-only, 134 source, 80 native
+  and 135 source+native tests. All eight production dependency boundaries and the
+  source-independent ABI build graph pass. The comparison proof contributes six
+  offline and six source tests. These are feature-consumer proofs; full backend
+  and full-library behavior acceptance remains NR05 work.
+- Source exact-emission and reload tests initially failed for five older products
+  because cmp changed from the source declaration owner to native registration.
+  Independently regenerate associated, bounds, projected, provider and selected
+  fixtures with their existing examples. Decoded old/new comparison records show
+  unchanged module counts and public-item/native-declaration changes confined to
+  cmp. Keep every exact-emission and ABI reload assertion. Offline consumers of
+  these default-prelude products now explicitly install their actual cmp provider
+  when default installation is disabled. The new comparison product proves a
+  separate compilation with defaults disabled rather than hiding that dependency.
+- Four macro unit tests, all nine Rust authoring checks, workspace library Clippy and focused SDK test/example
+  Clippy pass with warnings denied. Formatting, whole-repository structure checks
+  (866 Rust files, zero violations/exceptions) and diff checks pass. Manual review
+  covers Rust macro token trees, owner imports, the empty re-export whitelist,
+  real declaration/implementation authority, foreign type-provider resolution,
+  alias publication checks, strict value representations and callback cleanup.
+- Existing all-target/workspace integration failures remain NR04-owned. The
+  preceding fourteen ABI lib-test diagnostics on removed binding/primitive models
+  and the legacy fixture/library consumers are unchanged; do not disable tests or
+  claim final acceptance from this bounded proof. See the preceding ledger and
+  target/native-facts-abi-lib-build.log for the existing reproduction.
+
+Outputs are under target/native-cmp-feature-matrix.log,
+target/architecture-features/native-proof/, target/native-cmp-tests.log,
+target/native-cmp-fixture-delta.log, target/native-cmp-source-probe.log,
+target/native-cmp-offline-probe.log, target/native-cmp-regenerate-*.log,
+target/native-cmp-generation.log, target/native-cmp-macros.log,
+target/native-cmp-authoring.log,
+target/native-cmp-clippy.log, target/native-cmp-focused-clippy.log and
+target/native-cmp-structure.log. The source/offline probe logs retain the resolved
+intermediate failures; the final feature matrix is the passing integration result.
+
+Next, implement prepared stable sorting through supplied callbacks and selected
+Ord handles, reusing actual collection mutation/commit guards and bounded rooted
+working storage. Then complete the application-managed returned-state proof,
+remaining families, namespace/prelude and legacy retirement, and full NR05/ST06
+checks and matched measurements. No remaining scope is removed from the goal.
