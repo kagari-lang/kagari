@@ -18,6 +18,18 @@ state; ordinary typed functions do not manage scratch slots themselves. The
 current adapter supports a bounded set of values and declarations, rather than
 arbitrary Rust/opaque types. See [the typed authoring checkpoint](../native-provider-refactor.md#typed-rust-authoring-implementation).
 
+Typed callback parameters use `NativeFn<A, R>` from the continuation owner module.
+`A` is an explicit outer tuple implementing NativeArguments: `()` means no
+arguments, `(T,)` means one and `(A, B)` means two. Built-in packs support zero
+through eight arguments, each converted left to right under the checked function
+signature without allocating a script tuple for the pack. `R` is one NativeValue;
+unit and Option results retain their ordinary value semantics. NativeFn.request
+creates a checked rooted callback; NativeFn.result converts the resumed value.
+The common frame driver owns execution, logical steps, callback-result roots and
+cleanup. This replaces the earlier usize-only callback adapter; from_fn now uses
+`NativeFn<(usize,), T>` with the same generated/executable script signature.
+Returned persistent state and checked trait-member targets remain later NR work.
+
 The minimal NR implementation registers ArrayList new/len/push/from_fn, List
 len/get and MutableList.set, plus math floor/ceil/sqrt. Trait implementation
 signatures derive from the registered trait declaration rather than being authored

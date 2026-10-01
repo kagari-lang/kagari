@@ -128,7 +128,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records go directly to HIR; generated array.kgr supports tooling | Extend records to remaining types, enums, associated declarations, bounds, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, checked generic proxies and NativeArray work | Checked tuple, script Result and other existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | from_fn resumes through the common driver | NativeFn request currently accepts only usize; add checked zero-, one- and multiple-argument calls and selected trait-call targets |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver | Complete checked selected trait-call targets and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
 | Integration | Minimal source, encoded, source-free and external consumer proofs pass at 2b212880 | Migrate old ABI/HIR/compiler/runtime/VM/SDK fixtures and restore their missing library dependencies; full workspace acceptance is still open |
@@ -244,6 +244,9 @@ an execution owner without rebuilding a central method catalog in production.
 
 - [x] 1: math package, composition proof, inventory and entry baseline.
 - [ ] 2: common selected calls, callback packs and traceable returned state.
+  - [x] Typed outer argument packs and checked resumed results; external repeated/nested proof.
+  - [ ] Checked bounds/associated outputs and selected callable/default requirements.
+  - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
@@ -1762,3 +1765,43 @@ predecessor comparison or an improvement claim. Record dispatch/allocation/memor
 comparisons and the complete workloads at NR05. Next checkpoint: common typed
 callback argument packs and result conversions, followed by selected trait calls
 and managed returned-state proof. Goal remains active.
+
+## 2026-10-01 common typed callback packs checkpoint
+
+Checkpoint 2 advances NR03's public resumable authoring, but selected trait calls,
+full declaration/bound support and managed returned-state proof remain incomplete.
+
+- Replace the usize-only NativeFn request adapter with NativeArguments: an explicit
+  outer tuple of zero through eight checked values. Convert arguments left to right
+  without allocating a script tuple for the pack. NativeFn.result validates and
+  converts resumed values through NativeValue; retain common closure/signature,
+  heap, rooting and frame-driver checks.
+- Migrate from_fn to NativeFn<(usize,), T> and request (index,). Its registered
+  function type, IDs, executable schemas and predecessor logical phase sequence
+  stay unchanged. This is a breaking Rust callback type/argument spelling change;
+  update consumers directly, with no compatibility alias or re-export.
+- An application-owned package implements zero-argument Option<String>, generic
+  binary, one-argument unit and repeated unary callbacks using public owner APIs.
+  Source -> encoded artifact -> runtime tests verify generic heap arguments/results,
+  once-only observable effects, nested builtin from_fn calls, first-result survival
+  across the second callback under GC threshold one, traps and complete cleanup.
+- Extend independent native-proof consumers with the callback test target. Add a
+  negative Rust consumer rejecting the obsolete scalar argument-pack type (E0277).
+  Existing source-free array callbacks, default/application registration proofs and
+  malformed artifact/output checks remain required; no new core dispatch case is
+  introduced.
+
+Validation actually performed: 40 SDK integration tests pass across native_callbacks,
+native_math, native_registration, native_provider_artifact, native_provider_reset
+and host_interfaces. Authoring checks reject four invalid Rust contracts and accept
+the valid alias/generic/hygiene consumer. All four native-proof feature combinations,
+eight production graphs and the source-free ABI build graph pass. Workspace library
+and affected SDK Clippy pass with -D warnings; format, structure (807 Rust files,
+zero findings/exceptions), Markdown links and diff checks pass. Macro token trees,
+argument/value ownership, module visibility and empty re-export whitelist are
+reviewed manually. Full-workspace legacy fixture debt remains unchanged in NR04.
+
+Next: complete ordinary tuple/enum result conversions and checked associated/bound
+metadata for the sort/selected-trait path, then implement the managed returned
+iterator proof. The aggregate checkpoint 2 and all complete NR phases remain open;
+goal mode continues.

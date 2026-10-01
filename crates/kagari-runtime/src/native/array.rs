@@ -16,7 +16,7 @@ fn invalid() -> RuntimeError {
 
 pub(super) fn from_fn<T: NativeValue, R: NativeValue>(
     count: usize,
-    make: NativeFn<usize, T>,
+    make: NativeFn<(usize,), T>,
 ) -> NativeContinuation<R> {
     NativeContinuation::new(FromFn {
         make,
@@ -42,7 +42,7 @@ enum Phase {
     Move,
 }
 struct FromFn<T: NativeValue> {
-    make: NativeFn<usize, T>,
+    make: NativeFn<(usize,), T>,
     count: u64,
     index: u64,
     phase: Phase,
@@ -72,9 +72,10 @@ impl<T: NativeValue> NativeInvocationState for FromFn<T> {
                 self.phase = Phase::Invoke;
             }
             Phase::Invoke => {
-                let request = self
-                    .make
-                    .request(context, usize::try_from(self.index).map_err(|_| invalid())?)?;
+                let request = self.make.request(
+                    context,
+                    (usize::try_from(self.index).map_err(|_| invalid())?,),
+                )?;
                 self.phase = Phase::Waiting;
                 return Ok(NativeAction::Callback(request));
             }

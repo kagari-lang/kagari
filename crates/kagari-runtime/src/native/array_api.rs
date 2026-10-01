@@ -51,7 +51,7 @@ pub(super) mod array {
         }
         /// Build slots by calling make once per index in ascending order.
         #[native(binding = "array_from_fn")]
-        pub fn from_fn(count: usize, make: NativeFn<usize, T>) -> NativeContinuation<Self> {
+        pub fn from_fn(count: usize, make: NativeFn<(usize,), T>) -> NativeContinuation<Self> {
             array::from_fn(count, make)
         }
     }

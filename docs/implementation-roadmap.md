@@ -72,7 +72,8 @@ Map/Set and cross-protocol composition in that order. Finish namespace/prelude
 registration, retire kagari-stdlib and rebuild fixtures before full NR05/ST06
 acceptance. The first math package checkpoint restores checked floor/ceil/sqrt, validates
 array/application package composition and records entry workloads. Common typed
-callback packs are next; full-library and whole-workspace acceptance remain open.
+callback packs and resumed results now support external zero/binary/unit and
+repeated nested calls. Selected trait targets and managed returned state are next; full-library and whole-workspace acceptance remain open.
 
 ## Permissions and execution protection refactor queued
 

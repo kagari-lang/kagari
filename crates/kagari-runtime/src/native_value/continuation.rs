@@ -4,6 +4,7 @@ use crate::{
     gc::RootSet,
     native::{NativeCallback, NativeContext, NativeInvocationState},
     native_module::types::TypeExpression,
+    native_value::arguments::NativeArguments,
     value::Value,
 };
 use kagari_abi::types::AbiType;
@@ -36,20 +37,17 @@ impl<T: NativeValue> NativeReturn for NativeContinuation<T> {
     }
 }
 
-pub struct NativeFn<A: NativeValue, R: NativeValue> {
+/// A rooted callable with an explicit outer tuple of arguments and one result value.
+pub struct NativeFn<A: NativeArguments, R: NativeValue> {
     call: NativeCall,
     root: RootSet,
     signature: AbiType,
     _types: PhantomData<(A, R)>,
 }
-impl<A: NativeValue, R: NativeValue> NativeValue for NativeFn<A, R> {
+impl<A: NativeArguments, R: NativeValue> NativeValue for NativeFn<A, R> {
     fn type_expression(generics: &[&'static str]) -> TypeExpression {
-        let params = match A::type_expression(generics) {
-            TypeExpression::Tuple(items) => items,
-            other => vec![other],
-        };
         TypeExpression::Function {
-            params,
+            params: A::type_expressions(generics),
             result: Box::new(R::type_expression(generics)),
         }
     }
@@ -76,28 +74,33 @@ impl<A: NativeValue, R: NativeValue> NativeValue for NativeFn<A, R> {
         call.retain(self.root.get(0).ok_or_else(invalid)?)
     }
 }
-impl<R: NativeValue> NativeFn<usize, R> {
+impl<A: NativeArguments, R: NativeValue> NativeFn<A, R> {
     pub fn request(
         &self,
         context: &NativeContext<'_>,
-        index: usize,
+        arguments: A,
     ) -> NativeResult<NativeCallback> {
         let call = NativeCall::new(context)?;
         call.compatible(&self.call)?;
         let AbiType::Function { params, .. } = &self.signature else {
             return Err(invalid());
         };
-        let argument = index.write(
-            &call,
-            params
-                .first()
-                .filter(|_| params.len() == 1)
-                .ok_or_else(invalid)?,
-        )?;
+        let arguments = arguments.into_values(&call, params)?;
         context.callback(
             &self.root.get(0).ok_or_else(invalid)?,
             &self.signature,
-            vec![argument],
+            arguments,
         )
+    }
+
+    /// Convert a resumed result under the callable's checked result type.
+    pub fn result(&self, context: &NativeContext<'_>, value: Value) -> NativeResult<R> {
+        let call = NativeCall::new(context)?;
+        call.compatible(&self.call)?;
+        let AbiType::Function { result, .. } = &self.signature else {
+            return Err(invalid());
+        };
+        call.check(&value, result)?;
+        R::read(&call, value, result)
     }
 }

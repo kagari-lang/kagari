@@ -1,4 +1,5 @@
 //! Typed native adapters retain explicit roots and portable applied type checks.
+pub mod arguments;
 pub mod array;
 pub mod continuation;
 mod conversions;
