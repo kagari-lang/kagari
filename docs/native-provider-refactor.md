@@ -104,6 +104,163 @@ source package; the minimal array module comes only from native registration dat
 The generated text may be parsed for CST/tool queries, but is never lowered to
 establish native semantics. No interpreter/JIT execution algorithm is duplicated.
 
+## Proposed full-library restoration sequence (2026-10-01)
+
+Task: restore the remaining public library through registration-owned native APIs.
+Context: the typed array checkpoint and owner-import migration are complete;
+NR00-NR05 still own contract completion, restoration and combined acceptance.
+Expected behavior: Engine optionally installs ordinary native packages; application
+packages use the same mechanism; HIR checks their complete registered signatures;
+compiler, verifier and VM consume checked contracts without library-method policy.
+Scope: existing library coverage and the common capabilities it actually requires.
+Arbitrary Rust/opaque derives, Serde, async and the queued execution-policy changes
+remain in their own plans. This section is a proposal for review, not authorization
+or a report that restoration implementation has started.
+
+### Readiness and remaining prerequisites
+
+Restoration can start in small vertical checkpoints. It cannot yet consist only
+of adding Rust functions: current typed adapters cover a bounded array proof.
+
+| Boundary | Current evidence | Required before dependent families |
+| --- | --- | --- |
+| Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
+| Static checking and tooling | Minimal array records go directly to HIR; generated array.kgr supports tooling | Extend records to remaining types, enums, associated declarations, bounds, method generics, defaults and namespace/prelude bindings |
+| Typed values | Scalars, String, unit, Option, checked generic proxies and NativeArray work | Checked tuple, script Result and other existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
+| Typed callbacks | from_fn resumes through the common driver | NativeFn request currently accepts only usize; add checked zero-, one- and multiple-argument calls and selected trait-call targets |
+| Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
+| Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
+| Integration | Minimal source, encoded, source-free and external consumer proofs pass at 2b212880 | Migrate old ABI/HIR/compiler/runtime/VM/SDK fixtures and restore their missing library dependencies; full workspace acceptance is still open |
+
+The current .kgr source package still supplies non-array declarations. That is
+migration debt, not the target compiler boundary. All restored declarations must
+come from registrations; generated text serves tooling only. Remove the existing
+source-package route after its last declaration consumer has migrated.
+
+### Coverage baseline and checkpoint rules
+
+Use the predecessor [ST00 inventory](stdlib-hir-refactor.md#st00-ownership-and-behavior-inventory)
+as the completeness checklist: 316 function entries, 116 trait methods, 38 explicit
+native impl blocks, 13 type constructors and seven enums. Its 281 receiver entries
+are alternate syntax, not extra algorithms. These are historical counts, not the
+number of currently installed functions or a requirement to turn every language
+primitive into a native call. Record each entry as a registration-owned algorithm,
+a checked required/default implementation, or a justified retained primitive.
+
+Current specifications and accepted registration APIs determine semantics and
+signatures. Reconcile stale predecessor documents explicitly; do not revive
+superseded APIs just to reproduce inventory counts. Preserve meaningful tests,
+checked widths, UTF-8 boundaries, readonly access, evaluation/callback order,
+prepared mutation commits, completed side effects and logical charging. Permission,
+budget and host borrow changes are outside this restoration scope.
+
+Each checkpoint must deliver declaration -> HIR -> artifact -> runtime execution
+plus generated tooling coordinates. Add the same capability in an independent
+application package to prove extension locality. Repair affected fixture builders
+using current contract types; keep malformed-input assertions and runtime checks.
+No compatibility aliases, forwarding crates, second dispatcher or successful stub
+may bridge an obsolete model. Wire versions change only when executable schemas
+change; affected products and fixtures are rebuilt in the owning checkpoint.
+
+### Ordered work within NR00-NR05
+
+These are checkpoints within the existing phases, not a second phase ledger.
+Complete the contract/lifecycle proof before accepting NR01-NR03 or bulk-restoring
+families that depend on it. Each NR04 family may use several cohesive commits.
+
+| Order / owner | Concrete work | Exit evidence |
+| --- | --- | --- |
+| 1 / NR00 + NR01 | Map the inventory and carried diagnostics to the checkpoints below. Restore std::math floor/ceil/sqrt as the first ordinary free-function package, alongside the existing array package. Record representative baseline workloads. | Both packages compose; generated signatures agree; source and source-free execution work; default opt-out and an application-defined function use the same path |
+| 2 / NR01-NR03 | Complete checked generic bounds, associated outputs, selected callable requirements and default-entry metadata. Generalize typed callback arguments/results. Register the required Ord/Ordering declarations; restore ArrayList sort_by and sort through checked callbacks/witnesses. Add the managed-state proof described below. | Direct, supplied-callback, selected-trait and returned-state paths all work for built-in and application packages without method-specific core dispatch |
+| 3 / NR04 direct families | Register remaining type/enum/protocol declarations and primitive implementation facts. Restore numeric helpers and parsing, math, non-lazy String helpers, direct Option/Result queries and ordinary debug operations. | Width/overflow/radix and UTF-8 tests pass; script Result/error enums round-trip; protocol hooks use checked facts; no handwritten source supplies restored signatures |
+| 4 / NR04 array/list | Restore the full ArrayList, List and MutableList surface: storage/capacity, positional/equality queries, source construction/copy/extend, ranges, prepared retain/dedup/sorting and windows/chunks. | Generic and dynamic readonly/mutable views, custom script implementations, stable sorting, once-only key extraction, alias guards and trap-before-commit coverage pass |
+| 5 / NR04 iterator/string state | Restore collection/String/range iteration, Iter.next, all lazy adapters and terminals whose destinations are already available. Restore String bytes/indices/split/splitn/whitespace/lines. | Creation stays lazy; repeated and interleaved next calls share progress; captures survive forced GC; early termination releases guards; traversal stays bounded |
+| 6 / NR04 map/set | Restore LinkedHashMap/LinkedHashSet storage, custom Eq/Hash lookup, updates/factories, retention, construction, readonly snapshots and set relations/algebra. Restore Iterator.group_by here. | Insertion/collision order, duplicate-key behavior, callback laziness, readonly snapshots and prepared update/retention guarantees pass under aliases and forced GC |
+| 7 / NR04 composition | Restore Option/Result combinators, flatten/transpose, fallible FromIterator, collect/partition, Sum/Product, String.parse, debug.assert_eq and all remaining conversion/default/protocol implementations. Close every deferred inventory row. | Short-circuiting and error provenance, nested destinations, user-defined Iterator/FromIterator/FromStr/Ord/Eq/Hash implementations and cross-provider callbacks pass |
+| 8 / NR04 retirement | Finish registration-owned namespace/prelude metadata; generate all tooling views. Remove kagari-stdlib and its handwritten declaration-loading/index/policy routes, update workspace/dependency assertions and obsolete fixtures, and rebuild the full feature artifact. | No semantic consumer reads generated .kgr; no remaining dependency on kagari-stdlib or obsolete binding catalogs; library coverage and all affected targets build |
+| 9 / NR05 | Run the complete extension, behavior, feature/backend, documentation/example and reload matrices, whole-workspace checks and matched measurements. Resolve every carried diagnostic. | All final checks below pass, ST06 obligations close, and restoration plus no-core-edit extension acceptance are both demonstrated |
+
+The first checkpoint replaces the existing empty legacy math declaration owner
+with its registered module during installation; it must not publish two competing
+std::math modules. Refresh the stale authoring descriptions in the standard
+library README and standard-declarations specification with the implemented typed
+attribute API. Update affected specifications and documentation examples as each
+later family migrates, rather than postponing those contracts until final cleanup.
+
+Step 2 must include a small returned iterator implemented by an application native
+package. Its creation returns managed state and its next entry obtains a fresh
+invocation. Captures and selected targets are traced/pinned across calls, not
+stored in an untraced Rust vector or a global table keyed by library method IDs.
+Prove GC threshold one, interleaved aliases, partial consumption, termination,
+reload and cleanup without retaining a frame or scoped borrow. This is the minimal
+state capability needed for steps 4-6, not full arbitrary Rust interoperability.
+
+Selected trait calls in step 2 carry compiler-checked concrete targets, type
+substitutions and effects through portable contracts. Native Rust implementations
+request those targets through the common driver. No linker may infer that a
+binding named sort requires Ord or that a map binding requires Eq/Hash. Defaults
+also carry explicit selected implementation identities; the same rules apply to
+user-defined traits and application packages.
+
+Step 3's protocol declarations include cmp/hash/fmt/ops/convert/iter and the
+existing associated types, bounds and primitive implementations. Registration
+metadata describes public declarations and checked primitive selections. Numeric,
+indexing, enum, range and closure representation machinery remains owned by the
+engine with its existing validation; public algorithm names never select an
+instruction. Complete primitive/declaration ownership before deleting legacy
+sources. Only Rust re-exports require the empty whitelist; generated Kagari
+namespace/variant/prelude exports retain their specified language semantics.
+
+Steps 5 and 7 deliberately split traversal from destination composition.
+Iterator.group_by depends on the Map implementation in step 6. collect/partition,
+fallible destinations and Sum/Product finish in step 7, including selected
+FromIterator/Sum/Product calls; they must not be silently omitted from step 5's
+coverage ledger. Generic map/set key calls, retention and List equality require
+step 2's common callable capability, even when primitive keys have an existing
+storage fast path.
+
+### Verification and carried-error ownership
+
+For the first checkpoint, retain the currently passing authoring and native proof:
+
+```text
+cargo test -p kagari-native-macros --lib
+cargo test -p kagari-embed --test native_registration --test native_provider_artifact --test native_provider_reset --test host_interfaces
+uv run python scripts/check_native_authoring.py
+uv run python scripts/check_features.py --native-proof
+```
+
+Extend this proof with the restored math package and its application counterpart.
+For later checkpoints reuse the affected existing suites, without disabling their
+assertions or requiring unrelated future families to pass prematurely:
+
+| Checkpoint | Existing behavior suites and required boundary probes |
+| --- | --- |
+| Contracts/callback/state | Native registration/reset/artifact suites; malformed signatures/witnesses; callback traps, sticky cancellation/budget failures, GC, reentry and reload |
+| Direct families | standard_traits, string_extensions, string_parsing, enum_payloads, result_option; checked numeric/parsing and error-origin coverage |
+| Array/List | array_operations, list_queries, list_mutations, list_windows, prepared_collections, collection_access and collection_interfaces |
+| Iterator/String state | lazy_iterators, iteration_traits, string_extensions; partial consumption, non-fused sources, bounded filtering and generation-pinned captures |
+| Map/Set | prepared_collections, collection_access, collection_interfaces; custom/colliding keys, mutation guards, independent snapshots and set relations |
+| Composition | enum_combinators, result_option, iteration_traits, string_parsing, standard_traits; selected destination calls and early error/None |
+| Retirement/final acceptance | standard_declarations, native_preparation, native_artifacts, artifact_features, source/tooling snapshots, documentation examples and the complete feature/backend matrix |
+
+The latest inherited failures are reproducible with cargo test --workspace and
+cargo clippy --workspace --all-targets -- -D warnings. ABI/HIR tests still refer to
+EngineNativeBinding, removed standard bindings and RuntimePrimitive variants;
+compiler/runtime/VM/SDK tests also use old NativeCall/NativeWitness/NativeImport
+fields, HostImportId or binding_version. The full feature fixture represents the
+predecessor library. NR04 owns these failures: migrate affected model constructors
+alongside steps 1-3, missing behavior alongside its family in steps 3-7, and full
+fixture/dependency closure in step 8. Do not defer all fixture repairs to NR05.
+Record each newly observed failure with its command, diagnostic and exact next
+checkpoint; do not repeatedly run an unchanged known failure.
+
+Run the repository structural review and diff checks at each implementation
+checkpoint. NR05 must pass the complete [verification matrix](#verification-matrix)
+and final checks, including the full check_features.py consumer set rather than
+only --native-proof. Preserve the empty Rust re-export whitelist. A restored-family
+checkpoint or a passing minimal proof is not full-library acceptance.
+
 ## Objective and acceptance boundary
 
 Treat standard-library native functions as entries in the installed runtime registry.
@@ -1488,3 +1645,21 @@ Validation actually performed:
 This completes the requested re-export removal and enforcement checkpoint.
 It is a breaking Rust import/dependency change and does not accept an NR phase
 or claim full-workspace integration while the inherited fixture errors remain.
+
+## 2026-10-01 full-library restoration planning checkpoint
+
+User request: assess readiness and provide an execution plan for review.
+Inspect the current native package selection, typed adapters, callback request,
+legacy source manifest, ST00 inventory and existing NR phases at 2b212880. Record
+remaining capabilities, the nine ordered checkpoints, per-family validation and
+carried fixture owners in the proposed sequence above; link it from the roadmap.
+This checkpoint changes documentation only. It does not restore an algorithm,
+authorize the proposed implementation, accept an NR phase or close existing
+whole-workspace failures.
+
+Validation actually performed: repository structure check passes for 803 Rust
+files with zero findings/exceptions; local Markdown link targets and the new
+roadmap anchor are checked; existing line-ending conventions and git diff --check
+pass. No build/test rerun is needed for this documentation-only proposal. The
+prior implementation checkpoint remains the source of passing subsystem evidence
+and inherited full-workspace diagnostics.
