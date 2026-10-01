@@ -209,10 +209,11 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         .unwrap();
     assert_eq!(
         difference.default,
-        Some(MethodDefault::Native {
-            binding: kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference,
-            overridable: false,
-        })
+        Some(MethodDefault::Native(NativeBinding::Engine(
+            EngineNativeBinding::TraitDefault(
+                kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference
+            )
+        )))
     );
     let len_chars = signature(StandardIntrinsic::StringLenChars);
     assert_eq!(len_chars.params.len(), 1);

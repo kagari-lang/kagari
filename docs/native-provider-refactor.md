@@ -1,14 +1,15 @@
 # Native Provider and Contract Refactor Plan
 
-Status: data-contract design active; no NR implementation phase is accepted.
+Status: implementation started at the declaration-policy boundary; no NR phase is accepted.
 The 2026-10-01 user direction changes the previous ST06 prerequisite: design the
 HIR/MIR native boundary first, replace the old standard implementation paths and
 prove a small standard-library slice before restoring the remaining algorithms.
 [Standard-library and HIR integration](stdlib-hir-refactor.md) remains an interim
 migration checkpoint with final combined acceptance and matched measurements open.
 Those obligations carry into NR final acceptance; they are not claimed complete.
-The [roadmap](implementation-roadmap.md) records the revised ordering. This design
-checkpoint removes no implementations and changes no executable semantics.
+The [roadmap](implementation-roadmap.md) records the revised ordering. The first
+checkpoint replaces method override policy; provider keys, common imports and
+the minimal library execution slice remain pending.
 
 ## Objective and acceptance boundary
 
@@ -685,7 +686,10 @@ without adding a standard/engine ID enum or verifier case.
 
 ### NR02 — Declaration policy and generic call consumers
 
-- [ ] Replace method-ID override/default rules with checked declaration properties.
+- [x] Replace the HIR native-default override list with checked declaration policy
+  and carry it through portable ABI validation.
+- [ ] Replace remaining default-entry recognition with explicit selected callable
+  metadata, including shared entries for final script defaults.
 - [ ] Carry required concrete callable applications; remove standard-family witness
   selection from generic linkers and validators.
 - [ ] Migrate HIR, compiler, MIR/bytecode and interface defaults to common contracts;
@@ -794,6 +798,32 @@ resolved. Do not reopen completed ST phase ledgers for this follow-up.
 
 ## Progress ledger
 
+- 2026-10-01: Implementation began from clean `e506c54`. The first bounded
+  data-contract checkpoint separates `MethodPolicy` from `MethodDefault` and
+  stores the native default as a provider-qualified HIR binding. The installed
+  declarations explicitly mark the existing 20 fixed defaults; HIR no longer
+  derives override permission from `NativeDefaultMethod`. Policy participates in
+  aggregate contract reuse, compiler ABI lowering, substitution and source-free
+  interface checking. The generic verifier rejects explicit replacement of a
+  final declaration before projection deferral and rejects final requirements
+  and policy on non-trait declarations. User attributes/URIs do not install policy.
+  Portable method omission still uses the existing engine-default rule until
+  selected default-callable metadata replaces it in NR02; this checkpoint does
+  not authorize omitted host defaults. Shared final script default entries also
+  belong to that follow-up. Binding installation, algorithm factories, witnesses
+  and persistent lazy state remain on the old paths; no standard algorithms have
+  been deleted and no NR phase exit is claimed. The new ABI field requires runtime
+  ABI v134, KBC v111 and KMIR v9; the feature fixture was regenerated, without old
+  format readers. Validation passed: `cargo test -p kagari-abi -p kagari-stdlib
+  -p kagari-hir -p kagari-compiler --features kagari-compiler/source --lib`
+  (47 ABI, 191 compiler, 417 HIR and 7 package tests); the focused policy-boundary
+  test; all 7 `cargo test -p kagari-embed --test artifact_features` tests;
+  `uv run python scripts/check_features.py` for all four standalone SDK routes;
+  workspace/all-target Clippy with warnings denied; structure review/checker
+  (842 files, no violations/exceptions); format, 83 local links/anchors and diff
+  checks. Logs are under ignored `target/nr-*.log`. No build/test errors carry
+  from this checkpoint. Whole-workspace runtime/JIT acceptance and matched ST06
+  measurements remain pending NR05; these focused results do not close them.
 - 2026-10-01: Added a concrete proposed `Iterator::map` registration, constructor
   and per-next invocation sketch. Construction captures without traversal;
   source-next and transform are checked calls on the same driver. Distinguished

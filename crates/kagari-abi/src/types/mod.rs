@@ -9,7 +9,7 @@ pub mod verify;
 mod wire;
 
 use crate::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, MethodPolicy},
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
@@ -93,6 +93,7 @@ impl PublicAbiItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionAbi {
+    pub method_policy: MethodPolicy,
     pub name: String,
     pub implementation: CallableImplementation,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -408,6 +409,7 @@ impl InterfaceTableAbi {
             .iter()
             .map(|method| {
                 Some(FunctionAbi {
+                    method_policy: method.method_policy,
                     name: method.name.clone(),
                     implementation: method.implementation.clone(),
                     generic_params: method

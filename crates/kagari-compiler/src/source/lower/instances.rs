@@ -467,7 +467,7 @@ impl<'a> InstancePlanner<'a> {
             .ok_or(MirLoweringError::MissingBinding("native bridge origin"))?;
         let mut methods = Vec::new();
         for method in &contract.methods {
-            if matches!(method.default, Some(MethodDefault::Native { .. })) {
+            if matches!(method.default, Some(MethodDefault::Native(_))) {
                 continue;
             }
             let mut id = declaration.clone();
@@ -494,6 +494,7 @@ impl<'a> InstancePlanner<'a> {
                 native_method: Some((receiver.clone(), interface.clone(), method.id.clone())),
             });
             methods.push(FunctionAbi {
+                method_policy: Default::default(),
                 implementation: CallableImplementation::Script,
                 name: method.name.clone(),
                 generic_params: Vec::new(),

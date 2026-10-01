@@ -17,8 +17,8 @@ imports and private dependencies without source catalogs. Runtime owns every pub
 native standard algorithm through shared Rust helpers or rooted continuations,
 including lazy adapters, prepared mutations, custom keys and selected script calls.
 Core language primitives keep generic typed instructions. The plan's final ownership
-map covers the complete ST00 inventory. Current products use runtime ABI v133,
-KBC v110, KMIR v8, native binding v2 and helper ABI v6; older products require rebuilds.
+map covers the complete ST00 inventory. Current products use runtime ABI v134,
+KBC v111, KMIR v9, native binding v2 and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
 specifications, whole-workspace acceptance, structural review and matched baseline
@@ -26,7 +26,7 @@ measurements. Generated host declaration documents, Rust registration macros, LS
 transport and further backend expansion remain later work. This migration does not
 reopen completed historical phase ledgers.
 
-## Native provider and contract unification (design active)
+## Native provider and contract unification (implementation started)
 
 The [native provider refactor plan](native-provider-refactor.md) starts from the
 ST interim checkpoint under the revised 2026-10-01 data-first direction. Its
@@ -41,6 +41,9 @@ registration and tests, without changes to generic HIR/compiler/verifier/VM logi
 Provider authority, storage primitives and observable execution semantics remain
 explicit. NR00 audits the current checkpoint and retained primitive inventory;
 NR05 restores full coverage and closes carried ST06 acceptance and measurements.
+The first implementation checkpoint separates method override policy from native
+default identities and carries it through HIR, MIR/bytecode ABI and offline checking.
+Provider contracts, unified imports and the minimal execution slice remain pending.
 No NR implementation phase has been accepted yet.
 
 ## Permissions and execution protection refactor queued

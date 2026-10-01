@@ -14,6 +14,7 @@ pub enum NativeMarkerKind {
     Intrinsic,
     Numeric,
     ParseRadix,
+    MethodPolicy,
     BuiltinType,
     BuiltinEnum,
 }
@@ -86,6 +87,7 @@ pub(crate) fn declarations(
                 Some("intrinsic") => NativeMarkerKind::Intrinsic,
                 Some("numeric") => NativeMarkerKind::Numeric,
                 Some("parse_radix") => NativeMarkerKind::ParseRadix,
+                Some("method_policy") => NativeMarkerKind::MethodPolicy,
                 Some("builtin_type") => NativeMarkerKind::BuiltinType,
                 Some("builtin_enum") => NativeMarkerKind::BuiltinEnum,
                 _ => continue,

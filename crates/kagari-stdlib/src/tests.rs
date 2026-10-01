@@ -140,6 +140,9 @@ fn malformed_annotations_and_syntax_do_not_publish_a_package() {
         "#[intrinsic(A, B)] pub fn f();",
         "#[intrinsic(binding = A)] pub fn f();",
         "#[intrinsic(42)] pub fn f();",
+        "trait T { #[method_policy(Final)] #[method_policy(Overridable)] fn f(self); }",
+        "trait T { #[method_policy()] fn f(self); }",
+        "trait T { #[method_policy(Final, Overridable)] fn f(self); }",
     ] {
         assert!(
             matches!(prepare(text), Err(PackageError::Annotation { .. })),

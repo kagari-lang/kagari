@@ -1,6 +1,6 @@
 use super::collect_module_abi;
 use kagari_abi::{
-    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
+    callable::{CallableImplementation, NativeBinding},
     standard::{
         surface::StandardEnum,
         traits::{self, StandardTrait},
@@ -14,7 +14,10 @@ use kagari_common::{
     identity::associated_type_id,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_hir::{aggregates::MethodDefault, analysis::AnalysisDatabase};
+use kagari_hir::{
+    aggregates::MethodDefault, analysis::AnalysisDatabase,
+    native::NativeBinding as HirNativeBinding,
+};
 use std::collections::BTreeMap;
 
 #[test]
@@ -126,11 +129,13 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
                 let expected = match method.default {
                     None => CallableImplementation::Required,
                     Some(MethodDefault::Script) => CallableImplementation::Script,
-                    Some(MethodDefault::Native { binding, .. }) => CallableImplementation::Native(
-                        NativeBinding::Engine(EngineNativeBinding::TraitDefault(binding)),
-                    ),
+                    Some(MethodDefault::Native(HirNativeBinding::Engine(binding))) => {
+                        CallableImplementation::Native(NativeBinding::Engine(binding))
+                    }
+                    Some(MethodDefault::Native(_)) => panic!("installed host default"),
                 };
                 assert_eq!(record.methods[slot].implementation, expected);
+                assert_eq!(record.methods[slot].method_policy, method.policy);
             }
             assert!(contracts.insert(id, record.clone()).is_none());
         }

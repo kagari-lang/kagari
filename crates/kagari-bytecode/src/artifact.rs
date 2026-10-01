@@ -23,7 +23,7 @@ use kagari_abi::{ids::FunctionRef, representation::ValueType};
 use serde::{Deserialize, Serialize};
 
 pub const KBC_MAGIC: [u8; 4] = *b"KBC\0";
-pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 110;
+pub const KBC_ARTIFACT_FORMAT_VERSION: u16 = 111;
 pub const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_ARTIFACT_MODULES: usize = MAX_MODULES;
 pub const MAX_ARTIFACT_FUNCTIONS: usize = MAX_FUNCTIONS;

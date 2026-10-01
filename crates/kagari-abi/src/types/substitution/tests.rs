@@ -194,6 +194,7 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
         }),
         for_type: AbiType::Tuple(vec![input.clone()]),
         methods: vec![FunctionAbi {
+            method_policy: Default::default(),
             name: "construct".into(),
             implementation: CallableImplementation::Script,
             generic_params: vec![local.clone()],

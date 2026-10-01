@@ -21,6 +21,7 @@ use kagari_common::{
 use kagari_hir::{
     aggregates::MethodDefault,
     builtin::traits::StandardTraitSemantics,
+    native::NativeBinding,
     types::{
         NominalType, TypeId, TypeSubstitution,
         abi::{lower_nominal_type, lower_type},
@@ -50,7 +51,10 @@ impl FunctionLowerer<'_, '_> {
             .trait_(&signature.owner)
             .ok_or_else(invalid)?
             .clone();
-        let Some(MethodDefault::Native { binding, .. }) = signature.default else {
+        let Some(MethodDefault::Native(NativeBinding::Engine(EngineNativeBinding::TraitDefault(
+            binding,
+        )))) = signature.default
+        else {
             return Err(invalid());
         };
         let all_arguments: Vec<_> = interface

@@ -47,6 +47,7 @@ pub trait Iterator {
     /// std::debug::assert(parts.join("/") == "second/third", "remaining items");
     /// ```
     /// This standard traversal operation cannot be overridden by an implementation.
+    #[method_policy(Final)]
     #[intrinsic(IteratorJoin)]
     fn join(self, separator: String) -> String where Self: Iterator<Item = String>;
 

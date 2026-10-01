@@ -335,6 +335,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.union(b).len() == 3usize, "union");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetUnion)]
     fn union(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
 
@@ -357,6 +358,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.intersection(b).contains(2), "intersection");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetIntersection)]
     fn intersection(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
 
@@ -379,6 +381,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.difference(b).contains(1), "difference");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetDifference)]
     fn difference(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
 
@@ -401,6 +404,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.symmetric_difference(b).len() == 2usize, "symmetric_difference");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetSymmetricDifference)]
     fn symmetric_difference(self, rhs: Set<T>) -> LinkedHashSet<T> where T: Eq + Hash;
 
@@ -423,6 +427,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.is_subset(b) == false, "is_subset");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetIsSubset)]
     fn is_subset(self, rhs: Set<T>) -> bool ;
 
@@ -445,6 +450,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.is_superset(b) == false, "is_superset");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetIsSuperset)]
     fn is_superset(self, rhs: Set<T>) -> bool ;
 
@@ -467,6 +473,7 @@ pub trait Set<T>: Iterable<Item = T, Iter = Iter<T>> {
     /// val b: Set<i32> = LinkedHashSet::from([2, 3]);
     /// std::debug::assert(a.is_disjoint(b) == false, "is_disjoint");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(SetIsDisjoint)]
     fn is_disjoint(self, rhs: Set<T>) -> bool ;
 

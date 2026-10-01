@@ -150,6 +150,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
             value: String::new(),
         }),
         PublicAbiItem::Function(FunctionAbi {
+            method_policy: Default::default(),
             name: "unused".into(),
             implementation: CallableImplementation::Script,
             generic_params: vec![],

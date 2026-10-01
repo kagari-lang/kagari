@@ -433,7 +433,7 @@ pub(crate) fn validate_signatures(
                     Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
                         trait_name: contract.declaration.name.clone(),
                         method_name: method.name.clone(),
-                        reason: "this standard traversal operation cannot be overridden".into(),
+                        reason: "this method declaration forbids overriding".into(),
                     })
                     .with_span(span),
                 );

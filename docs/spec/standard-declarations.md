@@ -99,6 +99,13 @@ Concrete ArrayList sources retain the direct Rust storage helper. Runtime interf
 tables retain vacant slots for omitted engine operations so later declared
 method ordinals remain stable.
 
+Installed native defaults that forbid replacement explicitly carry
+`#[method_policy(Final)]` in their declaration. Unannotated defaults remain
+overridable. HIR records this policy independently of the native binding, and
+portable callable declarations preserve it for interface validation. Installation
+rejects a final required method; user-written policy attributes do not acquire
+installed declaration authority.
+
 `iter.kgr` explicitly declares `impl<T> Iterator for Iter<T>`, including
 `type Item = T` and `#[intrinsic(IterNext)] fn next(self) -> Option<T>;`.
 HIR validates this implementation against the sealed native stepping ABI.

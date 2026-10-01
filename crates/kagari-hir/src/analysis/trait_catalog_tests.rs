@@ -1,8 +1,11 @@
 use super::*;
 use crate::{
-    aggregates::MethodDefault, declarations::DeclarationId, typeck::CallTarget, types::NominalType,
+    aggregates::MethodDefault, declarations::DeclarationId, native::NativeBinding,
+    typeck::CallTarget, types::NominalType,
 };
-use kagari_abi::{scalar::BuiltinType, standard::bindings::NativeDefaultMethod};
+use kagari_abi::{
+    callable::EngineNativeBinding, scalar::BuiltinType, standard::bindings::NativeDefaultMethod,
+};
 use kagari_common::{
     identity::{ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
@@ -75,10 +78,9 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             .unwrap();
         assert_eq!(
             method.default,
-            Some(MethodDefault::Native {
-                binding,
-                overridable
-            })
+            Some(MethodDefault::Native(NativeBinding::Engine(
+                EngineNativeBinding::TraitDefault(binding)
+            )))
         );
         assert_eq!(method.allows_override(), overridable);
         let source = snapshot.source(method.declaration.location.file).unwrap();
@@ -187,7 +189,7 @@ fn installed_non_overridable_default_rejects_a_script_replacement() {
     assert!(file.result().diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind,
         kagari_common::DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
-            if method_name == "join" && reason == "this standard traversal operation cannot be overridden"
+            if method_name == "join" && reason == "this method declaration forbids overriding"
     )));
     assert!(file.result().clone().into_codegen().is_err());
 }

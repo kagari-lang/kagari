@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 mod enums;
 mod functions;
+mod policies;
 #[cfg(test)]
 mod tests;
 
@@ -31,6 +32,7 @@ impl InstalledStdlib {
             install_types(file, &mut lowered, cancel)?;
             enums::install(file, &mut lowered, cancel)?;
             functions::install(file, &mut lowered, cancel)?;
+            policies::install(file, &mut lowered, cancel)?;
             lowered.installed_stdlib = Some(package.clone());
             modules.push(Arc::new(lowered));
         }

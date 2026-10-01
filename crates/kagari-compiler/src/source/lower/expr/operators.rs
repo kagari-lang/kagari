@@ -181,7 +181,7 @@ impl FunctionLowerer<'_, '_> {
             .catalog
             .trait_method(method)
             .and_then(|signature| match signature.default {
-                Some(MethodDefault::Native { binding, .. }) => Some(binding),
+                Some(MethodDefault::Native(binding)) => Some(binding),
                 _ => None,
             });
         if let TypeId::Trait(child) = &ty

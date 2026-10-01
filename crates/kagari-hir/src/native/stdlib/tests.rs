@@ -204,6 +204,62 @@ fn user_native_annotations_cannot_bypass_generic_export_or_attribute_checks() {
 }
 
 #[test]
+fn user_method_policy_attributes_cannot_claim_installed_declaration_policy() {
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "kagari://std/custom.kgr",
+            "trait Custom { #[method_policy(Final)] fn value(self) -> i32 { 1 } }",
+        ),
+        Default::default(),
+    );
+    assert!(analysis.facts().lowered.method_policies.is_empty());
+    assert!(analysis.diagnostics().iter().any(
+        |d| matches!(&d.kind, DiagnosticKind::UnknownAttribute { name } if name == "method_policy")
+    ));
+}
+
+#[test]
+fn installed_final_policy_rejects_required_methods_and_non_trait_targets() {
+    let cancel = Default::default();
+    let package = ParsedStdlibPackage::prepare(Default::default(), &cancel).unwrap();
+    let file = package
+        .files()
+        .iter()
+        .find(|file| file.source().name() == "kagari://std/iter.kgr")
+        .unwrap();
+    let mut lowered =
+        lower_module_controlled(file.source().clone(), &file.parsed().syntax(), &cancel);
+    functions::install(file, &mut lowered, &cancel).unwrap();
+    let join = lowered
+        .module
+        .traits
+        .iter()
+        .flat_map(|interface| &interface.methods)
+        .find(|method| method.name == "join")
+        .unwrap()
+        .function;
+    let mut required = lowered.clone();
+    required.native_functions.remove(&join);
+    assert!(matches!(
+        policies::install(file, &mut required, &cancel),
+        Err(PackageError::Annotation { message, .. })
+            if message == "a required method must allow an implementation"
+    ));
+    lowered
+        .module
+        .functions
+        .iter_mut()
+        .find(|function| function.id == join)
+        .unwrap()
+        .kind = crate::hir::FunctionKind::ImplMethod;
+    assert!(matches!(
+        policies::install(file, &mut lowered, &cancel),
+        Err(PackageError::Annotation { message, .. })
+            if message == "method policy requires a trait method"
+    ));
+}
+
+#[test]
 fn standard_uri_does_not_grant_primitive_implementation_ownership() {
     let analysis = analyze_source(
         &SourceFile::new(

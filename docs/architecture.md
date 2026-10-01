@@ -22,6 +22,10 @@ checked selections, substitutions, associated outputs and witnesses. Portable MI
 and bytecode carry their complete dependency closure and executable contracts.
 ABI validates those facts without syntax, HIR or source catalogs.
 
+Trait method signatures carry declaration override policy independently of their
+default implementation. Portable callable declarations retain that policy so
+source analysis and artifact interface validation enforce the same restriction.
+
 Runtime owns native standard behavior. Direct entries reuse Rust storage, numeric
 and parsing helpers; callback algorithms and lazy adapters use rooted native
 continuations on the caller's session/frame stack. GC-owned captures pin imports,

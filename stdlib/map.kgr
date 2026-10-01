@@ -446,6 +446,7 @@ pub trait Map<K, V>: Iterable<Item = (K, V), Iter = Iter<(K, V)>> {
     /// val source: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
     /// std::debug::assert(source.keys().len() == 1usize, "snapshot");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(MapKeysView)]
     fn keys(self) -> List<K>;
 
@@ -460,6 +461,7 @@ pub trait Map<K, V>: Iterable<Item = (K, V), Iter = Iter<(K, V)>> {
     /// val source: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
     /// std::debug::assert(source.values().len() == 1usize, "snapshot");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(MapValuesView)]
     fn values(self) -> List<V>;
 
@@ -474,6 +476,7 @@ pub trait Map<K, V>: Iterable<Item = (K, V), Iter = Iter<(K, V)>> {
     /// val source: Map<String, i32> = LinkedHashMap::from([("answer", 42)]);
     /// std::debug::assert(source.entries().len() == 1usize, "snapshot");
     /// ```
+    #[method_policy(Final)]
     #[intrinsic(MapEntriesView)]
     fn entries(self) -> List<(K, V)>;
 

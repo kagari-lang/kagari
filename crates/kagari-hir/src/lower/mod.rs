@@ -1,5 +1,5 @@
 use ast::Attribute;
-use kagari_abi::callable::EngineNativeBinding;
+use kagari_abi::callable::{EngineNativeBinding, MethodPolicy};
 use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
 use kagari_stdlib::ParsedStdlibPackage;
 use kagari_syntax::parse;
@@ -31,6 +31,7 @@ pub struct LoweredModule {
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
     pub(crate) native_functions: HashMap<FunctionId, EngineNativeBinding>,
+    pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
     pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,
 }
@@ -122,6 +123,7 @@ pub(crate) fn lower_module_controlled(
         native_types: HashMap::new(),
         native_enums: HashMap::new(),
         native_functions: HashMap::new(),
+        method_policies: HashMap::new(),
         native_attributes: HashSet::new(),
         installed_stdlib: None,
     }

@@ -8,7 +8,7 @@ use crate::{
     typeck::{ConstraintTarget, FunctionImplementation, GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
-use kagari_abi::{callable::EngineNativeBinding, standard::bindings::NativeDefaultMethod};
+use kagari_abi::callable::MethodPolicy;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionId, FileSpan, ModuleIdentity},
@@ -28,6 +28,7 @@ pub struct MethodParameter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodSignature {
     pub default: Option<MethodDefault>,
+    pub policy: MethodPolicy,
     pub id: DefinitionId,
     pub owner: DefinitionId,
     pub slot: usize,
@@ -44,59 +45,17 @@ pub struct MethodSignature {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MethodDefault {
     Script,
-    Native {
-        binding: NativeDefaultMethod,
-        overridable: bool,
-    },
-}
-
-impl MethodDefault {
-    pub(crate) fn native(binding: NativeDefaultMethod) -> Self {
-        // These traversal contracts fix evaluation and snapshot behavior. The
-        // installer supplies a closed binding, never a source-spelled method name.
-        let overridable = !matches!(
-            binding,
-            NativeDefaultMethod::Join
-                | NativeDefaultMethod::ListJoin
-                | NativeDefaultMethod::ListWindows
-                | NativeDefaultMethod::ListChunks
-                | NativeDefaultMethod::ListFirst
-                | NativeDefaultMethod::ListLast
-                | NativeDefaultMethod::ListContains
-                | NativeDefaultMethod::ListStartsWith
-                | NativeDefaultMethod::ListEndsWith
-                | NativeDefaultMethod::ListBinarySearch
-                | NativeDefaultMethod::SetUnion
-                | NativeDefaultMethod::SetIntersection
-                | NativeDefaultMethod::SetDifference
-                | NativeDefaultMethod::SetSymmetricDifference
-                | NativeDefaultMethod::SetIsSubset
-                | NativeDefaultMethod::SetIsSuperset
-                | NativeDefaultMethod::SetIsDisjoint
-                | NativeDefaultMethod::MapKeysView
-                | NativeDefaultMethod::MapValuesView
-                | NativeDefaultMethod::MapEntriesView
-        );
-        Self::Native {
-            binding,
-            overridable,
-        }
-    }
+    Native(NativeBinding),
 }
 
 impl MethodSignature {
     pub fn allows_override(&self) -> bool {
-        !matches!(
-            self.default,
-            Some(MethodDefault::Native {
-                overridable: false,
-                ..
-            })
-        )
+        self.policy.override_allowed
     }
 
     fn same_contract(&self, other: &Self) -> bool {
         self.default == other.default
+            && self.policy == other.policy
             && self.id == other.id
             && self.owner == other.owner
             && self.slot == other.slot
@@ -244,14 +203,17 @@ impl AggregateCatalog {
                     .insert(method_id.clone(), (id.clone(), methods.len()));
                 methods.push(MethodSignature {
                     default: match function.implementation {
-                        FunctionImplementation::Native(NativeBinding::Engine(
-                            EngineNativeBinding::TraitDefault(binding),
-                        )) => Some(MethodDefault::native(binding)),
-                        FunctionImplementation::Script => Some(MethodDefault::Script),
-                        FunctionImplementation::Required | FunctionImplementation::Native(_) => {
-                            None
+                        FunctionImplementation::Native(binding) => {
+                            Some(MethodDefault::Native(binding))
                         }
+                        FunctionImplementation::Script => Some(MethodDefault::Script),
+                        FunctionImplementation::Required => None,
                     },
+                    policy: lowered
+                        .method_policies
+                        .get(&method.function)
+                        .copied()
+                        .unwrap_or_default(),
                     id: method_id.clone(),
                     owner: id.clone(),
                     slot,

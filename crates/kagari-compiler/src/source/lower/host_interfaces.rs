@@ -76,6 +76,7 @@ pub(super) fn collect(
                 .collect();
             let result_type = AbiType::from_host_type(&host_call.return_type);
             methods.push(FunctionAbi {
+                method_policy: Default::default(),
                 implementation: CallableImplementation::Script,
                 name: method.name.clone(),
                 generic_params: Vec::new(),

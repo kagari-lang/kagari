@@ -411,6 +411,8 @@ fn trait_valid(ty: &TraitAbi, module: &ModuleIdentity, cancel: &CancellationToke
                 })
                 && ty.methods.iter().all(|method| {
                     methods.insert(&method.name)
+                        && (method.method_policy.override_allowed
+                            || !matches!(method.implementation, CallableImplementation::Required))
                         && engine_signature_valid(method, &ty.bounds)
                         && function_valid(
                             method,
@@ -658,6 +660,7 @@ fn method_contract_matches(
     cancel: &CancellationToken,
 ) -> bool {
     if matches!(implemented.implementation, CallableImplementation::Required)
+        || !declared.method_policy.override_allowed
         || declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
     {
@@ -851,7 +854,13 @@ fn function_valid(
                 && id.within_path_limit()
         }
     };
-    if function.name.is_empty() || !implementation_valid {
+    if function.name.is_empty()
+        || !implementation_valid
+        || (!function.method_policy.override_allowed
+            && !parent
+                .last()
+                .is_some_and(|owner| owner.kind == DefinitionKind::Trait))
+    {
         return false;
     }
     let kind = if parent.is_empty() {

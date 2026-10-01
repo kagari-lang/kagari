@@ -1,8 +1,6 @@
 use crate::source::types::lower_native_constructor;
 use kagari_abi::{
-    callable::{
-        CallableImplementation, EngineNativeBinding, NativeBinding as PortableNativeBinding,
-    },
+    callable::{CallableImplementation, NativeBinding as PortableNativeBinding},
     types::{
         AbiType, AssociatedConstAbi, AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstAbi,
         ConstraintAbi, FieldAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
@@ -541,12 +539,13 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
             })
             .collect();
         result.push(FunctionAbi {
+            method_policy: method.policy,
             name: method.name.clone(),
             implementation: match method.default.expect("selected default method") {
                 MethodDefault::Script => CallableImplementation::Script,
-                MethodDefault::Native { binding, .. } => CallableImplementation::Native(
-                    PortableNativeBinding::Engine(EngineNativeBinding::TraitDefault(binding)),
-                ),
+                MethodDefault::Native(binding) => {
+                    CallableImplementation::Native(native_binding_abi(module, binding))
+                }
             },
             generic_params: method_params
                 .iter()
@@ -579,23 +578,20 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
         .iter()
         .find(|typed| typed.id == function.id)?;
     Some(FunctionAbi {
+        method_policy: module
+            .declarations
+            .target(ResolvedName::Function(function.id))
+            .and_then(|declaration| match &declaration.id {
+                DeclarationId::Definition(id) => module.aggregates.trait_method(id),
+                _ => None,
+            })
+            .map_or_else(Default::default, |method| method.policy),
         name: typed.name.clone(),
         implementation: match typed.implementation {
             FunctionImplementation::Required => CallableImplementation::Required,
             FunctionImplementation::Script => CallableImplementation::Script,
-            FunctionImplementation::Native(NativeBinding::Engine(binding)) => {
-                CallableImplementation::Native(PortableNativeBinding::Engine(binding))
-            }
-            FunctionImplementation::Native(NativeBinding::Host(id)) => {
-                CallableImplementation::Native(PortableNativeBinding::Host(
-                    module
-                        .names
-                        .hosts
-                        .function(id)
-                        .expect("checked host callable")
-                        .id
-                        .clone(),
-                ))
+            FunctionImplementation::Native(binding) => {
+                CallableImplementation::Native(native_binding_abi(module, binding))
             }
         },
         generic_params: generic_param_abi(module, &function.generic_params),
@@ -611,6 +607,21 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
             .collect(),
         return_type: abi_type(module, &typed.return_type),
     })
+}
+
+fn native_binding_abi(module: &AnalyzedModule, binding: NativeBinding) -> PortableNativeBinding {
+    match binding {
+        NativeBinding::Engine(binding) => PortableNativeBinding::Engine(binding),
+        NativeBinding::Host(id) => PortableNativeBinding::Host(
+            module
+                .names
+                .hosts
+                .function(id)
+                .expect("checked host callable")
+                .id
+                .clone(),
+        ),
+    }
 }
 
 fn abi_type(module: &AnalyzedModule, ty: &TypeId) -> AbiType {

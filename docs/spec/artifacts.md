@@ -28,7 +28,7 @@ Artifacts may be used by:
 
 ## Current executable contract
 
-Current products use KBC format v110, `kagari-runtime-abi-v133`, `KMIR` v8,
+Current products use KBC format v111, `kagari-runtime-abi-v134`, `KMIR` v9,
 engine-native binding contract v2 and runtime-helper ABI v6. Older versions are
 rejected before execution; the loader has no migration reader. Historical version
 notes below describe their checkpoints rather than the current representation.
@@ -41,6 +41,12 @@ associated outputs, method arguments and the complete dependency closure. Only
 closed engine operation contracts remain in ABI; source signature catalogs and
 runtime source lookup are absent. Host imports preserve their separate required
 HostInterface, passing styles, capabilities and nominal ownership checks.
+
+Callable declarations carry method override policy separately from implementation
+identity. Source-free interface verification rejects replacement entries for a
+final trait method, including when signature projections defer other checks.
+Required methods must allow an implementation; non-trait callable declarations
+cannot carry final method policy.
 
 Lazy iterators contain runtime-owned rooted captures pinned to their checked import
 and execution version. Captures are created during execution; artifacts contain no
