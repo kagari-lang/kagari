@@ -104,7 +104,7 @@ source package; the minimal array module comes only from native registration dat
 The generated text may be parsed for CST/tool queries, but is never lowered to
 establish native semantics. No interpreter/JIT execution algorithm is duplicated.
 
-## Proposed full-library restoration sequence (2026-10-01)
+## Full-library restoration sequence (2026-10-01)
 
 Task: restore the remaining public library through registration-owned native APIs.
 Context: the typed array checkpoint and owner-import migration are complete;
@@ -114,8 +114,9 @@ packages use the same mechanism; HIR checks their complete registered signatures
 compiler, verifier and VM consume checked contracts without library-method policy.
 Scope: existing library coverage and the common capabilities it actually requires.
 Arbitrary Rust/opaque derives, Serde, async and the queued execution-policy changes
-remain in their own plans. This section is a proposal for review, not authorization
-or a report that restoration implementation has started.
+remain in their own plans. The user activated this sequence in goal mode on
+2026-10-01. Implementation begins with the math package checkpoint; no complete
+NR phase is accepted by that bounded result.
 
 ### Readiness and remaining prerequisites
 
@@ -218,6 +219,38 @@ FromIterator/Sum/Product calls; they must not be silently omitted from step 5's
 coverage ledger. Generic map/set key calls, retention and List equality require
 step 2's common callable capability, even when primitive keys have an existing
 storage fast path.
+
+### Active restoration inventory and execution checklist
+
+The ST00 member sets remain the detailed reference; this table gives every group
+an execution owner without rebuilding a central method catalog in production.
+
+| Inventory group | Owning checkpoint | Current state |
+| --- | --- | --- |
+| math's eleven helpers | 1 and 3 | floor/ceil/sqrt restored in checkpoint 1; remaining eight pending |
+| 175 numeric methods and thirteen FromStr impls | 3 | Pending |
+| String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | Pending |
+| Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | Pending |
+| ArrayList plus List/MutableList methods and impls | 2 and 4 | Bounded registration proof retained; sort witness proof and remaining surface pending |
+| Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Pending managed-state and associated-output prerequisites from 2-3 |
+| LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
+| collect/partition, destination impls, Sum/Product and conversion blankets | 7 | Pending selected destinations and complete composition |
+| debug direct entries / assert_eq | 3 / 7 | Pending |
+| cmp/hash/fmt/ops/convert/iter contracts, seven enums and thirteen type constructors | 2-3 | Required Ord/Ordering starts in 2; remaining registration and primitive ownership in 3 |
+| Implicit scalar/operator/index/range/closure implementation facts | 3 and 7 | Classify validated engine primitives in 3; composed/blanket contracts finish in 7 |
+| Namespace, variant exports, prelude and legacy source crate | 8 | Pending migration and retirement |
+| Existing fixture constructors and full artifact | Affected checkpoints 1-3 / 8 | Minimal math/array artifact updated in 1; carried old-model targets remain NR04 debt |
+| Combined extension, behavior and ST06 acceptance/measurements | 9 / NR05 | Pending |
+
+- [x] 1: math package, composition proof, inventory and entry baseline.
+- [ ] 2: common selected calls, callback packs and traceable returned state.
+- [ ] 3: remaining declarations, primitive facts and direct families.
+- [ ] 4: complete ArrayList/List/MutableList behavior.
+- [ ] 5: Iterator and String/range traversal/state.
+- [ ] 6: Map/Set and custom keys/snapshots/grouping.
+- [ ] 7: composition, fallible destinations and remaining protocols.
+- [ ] 8: legacy source/fixture retirement and generated tooling closure.
+- [ ] 9: NR05 and carried ST06 final combined acceptance.
 
 ### Verification and carried-error ownership
 
@@ -1663,3 +1696,69 @@ roadmap anchor are checked; existing line-ending conventions and git diff --chec
 pass. No build/test rerun is needed for this documentation-only proposal. The
 prior implementation checkpoint remains the source of passing subsystem evidence
 and inherited full-workspace diagnostics.
+
+## 2026-10-01 restoration entry: registered math package checkpoint
+
+User activation: start goal mode and execute the reviewed restoration sequence.
+Checkpoint 1 advances NR00 inventory/baseline and NR01 ordinary package composition;
+it does not accept either complete phase. The active inventory/checklist above
+maps every ST00 group and carried fixture error to the remaining checkpoints.
+
+- Restore floor/ceil/sqrt as actual Rust functions in native/math_api, selected by
+  ordinary NativeApi composition alongside array. Derive signatures and adapters
+  through native_module; preserve finite-value/domain checks and signed zero.
+  No library identity is added to HIR, compiler, ABI verifier or VM dispatch.
+- Remove math from the legacy source manifest. Its generated .kgr is tooling only;
+  existing module-identity replacement imports the registered owner directly.
+  Refresh authoring/spec/architecture descriptions and preserve the remaining
+  source-package migration boundary.
+- Regenerate the minimal source/encoded fixture with array plus math, including
+  zero-argument math entries. Generate all installed library views with the same
+  example. Check module composition, incorrect source signatures, registered-owner
+  navigation/docs, optional installation and missing-handler linking.
+- Exercise finite rounding, maximum finite sqrt, negative zero, NaN, both infinities
+  and negative sqrt through newly encoded/decoded independently verified bytecode
+  products under GC threshold one. Verify roots/depth cleanup and successful reuse
+  after traps. SDK entry argument passing remains unsupported; boundary products
+  supply constants through normal verified bytecode rather than changing the
+  queued public call API or weakening validation.
+- Extend the existing stdlib_baseline example with --native-proof workloads for
+  direct array access, rooted from_fn callbacks and math. Full predecessor workloads
+  remain required after restoration; this switch does not waive them.
+
+Validation actually performed:
+
+- Native math/registration/provider artifact/reset/host-interface suites: 38 tests
+  pass; native macro unit suite: one test passes. No assertions were disabled.
+- check_native_authoring.py: three invalid Rust forms rejected; alias/generic/
+  renamed-runtime/hygiene consumer succeeds.
+- check_features.py --native-proof: artifact-only, source, native and source+native
+  consumers pass, including math boundary execution; eight production graph checks
+  and source-independent ABI build graph pass.
+- Workspace library Clippy and affected SDK targets/examples Clippy pass with
+  -D warnings. Structure check: 805 Rust files, zero findings/exceptions. Format,
+  local Markdown links, preserved line endings and diff checks pass.
+- Full workspace/all-target checks are not repeated: unchanged obsolete fixtures
+  remain owned by the checkpoints listed above. No wire schema changes occur:
+  runtime ABI v136, KBC v113, KMIR v11 and helper ABI v6 remain current.
+
+Entry measurement reproduction: cargo run -p kagari-embed --example stdlib_baseline
+-- --native-proof. Rust/Cargo 1.98.1, rustc 48a229cea (2026-09-01), LLVM 22.1.8,
+aarch64-apple-darwin; MacBookPro18,2, 10 physical/logical cores, 32 GiB RAM.
+Use workspace dev profile opt-level 1, default source+native features, default
+Cargo parallelism/target and warm build cache. Measurements exclude Cargo build
+time, discard one warmup and report medians of 21 source compilations (including
+Engine construction) and 101 interpreter executions of an already loaded program.
+Each workload returns 42 and checks deterministic charges plus zero active roots.
+
+| Workload | Compile median ns | Execution median ns | Logical steps | Artifact bytes |
+| --- | --- | --- | --- | --- |
+| native_direct | 112984125 | 15667 | 20 | 162818 |
+| native_callback | 110442709 | 14958 | 48 | 152912 |
+| native_math | 109826500 | 7709 | 23 | 153270 |
+
+These are entry measurements after the first math registration, not a matched
+predecessor comparison or an improvement claim. Record dispatch/allocation/memory
+comparisons and the complete workloads at NR05. Next checkpoint: common typed
+callback argument packs and result conversions, followed by selected trait calls
+and managed returned-state proof. Goal remains active.

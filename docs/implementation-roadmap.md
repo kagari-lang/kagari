@@ -64,13 +64,15 @@ Other library declarations and legacy
 host type/path adapters remain migration work. No NR implementation phase has been
 accepted yet.
 
-The [proposed restoration sequence](native-provider-refactor.md#proposed-full-library-restoration-sequence-2026-10-01)
-refines NR00-NR05 for review. Start with an ordinary math package and inventory;
+The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
+refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;
 complete selected trait calls, typed callbacks and managed returned state before
 bulk restoration. Restore direct helpers, Array/List, Iterator/String state,
 Map/Set and cross-protocol composition in that order. Finish namespace/prelude
 registration, retire kagari-stdlib and rebuild fixtures before full NR05/ST06
-acceptance. This is planning only; implementation of that sequence has not started.
+acceptance. The first math package checkpoint restores checked floor/ceil/sqrt, validates
+array/application package composition and records entry workloads. Common typed
+callback packs are next; full-library and whole-workspace acceptance remain open.
 
 ## Permissions and execution protection refactor queued
 

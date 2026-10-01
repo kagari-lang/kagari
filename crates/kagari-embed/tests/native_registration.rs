@@ -101,7 +101,7 @@ fn authoring_resolves_rust_aliases_and_generic_value_contracts() {
     assert!(text.contains("fn identity<T0>(value: T0) -> T0;"));
     assert!(text.contains("fn positive(value: i32) -> bool;"));
     let engine = KagariEngine::builder().install(Ok(api)).build().unwrap();
-    assert_eq!(engine.native_declaration_sources().len(), 2);
+    assert_eq!(engine.native_declaration_sources().len(), 3);
     assert!(
         KagariEngine::builder()
             .install(math::native_api())
@@ -252,7 +252,7 @@ fn generated_sources_come_from_the_installed_packages() {
     assert_eq!(array.text, include_str!("../../../stdlib/array.kgr"));
     let application = sources
         .iter()
-        .find(|source| source.uri.ends_with("/math.kgr"))
+        .find(|source| source.uri == "kagari://native/game/math.kgr")
         .unwrap();
     assert!(application.text.contains("pub fn answer() -> i32;"));
     assert!(

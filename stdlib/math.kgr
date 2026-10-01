@@ -1,1 +1,8 @@
+// Generated from native registration definitions. Do not edit.
 
+/// Round toward negative infinity. Traps for a non-finite input or result.
+pub fn floor(value: f64) -> f64;
+/// Round toward positive infinity. Traps for a non-finite input or result.
+pub fn ceil(value: f64) -> f64;
+/// Return the square root. Traps for a negative or non-finite input.
+pub fn sqrt(value: f64) -> f64;

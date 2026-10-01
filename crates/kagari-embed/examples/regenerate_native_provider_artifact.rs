@@ -16,16 +16,19 @@ fn main() {
             Default::default(),
         )
         .unwrap();
-    let source = engine
-        .native_declaration_sources()
-        .into_iter()
-        .find(|source| source.uri.ends_with("/array.kgr"))
-        .expect("installed array API");
-    fs::write(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stdlib/array.kgr"),
-        source.text,
-    )
-    .unwrap();
+    for source in engine.native_declaration_sources() {
+        let module = source
+            .uri
+            .strip_prefix("kagari://native/kagari-std/")
+            .unwrap();
+        fs::write(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../stdlib")
+                .join(module),
+            source.text,
+        )
+        .unwrap();
+    }
     fs::write(
         fixtures.join("native_provider.kbc"),
         artifact.to_bytes().unwrap(),

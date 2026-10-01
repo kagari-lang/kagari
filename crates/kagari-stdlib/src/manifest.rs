@@ -40,7 +40,6 @@ pub fn bundled_sources() -> &'static [BundledSource] {
         source!("option"),
         source!("result"),
         source!("iter"),
-        source!("math"),
         source!("debug"),
         source!("cmp"),
         source!("hash"),

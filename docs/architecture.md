@@ -16,15 +16,15 @@ Rust functions, native array wrappers, traits and impls. `NativeValue` supplies
 metadata and conversions, so aliases use their resolved Rust types. Rust checks
 function bodies and trait method signatures; shared support supplies identities
 and generic binders. Open script generics use rooted checked value proxies.
-The bundled array library is a default, optional package using the same NativeApi
-installation path as application packages. Generic compilation and execution do
+The bundled array and math modules compose the default, optional library using
+the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
 
 HIR imports registered declaration records directly, using ordinary declaration
 checking and selected implementations. Generated `.kgr` files are tooling views
 with syntax, documentation and navigation coordinates; they are never lowered to
-establish registered semantics. The array package no longer consumes a binary
-source-derived declaration payload. Remaining library declarations temporarily
+establish registered semantics. The array and math packages do not consume binary
+source-derived declaration payloads. Remaining library declarations temporarily
 use `kagari-stdlib` source preparation until their NR04 restoration.
 
 Required, Script and Native implementations share checked callable facts.

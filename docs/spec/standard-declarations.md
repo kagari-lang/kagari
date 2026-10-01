@@ -8,20 +8,21 @@ Signatures, documentation and navigation locations must describe the same API.
 Generated text does not authorize installation. Runtime owns storage and execution.
 All comments, documentation and examples are written in English.
 
-The `native_module!` Rust macro is a registration authoring entrypoint. It emits
-native records and factory bindings without reading Kagari source. Trait methods
-own their signatures and documentation; impl entries only bind method names to
-Rust descriptor factory paths. Shared registration derives impl signatures,
-identities and generic binders before existing NativeApi validation/publication.
-Factory descriptors declare scratch roots and contain the low-level resumable
-entry. The macro does not yet infer signatures from arbitrary Rust functions.
-See [the authoring checkpoint](../native-provider-refactor.md#declarative-authoring-checkpoint-2026-10-01).
-
+The `#[native_module]` attribute derives registered records and checked invocation
+adapters from Rust functions, native array wrappers, traits and implementations.
+`NativeValue` supplies type metadata and conversions, including resolved aliases;
+Rust checks function bodies and trait signatures. Generic script values use rooted
+checked proxies. `#[native]`, `#[native_type]`, `#[native_trait]` and `#[native_impl]`
+mark the exported items. Low-level factories declare scratch roots and own resumable
+state; ordinary typed functions do not manage scratch slots themselves. The
+current adapter supports a bounded set of values and declarations, rather than
+arbitrary Rust/opaque types. See [the typed authoring checkpoint](../native-provider-refactor.md#typed-rust-authoring-implementation).
 
 The minimal NR implementation registers ArrayList new/len/push/from_fn, List
-len/get and MutableList.set. Trait implementation signatures are derived from the
-registered trait declaration rather than authored a second time. Remaining source
-package declarations and namespace/prelude metadata use their legacy route during
+len/get and MutableList.set, plus math floor/ceil/sqrt. Trait implementation
+signatures derive from the registered trait declaration rather than being authored
+a second time. Math inputs/results must be finite; sqrt rejects negative inputs.
+Remaining source package declarations and namespace/prelude metadata use their legacy route during
 restoration; the rules below describe that route where not superseded here.
 Other standard implementation APIs are temporarily removed; their specified
 semantics and tests remain NR04 restoration obligations. See the

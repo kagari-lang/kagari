@@ -1,17 +1,23 @@
 # Kagari standard library
 
-The native-provider reset removes predecessor algorithms. The installed package
-currently proves a small declaration-to-artifact slice:
+The native-provider restoration starts with two optional registered modules:
 
-- [array](array.kgr): ArrayList new/len/push/from_fn, List len/get and indexed views.
+- [array](array.kgr): ArrayList new/len/push/from_fn, List len/get, MutableList.set
+  and indexed views.
+- [math](math.kgr): checked floor/ceil/sqrt on f64 values.
 - Other modules retain required protocols and native representations; their old
   public implementations are temporarily unavailable.
 
-HIR checks source signatures against source-free kagari-stdlib-provider descriptors.
-Runtime registrations own handlers; MIR/bytecode carry checked imports and the
-common frame driver owns invocation roots and callbacks. Source annotations never
-grant native authority themselves.
+Rust `#[native_module]` registrations own declarations and handlers. HIR imports
+registered records directly; generated `.kgr` files provide tooling syntax,
+documentation and navigation. Array and math text is never lowered to establish
+native signatures. Remaining modules still use the legacy source package during
+migration. MIR/bytecode carry checked imports, and the common frame driver owns
+invocation roots and callbacks. Source annotations do not grant native authority.
 
-The [active plan](../docs/native-provider-refactor.md#reset-execution-checkpoint-2026-10-01)
-records the data model, runnable proof, API restoration and carried test errors.
-Existing behavior tests remain required for final acceptance.
+Engine installs the ordinary native packages by default; applications can disable
+that selection and install their own packages through the same checked API.
+
+The [active plan](../docs/native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
+records restoration order, acceptance conditions and carried errors. Existing
+behavior tests remain required for final acceptance.

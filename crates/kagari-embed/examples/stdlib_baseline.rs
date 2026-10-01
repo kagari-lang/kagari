@@ -3,7 +3,7 @@
 use kagari_common::source::SourceFile;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
-use std::{hint::black_box, time::Instant};
+use std::{env, hint::black_box, time::Instant};
 
 const WORKLOADS: &[(&str, &str)] = &[
     (
@@ -28,8 +28,28 @@ const WORKLOADS: &[(&str, &str)] = &[
     ),
 ];
 
+const NATIVE_PROOF: &[(&str, &str)] = &[
+    (
+        "native_direct",
+        "fn main() -> i32 { val a = [42]; val view: List<i32> = a; if view.len() == 1usize { a[0usize] } else { 0 } }",
+    ),
+    (
+        "native_callback",
+        "fn main() -> i32 { val a = ArrayList::from_fn(2usize, |index| if index == 0usize { 20 } else { 22 }); a[0usize] + a[1usize] }",
+    ),
+    (
+        "native_math",
+        "fn main() -> i32 { if std::math::floor(2.5) == 2.0 && std::math::ceil(2.5) == 3.0 && std::math::sqrt(9.0) == 3.0 { 42 } else { 0 } }",
+    ),
+];
+
 fn main() {
-    for (name, text) in WORKLOADS {
+    let workloads = if env::args().skip(1).any(|arg| arg == "--native-proof") {
+        NATIVE_PROOF
+    } else {
+        WORKLOADS
+    };
+    for (name, text) in workloads {
         let mut compile_ns = Vec::new();
         for sample in 0..22 {
             let start = Instant::now();
