@@ -104,7 +104,7 @@ impl GcHeap {
         iter.guard = None;
         Ok(())
     }
-    fn collection_revision(&self, source: &Value) -> Option<u64> {
+    pub(super) fn collection_revision(&self, source: &Value) -> Option<u64> {
         match source {
             Value::Str(_) | Value::Range(_) => Some(0),
             Value::Array(id) | Value::Map(id) | Value::Set(id) => {

@@ -7,7 +7,10 @@ use kagari_abi::{
     standard::surface::StandardEnum,
     types::{AbiType, FunctionAbi},
 };
-use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
+use kagari_common::{
+    collection::CollectionAccess,
+    identity::{DefinitionKind, ModuleIdentity, PackageId},
+};
 use kagari_embed::engine::{EngineConfig, KagariEngine};
 use kagari_native_macros::native_module;
 use kagari_runtime::{
@@ -198,9 +201,15 @@ fn registration_rejects_missing_duplicate_unknown_and_invalid_contracts() {
             mutable: false,
         });
     assert!(module.validate().is_err());
+    let mut iterator = application_module();
+    iterator.functions[0].return_type = AbiType::Iter(Box::new(AbiType::Builtin(BuiltinType::I32)));
+    assert!(iterator.validate().is_ok());
     let mut unsupported = application_module();
-    unsupported.functions[0].return_type =
-        AbiType::Iter(Box::new(AbiType::Builtin(BuiltinType::I32)));
+    unsupported.functions[0].return_type = AbiType::Map {
+        key: Box::new(AbiType::Builtin(BuiltinType::I32)),
+        value: Box::new(AbiType::Builtin(BuiltinType::I32)),
+        access: CollectionAccess::Mutable,
+    };
     assert!(unsupported.validate().is_err());
 }
 

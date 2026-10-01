@@ -35,6 +35,7 @@ mod array_ops;
 mod capacity;
 mod custom_keys;
 mod iter;
+pub(crate) mod managed_iter;
 pub mod mutations;
 mod string_iter;
 
@@ -186,6 +187,7 @@ pub struct ClosureValueSnapshot {
 #[derive(Debug)]
 enum HeapObject {
     Iter(Box<iter::NativeIter>),
+    ManagedIter(Box<managed_iter::ManagedIter>),
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexMap<MapKey, ()>),
@@ -212,6 +214,7 @@ impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
             Self::Iter(_) => 1,
+            Self::ManagedIter(state) => state.units(),
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
             Self::Set(values) => values.len(),
@@ -445,7 +448,12 @@ impl GcHeap {
                 },
                 (Value::GcHandle(id), AbiType::Iter(element)) => {
                     let objects=self.objects.borrow();
-                    if !matches!(self.readable_object(&objects,id),Some(HeapObject::Iter(iter)) if iter.item_type == **element) {return false;}
+                    let valid = match self.readable_object(&objects, id) {
+                        Some(HeapObject::Iter(iter)) => iter.item_type == **element,
+                        Some(HeapObject::ManagedIter(iter)) => iter.contract.item == **element,
+                        _ => false,
+                    };
+                    if !valid { return false; }
                 },
                 (Value::Array(id), AbiType::Array(element, _)) => {
                     let Some(values) = self.array_snapshot(id) else { return false; };
@@ -508,14 +516,22 @@ impl GcHeap {
                             continue;
                         }
                         let mut objects = self.objects.borrow_mut();
-                        let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
-                            return Err(RuntimeError::new(
-                                RuntimeErrorKind::ScriptTrap,
-                                "invalid iterator",
-                            ));
+                        let (loops, dependencies) = match self.object_mut(&mut objects, id) {
+                            Some(HeapObject::Iter(iter)) => {
+                                iter.guard = None;
+                                (iter.loops.clone(), vec![iter.source.clone()])
+                            }
+                            Some(HeapObject::ManagedIter(iter)) => {
+                                (iter.loops.clone(), iter.dependencies().cloned().collect())
+                            }
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    RuntimeErrorKind::ScriptTrap,
+                                    "invalid iterator",
+                                ));
+                            }
                         };
-                        let count = iter
-                            .loops
+                        let count = loops
                             .get()
                             .checked_add(1)
                             .ok_or_else(|| self.resource_limit("iterator loop depth"))?;
@@ -523,10 +539,9 @@ impl GcHeap {
                             .iter_loops
                             .try_reserve(1)
                             .map_err(|_| self.resource_limit("iterator guards"))?;
-                        guard.iter_loops.push(iter.loops.clone());
-                        iter.loops.set(count);
-                        iter.guard = None;
-                        pending.push(iter.source.clone());
+                        guard.iter_loops.push(loops.clone());
+                        loops.set(count);
+                        pending.extend(dependencies);
                     }
                     source => guard
                         ._children
@@ -680,7 +695,7 @@ impl GcHeap {
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
-            HeapObject::Iter(_) => Some(GcObjectKind::Iter),
+            HeapObject::Iter(_) | HeapObject::ManagedIter(_) => Some(GcObjectKind::Iter),
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
@@ -1135,6 +1150,7 @@ impl GcHeap {
                 HeapObject::Iter(iter) => {
                     pending.push(&iter.source);
                 }
+                HeapObject::ManagedIter(iter) => pending.extend(iter.captures.iter().rev()),
                 HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
                 HeapObject::Map(entries) => {
                     for (key, value) in entries.iter().rev() {
@@ -1166,7 +1182,8 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_) => None,
+            | HeapObject::Iter(_)
+            | HeapObject::ManagedIter(_) => None,
         }
     }
 
@@ -1185,7 +1202,8 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_) => None,
+            | HeapObject::Iter(_)
+            | HeapObject::ManagedIter(_) => None,
         }
     }
 
@@ -1204,7 +1222,8 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_) => None,
+            | HeapObject::Iter(_)
+            | HeapObject::ManagedIter(_) => None,
         }
     }
 }

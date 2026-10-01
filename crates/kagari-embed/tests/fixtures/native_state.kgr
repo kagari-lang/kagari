@@ -1,0 +1,84 @@
+use game::stream::{Cursor, Source, map, counter, invalid_capture, invalid_result, lease_probe, lease_factory_error};
+use std::option::Option;
+use std::option::Option::{Some, None};
+use game::input::{cursor, values, probe};
+
+struct Count { var calls: i32 }
+struct Feed { var position: i32, val calls: Count }
+impl Source for Feed {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        self.calls.calls += 1;
+        self.position += 1;
+        if self.position == 2 { None }
+        else if self.position <= 4 { Some(self.position) }
+        else { None }
+    }
+}
+fn shared_main() -> bool {
+    val calls = Count { calls: 0 };
+    val source = Cursor::from_array([1, 2, 3]);
+    val mapped = map(source, |item| { calls.calls += 1; item * 10 });
+    val alias = mapped;
+    if calls.calls != 0 { return false; }
+    val first = mapped.next(); val second = alias.next(); val third = mapped.next();
+    first == Some(10) && second == Some(20) && third == Some(30) && alias.next() == None && mapped.next() == None && calls.calls == 3
+}
+fn non_fused_main() -> bool {
+    val calls = Count { calls: 0 };
+    val mapped_calls = Count { calls: 0 };
+    val feed = Feed { position: 0, calls: calls };
+    val mapped = map(feed, |item| { mapped_calls.calls += 1; item + 100 });
+    if calls.calls != 0 || mapped_calls.calls != 0 { return false; }
+    mapped.next() == Some(101) && mapped.next() == None && mapped.next() == Some(103) && mapped.next() == Some(104) && calls.calls == 4 && mapped_calls.calls == 3
+}
+fn factory() -> Cursor<i32> {
+    val bias = Count { calls: 7 };
+    map(Cursor::from_array([1, 2, 3]), |item| item + bias.calls)
+}
+fn next_input() -> Option<i32> { cursor().next() }
+fn array_factory() -> Cursor<i32> { Cursor::from_array(values()) }
+fn probe_factory() -> Cursor<i32> {
+    map(Cursor::from_array(values()), |item| { probe(); item + 100 })
+}
+fn trapped_factory() -> Cursor<i32> {
+    map(Cursor::from_array(values()), |item| { probe(); if item == 1 { 1 / 0 } else { item } })
+}
+fn structural_factory() -> Cursor<i32> {
+    val source = values();
+    map(Cursor::from_array(source), |item| { source.push(4); item })
+}
+fn reentry_factory() -> Cursor<i32> {
+    map(Cursor::from_array(values()), |item| { cursor().next(); item })
+}
+struct Link { var current: Option<Cursor<i32>> }
+struct CyclicFeed { val link: Link, var position: i32 }
+impl Source for CyclicFeed {
+    type Item = i32;
+    fn next(self) -> Option<i32> { self.position += 1; Some(self.position) }
+}
+fn cycle_factory() -> Cursor<i32> {
+    val link = Link { current: None };
+    val source = CyclicFeed { link: link, position: 0 };
+    val mapped = map(source, |item| item);
+    link.current = Some(mapped);
+    mapped
+}
+fn script_factory() -> Cursor<i32> {
+    val calls = Count { calls: 0 };
+    val bias = Count { calls: 7 };
+    map(Feed { position: 0, calls: calls }, |item| item + bias.calls)
+}
+fn counter_factory() -> Cursor<i32> { counter(41) }
+fn invalid_capture_factory() -> Cursor<i32> { invalid_capture(41) }
+fn invalid_result_factory() -> Cursor<i32> { invalid_result() }
+
+fn lease_factory() -> Cursor<i32> { lease_probe() }
+fn lease_error_factory() -> Cursor<i32> { lease_factory_error() }
+struct HeapItem { val code: i32 }
+fn heap_main() -> bool {
+    val mapped = map(Cursor::from_array([HeapItem { code: 1 }, HeapItem { code: 2 }]), |item| HeapItem { code: item.code + 10 });
+    val a = match mapped.next() { Some(item) => item.code, None => 0 };
+    val b = match mapped.next() { Some(item) => item.code, None => 0 };
+    a == 11 && b == 12 && mapped.next() == None
+}

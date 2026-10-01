@@ -58,7 +58,36 @@ creates a checked rooted callback; NativeFn.result converts the resumed value.
 The common frame driver owns execution, logical steps, callback-result roots and
 cleanup. This replaces the earlier usize-only callback adapter; from_fn now uses
 `NativeFn<(usize,), T>` with the same generated/executable script signature.
-Returned persistent state remains later NR work.
+`native_value::iterator::NativeIterator<T>` adds returned iterator state. An
+actual registered constructor returning the Iter representation calls
+`NativeIterator::new(call, data, dependencies, step)`. Its constructor arguments
+become checked GC capture edges; selected applications and their original program
+remain pinned. `step` is a function pointer returning
+`NativeContinuation<Option<T>>`, so it cannot hide an untraced Rust environment.
+Idle data implements the sealed NativeStateData contract: scalars, tuples and
+fixed-size arrays contain counters/phases; script values belong in captures.
+NativeStateCall provides checked `call()`, `data()`, `set_data()` and
+`set_argument()` access during one invocation. Capture replacement must match its
+constructor parameter's concrete ABI, and traversal dependencies cannot be replaced.
+
+`NativeIterator::next()` prepares a fresh common invocation with temporary roots
+and scoped traversal guards. Aliases share the same cursor. Explicit cursor writes
+commit progress; a later callback trap/cancellation does not undo completed source
+steps. Result conversion/allocation must precede the implementation's cursor commit
+where required by its protocol. The retained item ABI checks every completion.
+Access epochs reject concurrent/reentrant steps and invalidate escaped access at
+completion or any exceptional exit. Dropping an older access cannot clear a newer
+invocation. Direct collection dependencies retain their structural revision;
+optional dependencies also support script sources whose selected next controls
+its own traversal policy. Nested dependencies participate in the common traversal
+guard graph, including independently held guards.
+
+The application-owned Cursor/Source/map proof in
+[native_state_api.rs](../../crates/kagari-embed/tests/fixtures/native_state_api.rs)
+uses these interfaces with defaults disabled. It checks idle GC and cyclic
+collection, non-fused source semantics, shared progress and generation-pinned
+selected calls. This bounded facility does not restore the full standard Iterator
+family or supply arbitrary Rust state/extra capture schemas; those remain NR work.
 
 `native_value::selected::NativeSelected<A, R>` is an injected checked trait-member
 handle. For example, a generic free/inherent native entry can declare:

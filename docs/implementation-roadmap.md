@@ -86,12 +86,17 @@ all integer widths and partial floating-point ordering. Installed namespace alia
 and real representation providers work with default packages disabled. Prepared
 sort_by/sort now use supplied or selected comparators through the common driver;
 application sorting and a distinct reverse algorithm share rooted preparation.
-Managed returned state, remaining
+Application-owned returned cursors now trace idle captures as GC edges, pin actual
+selected/script callbacks across calls and reload, and obtain fresh common native
+invocations. Aliases share progress; access epochs and scoped dependency guards
+release on completion, traps, cancellation and budget/allocation exhaustion.
+GC threshold one and cyclic collection pass the bounded Cursor/Source/map proof.
+Full standard Iterator restoration, broader state capture schemas, remaining
 library restoration and final acceptance remain open.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
 refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;
-complete selected trait calls, typed callbacks and managed returned state before
+complete selected trait calls, typed callbacks and the bounded returned-state proof before
 bulk restoration. Restore direct helpers, Array/List, Iterator/String state,
 Map/Set and cross-protocol composition in that order. Finish namespace/prelude
 registration, retire kagari-stdlib and rebuild fixtures before full NR05/ST06
@@ -99,7 +104,8 @@ acceptance. The first math package checkpoint restores checked floor/ceil/sqrt, 
 array/application package composition and records entry workloads. Common typed
 callback packs and resumed results now support external zero/binary/unit and
 repeated nested calls. Selected trait targets and prepared sorting are exercised;
-managed returned state is next. Full-library and whole-workspace acceptance remain open.
+the application returned-state proof now passes. Direct-family/protocol restoration
+is next. Full-library and whole-workspace acceptance remain open.
 Typed values additionally cover nested tuples, Ordering and a rooted script
 Result handle that preserves Err provenance across native calls. These common
 conversions do not complete the selected-trait or returned-state checkpoints.
@@ -116,8 +122,10 @@ target records, including source-free dynamic slots. Injected typed selected
 handles derive local or explicitly cataloged external trait requirements for
 free/inherent entries. External native implementations preserve actual Rust trait
 conformance while mapping explicit script identities; composition, installation
-and portable linking check the retained contracts. Projected receivers, native
-defaults, sorting and managed returned state remain pending.
+and portable linking check the retained contracts. The later checkpoints above
+complete projected receivers, native defaults, prepared sort_by/sort and the
+bounded application returned-state proof. Frozen full sorting-family budgets,
+full state adapters and library-wide composition remain pending.
 
 ## Permissions and execution protection refactor queued
 

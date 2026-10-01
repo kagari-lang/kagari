@@ -285,6 +285,10 @@ impl NativeModule {
                     format!("{name}<{}>", self.spell(item)?)
                 }
             }
+            AbiType::Iter(item) => {
+                let name = self.representation_name(NativeTypeConstructor::Iter, "Iter");
+                format!("{name}<{}>", self.spell(item)?)
+            }
             AbiType::StandardEnum { kind, args } => {
                 let fallback = format!("{kind:?}");
                 let name = self.representation_name(NativeTypeConstructor::Enum(*kind), &fallback);

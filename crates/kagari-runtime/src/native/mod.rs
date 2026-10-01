@@ -16,7 +16,7 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     gc::{ClosureValueSnapshot, GcHeap, RootSet},
-    module::LoadedModule,
+    module::{LoadedModule, ModuleStore},
     native::registration::NativeRegistration,
     value::Value,
 };
@@ -98,6 +98,9 @@ impl NativeContext<'_> {
     }
     pub(crate) fn module_owner(&self) -> LoadedModule {
         self.owner.clone()
+    }
+    pub(crate) fn module_store(&self) -> ModuleStore {
+        self.runtime.modules.clone()
     }
     pub(crate) fn selected_applications(&self) -> &[NativeCallableApplication] {
         self.callables

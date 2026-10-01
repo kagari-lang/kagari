@@ -606,7 +606,9 @@ fn supported_type(ty: &AbiType) -> Result<(), NativeApiError> {
     while let Some(ty) = pending.pop() {
         match ty {
             AbiType::Builtin(_) | AbiType::Parameter { .. } | AbiType::SelfType(_) => {}
-            AbiType::Array(item, _) | AbiType::Range(item, _) => pending.push(item),
+            AbiType::Array(item, _) | AbiType::Range(item, _) | AbiType::Iter(item) => {
+                pending.push(item)
+            }
             AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => {
                 pending.extend(items);
             }

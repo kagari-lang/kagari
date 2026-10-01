@@ -698,3 +698,33 @@ fn annotated_struct_constructors_infer_phantom_parameters_and_check_fields() {
         assert_eq!(analysis.into_codegen().is_ok(), valid);
     }
 }
+
+#[test]
+fn associated_output_constrains_unannotated_callback_before_numeric_defaults() {
+    for (item, argument, valid) in [
+        ("i32", "|item| item + 1", true),
+        ("i64", "|item| item + 1", true),
+        ("i32", "|item: i64| item + 1", false),
+    ] {
+        let source = SourceFile::new(
+            "associated-callback-inference.kgr",
+            format!(
+                r#"
+trait Source {{ type Item; fn value(self) -> Self::Item; }}
+struct Feed {{ val value: {item} }}
+impl Source for Feed {{ type Item = {item}; fn value(self) -> {item} {{ self.value }} }}
+fn transform<S: Source<Item = T>, T, U>(source: S, callback: fn(T) -> U) -> U {{ callback(source.value()) }}
+fn main() -> {item} {{ transform(Feed {{ value: 1 }}, {argument}) }}
+"#
+            ),
+        );
+        let analysis = crate::analyze_source(&source, Default::default());
+        assert_eq!(
+            analysis.diagnostics().is_empty(),
+            valid,
+            "{:?}",
+            analysis.diagnostics()
+        );
+        assert_eq!(analysis.into_codegen().is_ok(), valid);
+    }
+}

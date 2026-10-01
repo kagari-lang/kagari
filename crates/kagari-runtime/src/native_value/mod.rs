@@ -5,6 +5,7 @@ pub mod continuation;
 mod conversions;
 #[doc(hidden)]
 pub mod declaration;
+pub mod iterator;
 pub mod range;
 pub mod reorder;
 pub mod representation;
@@ -15,7 +16,7 @@ mod tuples;
 use crate::{
     error::RuntimeError,
     gc::{GcHeap, RootSet},
-    module::LoadedModule,
+    module::{LoadedModule, ModuleStore},
     native::{NativeAction, NativeContext, NativeInvocationState, factory::NativeFactory},
     native_module::types::TypeExpression,
     value::Value,
@@ -41,6 +42,7 @@ pub trait NativeValue: Sized + 'static {
 pub struct NativeCall {
     pub(super) heap: Rc<GcHeap>,
     pub(super) owner: LoadedModule,
+    pub(super) modules: ModuleStore,
     signature: NativeSignature,
     pub(super) callables: Vec<NativeCallableApplication>,
     arguments: RootSet,
@@ -58,6 +60,7 @@ impl NativeCall {
         Ok(Self {
             heap,
             owner: context.module_owner(),
+            modules: context.module_store(),
             signature: context.signature().clone(),
             callables: context.selected_applications().to_vec(),
             arguments,

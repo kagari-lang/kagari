@@ -33,6 +33,7 @@ pub enum TypeExpression {
     },
     Array(Box<Self>),
     MutableArray(Box<Self>),
+    Iter(Box<Self>),
     Range(Box<Self>, RangeKind),
     Tuple(Vec<Self>),
     Function {
@@ -147,6 +148,7 @@ impl Scope<'_> {
             TypeExpression::Array(item) => {
                 AbiType::Array(Box::new(self.resolve(item)?), CollectionAccess::ReadOnly)
             }
+            TypeExpression::Iter(item) => AbiType::Iter(Box::new(self.resolve(item)?)),
             TypeExpression::Range(item, kind) => {
                 AbiType::Range(Box::new(self.resolve(item)?), *kind)
             }

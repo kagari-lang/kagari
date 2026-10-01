@@ -693,6 +693,13 @@ impl Importer<'_> {
                     .collect::<Result<_, _>>()?,
                 result: self.ty(result, span)?,
             },
+            AbiType::Iter(item) => TypeKind::Generic {
+                name: self.representation_name(NativeTypeConstructor::Iter, "Iter", span)?,
+                args: [self.ty(item, span)?].into_iter().collect(),
+                bindings: vec![],
+                positional_after_binding: false,
+                callable_syntax: false,
+            },
             AbiType::Tuple(items) => TypeKind::Tuple(
                 items
                     .iter()

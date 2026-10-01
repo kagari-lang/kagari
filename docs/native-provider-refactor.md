@@ -233,7 +233,7 @@ an execution owner without rebuilding a central method catalog in production.
 | String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | Pending |
 | Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | Pending |
 | ArrayList plus List/MutableList methods and impls | 2 and 4 | Prepared supplied/selected stable sorting and rooted application preparation proved; remaining surface pending |
-| Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Pending managed-state and associated-output prerequisites from 2-3 |
+| Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Application returned-state proof complete in 2; remaining declarations/primitive prerequisites in 3 and full traversal in 5 |
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
 | collect/partition, destination impls, Sum/Product and conversion blankets | 7 | Pending selected destinations and complete composition |
 | debug direct entries / assert_eq | 3 / 7 | Pending |
@@ -259,7 +259,7 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Ord/Ordering and actual checked scalar comparison implementations.
   - [x] Prepared sort_by/sort through supplied and selected comparators, with rooted application preparation and source/offline boundary proof.
   - [ ] Complete predecessor sorting-family budget/effect baselines with remaining key/dedup methods; retain all frozen assertions for step 4/final acceptance.
-  - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
+  - [x] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
   - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
@@ -3095,3 +3095,121 @@ targets across calls and reload, share alias progress and release execution-scop
 guards on early exit. Then restore direct families and the full collection/state
 surface, retire the legacy source crate, repair all carried consumers and complete
 NR05/ST06 behavior checks and matched measurements. No goal scope is removed.
+
+### NR02 checkpoint: application-owned traced returned state (2026-10-02)
+
+Scope: complete step 2's bounded application returned-iterator proof. This does
+not accept the whole NR02 phase, frozen sorting-family accounting, full standard
+Iterator/collection state, arbitrary Rust interoperability or final library
+restoration. Step 2's frozen predecessor sorting checks remain owned by step 4
+and NR05; their assertions are unchanged. The full goal remains active.
+
+Changes and evidence:
+
+- NativeIterator<T> uses the existing checked Iter representation. Actual typed
+  registrations derive its signatures and public representation alias. ABI native
+  registration, generated views and direct HIR import now accept the checked Iter
+  shape; no binary declaration source or adapter-specific compiler/VM route is
+  added. KBC v116, KMIR v14, runtime ABI v139 and helper ABI v6 are unchanged.
+- The shared GC managed cell traces constructor arguments as capture edges and
+  retains the actual originating program/selected applications. Its factory is a
+  function pointer; sealed Copy scalar/tuple/fixed-array data cannot contain rooted
+  values or hidden Rust references. Idle state holds no NativeCall, frame, scoped
+  borrow or traversal guard. The state representation lives under gc/managed_iter;
+  typed access and invocation creation live under native_value/iterator.
+- Each next creates fresh conversion roots and an epoch-scoped access. Checked
+  capture replacement preserves the original concrete constructor parameter ABI;
+  dependency captures cannot be replaced. Data writes explicitly commit shared
+  progress. Completed source steps survive later mapped-callback failures.
+  Retained item/result ABI validation rejects malformed completions.
+- Active epochs reject same-cell reentry, invalidate escaped data/capture/call
+  access after completion or failure, and prevent an older access's drop from
+  clearing a newer invocation. A trusted-host adversarial probe retains access
+  both after normal completion and before a step factory returns an error; reuse
+  succeeds with the completed data write, and stale accesses remain invalid.
+  This test observation is not the iterator's storage mechanism.
+- Required/optional collection dependencies use scoped traversal guards. Direct
+  storage revisions detect structural changes while idle. Nested guards traverse
+  the existing dependency graph; standalone guards survive individual next calls.
+  Element replacement retains its existing permitted semantics, while insertion
+  is rejected during traversal. No named map/sort/adapter policy enters dispatch.
+- An actual application Cursor/Source/map package composes the default packages,
+  explicit Option/String representations and real host input registrations with
+  default engine installation disabled. Rust trait methods, typed source-next
+  selections and mapping callbacks drive the common continuation protocol.
+  Construction is lazy; non-fused script sources remain non-fused. Script heap
+  items, closure captures, aliases, idle collection, unreachable capture cycles,
+  partial consumption and termination are exercised at GC threshold one.
+- The common body inference pass now seeds variables for associated equalities
+  before callback inference. Previously a numeric callback input could default
+  before Source<Item = T> constrained it; the unannotated map callbacks now use
+  the actual checked Item. Annotated incompatible callbacks/associated bindings
+  still fail static checking. No Source/map-specific inference rule is added.
+- native_state.kbc is independently regenerated from native_state.kgr and the
+  actual fixture registrations; an encoded/source-free test target and the
+  generator are tracked. Generated coordinates navigate to actual from_array and
+  next declarations. Old cursors/closures/selected script targets preserve their
+  generation while invoked from a reloaded caller. Releasing roots allows cycles
+  and old runtime-value retention to be collected.
+- Every next instruction-budget cut and allocation cut checks once-only source
+  progress, temporary roots, released guards and reuse. Callback traps,
+  structural mutation, alias reentry, cancellation, bad capture writes and bad
+  result publication are covered. A 128-step traversal observes a constant root
+  peak rather than history-dependent retained roots. The native backend's current
+  unsupported-call fallback runs the same state driver without source analysis;
+  this does not claim that these calls are compiled to machine code.
+
+Validation and carried work:
+
+- cargo test -p kagari-embed --test native_state passes 14 tests with source/native
+  enabled. Whole library compilation and cargo clippy --workspace --lib --
+  -D warnings pass. Focused state/registration/generator Clippy, formatting,
+  structure and final feature results are recorded below after consolidation.
+- The initial feature run exposed the old registration assertion that Iter was
+  unsupported. It now positively validates Iter and retains rejection coverage
+  for the still-unrestored Map registration shape. Validation is strengthened
+  for the new supported shape rather than disabled. Full Map support in step 6
+  must update that remaining supported-type boundary with its own proofs.
+- Attempting cargo test -p kagari-hir --lib
+  associated_output_constrains_unannotated_callback_before_numeric_defaults
+  cannot build the lib-test target: seventeen inherited errors reference removed
+  EngineNativeBinding/standard::bindings models and former per-method primitive
+  variants, including MapKeys and StringLenChars. The new focused unit case stays
+  enabled; the actual source/native application tests provide executable inference
+  evidence meanwhile. Resolve these consumers under NR04, together with the
+  already-carried fourteen ABI lib-test errors; final workspace acceptance is
+  still open. See target/native-state-inference-test.log and the earlier ledger.
+- General extra typed capture fields, richer owned data derives, full standard
+  Iterator next/identity/loop routes and all remaining adapters are deferred to
+  their owning restoration steps. The present application proof deliberately
+  invokes its own actual Source.next entries. Existing indexed storage stepping
+  remains the core primitive; managed factories run the common native driver.
+
+Proceed to step 3's direct families/protocol and primitive ownership, then complete
+Array/List, Iterator/String, Map/Set and destination composition. Retire the legacy
+source crate and migrate every old consumer before full NR05/ST06 verification and
+matched sorting/performance measurements. No acceptance scope is removed.
+
+Consolidated validation:
+
+- uv run --locked scripts/check_features.py --native-proof passes all eighteen
+  targets in artifact-only/source/native/source+native builds: 99/160/100/162
+  tests. Production dependency graph checks also pass. The final run includes the
+  factory-error/escaped-access probe and heap-item fixture after regeneration.
+- cargo clippy --workspace --lib -- -D warnings and focused embed
+  native_state/native_registration/generator Clippy pass. cargo fmt --all --
+  --check, uv run --locked scripts/check_structure.py (878 Rust files, zero
+  violations/exceptions) and git diff --check pass.
+- Manual review confirms explicit owner imports, the empty re-export whitelist,
+  normal production module boundaries, sealed idle data, traced capture ownership,
+  bounded guarded stepping and pinned real callable metadata. The shared fixture's
+  #[path] is justified integration-test/example sharing. No compatibility facade,
+  old artifact reader, fake declaration body, algorithm binding table or blanket
+  structural allowance is introduced.
+
+Logs: target/native-state-tests.log, target/native-state-generation.log,
+target/native-state-feature-matrix.log, target/architecture-features/native-proof/,
+target/native-state-clippy.log, target/native-state-focused-clippy.log,
+target/native-state-inference-test.log, target/native-state-structure.log and
+target/native-state-fmt.log. HIR/ABI old-model lib-test build errors remain carried;
+whole-workspace/all-target acceptance is not reported as passing.

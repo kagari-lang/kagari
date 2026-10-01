@@ -651,8 +651,17 @@ impl<'a> BodyChecker<'a> {
         bounds: &GenericBounds,
         substitution: &mut TypeSubstitution,
     ) {
-        if !bounds.values().flatten().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn))) { return; }
+        if !bounds.values().flatten().any(|bound| {
+            matches!(bound, ConstraintTarget::Trait(interface)
+                if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
+                    || !interface.associated_types.is_empty())
+        }) {
+            return;
+        }
         // Later arguments can provide the input type of an earlier callback.
+        // Associated equalities also need variables before callback inference:
+        // a source's checked Item must constrain the callback's input, rather
+        // than recovering an already defaulted numeric type after the call.
         for (index, parameter) in generics.iter().enumerate() {
             let inferred = self.inference_variable(site, index + 1024);
             if self.body_inference {

@@ -44,6 +44,21 @@ and application requirements retain the original registered template together.
 Catalog views do not install
 handlers or replace ordinary generic applicability and parent-witness proofs.
 
+Returned native iterators use a shared GC state cell with the existing Iter value
+representation. Its idle captures are checked constructor arguments stored as GC
+edges; a retained program pins their selected applications and callable versions.
+Idle Rust data is sealed to owned scalars/tuples/fixed arrays, and the step factory
+is a function pointer without captured roots. The cell never retains an execution
+frame or scoped borrow. Each native next invocation creates fresh rooted conversion
+views and a checked access epoch, obtains scoped guards from declared collection
+dependencies, and drives the actual Rust step on the common continuation driver.
+The driver checks the retained result ABI and closes the epoch on every exit.
+Aliases share progress, completed source writes survive later callback failures,
+and escaped older accesses cannot mutate a subsequent invocation. Nested traversal
+guards preserve independently held guards. This capability supports application
+Cursor/Source/map registrations without adapter names in HIR, verifier, linker or
+VM dispatch. Full library state adapters and broader capture schemas remain open.
+
 HIR imports registered declaration records directly, using ordinary declaration
 checking and selected implementations. Generated `.kgr` files are tooling views
 with syntax, documentation and navigation coordinates; they are never lowered to
