@@ -583,6 +583,7 @@ fn type_reference_at<'a>(
             TypeTarget::Enum(id) => declarations.target(ResolvedName::Enum(id)),
             TypeTarget::Trait(id) => declarations.target(ResolvedName::Trait(id)),
             TypeTarget::Generic(id) => declarations.generic_parameter(id),
+            TypeTarget::AssociatedType(id) => declarations.get(&DeclarationId::Definition(id)),
         })
     })
 }
@@ -600,11 +601,15 @@ fn type_reference_target_at(
         .filter(|(_, span)| span.start <= offset && offset < span.end)
         .min_by_key(|(_, span)| span.end - span.start)?;
     let type_id = lowered.source_map.type_id(index);
-    let target = lowered
-        .source_map
-        .type_name_span(type_id)
+    let resolved = table.type_ref(type_id)?;
+    let name_span = if matches!(resolved.target, Some(TypeTarget::AssociatedType(_))) {
+        lowered.source_map.type_terminal_span(type_id)
+    } else {
+        lowered.source_map.type_name_span(type_id)
+    };
+    let target = name_span
         .filter(|span| span.start <= offset && offset < span.end)
-        .and_then(|_| table.type_ref(type_id)?.target.clone());
+        .and_then(|_| resolved.target.clone());
     Some(target)
 }
 
@@ -958,8 +963,15 @@ impl AnalysisSnapshot {
     }
 
     pub fn definition_at(&self, file: FileId, offset: usize) -> Option<&Declaration> {
-        if let Some(declaration) = self.analysis_at(file, offset)?.definition_at(offset) {
+        let analysis = self.analysis_at(file, offset)?;
+        if let Some(declaration) = analysis.definition_at(offset) {
             return Some(declaration);
+        }
+        let facts = analysis.result.facts();
+        if let Some(Some(TypeTarget::AssociatedType(member))) =
+            type_reference_target_at(&facts.lowered, &facts.typed.type_table, offset)
+        {
+            return self.declaration(&DeclarationId::Definition(member));
         }
 
         let ImportTarget::Source(target) = self

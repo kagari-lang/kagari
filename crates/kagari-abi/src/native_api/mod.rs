@@ -5,7 +5,7 @@ use crate::{
         AbiType, ConstraintAbi, FunctionAbi, GenericParameterAbi, NativeDeclaration,
         NominalAbiType, PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
         native::NativeTypeConstructor,
-        substitution::TypeSubstitution,
+        substitution::{TypeSubstitution, resolve_associated_outputs},
         verify::{validate, validate_native_declarations},
     },
 };
@@ -41,8 +41,8 @@ pub struct NativeImplementation {
 
 /// Rust registration definitions own these records. Generated text is a projection.
 /// The initial API supports native storage, traits, generic impls and free functions;
-/// Free functions retain ordinary checked trait bounds; associated declarations
-/// and implementation-level bounds remain separate migration steps.
+/// Free functions retain ordinary checked trait bounds and associated projections.
+/// Associated type families and implementation-level bounds remain later steps.
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     pub identity: ModuleIdentity,
@@ -110,6 +110,12 @@ impl NativeModule {
             .ok_or_else(|| NativeApiError("trait is absent from this native module".into()))?;
         if trait_type.arguments.len() != contract.generic_params.len()
             || bindings.len() != contract.methods.len()
+            || trait_type.associated_types.len() != contract.associated_types.len()
+            || contract.associated_types.iter().any(|member| {
+                !trait_type
+                    .associated_types
+                    .contains_key(&member.declaration)
+            })
         {
             return Err(NativeApiError(
                 "trait arguments or required methods differ".into(),
@@ -123,6 +129,13 @@ impl NativeModule {
             TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
         substitution.bind_receiver(&trait_type.declaration, &for_type);
         let cancel = CancellationToken::default();
+        let resolve = |ty: &AbiType| {
+            let ty = substitution
+                .apply(ty, &cancel)
+                .map_err(|error| NativeApiError(format!("invalid substitution: {error:?}")))?;
+            resolve_associated_outputs(&ty, &trait_type, &cancel)
+                .map_err(|error| NativeApiError(format!("invalid associated output: {error:?}")))
+        };
         let mut methods = vec![];
         for method in &contract.methods {
             let binding = bindings
@@ -136,15 +149,11 @@ impl NativeModule {
                 .params
                 .into_iter()
                 .map(|mut param| {
-                    param.ty = substitution.apply(&param.ty, &cancel).map_err(|error| {
-                        NativeApiError(format!("invalid substitution: {error:?}"))
-                    })?;
+                    param.ty = resolve(&param.ty)?;
                     Ok(param)
                 })
                 .collect::<Result<_, NativeApiError>>()?;
-            method.return_type = substitution
-                .apply(&method.return_type, &cancel)
-                .map_err(|error| NativeApiError(format!("invalid substitution: {error:?}")))?;
+            method.return_type = resolve(&method.return_type)?;
             methods.push(method);
         }
         let owner = self.implementation_id(self.implementations.len());
@@ -222,7 +231,15 @@ impl NativeModule {
             if !identifier(&item.name)
                 || !names.insert(&item.name)
                 || !item.bounds.is_empty()
-                || !item.associated_types.is_empty()
+                || item.associated_types.iter().any(|member| {
+                    member
+                        .declaration
+                        .path
+                        .last()
+                        .is_none_or(|part| !identifier(&part.name))
+                        || !member.generic_params.is_empty()
+                        || !member.parameter_bounds.is_empty()
+                })
                 || !item.associated_consts.is_empty()
                 || item.methods.iter().any(|method| {
                     !identifier(&method.name)
@@ -292,6 +309,11 @@ impl NativeModule {
             for parent in &contract.supertraits {
                 supported_type(&AbiType::Trait(parent.clone()))?;
             }
+            for member in &contract.associated_types {
+                for bound in &member.bounds {
+                    supported_constraint(bound)?;
+                }
+            }
         }
         for implementation in &self.implementations {
             functions.extend(&implementation.methods);
@@ -308,12 +330,7 @@ impl NativeModule {
             for bound in &function.bounds {
                 supported_type(&bound.ty)?;
                 for constraint in &bound.constraints {
-                    let ConstraintAbi::Trait(trait_type) = constraint else {
-                        return Err(NativeApiError(
-                            "native declarations require named trait constraints".into(),
-                        ));
-                    };
-                    supported_type(&AbiType::Trait(trait_type.clone()))?;
+                    supported_constraint(constraint)?;
                 }
             }
         }
@@ -436,6 +453,23 @@ fn supported_type(ty: &AbiType) -> Result<(), NativeApiError> {
                 pending.extend(params);
                 pending.push(result);
             }
+            AbiType::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } => {
+                if !arguments.is_empty()
+                    || member
+                        .path
+                        .last()
+                        .is_none_or(|part| !identifier(&part.name))
+                {
+                    return Err(invalid());
+                }
+                pending.push(receiver);
+                supported_type(&AbiType::Trait(*interface.clone()))?;
+            }
             AbiType::Trait(nominal) => {
                 if nominal
                     .declaration
@@ -456,6 +490,15 @@ fn supported_type(ty: &AbiType) -> Result<(), NativeApiError> {
         }
     }
     Ok(())
+}
+
+fn supported_constraint(constraint: &ConstraintAbi) -> Result<(), NativeApiError> {
+    let ConstraintAbi::Trait(trait_type) = constraint else {
+        return Err(NativeApiError(
+            "native declarations require named trait constraints".into(),
+        ));
+    };
+    supported_type(&AbiType::Trait(trait_type.clone()))
 }
 
 fn identifier(name: &str) -> bool {

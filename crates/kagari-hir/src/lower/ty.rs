@@ -90,6 +90,7 @@ impl Lowerer {
             .path()
             .map(|path| token_span(&path))
             .or_else(|| ty.name().map(|name| token_span(&name)))
+            .or_else(|| ty.qualified_type()?.member().map(|name| token_span(&name)))
         {
             self.source_map.insert_type_name(id, name);
         }
@@ -97,6 +98,7 @@ impl Lowerer {
             .path()
             .and_then(|path| path.segments().last())
             .or_else(|| ty.name())
+            .or_else(|| ty.qualified_type()?.member())
         {
             self.source_map.insert_type_terminal(id, token_span(&name));
         }

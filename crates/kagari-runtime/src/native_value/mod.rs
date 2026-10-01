@@ -3,6 +3,8 @@ pub mod arguments;
 pub mod array;
 pub mod continuation;
 mod conversions;
+#[doc(hidden)]
+pub mod declaration;
 pub mod result;
 mod tuples;
 

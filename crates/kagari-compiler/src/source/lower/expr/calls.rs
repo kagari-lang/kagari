@@ -307,6 +307,24 @@ impl FunctionLowerer<'_, '_> {
                     .ok_or(MirLoweringError::UnsupportedExpr(
                         "interface dispatch requires linked implementation tables",
                     ))?;
+                if self.planner.native_function(&implementation).is_some() {
+                    let value = self.lower_expr(receiver)?;
+                    if self.current_block_terminated() {
+                        return Ok(value);
+                    }
+                    let mut values = vec![value];
+                    match self.lower_values(args)? {
+                        ControlFlow::Continue(args) => values.extend(args),
+                        ControlFlow::Break(value) => return Ok(value),
+                    }
+                    return self.lower_applied_method(
+                        interface,
+                        ty,
+                        &method,
+                        &call.type_arguments,
+                        &values,
+                    );
+                }
                 let trait_contract = self
                     .planner
                     .catalog

@@ -232,11 +232,11 @@ pub(super) fn resolve_type_in(
                 table.insert_type_ref(
                     ty,
                     ResolvedTypeRef {
-                        ty: resolved.clone(),
-                        target: None,
+                        ty: resolved.ty.clone(),
+                        target: resolved.target,
                     },
                 );
-                return resolved;
+                return resolved.ty;
             }
             match &reference.ty {
                 _ if native_type(target.clone(), context.declarations)
@@ -282,11 +282,11 @@ pub(super) fn resolve_type_in(
                 table.insert_type_ref(
                     ty,
                     ResolvedTypeRef {
-                        ty: resolved.clone(),
-                        target: None,
+                        ty: resolved.ty.clone(),
+                        target: resolved.target,
                     },
                 );
-                return resolved;
+                return resolved.ty;
             }
             match native_type(target.clone(), context.declarations) {
                 Some(kind) if kind.arity() != 0 && bindings.is_empty() && !*callable_syntax => {
@@ -355,7 +355,13 @@ pub(super) fn resolve_type_in(
                 .iter()
                 .map(|arg| resolve_type_in(module, *arg, context, table, cancel))
                 .collect();
-            associated::qualified_projection(
+            let member_id = match &interface {
+                TypeId::Trait(interface) => {
+                    Some(identity::associated_type_id(&interface.declaration, member))
+                }
+                _ => None,
+            };
+            let resolved = associated::qualified_projection(
                 module,
                 receiver,
                 interface,
@@ -363,7 +369,11 @@ pub(super) fn resolve_type_in(
                 context,
                 table,
                 cancel,
-            )
+            );
+            if resolved != TypeId::Error {
+                target = member_id.map(TypeTarget::AssociatedType);
+            }
+            resolved
         }
         TypeKind::Tuple(elements) => {
             let elements = elements

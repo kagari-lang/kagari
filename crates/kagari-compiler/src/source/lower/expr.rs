@@ -248,6 +248,9 @@ impl FunctionLowerer<'_, '_> {
                                 ))?;
                             let methods = self.planner.catalog.implementation_methods(signature);
                             for method in methods {
+                                if self.planner.native_function(&method).is_some() {
+                                    continue;
+                                }
                                 self.planner.enqueue_declaration(
                                     &method,
                                     arguments.clone(),

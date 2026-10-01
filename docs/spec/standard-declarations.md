@@ -26,9 +26,25 @@ verification proves against the executable dependency closure. Runtime linking
 uses the sealed VerifiedProgram and requires exact equality of the complete
 carried declaration with an installed registration, including bounds and passing
 metadata. A weaker installed signature cannot authorize a stronger product.
-The typed macro still accepts only its bounded NativeValue generic form; Rust
-constraint authoring, associated declarations and selected trait-member callbacks
-remain later steps. Applicability bounds alone do not declare a callable dependency.
+The typed macro still accepts only its bounded NativeValue generic form; broader
+Rust constraint authoring and selected trait-member callbacks remain later steps.
+Applicability bounds alone do not declare a callable dependency.
+
+Registered traits may declare ordinary associated types with named output bounds;
+native impl records supply exact bindings, and method signatures derive from those
+bindings. Free-function signatures may retain qualified output projections. HIR
+and offline proofs normalize outputs and reject missing, foreign or invalid bindings.
+Generated tooling views include associated declaration, bound and binding spans.
+
+Typed authoring accepts `type Item: NativeValue;` on an exported Rust trait and
+`type Item = T;` on its actual exported impl. `Self::Item`, the own trait's qualified
+projection, nested value forms and ordinary `Self` arguments/results produce the
+same registered signatures. Rust checks the actual associated method signatures;
+adapters use qualified concrete Rust impl types. NativeValue is a Rust conversion
+requirement, not a script trait bound. Associated families, defaults, inherited
+slot authoring and broader script constraint authoring remain later work. General
+application-native interface slots and selected-member callbacks are still pending;
+the current proof covers direct and statically specialized generic calls.
 
 Typed callback parameters use `NativeFn<A, R>` from the continuation owner module.
 `A` is an explicit outer tuple implementing NativeArguments: `()` means no

@@ -2,6 +2,7 @@ use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions
 use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
+use kagari_hir::{resolver::resolved::ResolvedName, typeck::FunctionImplementation};
 use kagari_mir::{
     function::MirModule,
     instruction::{CallTarget, Instruction},
@@ -186,6 +187,16 @@ pub fn lower_program_to_mir(
                     kind: ProgramErrorKind::InterfaceContract(implementation.clone()),
                 })?;
             for method in owner.aggregates.implementation_methods(signature) {
+                if let Some(ResolvedName::Function(function)) =
+                    owner.declarations.definition_target(&method)
+                    && owner.typed.functions.iter().any(|typed| {
+                        typed.id == function
+                            && matches!(typed.implementation, FunctionImplementation::Native(_))
+                    })
+                {
+                    // Native declarations carry entry contracts, not source bodies.
+                    continue;
+                }
                 if owner
                     .aggregates
                     .trait_(&signature.trait_type.declaration)

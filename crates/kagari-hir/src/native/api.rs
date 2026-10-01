@@ -6,8 +6,8 @@ use crate::{
             Item,
             adt::OpaqueType,
             behavior::{
-                GenericParam, Impl, ImplMethod, ReceiverKind, TraitBound, TraitDef, TraitMethod,
-                TraitRef,
+                AssociatedType, GenericParam, Impl, ImplMethod, ReceiverKind, TraitBound, TraitDef,
+                TraitMethod, TraitRef,
             },
             function::{Function, FunctionKind, Param},
             storage::{Export, ExportItem, Visibility},
@@ -27,7 +27,7 @@ use kagari_abi::{
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind},
+    identity::{DefinitionId, DefinitionKind, associated_type_id},
     source_database::{SourceDatabase, SourceLayer},
     span::Span,
 };
@@ -152,6 +152,45 @@ impl Importer<'_> {
                         .map(|ty| TraitRef { ty })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+            let mut associated_types = vec![];
+            for member in &item.associated_types {
+                let site = &generated.sites[&member.declaration];
+                let name = member
+                    .declaration
+                    .path
+                    .last()
+                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .name
+                    .clone();
+                let name_ref = self.lowerer.alloc_type(
+                    site.name_span,
+                    TypeData {
+                        kind: TypeKind::Named(name.clone()),
+                    },
+                );
+                let bounds = member
+                    .bounds
+                    .iter()
+                    .zip(&site.bounds[0].constraints)
+                    .map(|(constraint, span)| {
+                        let ConstraintAbi::Trait(trait_type) = constraint else {
+                            return Err(NativeApiError(
+                                "native associated bound requires a named trait".into(),
+                            ));
+                        };
+                        self.nominal_type(trait_type, *span)
+                            .map(|ty| TraitRef { ty })
+                    })
+                    .collect::<Result<_, _>>()?;
+                associated_types.push(AssociatedType {
+                    name,
+                    name_ref,
+                    ty: None,
+                    bounds,
+                    generic_params: vec![],
+                    parameter_bounds: vec![],
+                });
+            }
             let mut methods = vec![];
             for method in &item.methods {
                 let method_owner = NativeModule::method_id(&owner, &method.name);
@@ -181,7 +220,7 @@ impl Importer<'_> {
                 generic_params,
                 supertraits,
                 methods,
-                associated_types: vec![],
+                associated_types,
                 associated_consts: vec![],
             });
             self.lowerer.module.items.push(Item::Trait(id));
@@ -205,10 +244,38 @@ impl Importer<'_> {
                 .trait_type
                 .as_ref()
                 .map(|ty| {
-                    self.nominal_type(ty, site.name_span)
+                    let mut header = ty.clone();
+                    header.associated_types.clear();
+                    self.nominal_type(&header, site.name_span)
                         .map(|ty| TraitRef { ty })
                 })
                 .transpose()?;
+            let mut associated_types = vec![];
+            if let Some(trait_type) = &implementation.trait_type {
+                for (member, value) in &trait_type.associated_types {
+                    let name = member
+                        .path
+                        .last()
+                        .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                        .name
+                        .clone();
+                    let site = &generated.sites[&associated_type_id(&owner, &name)];
+                    let name_ref = self.lowerer.alloc_type(
+                        site.name_span,
+                        TypeData {
+                            kind: TypeKind::Named(name.clone()),
+                        },
+                    );
+                    associated_types.push(AssociatedType {
+                        name,
+                        name_ref,
+                        ty: Some(self.ty(value, site.parameters[0])?),
+                        bounds: vec![],
+                        generic_params: vec![],
+                        parameter_bounds: vec![],
+                    });
+                }
+            }
             let mut methods = vec![];
             for method in &implementation.methods {
                 let method_owner = NativeModule::method_id(&owner, &method.name);
@@ -231,7 +298,7 @@ impl Importer<'_> {
                 for_type: Some(for_type),
                 bounds: vec![],
                 methods,
-                associated_types: vec![],
+                associated_types,
                 associated_consts: vec![],
             });
             self.lowerer.module.items.push(Item::Impl(id));
@@ -424,6 +491,25 @@ impl Importer<'_> {
             AbiType::Parameter { position, .. } => TypeKind::Named(format!("T{position}")),
             AbiType::SelfType(_) => TypeKind::Named("Self".into()),
             AbiType::Trait(ty) => return self.nominal_type(ty, span),
+            AbiType::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } => TypeKind::Projection {
+                arguments: arguments
+                    .iter()
+                    .map(|ty| self.ty(ty, span))
+                    .collect::<Result<_, _>>()?,
+                receiver: self.ty(receiver, span)?,
+                trait_ref: self.nominal_type(interface, span)?,
+                member: member
+                    .path
+                    .last()
+                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .name
+                    .clone(),
+            },
             AbiType::Array(item, access) => {
                 let arg = self.ty(item, span)?;
                 if *access == CollectionAccess::ReadOnly {

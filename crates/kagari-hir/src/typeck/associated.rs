@@ -8,7 +8,7 @@ use crate::{
     resolver::resolved::ResolvedName,
     typeck::{
         constraints,
-        table::{ConstraintTarget, TypeTable, match_implementation},
+        table::{ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget, match_implementation},
         ty::{self, TypeContext, resolve_named_type, resolve_type_in},
     },
     types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
@@ -324,9 +324,12 @@ pub(super) fn resolve_projection_name(
     context: TypeContext<'_>,
     table: &mut TypeTable,
     cancel: &CancellationToken,
-) -> TypeId {
+) -> ResolvedTypeRef {
     let Some((base, member)) = name.rsplit_once("::") else {
-        return TypeId::Error;
+        return ResolvedTypeRef {
+            ty: TypeId::Error,
+            target: None,
+        };
     };
     if base == "Self"
         && let Some(id) = context.implementation
@@ -337,15 +340,24 @@ pub(super) fn resolve_projection_name(
             .find(|item| item.id == id)
             .expect("impl context");
         let Some(reference) = &item.trait_ref else {
-            return TypeId::Error;
+            return ResolvedTypeRef {
+                ty: TypeId::Error,
+                target: None,
+            };
         };
         let interface = resolve_type_in(module, reference.ty, context, table, cancel);
         let Some(receiver) = item.for_type else {
-            return TypeId::Error;
+            return ResolvedTypeRef {
+                ty: TypeId::Error,
+                target: None,
+            };
         };
         let receiver = resolve_type_in(module, receiver, context, table, cancel);
         let TypeId::Trait(interface) = interface else {
-            return TypeId::Error;
+            return ResolvedTypeRef {
+                ty: TypeId::Error,
+                target: None,
+            };
         };
         let mut owners = inherited_traits(
             module,
@@ -361,17 +373,23 @@ pub(super) fn resolve_projection_name(
                 .any(|name| name == member)
         });
         if owners.len() != 1 {
-            return TypeId::Error;
+            return ResolvedTypeRef {
+                ty: TypeId::Error,
+                target: None,
+            };
         }
-        return qualified_projection(
+        let owner = owners.remove(0);
+        let id = associated_type_id(&owner.declaration, member);
+        let ty = qualified_projection(
             module,
             receiver,
-            TypeId::Trait(owners.remove(0)),
+            TypeId::Trait(owner),
             (member, arguments),
             context,
             table,
             cancel,
         );
+        return projection_reference(ty, id);
     }
     let receiver = resolve_named_type(base, context).ty;
     let mut candidates = Vec::new();
@@ -393,7 +411,10 @@ pub(super) fn resolve_projection_name(
                 context.declarations.generic_type(param.id).as_ref() == Some(parameter)
             })
         else {
-            return TypeId::Error;
+            return ResolvedTypeRef {
+                ty: TypeId::Error,
+                target: None,
+            };
         };
         let mut references = param.bounds.iter().collect::<Vec<_>>();
         for function in &module.functions {
@@ -452,17 +473,28 @@ pub(super) fn resolve_projection_name(
     }
     let mut candidates = unique;
     if candidates.len() != 1 {
-        return TypeId::Error;
+        return ResolvedTypeRef {
+            ty: TypeId::Error,
+            target: None,
+        };
     }
-    qualified_projection(
+    let owner = candidates.remove(0);
+    let id = associated_type_id(&owner.declaration, member);
+    let ty = qualified_projection(
         module,
         receiver,
-        TypeId::Trait(candidates.remove(0)),
+        TypeId::Trait(owner),
         (member, arguments),
         context,
         table,
         cancel,
-    )
+    );
+    projection_reference(ty, id)
+}
+
+fn projection_reference(ty: TypeId, member: DefinitionId) -> ResolvedTypeRef {
+    let target = (ty != TypeId::Error).then_some(TypeTarget::AssociatedType(member));
+    ResolvedTypeRef { ty, target }
 }
 
 pub(super) fn qualified_projection(

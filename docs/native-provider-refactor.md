@@ -126,7 +126,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Boundary | Current evidence | Required before dependent families |
 | --- | --- | --- |
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
-| Static checking and tooling | Minimal array records and free-function named trait bounds go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, associated declarations, other declaration bounds, method generics, defaults and namespace/prelude bindings |
+| Static checking and tooling | Minimal array records, free-function named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
 | Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver | Complete checked selected trait-call targets and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
@@ -1893,3 +1893,87 @@ Next: associated declarations/output projections and checked selected callable
 requirements, then sorting and the managed iterator proof. Free-function bounds
 prove applicability; they do not identify or execute a required trait member.
 No complete NR phase is accepted; goal mode remains active.
+
+
+## 2026-10-01 ordinary associated-output checkpoint
+
+Checkpoint 2 advances NR01/NR02's associated declaration and statically specialized
+call contracts. General native interface slots, selected callable requirements,
+default entries, sorting and managed returned state remain open.
+
+- Accept ordinary registered associated declarations, named output bounds and
+  qualified projections. Require exact associated owners and all impl bindings;
+  derive native method signatures by substituting trait arguments/Self and resolving
+  outputs. Reject missing/foreign bindings, unsupported associated families and
+  mismatched method signatures. Existing portable contracts already carry these
+  facts, so executable wire versions do not change.
+- Render declarations, docs, bounds and impl-body bindings with corresponding
+  coordinates. Import records directly as ordinary HIR associated members and
+  projections; generated text remains a tooling view, never semantic input.
+  Preserve checked associated member identities before output normalization and
+  resolve them through the snapshot's declarations for navigation. Shorthand,
+  qualified and explicitly bound output references navigate to the generated
+  Item declaration and its docs, including when the output normalizes to i32.
+- Extend actual Rust native traits/impls with type Item: NativeValue declarations
+  and type Item = T bindings. Generate symbolic metadata for own associated slots
+  and Self values, including nested Option/tuple forms and qualified own-trait
+  projections. Implementation adapters use Rust's qualified concrete associated
+  type; an invalid Rust signature still fails E0053 in the external authoring
+  consumer. Symbolic metadata proxies delegate any value conversion to the existing
+  checked/rooted generic proxy rather than exposing raw values or fake success.
+  Associated families/defaults and inherited-slot authoring remain unsupported.
+  NativeValue supplies representation; it is not exported as a script constraint.
+- Correct generic ordinary trait calls selected from the aggregate catalog to use
+  the common native implementation lowering path. Do not enqueue native methods
+  as script bodies when collecting interface/parent/dependency demands. Static
+  associated outputs normalize through the shared checked catalog.
+- Remove registration's fake Unit instantiation of generic template layouts:
+  valid projections cannot be normalized with invented arguments. Template binder
+  validation remains mandatory, concrete declared layouts are still checked, and
+  exact installed/carried template equality plus sealed product validation proves
+  concrete import layouts and bounds before execution/reload linking.
+- Add the independent game::associated/game::typed_associated fixture. An ordinary
+  Source produces heap-backed associated values; a bounded free-function projection
+  round-trips them. Actual Rust TypedSource and generic Transform impls exercise
+  nested associated values and Self parameters/results. Source -> artifact bytes
+  must match exactly; encoded execution under GC threshold one returns 42. Success
+  and native error paths release roots/frames, explicit collection releases objects,
+  malformed outputs/products fail offline, and bad script output bounds/type
+  arguments fail statically without executing factories. The justified cross-target
+  fixture module is shared by tests and its source-only generator.
+  Both encoded entrypoints also execute with default native installation disabled.
+
+Intermediate integration finding: application-native dynamic interface calls are
+not complete. The associated fixture's earlier Source<Item = ArrayList<i32>>
+coercion attempted to request a native head script body and failed with
+Compilation/MirLowering MissingBinding("script body implementation"). The generic
+static route is fixed; interface method products still only hold FunctionRef.
+NR02 owns a common checked script/native callable target for dynamic slots and
+selected native trait callbacks, including portable validation, generation pins
+and the shared frame driver. Reusing the standard-specific native_bridge admission
+or adding per-binding dispatch is not an acceptable repair. No dynamic application
+interface acceptance is claimed, and the existing standard MutableList dynamic
+behavior test remains enabled and passes.
+
+Validation actually performed: the fixture generator succeeds and exact source
+emission matches its bytes. 62 SDK tests pass across native_associated, native_bounds,
+native_values, native_callbacks, native_math, native_registration,
+native_provider_artifact, native_provider_reset and host_interfaces. Macro tests,
+the external authoring proof (five invalid Rust contracts plus the valid hygiene
+consumer), all four independent native-proof features, eight production boundaries
+and the source-free ABI build graph pass. Workspace library and affected SDK
+Clippy pass with -D warnings; format, structure (817 Rust files, zero findings or
+exceptions) and diff checks pass. The added navigation reproduction failed before
+the checked associated target fix and now passes for all three output forms.
+Review covers template/product authority, checked navigation identities, macro
+metadata versus actual Rust conformance, roots, generated visibility, justified
+cross-target sharing and the empty re-export whitelist. NativeModuleBuilder's
+macro support signatures and the public TypeTarget enum change Rust shape;
+executable versions remain ABI v136, KBC v113, KMIR v11 and helper ABI v6.
+Full-workspace legacy fixture debt remains NR04-owned. No complete NR phase is
+accepted; goal mode remains active.
+
+Next: replace script-only interface method slots with a common checked callable
+target, then carry selected trait-member requirements into native imports and the
+shared callback driver. Preserve malformed-product checks and generation-pinned
+calls; restore sorting and the managed iterator proof after these capabilities.

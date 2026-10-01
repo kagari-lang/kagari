@@ -9,7 +9,7 @@ use crate::{
 };
 use kagari_common::{
     collection::CollectionAccess,
-    identity::{DefinitionId, DefinitionKind},
+    identity::{DefinitionId, DefinitionKind, associated_type_id},
     span::Span,
 };
 use std::collections::BTreeMap;
@@ -75,6 +75,29 @@ impl NativeModule {
                 output.text.push_str(&names.join(" + "));
             }
             output.text.push_str(" {\n");
+            for member in &item.associated_types {
+                let name = &member
+                    .declaration
+                    .path
+                    .last()
+                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .name;
+                output.doc(&member.declaration);
+                let start = output.text.len();
+                output.text.push_str("    type ");
+                let name_span = output.name(name);
+                let constraints = output.constraints(&member.bounds)?;
+                output.text.push_str(";\n");
+                output.site(member.declaration.clone(), start, name_span, vec![], vec![]);
+                output
+                    .sites
+                    .get_mut(&member.declaration)
+                    .expect("associated declaration")
+                    .bounds = vec![NativeBoundSite {
+                    target: name_span,
+                    constraints,
+                }];
+            }
             for method in &item.methods {
                 output.function(Self::method_id(&id, &method.name), method, true)?;
             }
@@ -88,11 +111,30 @@ impl NativeModule {
             let generics = output.generics(&implementation.generic_params);
             output.text.push(' ');
             if let Some(trait_type) = &implementation.trait_type {
-                output.text.push_str(&self.nominal_spelling(trait_type)?);
+                let mut header = trait_type.clone();
+                header.associated_types.clear();
+                output.text.push_str(&self.nominal_spelling(&header)?);
                 output.text.push_str(" for ");
             }
             let name_span = output.name(&self.type_spelling(&implementation.for_type)?);
             output.text.push_str(" {\n");
+            if let Some(trait_type) = &implementation.trait_type {
+                for (member, ty) in &trait_type.associated_types {
+                    let name = &member
+                        .path
+                        .last()
+                        .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                        .name;
+                    let member_id = associated_type_id(&id, name);
+                    let start = output.text.len();
+                    output.text.push_str("    type ");
+                    let name_span = output.name(name);
+                    output.text.push_str(" = ");
+                    let value_span = output.name(&self.type_spelling(ty)?);
+                    output.text.push_str(";\n");
+                    output.site(member_id, start, name_span, vec![], vec![value_span]);
+                }
+            }
             for method in &implementation.methods {
                 output.function(Self::method_id(&id, &method.name), method, true)?;
             }
@@ -176,6 +218,23 @@ impl NativeModule {
                 format!("fn({}) -> {}", join(params)?, self.spell(result)?)
             }
             AbiType::Trait(ty) => self.nominal_spelling(ty)?,
+            AbiType::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } if arguments.is_empty() => {
+                let name = &member
+                    .path
+                    .last()
+                    .ok_or_else(|| NativeApiError("missing associated name".into()))?
+                    .name;
+                format!(
+                    "<{} as {}>::{name}",
+                    self.spell(receiver)?,
+                    self.nominal_spelling(interface)?
+                )
+            }
             AbiType::StandardEnum { kind, args } if args.is_empty() => format!("{kind:?}"),
             AbiType::StandardEnum { kind, args } => format!("{kind:?}<{}>", join(args)?),
             _ => {
@@ -347,22 +406,29 @@ impl Renderer<'_> {
                 self.text.push_str(", ");
             }
             let target = self.name(&self.module.type_spelling(&bound.ty)?);
-            self.text.push_str(": ");
-            let mut constraints = vec![];
-            for (index, constraint) in bound.constraints.iter().enumerate() {
-                if index != 0 {
-                    self.text.push_str(" + ");
-                }
-                let ConstraintAbi::Trait(trait_type) = constraint else {
-                    return Err(NativeApiError("native bound requires a named trait".into()));
-                };
-                constraints.push(self.name(&self.module.nominal_spelling(trait_type)?));
-            }
+            let constraints = self.constraints(&bound.constraints)?;
             sites.push(NativeBoundSite {
                 target,
                 constraints,
             });
         }
         Ok(sites)
+    }
+
+    fn constraints(&mut self, constraints: &[ConstraintAbi]) -> Result<Vec<Span>, NativeApiError> {
+        let mut spans = vec![];
+        if !constraints.is_empty() {
+            self.text.push_str(": ");
+        }
+        for (index, constraint) in constraints.iter().enumerate() {
+            if index != 0 {
+                self.text.push_str(" + ");
+            }
+            let ConstraintAbi::Trait(trait_type) = constraint else {
+                return Err(NativeApiError("native bound requires a named trait".into()));
+            };
+            spans.push(self.name(&self.module.nominal_spelling(trait_type)?));
+        }
+        Ok(spans)
     }
 }

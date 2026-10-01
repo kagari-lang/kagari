@@ -35,6 +35,7 @@ pub enum TypeTarget {
     OpaqueType(OpaqueTypeId),
     Host(HostTypeId),
     Source(DefinitionId),
+    AssociatedType(DefinitionId),
     Struct(StructId),
     Enum(EnumId),
     Trait(TraitId),

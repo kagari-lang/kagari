@@ -56,9 +56,21 @@ struct Substitute<'a> {
     names: &'a [Ident],
     runtime: &'a Path,
     receiver: Option<&'a Type>,
+    contract: Option<&'a Type>,
 }
 impl VisitMut for Substitute<'_> {
     fn visit_type_mut(&mut self, ty: &mut Type) {
+        if let Type::Path(path) = ty
+            && path.qself.is_none()
+            && path.path.segments.len() == 2
+            && path.path.segments[0].ident == "Self"
+            && let (Some(receiver), Some(contract)) = (self.receiver, self.contract)
+        {
+            let member = &path.path.segments[1];
+            *ty = parse_quote!(<#receiver as #contract>::#member);
+            visit_mut::visit_type_mut(self, ty);
+            return;
+        }
         if let Type::Path(path) = ty
             && path.qself.is_none()
             && path.path.segments.len() == 1
@@ -87,14 +99,102 @@ pub(crate) fn concrete(
     runtime: &Path,
     receiver: Option<&Type>,
 ) -> Type {
+    concrete_method(ty, names, runtime, receiver, None)
+}
+
+pub(crate) fn concrete_method(
+    ty: &Type,
+    names: &[Ident],
+    runtime: &Path,
+    receiver: Option<&Type>,
+    contract: Option<&Type>,
+) -> Type {
     let mut ty = ty.clone();
     Substitute {
         names,
         runtime,
         receiver,
+        contract,
     }
     .visit_type_mut(&mut ty);
     ty
+}
+
+/// Trait declarations need symbolic slots; implementation adapters use Rust's
+/// actual associated types and qualified trait conformance instead.
+pub(crate) fn trait_signature(
+    signature: &Signature,
+    owner: &Ident,
+    names: &[Ident],
+    associated: &[Ident],
+    runtime: &Path,
+) -> Signature {
+    struct Slots<'a> {
+        owner: &'a Ident,
+        names: &'a [Ident],
+        associated: &'a [Ident],
+        runtime: &'a Path,
+    }
+    impl VisitMut for Slots<'_> {
+        fn visit_type_mut(&mut self, ty: &mut Type) {
+            if let Type::Path(path) = ty
+                && let Some(qualified) = &path.qself
+                && matches!(&*qualified.ty, Type::Path(receiver) if receiver.qself.is_none() && receiver.path.is_ident("Self"))
+                && path.path.segments.len() == 2
+                && path.path.segments[0].ident == *self.owner
+                && declaration_arguments(&path.path.segments[0].arguments, self.names)
+                && let Some(slot) = self.associated.iter().position(|name| {
+                    *name == path.path.segments.last().expect("associated path").ident
+                })
+            {
+                let runtime = self.runtime;
+                *ty = parse_quote!(#runtime::native_value::declaration::AssociatedValue<#slot>);
+                return;
+            }
+            if let Type::Path(path) = ty
+                && path.qself.is_none()
+                && path.path.segments[0].ident == "Self"
+            {
+                let runtime = self.runtime;
+                if path.path.segments.len() == 1 {
+                    *ty = parse_quote!(#runtime::native_value::declaration::SelfValue);
+                    return;
+                }
+                if path.path.segments.len() == 2
+                    && let Some(slot) = self
+                        .associated
+                        .iter()
+                        .position(|name| *name == path.path.segments[1].ident)
+                {
+                    *ty = parse_quote!(#runtime::native_value::declaration::AssociatedValue<#slot>);
+                    return;
+                }
+            }
+            visit_mut::visit_type_mut(self, ty);
+        }
+    }
+    let mut signature = signature.clone();
+    Slots {
+        owner,
+        names,
+        associated,
+        runtime,
+    }
+    .visit_signature_mut(&mut signature);
+    signature
+}
+
+fn declaration_arguments(arguments: &PathArguments, names: &[Ident]) -> bool {
+    match arguments {
+        PathArguments::None => names.is_empty(),
+        PathArguments::AngleBracketed(arguments) => {
+            arguments.args.len() == names.len()
+                && arguments.args.iter().zip(names).all(|(argument, name)| {
+                    matches!(argument, GenericArgument::Type(Type::Path(path)) if path.qself.is_none() && path.path.is_ident(name))
+                })
+        }
+        PathArguments::Parenthesized(_) => false,
+    }
 }
 
 pub(crate) fn value_type(

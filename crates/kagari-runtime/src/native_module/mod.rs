@@ -15,12 +15,14 @@ use kagari_abi::{
     native_api::{NativeImplementation, NativeModule},
     native_import::binding_id,
     types::{
-        AbiType, FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi, TypeAbiKind,
-        native::NativeTypeConstructor,
+        AbiType, AssociatedTypeAbi, FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi,
+        TypeAbiKind, native::NativeTypeConstructor,
     },
 };
 
-use kagari_common::identity::{DefinitionId, DefinitionKind, ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    DefinitionId, DefinitionKind, ModuleIdentity, PackageId, associated_type_id,
+};
 use std::collections::{BTreeMap, HashSet};
 
 #[doc(hidden)]
@@ -36,6 +38,12 @@ pub struct Method {
 pub struct Binding {
     pub name: &'static str,
     pub factory: fn() -> NativeFactory,
+}
+
+#[doc(hidden)]
+pub struct AssociatedType {
+    pub name: &'static str,
+    pub documentation: &'static str,
 }
 
 /// A builder used by macro expansions, not a second declaration validator.
@@ -82,6 +90,7 @@ impl NativeModuleBuilder {
             owner: owner.clone(),
             names,
             receiver: None,
+            associated: &[],
         };
         self.module.types.push(TypeAbi {
             name: name.into(),
@@ -101,15 +110,21 @@ impl NativeModuleBuilder {
         names: &[&'static str],
         doc: &str,
         parents: Vec<TypeExpression>,
+        associated: Vec<AssociatedType>,
         methods: Vec<Method>,
     ) -> Result<(), RuntimeError> {
         self.check_names(names)?;
         let owner = self.module.definition(DefinitionKind::Trait, name);
+        let associated_names = associated
+            .iter()
+            .map(|member| member.name)
+            .collect::<Vec<_>>();
         let scope = Scope {
             module: &self.module,
             owner: owner.clone(),
             names,
             receiver: None,
+            associated: &associated_names,
         };
         let supertraits = parents
             .iter()
@@ -129,11 +144,25 @@ impl NativeModuleBuilder {
             generic_params: scope.generics(),
             bounds: vec![],
             supertraits,
-            associated_types: vec![],
+            associated_types: associated
+                .iter()
+                .map(|member| AssociatedTypeAbi {
+                    declaration: associated_type_id(&owner, member.name),
+                    generic_params: vec![],
+                    parameter_bounds: vec![],
+                    bounds: vec![],
+                })
+                .collect(),
             associated_consts: vec![],
             methods: functions,
         });
         self.document(owner.clone(), doc);
+        for member in associated {
+            self.document(
+                associated_type_id(&owner, member.name),
+                member.documentation,
+            );
+        }
         for method in methods {
             self.document(
                 NativeModule::method_id(&owner, method.name),
@@ -158,6 +187,7 @@ impl NativeModuleBuilder {
             owner: owner.clone(),
             names,
             receiver: None,
+            associated: &[],
         }
         .resolve(&receiver)?;
         let mut functions = vec![];
@@ -173,6 +203,7 @@ impl NativeModuleBuilder {
                 owner: owner.clone(),
                 names,
                 receiver: Some(&for_type),
+                associated: &[],
             };
             functions.push(function(
                 &scope,
@@ -186,6 +217,7 @@ impl NativeModuleBuilder {
             owner: owner.clone(),
             names,
             receiver: None,
+            associated: &[],
         };
         self.module.implementations.push(NativeImplementation {
             generic_params: scope.generics(),
@@ -207,6 +239,7 @@ impl NativeModuleBuilder {
         names: &[&'static str],
         receiver: TypeExpression,
         contract: TypeExpression,
+        associated: Vec<(&'static str, TypeExpression)>,
         bindings: Vec<(&'static str, Binding)>,
     ) -> Result<(), RuntimeError> {
         self.check_names(names)?;
@@ -218,9 +251,22 @@ impl NativeModuleBuilder {
             owner,
             names,
             receiver: None,
+            associated: &[],
         };
         let for_type = scope.resolve(&receiver)?;
-        let trait_type = nominal(scope.resolve(&contract)?)?;
+        let mut trait_type = nominal(scope.resolve(&contract)?)?;
+        for (name, value) in associated {
+            if trait_type
+                .associated_types
+                .insert(
+                    associated_type_id(&trait_type.declaration, name),
+                    scope.resolve(&value)?,
+                )
+                .is_some()
+            {
+                return Err(invalid("duplicate native associated binding"));
+            }
+        }
         let generics = scope.generics();
         let entries = bindings
             .iter()
@@ -251,6 +297,7 @@ impl NativeModuleBuilder {
             owner: owner.clone(),
             names,
             receiver: None,
+            associated: &[],
         };
         let function = function(
             &scope,

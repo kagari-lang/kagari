@@ -8,10 +8,8 @@ use crate::{
 use kagari_abi::{
     callable::CallableImplementation,
     native_import::NativeImport,
-    scalar::BuiltinType,
     types::{
-        AbiType, NativeDeclaration,
-        substitution::TypeSubstitution,
+        NativeDeclaration,
         verify::{concrete_type_valid, validate_native_declarations},
     },
 };
@@ -104,22 +102,17 @@ impl NativeRegistry {
             {
                 return Err(invalid());
             }
-            let mut substitution = TypeSubstitution::default();
-            for parameter in &function.generic_params {
-                substitution.bind(
-                    &parameter.owner,
-                    parameter.position,
-                    &AbiType::Builtin(BuiltinType::Unit),
-                );
-            }
             for ty in function
                 .params
                 .iter()
                 .map(|p| &p.ty)
                 .chain(iter::once(&function.return_type))
             {
-                let concrete = substitution.apply(ty, &cancel).map_err(|_| invalid())?;
-                if !concrete.within_wire_limits() || !concrete_type_valid(&concrete, &cancel) {
+                // Templates have validated binders and may retain projections.
+                // Their concrete layouts are checked by verified program linking.
+                if !ty.within_wire_limits()
+                    || (ty.is_concrete() && !concrete_type_valid(ty, &cancel))
+                {
                     return Err(invalid());
                 }
             }

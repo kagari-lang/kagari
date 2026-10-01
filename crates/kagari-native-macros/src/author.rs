@@ -90,6 +90,10 @@ impl Expansion<'_> {
         let mut arguments = vec![];
         let mut slot = 0usize;
         let concrete_receiver = receiver.map(|ty| signature::concrete(ty, names, runtime, None));
+        let concrete_contract = contract.map(|path| {
+            let ty: Type = parse_quote!(#path);
+            signature::concrete(&ty, names, runtime, None)
+        });
         for arg in &mut sig.inputs {
             match arg {
                 FnArg::Receiver(_) => {
@@ -106,11 +110,12 @@ impl Expansion<'_> {
                         // Rust verifies the injected call against the actual parameter type.
                         arguments.push(quote!(__call));
                     } else {
-                        let ty = signature::concrete(
+                        let ty = signature::concrete_method(
                             &arg.ty,
                             names,
                             runtime,
                             concrete_receiver.as_ref(),
+                            concrete_contract.as_ref(),
                         );
                         let var = format_ident!("__argument_{slot}");
                         declarations.push(quote!(let #var = __call.argument::<#ty>(#slot)?;));
@@ -124,7 +129,13 @@ impl Expansion<'_> {
             ReturnType::Default => parse_quote!(()),
             ReturnType::Type(_, ty) => *ty.clone(),
         };
-        let result = signature::concrete(&result, names, runtime, concrete_receiver.as_ref());
+        let result = signature::concrete_method(
+            &result,
+            names,
+            runtime,
+            concrete_receiver.as_ref(),
+            concrete_contract.as_ref(),
+        );
         let method = &sig.ident;
         let invocation = if let Some(receiver) = &concrete_receiver {
             if let Some(contract) = contract {
@@ -165,6 +176,7 @@ impl Expansion<'_> {
         let contract = implementation.trait_.as_ref().map(|(_, path, _)| path);
         let mut methods = vec![];
         let mut bindings = vec![];
+        let mut associated = vec![];
         let Type::Path(receiver_path) = receiver else {
             return Err(SyntaxError::new_spanned(
                 receiver,
@@ -179,10 +191,25 @@ impl Expansion<'_> {
             .ident
             .to_string();
         for item in &mut implementation.items {
+            if let ImplItem::Type(member) = item {
+                if contract.is_none()
+                    || !member.generics.params.is_empty()
+                    || member.generics.where_clause.is_some()
+                {
+                    return Err(SyntaxError::new_spanned(
+                        member,
+                        "native associated bindings require ordinary trait types",
+                    ));
+                }
+                let name = member.ident.to_string();
+                let ty = signature::value_type(&member.ty, &names, runtime, Some(receiver));
+                associated.push(quote!((#name, #ty)));
+                continue;
+            }
             let ImplItem::Fn(method) = item else {
                 return Err(SyntaxError::new_spanned(
                     item,
-                    "native impls export methods only",
+                    "native impls export methods and ordinary associated bindings",
                 ));
             };
             signature::validate(&method.sig)?;
@@ -220,7 +247,7 @@ impl Expansion<'_> {
         let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
         Ok(if let Some(contract) = contract {
             let contract = signature::nominal(contract, &names, runtime)?;
-            quote!(__builder.trait_impl(&[#(#generic_names),*], #receiver_expression, #contract, ::std::vec![#(#bindings),*])?;)
+            quote!(__builder.trait_impl(&[#(#generic_names),*], #receiver_expression, #contract, ::std::vec![#(#associated),*], ::std::vec![#(#bindings),*])?;)
         } else {
             quote!(__builder.inherent_impl(&[#(#generic_names),*], #receiver_expression, ::std::vec![#(#methods),*])?;)
         })
@@ -332,13 +359,35 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                         signature::nominal(&bound.path, &names, runtime)
                     })
                     .collect::<SyntaxResult<Vec<_>>>()?;
-                let methods = ty.items.iter().map(|item| {
-                    let TraitItem::Fn(method) = item else { return Err(SyntaxError::new_spanned(item, "native traits export required methods only")); };
+                let mut associated = vec![];
+                let mut associated_names = vec![];
+                for item in &ty.items {
+                    if let TraitItem::Type(member) = item {
+                        if !member.generics.params.is_empty()
+                            || member.generics.where_clause.is_some()
+                            || member.default.is_some()
+                            || member.bounds.len() != 1
+                            || !matches!(member.bounds.first(), Some(TypeParamBound::Trait(bound)) if bound.path.is_ident("NativeValue"))
+                        {
+                            return Err(SyntaxError::new_spanned(
+                                member,
+                                "native associated types require ordinary type Item: NativeValue declarations",
+                            ));
+                        }
+                        let name = member.ident.to_string();
+                        let doc = signature::documentation(&member.attrs);
+                        associated_names.push(member.ident.clone());
+                        associated.push(quote!(#runtime::native_module::AssociatedType { name: #name, documentation: #doc }));
+                    }
+                }
+                let methods = ty.items.iter().filter(|item| !matches!(item, TraitItem::Type(_))).map(|item| {
+                    let TraitItem::Fn(method) = item else { return Err(SyntaxError::new_spanned(item, "native traits export required methods and ordinary associated types")); };
                     if method.default.is_some() { return Err(SyntaxError::new_spanned(method, "native trait defaults require a separate executable implementation")); }
                     signature::validate(&method.sig)?;
-                    signature::method(&method.sig, &method.attrs, &names, runtime, None, quote!(::std::option::Option::None))
+                    let sig = signature::trait_signature(&method.sig, &ty.ident, &names, &associated_names, runtime);
+                    signature::method(&sig, &method.attrs, &names, runtime, None, quote!(::std::option::Option::None))
                 }).collect::<SyntaxResult<Vec<_>>>()?;
-                declarations.push(quote!(__builder.required_trait(#name, &[#(#generic_names),*], #doc, ::std::vec![#(#parents),*], ::std::vec![#(#methods),*])?;));
+                declarations.push(quote!(__builder.required_trait(#name, &[#(#generic_names),*], #doc, ::std::vec![#(#parents),*], ::std::vec![#(#associated),*], ::std::vec![#(#methods),*])?;));
             }
             Item::Impl(implementation)
                 if implementation
@@ -401,6 +450,22 @@ mod tests {
     #[test]
     fn unsupported_rust_contracts_report_errors() {
         for module in [
+            quote!(
+                mod native {
+                    #[native_trait]
+                    trait Bad {
+                        type Item<T: NativeValue>: NativeValue;
+                    }
+                }
+            ),
+            quote!(
+                mod native {
+                    #[native_trait]
+                    trait Bad {
+                        type Item: NativeValue = usize;
+                    }
+                }
+            ),
             quote!(
                 mod native {
                     #[native]

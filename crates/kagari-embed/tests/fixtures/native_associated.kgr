@@ -1,0 +1,26 @@
+use game::associated::{Source, echo};
+use game::typed_associated::{TypedSource, Transform};
+fn read<S: Source>(source: S) -> S::Item { source.head() }
+fn main() -> i32 {
+    val bag = [[21]];
+    val first = read(bag);
+    val copy = echo::<ArrayList<ArrayList<i32>>>(first, bag);
+    copy[0usize] + read(bag)[0usize]
+}
+
+fn typed_read<S: TypedSource>(source: S) -> S::Item { source.head() }
+fn typed_empty() -> i32 {
+    val bag: ArrayList<i32> = [];
+    typed_read(bag)
+}
+fn typed_main() -> i32 {
+    val bag = [[42]];
+    val item = typed_read(bag);
+    val other = bag.keep(bag);
+    match bag.swap(item, 0) {
+        (offset, item) => match bag.round_trip(Some((item,))) {
+            Some((value,)) => typed_read(other)[0usize] + value[0usize] - 42 + offset,
+            None => 0,
+        },
+    }
+}

@@ -79,8 +79,11 @@ Result handle that preserves Err provenance across native calls. These common
 conversions do not complete the selected-trait or returned-state checkpoints.
 Free-function registration records also carry named trait bounds through HIR,
 generated where clauses and encoded/source-free verification. Runtime linking
-matches complete templates against the sealed verified product; broader bound
-authoring, associated outputs and callable dependencies remain pending.
+matches complete templates against the sealed verified product. Ordinary associated
+declarations, bindings and output projections now share direct HIR/static/offline
+checking; typed Rust traits/impls derive their own associated and Self signatures.
+Broader bound authoring, general native interface slots, callable dependencies and
+managed returned state remain pending.
 
 ## Permissions and execution protection refactor queued
 

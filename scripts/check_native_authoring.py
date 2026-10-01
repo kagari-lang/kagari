@@ -36,6 +36,19 @@ def run() -> None:
             }''', "E0053"),
         "unscoped-reference": ('''#[native_module("game::math")]
             mod math { #[native] fn borrowed(value: &str) -> usize { value.len() } }''', "E0277"),
+        "associated-contract": ('''#[native_module("game::source")]
+            mod source {
+                use kagari_runtime::native_value::{array::NativeArray, NativeValue};
+                #[native_type] struct Bag<T: NativeValue>(NativeArray<T>);
+                #[native_trait] trait Source {
+                    type Item: NativeValue;
+                    fn echo(&self, value: Self::Item) -> Self::Item;
+                }
+                #[native_impl] impl<T: NativeValue> Source for Bag<T> {
+                    type Item = T;
+                    fn echo(&self, value: bool) -> bool { value }
+                }
+            }''', "E0053"),
         "callback-argument-pack": ('''#[native_module("game::calls")]
             mod calls {
                 use kagari_runtime::native_value::continuation::NativeFn;

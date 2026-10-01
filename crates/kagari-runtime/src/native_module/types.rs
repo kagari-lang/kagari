@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 #[doc(hidden)]
 pub enum TypeExpression {
     Parameter(usize),
+    Associated(usize),
     Named {
         path: Vec<&'static str>,
         arguments: Vec<Self>,
@@ -36,6 +37,7 @@ pub(super) struct Scope<'a> {
     pub owner: DefinitionId,
     pub names: &'a [&'static str],
     pub receiver: Option<&'a AbiType>,
+    pub associated: &'a [&'static str],
 }
 
 impl Scope<'_> {
@@ -52,6 +54,25 @@ impl Scope<'_> {
 
     pub fn resolve(&self, expression: &TypeExpression) -> Result<AbiType, RuntimeError> {
         Ok(match expression {
+            TypeExpression::Associated(position) => {
+                let name = self.associated.get(*position).ok_or_else(|| {
+                    RuntimeError::metadata_conflict("native associated slot is not declared")
+                })?;
+                AbiType::Projection {
+                    receiver: Box::new(AbiType::SelfType(self.owner.clone())),
+                    interface: Box::new(NominalAbiType {
+                        declaration: self.owner.clone(),
+                        arguments: self
+                            .generics()
+                            .iter()
+                            .map(GenericParameterAbi::as_type)
+                            .collect(),
+                        associated_types: BTreeMap::new(),
+                    }),
+                    member: associated_type_id(&self.owner, name),
+                    arguments: vec![],
+                }
+            }
             TypeExpression::Parameter(position) => {
                 if *position >= self.names.len() {
                     return Err(RuntimeError::metadata_conflict(

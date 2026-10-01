@@ -49,5 +49,9 @@ name = "regenerate_native_bounds_artifact"
 required-features = ["source"]
 
 [[example]]
+name = "regenerate_native_associated_artifact"
+required-features = ["source"]
+
+[[example]]
 name = "native_mutable_list"
 required-features = ["source"]
