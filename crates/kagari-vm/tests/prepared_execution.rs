@@ -8,22 +8,28 @@ use kagari_abi::{
     },
     native_call::{JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitCompiledFunction, JitValue},
 };
-use kagari_bytecode::{BytecodeModule, BytecodeProgram, ModuleRef};
-use kagari_common::SourceFile;
-use kagari_compiler::{MirLoweringOptions, bytecode::lower_to_bytecode, lower_to_mir};
-use kagari_hir::analyze_source;
+use kagari_bytecode::BytecodeProgram;
+use kagari_common::source_database::{SourceDatabase, SourceLayer};
+use kagari_compiler::{
+    MirLoweringOptions, bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
+};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     CapabilitySet, LanguageProfile, LoadedModule, ResourcePolicy, Runtime, RuntimeConfig,
     RuntimeErrorKind, SecurityContext, jit_abi::jit_consume_instruction_step, value::Value,
 };
 use kagari_vm::{JitExecutionStatus, PreparedNativeEntry, Vm, VmError};
 
-fn compile(source: &str, optimize: bool) -> BytecodeModule {
-    let source = SourceFile::new("test.kgr", source);
-    let checked = analyze_source(&source, Default::default())
-        .into_codegen()
+fn compile(source: &str, optimize: bool) -> BytecodeProgram {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("test.kgr", source.into(), SourceLayer::Base)
         .unwrap();
-    let mir = lower_to_mir(
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let checked = snapshot.check_program(root, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(
         &checked,
         &MirLoweringOptions {
             optimization: optimize.then(Default::default),
@@ -31,9 +37,9 @@ fn compile(source: &str, optimize: bool) -> BytecodeModule {
         },
     )
     .unwrap();
-    lower_to_bytecode(&mir).unwrap()
+    lower_program_to_bytecode(&mir).unwrap()
 }
-fn setup(bytecode: BytecodeModule, limit: Option<u64>) -> (Vm, LoadedModule) {
+fn setup(bytecode: BytecodeProgram, limit: Option<u64>) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
         security: SecurityContext {
             profile: LanguageProfile {
@@ -51,15 +57,7 @@ fn setup(bytecode: BytecodeModule, limit: Option<u64>) -> (Vm, LoadedModule) {
         },
         ..Default::default()
     });
-    let loaded = runtime
-        .load_program(
-            "test",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![bytecode],
-            },
-        )
-        .unwrap();
+    let loaded = runtime.load_program("test", bytecode).unwrap();
     (Vm::new(runtime), loaded)
 }
 #[derive(Debug)]
@@ -254,18 +252,10 @@ fn debugging_selects_interpreter_before_entering_native_code() {
 
 #[test]
 fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
-    let (mut vm, module) = setup(compile("fn main() {}", false), None);
+    let program = compile("fn main() {}", false);
+    let (mut vm, module) = setup(program.clone(), None);
     let preparation = prepared(&vm, &module, native_unit);
-    let new = vm
-        .reload_program(
-            &module,
-            "test",
-            BytecodeProgram {
-                root: ModuleRef::new(0),
-                modules: vec![(*module.bytecode).clone()],
-            },
-        )
-        .unwrap();
+    let new = vm.reload_program(&module, "test", program).unwrap();
     let error = vm.execute_prepared(&new, "main", &preparation).unwrap_err();
     assert!(
         matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ModuleValidation)

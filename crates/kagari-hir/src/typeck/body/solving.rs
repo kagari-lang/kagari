@@ -1,7 +1,7 @@
 use crate::{
     hir::{BlockId, ExprId, ExprKind, TypeKind, TypeRefId},
     typeck::{
-        BodyTypeEnv,
+        BodyTypeEnv, ConstraintTarget,
         body::BodyChecker,
         completion, inference,
         ty::{TypeContext, display_type, resolve_type_in},
@@ -9,6 +9,7 @@ use crate::{
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{Diagnostic, DiagnosticKind};
+use std::collections::HashSet;
 
 impl BodyChecker<'_> {
     pub(super) fn prepare_call_type_arguments(&mut self, site: ExprId, env: &BodyTypeEnv) {
@@ -143,41 +144,82 @@ impl BodyChecker<'_> {
         if !self.solving {
             return;
         }
-        let mut candidates = Vec::new();
-        for implementation in self.aggregates.implementations() {
-            if self.cancel.check().is_err() {
-                return;
-            }
-            if implementation.trait_type.declaration != interface.declaration {
+        // A unique declaration shape supplies equalities, including through its
+        // own bounds. This does not prove applicability: the checked pass still
+        // validates all bounds and rejects ambiguity. Keep inference traversal
+        // within the same candidate/depth limits as implementation validation.
+        let mut pending = vec![(actual.clone(), interface.clone(), 0)];
+        let mut visited = HashSet::new();
+        let mut checks = 0;
+        while let Some((actual, interface, depth)) = pending.pop() {
+            let actual = self.solver.resolve(&actual);
+            let TypeId::Trait(interface) = self.solver.resolve(&TypeId::Trait(interface)) else {
+                unreachable!("trait inference obligation");
+            };
+            if depth >= 64 || !visited.insert((actual.clone(), interface.clone())) {
                 continue;
             }
-            let mut substitution = TypeSubstitution::default();
-            if inference::infer(
-                &implementation.for_type,
-                actual,
-                &implementation.generic_params,
-                &mut substitution,
-                self.cancel,
-            )
-            .is_err()
-            {
-                return;
+            let mut candidates = Vec::new();
+            for implementation in self.aggregates.implementations() {
+                if self.cancel.check().is_err() {
+                    return;
+                }
+                if implementation.trait_type.declaration != interface.declaration {
+                    continue;
+                }
+                checks += 1;
+                if checks > 4096 {
+                    return;
+                }
+                let mut substitution = TypeSubstitution::default();
+                for (pattern, supplied) in [
+                    (implementation.for_type.clone(), actual.clone()),
+                    (
+                        TypeId::Trait(implementation.trait_type.clone()),
+                        TypeId::Trait(interface.clone()),
+                    ),
+                ] {
+                    if inference::infer(
+                        &pattern,
+                        &supplied,
+                        &implementation.generic_params,
+                        &mut substitution,
+                        self.cancel,
+                    )
+                    .is_err()
+                    {
+                        return;
+                    }
+                }
+                let receiver = implementation.for_type.instantiate(&substitution);
+                let declared = implementation.trait_type.instantiate(&substitution);
+                if !receiver.conflicts_with(&actual)
+                    && !TypeId::Trait(declared.clone())
+                        .conflicts_with(&TypeId::Trait(interface.clone()))
+                {
+                    candidates.push((implementation, substitution, declared));
+                }
             }
-            let receiver = implementation.for_type.instantiate(&substitution);
-            let declared = implementation.trait_type.instantiate(&substitution);
-            if !receiver.conflicts_with(actual)
-                && !TypeId::Trait(declared.clone())
-                    .conflicts_with(&TypeId::Trait(interface.clone()))
-            {
-                candidates.push(declared);
-            }
-        }
-        if let [declared] = candidates.as_slice() {
+            let [(implementation, substitution, declared)] = candidates.as_slice() else {
+                continue;
+            };
             let _ = self.solver.constrain(
                 &TypeId::Trait(declared.clone()),
                 &TypeId::Trait(interface.clone()),
                 self.cancel,
             );
+            for (target, bounds) in &implementation.bounds {
+                for bound in bounds {
+                    if let ConstraintTarget::Trait(required) = bound {
+                        pending.push((
+                            self.aggregates
+                                .normalize_type(&target.instantiate(substitution)),
+                            required.instantiate(substitution),
+                            depth + 1,
+                        ));
+                    }
+                }
+            }
         }
     }
 

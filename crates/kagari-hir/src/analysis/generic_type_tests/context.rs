@@ -12,6 +12,8 @@ fn body_constraints_use_later_arguments_and_local_uses() {
         "val callback = |x| x + 1; callback(41);",
         "apply(|x| x + 1, 41);",
         "val checked: Result<ArrayList<i32>, String> = [Ok(42)].iter().collect();",
+        "val checked: Result<ArrayList<i32>, String> = [42].iter().map(|x| Ok(x)).collect();",
+        "val checked: Option<Result<ArrayList<i32>, String>> = [42].iter().map(|x| Some(Ok(x))).collect();",
     ] {
         let source = SourceFile::new(
             "body-inference.kgr",
@@ -35,6 +37,8 @@ fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
         "val xs = [];",
         "val xs = []; xs.push(1); xs.push(true);",
         "val xs: List<i32> = []; xs.push(1);",
+        "val checked: Result<ArrayList<i32>, bool> = [42].iter().map(|x| Result<i32, String>::Ok(x)).collect();",
+        "val checked: Result<i32, String> = [42].iter().map(|x| Ok(x)).collect();",
     ] {
         let source = SourceFile::new(
             "body-inference-errors.kgr",
@@ -44,6 +48,52 @@ fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
         assert!(!analysis.diagnostics().is_empty(), "{body}");
         assert!(analysis.into_codegen().is_err());
     }
+}
+
+#[test]
+fn declared_bound_inference_follows_unique_nested_implementations() {
+    let source = SourceFile::new(
+        "nested-bound-inference.kgr",
+        r#"
+struct Sink<T> { val seed: i32 }
+struct Wrap<C> { val inner: C }
+trait Accept<T> { fn accept(self, value: T); }
+impl<T> Accept<T> for Sink<T> { fn accept(self, value: T) {} }
+impl<T, C: Accept<T>> Accept<T> for Wrap<C> {
+    fn accept(self, value: T) { self.inner.accept(value); }
+}
+fn apply<T, C: Accept<T>>(value: T, target: C) { target.accept(value); }
+fn main() {
+    val sink: Wrap<Sink<Result<i32, String>>> = Wrap { inner: Sink { seed: 0 } };
+    apply(Ok(42), sink);
+}
+"#,
+    );
+    let analysis = crate::analyze_source(&source, Default::default());
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    assert!(analysis.into_codegen().is_ok());
+
+    let ambiguous = SourceFile::new(
+        "ambiguous-bound-inference.kgr",
+        r#"
+struct Sink { val seed: i32 }
+trait Accept<T> { fn accept(self, value: T); }
+impl Accept<i32> for Sink { fn accept(self, value: i32) {} }
+impl Accept<bool> for Sink { fn accept(self, value: bool) {} }
+fn choose<T, C: Accept<T>>(target: C) -> T { std::debug::panic("missing type") }
+fn main() { val value = choose(Sink { seed: 0 }); }
+"#,
+    );
+    let analysis = crate::analyze_source(&ambiguous, Default::default());
+    assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+        diagnostic.kind,
+        kagari_common::DiagnosticKind::CannotInferGenericArgument { .. }
+    )));
+    assert!(analysis.into_codegen().is_err());
 }
 
 #[test]

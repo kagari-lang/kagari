@@ -8,19 +8,27 @@ The [MIR and crate architecture refactor](mir-architecture-refactor.md) records
 implementation checkpoints and final acceptance. Language/runtime behavior follows
 the semantic specifications.
 
-The active [standard-library and HIR migration](stdlib-hir-refactor.md) separates
-the standard source package from ABI and establishes a checked HIR handoff for
-native and script implementations. ST00 is complete and ST01 is in progress:
-`kagari-stdlib` owns bundled source text and structural preparation. The analysis
-database caches the installed package and imports its files through ordinary HIR
-declaration collection, including opaque types, native enum representation hooks,
-engine function bindings and native trait defaults. Installed declarations use
-ordinary signature and bound checking; source code cannot acquire these bindings
-by copying a native attribute or standard URI. Unified checked Engine/Host call
-contracts and ordinary standard namespace resolution remain pending. ABI's source
-generator and declaration catalogs have been removed; their consumers still need
-migration. The complete target handoff is not yet
-active; intermediate failures are recorded in the migration plan.
+The [standard-library and HIR integration plan](stdlib-hir-refactor.md) records the
+source-package and native execution migration. `kagari-stdlib` owns the installed
+manifest, exact bundled text, parsed syntax and structural declaration coordinates.
+The analysis database caches that package and imports it through ordinary HIR
+resolution, declaration checking and snapshot tool queries. Installed provenance
+controls native binding authority; copied attributes or source URIs confer none.
+
+HIR carries one callable model with Required, Script and Native implementations.
+Native calls distinguish Engine and Host providers while retaining host signatures,
+passing styles, capabilities and scoped borrow validation. Compiler lowering consumes
+checked selections, substitutions, associated outputs and witnesses. Portable MIR
+and bytecode carry their complete dependency closure and executable contracts.
+ABI validates those facts without syntax, HIR or source catalogs.
+
+Runtime owns native standard behavior. Direct entries reuse Rust storage, numeric
+and parsing helpers; callback algorithms and lazy adapters use rooted native
+continuations on the caller's session/frame stack. GC-owned captures pin imports,
+modules and dependency versions. Checked iterator and range entries share generic
+runtime primitives. Core language arithmetic, indexing, enum operations and closure
+calls retain their normal MIR instructions. Final integration acceptance is recorded
+in the plan; there is no alternate compiler implementation of public native algorithms.
 
 ## Foundation Contracts
 
@@ -157,15 +165,15 @@ Standard library calls flow through one structural path:
 
 ```text
 source call or method
-  -> typed standard module/function/method metadata
-  -> stable ABI intrinsic identity carried by MIR and bytecode
-  -> bytecode verifier signature checks
-  -> VM dispatch to runtime standard helper
+  -> ordinary checked HIR declaration and selected implementation
+  -> provider-qualified native import or ordinary script callable
+  -> portable declaration/signature/layout/bound/witness validation
+  -> shared runtime frame/session driver and selected Rust implementation
 ```
 
 This keeps ordinary standard library execution out of script-visible reflection and host string dispatch.
 Reflection metadata may describe standard values for tooling when the active profile allows it, but reflection is not the implementation mechanism for arrays, maps, sets, strings, or standard helpers.
-Reload validation and JIT fallback use the same intrinsic ids and metadata as the interpreter.
+Reload validation and JIT preparation use the same verified callable contracts as the interpreter. Unsupported native compilation falls back before entry.
 
 Host-sensitive APIs such as file system, networking, timers, persistence, service registries, and logging sinks are host APIs.
 They are not exposed as unrestricted core standard modules.
@@ -276,7 +284,7 @@ Convenience CLI behavior must remain a thin layer over the same embedding pipeli
 The SDK exposes `KagariEngine`, `KagariRuntime`, `PreparedProgram`, load/reload
 options and `ExecutionContext`. The default `source,native` feature set enables source
 compilation and native preparation. No features gives artifact-only interpretation;
-`source` adds HIR/syntax/compiler source, and `native` adds frontend-free MIR/compiler
+`source` adds stdlib/HIR/syntax/compiler source, and `native` adds frontend-free MIR/compiler
 core/codegen. The host supplies any concrete backend. Source-only builds can emit
 portable MIR for native-only consumers.
 

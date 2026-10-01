@@ -2,33 +2,27 @@
 
 ## Standard library and HIR integration (active)
 
-The [standard-library integration plan](stdlib-hir-refactor.md) defines the next
-scoped migration: introduce `kagari-stdlib`, import its parsed declarations into
-HIR, carry checked callable metadata into executable contracts, and dispatch
-native/script implementations without downstream source-catalog interpretation.
-Existing Rust implementations remain Rust. ST00–ST06 own sequencing, acceptance
-and the progress ledger. The shared Native callable model distinguishes Engine
-and Host providers while retaining host authority and borrow checks. Generated
-host declaration documents and LSP transport remain later integrations.
-ST00 baseline and inventory are complete; ST01 implementation scope is complete
-and ST02 is in progress. The `kagari-stdlib` source package, installed HIR import,
-ordinary standard namespaces and snapshot tool queries replace the ABI generator
-and source descriptors. Shared callable/provider metadata and executable consumers
-remain under migration. Source and offline host calls now share HIR signature
-checking and queries, with explicit Engine/Host bindings and retained host contracts.
-Optional host declaration/Rust origins are retained by analysis snapshots.
-Remaining engine metadata and executable provider contracts remain pending.
-Checked native type declarations now carry explicit portable representation
-constructors. The coupled callable migration carries source-derived trait
-contracts and per-function Required/Script/Native implementations instead of
-global standard trait templates or a separate default-slot catalog. Linked trait
-application checks use carried declarations across both MIR and bytecode. Runtime ABI v105, KBC v106 and KMIR v4 accompany the current wire changes;
-the SDK artifact fixture requires regeneration after compilation is restored.
-Integration is still broken by the carried errors recorded
-in the active plan; ST01 scope completion does not claim HIR or workspace acceptance.
-The thirteen-crate description below is the pre-migration
-architecture. This migration precedes
-further native backend expansion and does not reopen completed phase ledgers.
+The [standard-library integration plan](stdlib-hir-refactor.md) owns the completed
+ST00–ST05 migration scope and the ongoing ST06 final integration checks.
+`kagari-stdlib` prepares installed sources; ordinary HIR declarations, signature
+checking and snapshot queries replace the ABI generator and source descriptors.
+Required, Script and Native implementations share checked callable facts; Engine
+and Host providers retain distinct authority and borrow/resource contracts.
+
+Compiler lowering consumes checked substitutions, associated outputs and selected
+witnesses. Portable MIR/bytecode validate complete declarations, layouts, native
+imports and private dependencies without source catalogs. Runtime owns every public
+native standard algorithm through shared Rust helpers or rooted continuations,
+including lazy adapters, prepared mutations, custom keys and selected script calls.
+Core language primitives keep generic typed instructions. The plan's final ownership
+map covers the complete ST00 inventory. Current products use runtime ABI v133,
+KBC v110, KMIR v8, native binding v2 and helper ABI v6; older products require rebuilds.
+
+ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
+specifications, whole-workspace acceptance, structural review and matched baseline
+measurements. Generated host declaration documents, Rust registration macros, LSP
+transport and further backend expansion remain later work. This migration does not
+reopen completed historical phase ledgers.
 
 ## Never type (complete)
 

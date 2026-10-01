@@ -121,16 +121,8 @@ fn healthy()->i32 {42}
 
 #[test]
 fn standard_api_documentation_examples_compile_and_execute() {
-    let engine = KagariEngine::default();
     use kagari_common::host_interface::{HostFunctionDeclaration, HostInterface, HostValueType};
     let number = HostFunctionDeclaration::new("doc_test.number", vec![], HostValueType::F64);
-    engine
-        .set_host_interface(HostInterface {
-            functions: vec![standard_log(), number.clone()],
-            types: vec![],
-            paths: vec![],
-        })
-        .unwrap();
     let mut failures = Vec::new();
     let mut checked = 0;
     let signatures = AnalysisDatabase::default()
@@ -181,6 +173,16 @@ fn standard_api_documentation_examples_compile_and_execute() {
             } else {
                 format!("fn main() {{\n{body}\n}}")
             };
+            // Each example is a complete isolated program. Retaining every old
+            // example in one source database needlessly grows its signature graph.
+            let engine = KagariEngine::default();
+            engine
+                .set_host_interface(HostInterface {
+                    functions: vec![standard_log(), number.clone()],
+                    types: vec![],
+                    paths: vec![],
+                })
+                .unwrap();
             let artifact = match engine.compile_to_artifact(
                 SourceFile::new(format!("doctest-{checked}.kgr"), text),
                 kagari_embed::CompileOptions {

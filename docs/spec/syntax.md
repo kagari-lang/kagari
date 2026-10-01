@@ -317,6 +317,12 @@ Notes:
 - `mod name;` declares a module through external loading rules defined elsewhere.
 - `mod name { ... }` declares an inline module body.
 - `use` supports aliasing, globs, and grouped import trees.
+- `std` and the implicit prelude come from the installed declaration package.
+  Standard modules, native functions, traits and enum variants follow ordinary
+  resolution, visibility and shadowing. A local binding or explicit import takes
+  precedence over an implicit prelude name; ambiguous explicit imports remain errors.
+  Declaration parsing and installed native attributes do not grant user source
+  code engine binding authority; see [standard declarations](standard-declarations.md).
 - An inline body creates a child module under the declaring module identity.
   Its public declarations can be reached through qualified paths; child source
   ranges retain their position in the physical file.
@@ -425,7 +431,12 @@ Trait methods use the same argument-context rules after substituting the receive
 for `Self`. A function body collects structural type constraints from expected results,
 arguments and later local uses. Deferred obligations are revisited until those
 constraints stabilize; later arguments can supply context to earlier constructors
-and closures. This does not change source-order, exactly-once runtime evaluation. Caller-owned generic binders are valid context,
+and closures. A shape-unique declared implementation constrains both its receiver
+and trait arguments; its instantiated bounds propagate constraints to dependent
+implementations. An expected `Result<C, E>` can therefore constrain a preceding
+callback through `C: FromIterator<T>`. Applicability and all bounds remain checked
+after inference; ambiguous candidates cannot supply guessed types.
+This does not change source-order, exactly-once runtime evaluation. Caller-owned generic binders are valid context,
 including after trait `Self` substitution; unresolved callee binders are not.
 Binder ownership, rather than parameter spelling, controls this distinction.
 Uninferred binders leave unknown positions in an argument's context without

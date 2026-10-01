@@ -26,6 +26,35 @@ Artifacts may be used by:
 - package distribution
 - cache directories
 
+## Current executable contract
+
+Current products use KBC format v110, `kagari-runtime-abi-v133`, `KMIR` v8,
+engine-native binding contract v2 and runtime-helper ABI v6. Older versions are
+rejected before execution; the loader has no migration reader. Historical version
+notes below describe their checkpoints rather than the current representation.
+
+Engine native imports carry concrete callable identity, provider binding, signature,
+substitutions, obligations and selected protocol witnesses. Their declarations,
+layouts, interface tables and private dependencies travel with the whole program.
+Verification checks authority, binding/version agreement, invariant payload types,
+associated outputs, method arguments and the complete dependency closure. Only
+closed engine operation contracts remain in ABI; source signature catalogs and
+runtime source lookup are absent. Host imports preserve their separate required
+HostInterface, passing styles, capabilities and nominal ownership checks.
+
+Lazy iterators contain runtime-owned rooted captures pinned to their checked import
+and execution version. Captures are created during execution; artifacts contain no
+live heap state, Rust references or compiler-generated iterator step functions.
+Native callbacks and public collection algorithms use shared runtime continuations.
+Iteration, range, enum and aggregate language primitives remain typed generic
+instructions. Unit-returning storage calls retain separately charged mutation and
+return publication, preserving committed effects on later termination.
+
+The tracked SDK fixture retains a direct scalar JIT entry and source-free native
+library/required-method entries. All four SDK feature routes validate and execute
+the same bytes; native-only builds compile the scalar through Cranelift and make
+an explicit pre-entry fallback decision for unsupported library calls.
+
 ## SDK Feature Boundary
 
 The SDK separates source compilation from native preparation. Its default feature
@@ -33,9 +62,9 @@ set enables both `source` and `native`; hosts may disable defaults and select:
 
 | SDK features | Available preparation and execution | Production dependency boundary |
 | --- | --- | --- |
-| None | Validate/load/reload artifacts and interpret bytecode | No compiler, HIR, syntax, MIR, codegen or concrete backend |
-| `source` | Source analysis and artifact emission, plus bytecode execution | Compiler source/HIR/syntax/MIR enabled; no codegen required |
-| `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no HIR or syntax |
+| None | Validate/load/reload artifacts and interpret bytecode | No stdlib, compiler, HIR, syntax, MIR, codegen or concrete backend |
+| `source` | Source analysis and artifact emission, plus bytecode execution | Stdlib/compiler source/HIR/syntax/MIR enabled; no codegen required |
+| `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no stdlib, HIR or syntax |
 | `source,native` | Both paths | Combination of the above |
 
 `PreparedProgram::from_artifact` always validates the envelope and bytecode. With
@@ -75,7 +104,7 @@ KbcArtifact {
 }
 ```
 
-Format version 104 uses `bincode` with fixed-width integers, little-endian byte order,
+Format version 110 uses `bincode` with fixed-width integers, little-endian byte order,
 and declaration-order fields. Runtime path binding identity uses index and
 virtual segment fingerprints from resolved contract fields. All earlier versions are rejected; no
 migration or compatibility decoder exists. The format stores a complete
@@ -98,7 +127,7 @@ functions even when a forged return register is also marked Never.
 The bytecode crate does not depend on MIR and does not interpret this payload.
 Bytecode-only loading validates envelope integrity, resource limits, metadata and
 bytecode contracts. Native preparation must additionally decode the versioned
-`KMIR` v2 input, check its runtime/helper ABI versions, reverify the complete MIR
+`KMIR` v8 input, check its runtime/helper ABI versions, reverify the complete MIR
 program and rebuild program-point analyses. It then lowers MIR through the canonical
 frontend-free bytecode path and compares the entire resulting program encoding.
 Independent payload checksums are insufficient. Preparation precedes script effects.
@@ -361,9 +390,9 @@ exported. Version 32 products are rejected without migration.
 Version 38 and runtime ABI v38 require program-point and lexical-scope local
 visibility in debugger metadata. Earlier products, which could expose locals
 outside their scope, are rejected before execution.
-The current runtime ABI identity is `kagari-runtime-abi-v38`; the runtime-helper ABI is
-v5. Previous ABI artifacts are rejected even when requested by the caller: v5
-lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
+At the v38 checkpoint, the runtime ABI identity was `kagari-runtime-abi-v38` and
+runtime-helper ABI was v5. Previous ABI artifacts are rejected even when requested
+by the caller: v5 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
 v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
 checked synchronous script reentry; v9 lacks session-owned frame stacks and
 nested execution observation; v10 lacks session-registered host resources, owned
@@ -772,9 +801,10 @@ unless lowered. Prior formats are rejected.
 ## List snapshot traversal and immediate range removal (v99)
 
 KBC/runtime ABI v99 adds List window/chunk default identities and private range
-removal preparation. Lazy steps are verified script-backed iterators retaining
-source guards and producing readonly List interfaces. Range removal prepares its
-readonly result before a typed storage commit, including any interface allocation.
+removal preparation. At that checkpoint lazy steps were verified script-backed
+iterators retaining source guards and producing readonly List interfaces. Current
+artifacts use GC-owned native captures and checked native continuations instead.
+Range removal prepares its readonly result before a typed storage commit, including any interface allocation.
 Previous formats are rejected before execution.
 
 ## Resuming indexed adapters (v100)

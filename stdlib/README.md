@@ -3,7 +3,10 @@
 These declaration files document the standard library bundled with the engine.
 They contain the public signatures used by compilation and tooling. Read the
 `///` comments above a declaration for its behavior, constraints and examples.
-Runtime-native functions intentionally have no Kagari body.
+Runtime-native functions intentionally have no Kagari body. The installed
+`kagari-stdlib` package prepares the exact sources for ordinary HIR checking and
+tool queries. Checked native calls carry provider/signature/witness contracts into
+artifacts; Rust runtime helpers and continuations own their execution.
 
 ## Modules
 
@@ -54,8 +57,9 @@ compilation and serialized artifact loading.
 ## Shared semantics
 
 Mutable containers and structs share object references. Passing, returning or
-collecting their elements does not deep-copy object graphs. Failed standard
-mutations leave their target unchanged; completed earlier side effects remain.
+collecting their elements does not deep-copy object graphs. Failed preparation
+leaves mutation targets unchanged. Committed updates and completed earlier side
+effects remain visible when later execution fails.
 Do not structurally mutate a guarded collection during iteration.
 
 Hash keys must keep their equality and hash stable while stored. Equal keys must

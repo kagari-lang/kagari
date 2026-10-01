@@ -87,7 +87,7 @@ fn main() {
     assert!(Arc::ptr_eq(&first_loaded.bytecode, &second_loaded.bytecode));
     println!(
         "shared_code_image_bytes={code_image_bytes} module_arc_refs={}",
-        Arc::strong_count(&verified.modules()[0])
+        Arc::strong_count(&first_loaded.bytecode)
     );
 
     let mut vm = Vm::new(first_runtime);

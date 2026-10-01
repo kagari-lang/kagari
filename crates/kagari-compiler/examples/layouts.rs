@@ -1,21 +1,39 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::{AbiType, PublicAbiItem};
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AbiType, PublicAbiItem},
+};
 use kagari_bytecode::BytecodeInstruction;
-use kagari_common::{SourceFile, cancellation::CancellationToken, identity::DefinitionKind};
-use kagari_compiler::{bytecode::lower_to_bytecode, lower_to_mir};
-use kagari_hir::analyze_source;
+use kagari_common::{
+    SourceFile,
+    cancellation::CancellationToken,
+    identity::DefinitionKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_mir::{MirVerificationErrorKind, verify_mir};
 
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
         "pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: ArrayList<i32> } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
-    let checked = analyze_source(&source, Default::default())
-        .into_codegen()
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
-    let ir = lower_to_mir(&checked, &Default::default()).unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .unwrap();
+    let checked = snapshot.check_program(root, &Default::default()).unwrap();
+    let mir_program = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let ir = mir_program
+        .modules()
+        .iter()
+        .find(|module| &module.identity == mir_program.root())
+        .unwrap();
     for layout in &ir.structures {
         assert_eq!(layout.declaration.path.len(), 1);
         assert_eq!(layout.declaration.path[0].occurrence, 0);
@@ -32,12 +50,13 @@ fn main() {
     let cancelled = CancellationToken::default();
     cancelled.cancel();
     assert_eq!(
-        kagari_mir::verify_mir(ir.clone().into_unverified(), &cancelled)
+        verify_mir(ir.clone().into_unverified(), &cancelled)
             .unwrap_err()
             .kind,
-        kagari_mir::MirVerificationErrorKind::Cancelled,
+        MirVerificationErrorKind::Cancelled,
     );
-    let bytecode = lower_to_bytecode(&ir).unwrap();
+    let program = lower_program_to_bytecode(&mir_program).unwrap();
+    let bytecode = &program.modules[program.root.index()];
     assert!(bytecode.functions.iter().all(|function| {
         function.identity.as_ref().is_some_and(|identity| {
             identity.declaration.module == bytecode.identity

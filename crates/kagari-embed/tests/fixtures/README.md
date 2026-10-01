@@ -1,30 +1,28 @@
 # SDK feature-boundary artifact
 
-`feature_artifact.kbc` is the current-format artifact emitted for
-`feature_artifact.kgr` with logical source name `memory://feature-artifact.kgr`.
-It contains bytecode and portable MIR, without source text. Tests consume these
-same bytes with SDK features disabled, with `source`, with `native`, and with both.
-The native test uses a static ABI fixture; it is not evidence of Cranelift codegen.
+`feature_artifact.kbc` is the current-format artifact emitted from the exact
+`feature_artifact.kgr` text with source name `memory://feature-artifact.kgr`.
+It contains bytecode, carried declarations/dependencies and portable MIR, without
+source text. All four standalone SDK feature routes consume the same bytes:
+artifact-only, `source`, `native`, and `source,native`.
 
-`artifact_features::portable_fixture_matches_source_emission` checks that the
-fixture matches the current compiler. Regenerate it when the artifact contract
-changes, using an SDK build with `source` enabled and this Rust code (paths are
-relative to this directory):
+`main` remains the two-step scalar function used by both the trusted static ABI
+fixture and real Cranelift compilation. `native_library` exercises prepared sorting,
+retention, a lazy adapter, fallible collection and Option/iterator callbacks.
+`required_methods` exercises checked MutableList storage methods, RangeBounds and
+FromStr. Source-free execution forces GC and checks root/object/depth cleanup.
+Native preparation explicitly falls back before entry for unsupported library calls;
+the scalar entry must still execute actual native code.
 
-```rust
-use kagari_common::SourceFile;
-use kagari_embed::KagariEngine;
-use std::fs;
+`artifact_features::portable_fixture_matches_source_emission` checks canonical
+bytes against current compilation. Regenerate the fixture after source or contract
+changes from the repository root:
 
-let source = SourceFile::new(
-    "memory://feature-artifact.kgr",
-    fs::read_to_string("feature_artifact.kgr").unwrap(),
-);
-let artifact = KagariEngine::default()
-    .compile_to_artifact(source, Default::default(), Default::default())
-    .unwrap();
-fs::write("feature_artifact.kbc", artifact.to_bytes().unwrap()).unwrap();
+```text
+cargo run -p kagari-embed --example regenerate_feature_artifact
+cargo test -p kagari-embed --test artifact_features
+uv run python scripts/check_features.py
 ```
 
-Regeneration updates the current fixture, not a compatibility reader or old-format
-acceptance policy. The test must continue checking canonical bytes and execution.
+Regeneration replaces the current fixture; it does not add a compatibility reader
+or relax version checks. Keep canonical-byte, rejection and execution assertions.

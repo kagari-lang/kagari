@@ -1,23 +1,34 @@
 //! Inspect a checked generic trait implementation without starting a runtime.
-use kagari_abi::scalar::BuiltinType;
-use kagari_abi::types::{AbiType, PublicAbiItem};
-use kagari_bytecode::{
-    ArtifactBuildOptions, ArtifactCompatibility, BytecodeProgram, KbcArtifact, ModuleRef,
+use kagari_abi::{
+    scalar::BuiltinType,
+    types::{AbiType, PublicAbiItem},
 };
-use kagari_common::SourceFile;
-use kagari_compiler::{bytecode::lower_to_bytecode, lower_to_mir};
-use kagari_hir::analyze_source;
+use kagari_bytecode::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact};
+use kagari_common::{
+    SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_hir::analysis::AnalysisDatabase;
 
 fn main() {
     let source = SourceFile::new(
         "applied_traits.kgr",
         "pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(Pair { number: 42 }) }",
     );
-    let checked = analyze_source(&source, Default::default())
-        .into_codegen()
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set(source.name(), source.text().into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .expect("analysis snapshot");
+    let checked = snapshot
+        .check_program(root, &Default::default())
         .expect("checked applied trait implementation");
-    let ir = lower_to_mir(&checked, &Default::default()).expect("verified IR");
-    let bytecode = lower_to_bytecode(&ir).expect("verified bytecode");
+    let ir = lower_program_to_mir(&checked, &Default::default()).expect("verified IR");
+    let program = lower_program_to_bytecode(&ir).expect("verified bytecode");
+    let bytecode = &program.modules[program.root.index()];
     let table = bytecode
         .public_items
         .iter()
@@ -28,7 +39,11 @@ fn main() {
         .expect("implementation ABI");
     assert!(matches!(&table.trait_type, AbiType::Trait(ty)
         if ty.arguments == [AbiType::Builtin(BuiltinType::I32)]));
-    let executable = &bytecode.interface_tables[0];
+    let executable = bytecode
+        .interface_tables
+        .iter()
+        .find(|executable| executable.declaration == table.declaration)
+        .expect("selected implementation table");
     assert_eq!(executable.declaration, table.declaration);
     assert_eq!(executable.methods.len(), 1);
     assert_eq!(
@@ -48,14 +63,8 @@ fn main() {
         table.name,
         executable.methods.len()
     );
-    let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            root: ModuleRef::new(0),
-            modules: vec![bytecode],
-        },
-        ArtifactBuildOptions::default(),
-    )
-    .expect("artifact");
+    let artifact =
+        KbcArtifact::from_program(program, ArtifactBuildOptions::default()).expect("artifact");
     KbcArtifact::from_bytes(&artifact.to_bytes().expect("encoded artifact"))
         .expect("decoded artifact")
         .validate_for_loader(&ArtifactCompatibility::default())

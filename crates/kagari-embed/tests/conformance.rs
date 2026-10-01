@@ -71,19 +71,25 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
     assert_eq!(checked.module_identity(), &identity);
     assert_eq!(artifact.header.module_identity, identity);
     assert_eq!(artifact.verification.loader.module_identity, identity);
+    let mut expected_dependencies: Vec<_> = artifact
+        .program
+        .modules
+        .iter()
+        .filter(|module| module.identity != identity)
+        .map(|module| DependencyFingerprint {
+            module_id: module.identity.clone(),
+            fingerprint: ArtifactFingerprint::of_serialized(module),
+        })
+        .collect();
+    expected_dependencies.sort_by(|left, right| left.module_id.cmp(&right.module_id));
+    assert!(
+        expected_dependencies
+            .iter()
+            .any(|dependency| { dependency.module_id == dependency_identity })
+    );
     assert_eq!(
         artifact.verification.loader.dependency_fingerprints,
-        vec![DependencyFingerprint {
-            module_id: dependency_identity.clone(),
-            fingerprint: ArtifactFingerprint::of_serialized(
-                artifact
-                    .program
-                    .modules
-                    .iter()
-                    .find(|module| module.identity == dependency_identity)
-                    .unwrap()
-            )
-        }]
+        expected_dependencies
     );
     assert_eq!(
         artifact.verification.host_interface_fingerprint,

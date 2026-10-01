@@ -3,7 +3,7 @@
 This document defines the builtin runtime semantics and standard-library design.
 The implemented public signatures, method views, API documentation and examples
 are owned by the [bundled declaration sources](../../stdlib/README.md), which the
-compiler reads at build time. The [declaration architecture](standard-declarations.md)
+installed source package prepares for HIR. The [declaration architecture](standard-declarations.md)
 describes their binding and tool-query boundaries.
 
 Unqualified helper names such as `print` and `type_of` are consulted only after
@@ -328,7 +328,7 @@ Short-circuit behavior is part of language semantics and must be preserved by by
 ## Builtin Modules
 
 The standard module set is deterministic and typed.
-Standard modules are compiler-known exports backed by intrinsic identifiers.
+Standard modules are ordinary installed HIR declarations with checked native bindings.
 Declarations, signatures, documentation and examples are defined in `stdlib/*.kgr`. Native runtime helpers implement their storage and execution behavior.
 Standard library calls must not be resolved through script-visible reflection, host string dispatch, or source-level reimplementations of core storage.
 

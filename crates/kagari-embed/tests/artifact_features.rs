@@ -27,6 +27,50 @@ fn portable_artifact_executes_without_source_compilation() {
 }
 
 #[test]
+fn source_free_native_bindings_execute_and_release_scopes() {
+    let program =
+        PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
+            .unwrap();
+    let context = ExecutionContext::default();
+    let mut config = kagari_embed::EngineConfig::default();
+    config.default_runtime.gc.collection_threshold = Some(1);
+    let mut runtime = KagariEngine::new(config).runtime(context.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    for _ in 0..3 {
+        for entry in ["native_library", "required_methods"] {
+            assert_eq!(
+                runtime
+                    .execute(&loaded, entry, &[], &context)
+                    .unwrap()
+                    .return_value,
+                Value::I32(42)
+            );
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                runtime.runtime().resources().counters().current_call_depth,
+                0
+            );
+            assert!(!runtime.runtime().is_quarantined());
+            runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        }
+    }
+}
+
+#[test]
+fn source_free_native_imports_reject_forged_binding_versions() {
+    let mut program = artifact().program;
+    let import = program
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.engine_imports)
+        .next()
+        .unwrap();
+    import.binding_version += 1;
+    assert!(KbcArtifact::from_program(program, Default::default()).is_err());
+}
+
+#[test]
 fn native_payload_interpretation_follows_the_feature_boundary() {
     let valid = artifact();
     let malformed = KbcArtifact::from_program(
@@ -216,4 +260,22 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
         .unwrap();
     assert_eq!(report.return_value, Value::I32(42));
     assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            "native_library",
+            &mut CraneliftBackend::for_host().unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
+    let report = runtime
+        .execute_prepared(&loaded, "native_library", &[], &context, &prepared)
+        .unwrap();
+    assert_eq!(report.return_value, Value::I32(42));
+    assert_eq!(
+        report.jit.unwrap().status,
+        JitExecutionStatus::InterpreterFallback
+    );
 }

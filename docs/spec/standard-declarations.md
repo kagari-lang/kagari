@@ -22,8 +22,8 @@ does not fall back to the prelude. Standard modules, functions, types and traits
 are ordinary source import targets. Option and Result re-export their variants,
 and the prelude imports those source declarations. Constructor and pattern facts
 retain the variant identity, checked payload types and the owning enum's native
-representation hook. Remaining legacy type/call and executable consumers are still
-being migrated under the active plan.
+representation hook. Checked callable applications carry the same identities and
+native/script implementation selections into portable execution contracts.
 
 Functions and methods returning unit omit the return annotation, for example
 `fn clear(self);`. Callback function types still spell out `-> ()`, as in
@@ -113,6 +113,29 @@ after artifact serialization. Nested members document their role within the encl
 protocol; protocol examples demonstrate the complete use rather than duplicating
 the same example on every associated type.
 
+## Checked callable execution
+
+Required declarations have no body or executable target. Script declarations retain
+ordinary checked bodies; native declarations have provider bindings and no synthetic
+script body. Engine functions, native impl methods and native defaults carry concrete
+callable identities, checked substitutions, full parameter/result types, bounds and
+selected protocol applications. Compiler lowering encodes these facts without
+looking up declaration syntax or expanding public standard algorithms.
+
+Portable linking validates each binding against its carried declaration and trusted
+operation contract, including associated outputs, generic method arguments, selected
+private dependencies and runtime/binding versions. Host bindings additionally retain
+their offline host declaration and authority contract. A user declaration with a
+native-looking attribute cannot claim installed engine provenance.
+
+Runtime continuations own callback-heavy standard algorithms, buffered construction
+and all lazy adapter steps. They use the caller's frames, roots and resource scope;
+selected script implementations and explicit overrides use ordinary linked calls.
+Readonly native receiver applications may weaken only outer storage access for read
+capabilities, preserving invariant nested payload types. Mutable providers cannot
+accept readonly access. The final ownership map is in the
+[integration plan](../stdlib-hir-refactor.md#final-implementation-ownership-audit).
+
 ## Tool queries
 
 `AnalysisSnapshot::source` reads ordinary analyzed files and the installed standard
@@ -142,8 +165,8 @@ trait interface selection share the HIR call-checking path. Known receiver and
 method bounds filter candidates; unsupplied method type arguments remain open.
 Explicit implementations retain their declaration IDs, while inherited defaults
 refer to the trait declaration. The query does not load a separate standard method
-table. Remaining solver and executable migration work is recorded in the
-[active ledger](../stdlib-hir-refactor.md#progress-ledger).
+table. The [integration ledger](../stdlib-hir-refactor.md#progress-ledger) records validation
+of the shared semantic and executable boundaries.
 
 Standard trait methods and associated types have ordinary declaration identities.
 Installed collection and iteration implementations are selected from checked HIR
@@ -156,8 +179,8 @@ unqualified native names; navigation follows resolution, not a text-name heurist
 Native method candidates are one input to completion; lexical trait completion and
 the LSP transport remain separate tool work.
 
-`builtin::declarations::implementations` exposes explicit native implementations
-for a checked receiver, with source identities distinct from the trait's members.
+The analyzed `AggregateCatalog` exposes checked implementations and selects native
+applications for a receiver, with source identities distinct from the trait's members.
 Completion on `Iter<T>` includes the declared `next` implementation and inherited
 `Iterator` methods. Ordinary trait-call navigation still identifies the protocol
 member; the implementation catalog provides the concrete implementation location.
@@ -174,8 +197,8 @@ traits and native impl witnesses. Their inherited members and source locations
 are available to semantic queries, including read-only member completion.
 Result and Option declare their conditional FromIterator implementations. Generic
 arguments, key constraints, destination bounds, associated outputs and member
-locations come from those declarations. The build validates the supported native
-signatures and intrinsic bindings. Static constructors do not appear as instance
+locations come from those declarations. HIR validates the supported native
+signatures and installed bindings. Static constructors do not appear as instance
 completion candidates. Iterable inheritance through a generic associated Iter
 retains the originating Item equality constraints.
 

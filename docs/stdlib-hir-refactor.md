@@ -43,8 +43,9 @@ All fourteen lazy Iterator adapters and List windows/chunks now execute through
 GC-owned native captures and shared nested continuations, preserving the original
 resource schedules and guard lifecycle. Required collection, iterator, RangeBounds
 and FromStr methods now also use checked native imports. The residual route audit
-is complete; ST06 integration, encoded fixtures, documentation and final acceptance
-are in progress.
+is complete. ST06 feature consumers, encoded fixtures, documentation and structural
+review are implemented; final combined acceptance and matched measurements remain
+open. The integration checkpoint does not claim a finished release.
 
 This plan defines the next standard-library architecture migration. It follows
 the completed [crate refactor](mir-architecture-refactor.md) and is indexed by
@@ -596,13 +597,18 @@ Core language primitives are documented separately from public library behavior.
 ### ST06 — Integration, documentation and final acceptance
 
 - [ ] Complete the feature/behavior matrix and all acceptance commands below.
-- [ ] Update dependency audits, feature consumers and encoded artifact fixtures.
-- [ ] Update current architecture, syntax/stdlib docs, standard declaration and
+- [x] Update dependency audits, feature consumers and encoded artifact fixtures.
+- [x] Update current architecture, syntax/stdlib docs, standard declaration and
   execution specifications; remove obsolete descriptor APIs and parallel dispatch.
-- [ ] Audit module ownership, public surface, imports and effective LOC. Record
+- [x] Audit module ownership, public surface, imports and effective LOC. Record
   any narrowly justified exception under the existing structure policy.
 - [ ] Measure source startup/build and representative execution effects under
   the same toolchain/profile/workload conditions as ST00; make no unmeasured claims.
+
+The user directed this checkpoint to stop whole-workspace testing and commit the
+implemented changes on 2026-10-01, because further revisions are planned. The two
+open final acceptance items remain recorded for a later finalization checkpoint;
+they are not prerequisites for this explicitly authorized interim commit.
 
 Exit: all errors are resolved, source-free execution passes, and this plan's final
 ownership/behavior map describes the actual implementation.
@@ -632,18 +638,18 @@ queues. This proposal does not amend or reopen completed historical phase ledger
 
 ## Acceptance matrix
 
-| Boundary | Required behavioral evidence |
-| --- | --- |
-| Package → HIR | Exact sources/spans/docs; cancellation; invalid declarations; deterministic identity; normal shadowing and visibility |
-| Host declaration → HIR/linker | Offline checks without callbacks; shared callable facts; missing bindings and provider substitution rejected; passing styles, capabilities and costs preserved |
-| HIR → compiler | Generic methods, associated outputs, trait inheritance/defaults/overrides, native/script implementations and cross-module calls use checked facts |
-| Compiler → executable contracts | No SDK `ApiType`/surface access; complete signature/layout/witness metadata; no public-method algorithm expansion |
-| Artifact → runtime | Source-free load/execute; reject forged native IDs, signatures, representations, authority, witnesses and versions |
-| Native → script → native | Once-only order, explicit roots, bounded stack/budget behavior, same-session reentry, complete cleanup |
-| Collections and lazy state | Atomic commit guarantees, stable ordering, alias guards, early closure/resumption and GC at allocation threshold one |
-| Errors and reload | Original error traces, preserved completed effects, sticky cancellation, pinned old dependencies and callable versions |
-| Tooling | Definitions, completions, signatures and docs derive from HIR metadata for both native and script declarations |
-| Backend/feature routes | Source, encoded artifacts, JIT-enabled fallback and existing supported direct JIT cases; all SDK feature combinations |
+| Boundary | Required behavioral evidence | Acceptance coverage |
+| --- | --- | --- |
+| Package → HIR | Exact sources/spans/docs; cancellation; invalid declarations; deterministic identity; normal shadowing and visibility | Stdlib package tests; HIR declaration queries, native installation, resolution and standard typing |
+| Host declaration → HIR/linker | Offline checks without callbacks; shared callable facts; missing bindings and provider substitution rejected; passing styles, capabilities and costs preserved | HIR host declarations; compiler host contracts; embedding host interfaces, offline nominal declarations and host access |
+| HIR → compiler | Generic methods, associated outputs, trait inheritance/defaults/overrides, native/script implementations and cross-module calls use checked facts | Standard/collection/iteration/callable traits; source modules; compiler selected protocol/import tests |
+| Compiler → executable contracts | No SDK `ApiType`/surface access; complete signature/layout/witness metadata; no public-method algorithm expansion | Compiler native family/forgery tests; ABI, MIR and bytecode validation; final ownership audit and feature dependency graphs |
+| Artifact → runtime | Source-free load/execute; reject forged native IDs, signatures, representations, authority, witnesses and versions | Artifact feature/native artifact suites; compiler/VM contract forgeries; source-module publication and exact conformance fingerprints |
+| Native → script → native | Once-only order, explicit roots, bounded stack/budget behavior, same-session reentry, complete cleanup | VM native continuations/family budget baselines; runtime sessions/scopes; host reentry and callback effects |
+| Collections and lazy state | Atomic commit guarantees, stable ordering, alias guards, early closure/resumption and GC at allocation threshold one | VM native family boundaries; prepared collections, lazy iterators, list windows/mutations, collection/iteration interfaces; forced-GC artifact fixture |
+| Errors and reload | Original error traces, preserved completed effects, sticky cancellation, pinned old dependencies and callable versions | Error traces; VM budget/cancellation/reentry boundary sweeps; source-module reload, old-program dependency pinning and malformed publication |
+| Tooling | Definitions, completions, signatures and docs derive from HIR metadata for both native and script declarations | HIR standard query/aggregate tests; standard declaration metadata and complete documentation-example sweep |
+| Backend/feature routes | Source, encoded artifacts, JIT-enabled fallback and existing supported direct JIT cases; all SDK feature combinations | Seven real Cranelift backend tests; artifact Native/fallback reports; CLI `jit`; four standalone feature routes and eight production dependency graphs |
 
 Reuse relevant existing suites, including `standard_declarations`,
 `standard_traits`, `collection_interfaces`, `iteration_traits`, `lazy_iterators`,
@@ -923,6 +929,109 @@ has no compiler-lowering fallback. Production dependency audits cover transitive
 and ABI build edges, in addition to removal of textual source-catalog references.
 
 ## Progress ledger
+
+- ST06 integration checkpoint (2026-10-01, after `ccdb2cf4`): completes the
+  feature/fixture, current-documentation and structural-review checklist items
+  together. The user requested no further whole-workspace tests and an interim
+  commit because more changes will follow. Stopped the fifth exact
+  `cargo test --workspace` attempt and its active language-contract test process
+  after 467.545s (SIGTERM); this interrupted attempt is not passing acceptance.
+  No build-cache cleanup or matched performance measurement was started. Final
+  combined acceptance and measurements remain open; the phase is not complete.
+  Existing focused validation passes: HIR 415 tests, prepared execution 8,
+  Cranelift 7, artifact features 7, conformance 5, syntax examples 9 (45 programs),
+  trait inheritance 8 and type inference 8; the preceding fourth workspace attempt
+  also passed all 258 VM library tests and the complete documentation sweep.
+  Both compiler inspection examples execute successfully. Workspace/all-target
+  Clippy with warnings denied, all four standalone feature routes, CLI `jit`
+  (5 tests), structure (841 Rust files, zero violations/exceptions), formatting
+  and diff checks pass. No unchanged expensive suite is rerun for this checkpoint.
+- ST06 test-cost observation: the fourth exact `cargo test --workspace` attempt
+  took 2,107.435s (35m07s), passed preceding suites, and stopped at the eight
+  prepared-execution failures described below. This is an incomplete-run wall
+  time, not a passing acceptance result. Reported suite execution totals 1,931.27s;
+  VM library tests account for 772.72s, standard declaration tests 404.61s,
+  embedding language-contract routes 318.70s, and compiler tests 157.63s. Those
+  four suites account for about 79% of the wall time. ST00's 157.719s workspace
+  check is not an unchanged-test-workload comparison: coverage and preparation
+  changed during this migration. Use affected subsystem tests while iterating,
+  then one exact whole-workspace run for the final acceptance gate. Do not repeat
+  passing implementation checks solely for documentation closeout. Matched source
+  startup and runtime measurements remain separate from correctness-test timing.
+- ST06's fourth workspace attempt passes all 258 VM library tests (772.72s),
+  then finds eight prepared-execution fixtures still lowering/loading a standalone
+  source module (`UnlinkedSourceModules`). Their producer now checks and lowers
+  the complete program; load and reload retain its dependency closure. All eight
+  tests pass (27.50s), including native descriptors, policy/debug fallback,
+  generation/function identity, no restart after native traps, and every original
+  optimized/unoptimized budget cut. The two compiler inspection examples use the
+  same whole-program APIs and select the root by identity/reference. Workspace
+  doctests also pass. These consumer corrections do not change runtime policy or
+  weaken assertions; the subsequent workspace rerun was stopped at user request
+  as recorded above.
+- ST06's third workspace attempt passed the complete documentation sweep (403.26s)
+  and all preceding suites, then exposed the existing unannotated
+  `map(|x| Ok(x)).collect()` type-inference example. Ordinary declared-bound
+  inference matched only an implementation receiver, leaving the Result error
+  binder and lifted inner collection item disconnected. It now infers both receiver
+  and trait arguments and propagates a shape-unique implementation's nested bounds
+  through a cancellation-aware worklist, with 4,096 candidate checks, depth 64 and
+  visited obligations. Final applicability/ambiguity validation remains authoritative.
+  The original example is unchanged. Regressions cover nested Option/Result,
+  user-defined trait chains, ambiguous implementations, invalid destinations and
+  conflicting error types. All 415 HIR tests pass (58.65s), as do the nine syntax
+  tests with all 45 unchanged standalone examples through source and artifacts
+  (58.90s). Artifact features (7), trait inheritance (8) and type inference (8)
+  also pass. The fourth whole-workspace attempt subsequently exposed the prepared
+  execution consumer errors recorded above; no final passing result is claimed.
+- ST06's second workspace attempt passed the compiler (191 tests), source-program
+  tests (10), language-contract route (1, 322.40s), and the intervening embedding
+  suites, then exposed one conformance fixture expecting only a user dependency.
+  It now checks every carried non-root module's exact serialized fingerprint,
+  sorted by module identity, and explicitly retains the declared user dependency.
+  Loader identity, host fingerprint, security profile and exact compatibility
+  assertions remain. All five focused conformance tests pass (1.43s); final
+  `cargo test --workspace` subsequently passed this suite with the correction.
+- The foundation measurement's shared-code reference count now uses the loaded
+  root's bytecode handle instead of module index zero. Compilation sources, sample
+  counts, edit reuse, execution workload and pointer-sharing assertions are unchanged.
+- ST06 acceptance found six Cranelift fixtures extracting module zero rather
+  than the checked program root. Tests now select the root by identity, preserve
+  the complete verified program during lowering/loading and retain native lifetime,
+  helper-link rejection, unsupported/stack-map and exact trap/budget assertions.
+  All seven backend tests pass (4.05s). The first workspace run stopped here;
+  the second run also passes these backend tests.
+- The old documentation sweep was intentionally stopped after more than seventeen
+  minutes: a one-second process sample showed compilation repeatedly preparing the
+  accumulated example signature graph. Self-contained examples now use isolated
+  engines with the same offline host declarations; the complete declared coverage,
+  documentation queries, source/encoded execution and panic assertions remain.
+  This is a test-fixture ownership correction, not a production cache bypass or
+  performance claim. The full documentation (3 tests), standard traits (21 tests)
+  and string parsing (1 test) sweep passes. A wrong module path
+  in the new VerifiedMirProgram import was also fixed before backend acceptance.
+
+- Initial ST06 integration validation (2026-10-01, after `ccdb2cf4`): complete VM
+  acceptance now passes all 258 tests (784.53s); HIR 414, MIR 1, runtime 71 and
+  stdlib 7 also pass. Workspace attempts subsequently covered the repaired
+  compiler/embedding fixtures and the native artifact fixture. The API documentation
+  sweep passes; whole-workspace acceptance remains open as recorded above.
+- Regenerated the tracked KBC fixture for runtime ABI v133/KBC v110/KMIR v8 and
+  added a durable source-only regeneration example. It retains the exact scalar
+  entry used by the static native ABI fixture and real Cranelift, and adds native
+  sorting/retention/lazy/fallible/callback algorithms and required storage/RangeBounds/
+  FromStr entries. Seven artifact tests pass with canonical bytes, source-free
+  rejection, forced GC/root/depth cleanup, actual native scalar execution and an
+  explicit pre-entry interpreter fallback for unsupported library calls (0.75s).
+- All four standalone SDK feature routes pass the expanded fixture: artifact-only,
+  source, native and source/native. Eight production crate graphs and ABI's build
+  graph pass; artifact-only/native-only exclude stdlib/HIR/syntax. Existing audited
+  graph rules already enforce the final boundaries and remain unchanged. Current
+  architecture/declaration/execution/syntax/stdlib/artifact docs have been updated;
+  130 local file links pass. Structure passes 841 Rust files with zero violations or
+  exceptions; format and workspace/all-target Clippy with denied warnings pass.
+  Final CLI JIT passes five tests (1.49s). Matched build/runtime measurements remain
+  pending for the later finalization checkpoint.
 
 - ST05 required-method and residual route audit checkpoint (2026-10-01, from
   `e54e8964`): completes the last two ST05 checklists together. Removed compiler

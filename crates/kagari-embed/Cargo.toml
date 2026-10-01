@@ -33,3 +33,7 @@ required-features = ["source", "native"]
 [[example]]
 name = "stdlib_baseline"
 required-features = ["source"]
+
+[[example]]
+name = "regenerate_feature_artifact"
+required-features = ["source"]

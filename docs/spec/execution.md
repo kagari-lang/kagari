@@ -27,16 +27,38 @@ Module execution rules are defined in [modules.md](modules.md).
 
 The execution strategy is:
 
-1. parse source
-2. perform semantic analysis and typing
-3. lower to a typed IR
-4. lower to bytecode
-5. execute bytecode in a VM
+1. parse source and prepare the installed standard declaration package
+2. resolve and check ordinary HIR declarations and callable applications
+3. lower checked facts to concrete, verified MIR
+4. lower verified MIR to bytecode and portable executable contracts
+5. validate and link the complete program, then execute bytecode in a VM
 
 This makes the bytecode VM the main semantic backend.
 
-The important point is that bytecode is not just a cache format.
-It is the first real execution target and the place where language behavior is made concrete.
+Bytecode is a verified, distributable execution target, with observable behavior
+defined by the common executable contract below.
+
+## Native standard calls
+
+Engine and host native calls retain distinct provider contracts. Each engine import
+carries its selected declaration, concrete signature, substitutions, bounds and
+protocol witnesses; validation and execution need no source-analysis dependency.
+Required methods select a checked script/native/host implementation before execution.
+No public standard algorithm is expanded into a second compiler implementation.
+
+Direct native calls share existing Rust helpers. Resumable calls retain explicit
+roots and continuations on the active execution frames, release dynamic borrows
+before callbacks, and preserve each original logical operation's charge. Native,
+script and nested native callbacks share cancellation, call-depth and allocation
+limits. Iterator captures retain the checked import and defining dependency versions.
+Core iterator/range operations use the same typed primitives as native entrypoints.
+
+Storage mutations preserve their commit point: preparation failures publish no
+partial update; an already committed update remains visible if a later charge,
+callback or return-value publication fails. Unit-returning required mutations charge
+storage work and Unit publication separately. Cleanup releases only the current
+session/frame suffix and its guards, leaving completed side effects intact. JIT
+unsupported decisions fall back before entry and never restart partially executed code.
 
 ## Why Bytecode-First Fits Kagari
 
@@ -112,17 +134,20 @@ Responsibilities:
 
 This tier is optional.
 
-## Bytecode as the Main Semantic Contract
+## Common executable contract
 
-Bytecode is the primary execution contract between the frontend and runtime.
+Verified MIR and carried ABI facts define the shared executable contract. Bytecode
+is the interpreter target; portable MIR is independently reverified for native
+preparation and must reproduce the same complete bytecode program canonically.
 
 This means:
 
-- interpreter behavior is defined against bytecode semantics
-- JIT compilation preserves bytecode-visible behavior
-- runtime metadata attaches to modules, functions, and instructions
+- interpreter behavior follows the verified bytecode operations and metadata
+- JIT compilation preserves the same effects, charges, traps and value contracts
+- runtime metadata attaches to modules, functions, and program points
+- source analysis is absent from artifact loading and native preparation
 
-Bytecode is not a disposable intermediate artifact.
+Bytecode remains a distributable, verified execution product.
 
 ## Bytecode Artifact Format
 
