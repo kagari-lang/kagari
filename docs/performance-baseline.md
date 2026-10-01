@@ -158,3 +158,113 @@ Logs are reproducible under `target/a05-architecture-baseline-final.log` and
 `target/a05-foundation-baseline.log`; these tables preserve the durable observations
 if the ignored cache is removed. Workspace build/test timings and correctness
 acceptance are recorded in the refactor plan's A05 ledger.
+
+## Test preparation hotspots (2026-10-01)
+
+Investigation starts at `adb5baae`, after the standard library/HIR migration's
+integration checkpoint. The user requested focused test optimization and no
+whole-workspace test execution. The previous incomplete workspace attempt took
+2,107.435s; VM library tests (772.72s), standard declaration tests (404.61s),
+embedding language-contract routes (318.70s), and compiler tests (157.63s) accounted
+for approximately 79% of that wall time. Those are suite durations, not individual
+test CPU times, and do not isolate Rust compilation from test setup.
+
+Environment: Rust 1.98.1 (`48a229cea`, LLVM 22.1.8), Cargo 1.98.1, macOS 26.6.2
+(`25G83`), aarch64-apple-darwin, MacBookPro18,2 / Apple M1 Max, 32 GiB RAM,
+10 logical CPUs. Use workspace O1 dev/test profiles, default Cargo parallelism,
+default `target/`, and the workspace's unified default features (SDK source/native).
+Build and registry caches are warm; no cleanup occurs. Builds finish before timed
+executions, and measured test processes run sequentially. An exact test filter
+selects one test with the ordinary harness settings; the documentation target
+uses its ordinary three-test harness.
+
+The paired diagnostic runs use prebuilt test executables, one process per test,
+with `sample <pid> 3 1 -file <path>` after one second. The table uses the harness's
+execution interval, including fixture setup/teardown and sampler interference,
+excluding Cargo compilation, process launch and tool reporting. Wrapper wall times
+are retained separately in JSON. These are single paired observations, not
+statistical performance guarantees. A preliminary measurement using an obsolete executable
+was stopped and discarded; rebuilding with `cargo test --workspace --no-run`
+restores the baseline dependency configuration without executing any tests.
+
+The three-second worker-thread samples locate preparation hotspots:
+
+- Required-method budget sweep: 1,288 / 1,992 samples include
+  `compile_test_bytecode`, 422 include `Runtime::load_program`, and only 20 include
+  `Vm::execute`. This window identifies setup cost rather than a slow script loop.
+- Language-contract routes: 2,276 / 2,279 samples include the fixture's `compile`
+  function, including source checking, lowering and portable-input preparation.
+- Required-method lifecycle sweep: 1,288 / 2,401 samples include
+  `Runtime::load_program`; serialization/decoding also occurs inside every scenario.
+
+These short windows are not whole-run time percentages. Deeper stacks identify
+HIR `prepare_signatures` / `TypeCatalog::bindings` and bytecode
+`verify_trait_bounds`. `linked_bounds_match` rebuilds a `ProofCatalog` and checks
+the closure's declarations, ancestry and parent implementations for each module.
+These validation costs also occur in source lowering and artifact/native-input
+preparation. Forgery tests change their inputs and must retain fresh validation;
+their remaining costs require profiling the verifier itself rather than reusing
+an already verified result.
+
+A native-enabled `PreparedProgram::from_artifact` currently triggers four complete
+bytecode graph verifications: loader validation, native-input bytecode validation,
+canonical lowering of decoded MIR, and `VerifiedProgram::new`. These are separate
+checks of open or newly produced values, not evidence that arbitrary input can be
+trusted. Together with per-module proof-catalog construction, this is a concrete
+remaining optimization target for a later change to the checked-input boundary.
+
+The retained optimizations change only test fixtures:
+
+- Compile each language-contract case once. Prepare direct and serialized products
+  independently, then reuse each immutable input for interpreter/JIT execution.
+  All four execution routes, fresh runtime/host state, native/fallback assertions,
+  trap/effect/budget checks and generation-pinned reload scenarios remain.
+  Frontend rejection cases still assert their original diagnostics once; there is
+  no executable route for a rejected source.
+- In the shared native lifecycle fixture, serialize/decode and verify once per
+  input route, then load cloned `VerifiedProgram` handles into a fresh runtime at
+  every cancellation/allocation cut. Each runtime still links its own host bindings,
+  checks permissions/ownership/generations, and owns its heap and execution session.
+  Every original cut, reentry, side-effect and GC cleanup assertion remains.
+
+No production cache, validation bypass, artifact version change, reduced scenario
+count or test-thread/profile adjustment is part of this optimization. Raw malformed
+artifact tests are unchanged. Logs, environment, samples and timing JSON are under
+ignored `target/test-performance/`; final observations are recorded below and in
+the active integration plan's ledger.
+
+| Focused test | Before (s) | After (s) | Observed reduction |
+| --- | ---: | ---: | ---: |
+| Embedding language-contract routes | 319.51 | 108.50 | 66.0% |
+| Required-method lifecycle allocation/cancellation cuts | 19.86 | 5.19 | 73.9% |
+
+Both paired tests pass with their original fixtures and behavioral assertions.
+The other three callers of the shared lifecycle fixture also pass: fallible
+destinations (4.67s), partition (5.31s), and lazy iterators (10.80s). These are
+post-change verification intervals without sampling, not paired performance claims.
+These measurements do not establish a new whole-workspace duration. The earlier
+404.61s standard declaration suite is a historical reference, not a fresh paired
+documentation benchmark with identical sampling conditions.
+
+The documentation experiment replaced a fixed source in one engine, preserving
+fresh runtime state and all direct/encoded/panic assertions. All three tests pass,
+but its 414.56s harness interval shows no demonstrated improvement against the
+historical 404.61s reference. The experiment is withdrawn; the original isolated
+engine fixture remains. Its sample still locates signature preparation and complete
+artifact/native-input verification. No documentation speedup is claimed.
+
+To reproduce behavioral verification without executing other workspace tests:
+
+```sh
+cargo test -p kagari-embed --lib language_contract_routes_preserve_values_diagnostics_and_effects
+cargo test -p kagari-embed --test standard_declarations
+cargo test -p kagari-vm --lib required_entries_reenter_cancel_and_exhaust_every_allocation_cut
+cargo test -p kagari-vm --lib fallible_destinations_reenter_cancel_and_exhaust_every_allocation_limit
+cargo test -p kagari-vm --lib partition_destinations_reenter_cancel_and_exhaust_every_allocation_limit
+cargo test -p kagari-vm --lib lazy_iterators_reenter_cancel_and_exhaust_every_allocation_cut
+```
+
+Separate build time from execution time. The paired runs above build with
+`cargo test --workspace --no-run`, then invoke only the corresponding prebuilt
+executable with `--exact <fully-qualified-test-name> --nocapture`. Its hash depends
+on the dependency configuration; do not time an obsolete executable left in `target/`.

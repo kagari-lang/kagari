@@ -130,7 +130,7 @@ impl<'a> Case<'a> {
     }
 }
 
-fn compile(case: &Case<'_>, route: Route) -> Option<PreparedProgram> {
+fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
     let profile = LanguageFeatureProfile {
         allow_host_calls: true,
         allow_reflection: case.reflection,
@@ -186,19 +186,16 @@ fn compile(case: &Case<'_>, route: Route) -> Option<PreparedProgram> {
     let checked = snapshot.check_program(root.unwrap(), &Default::default());
     if let Expected::Diagnostic(code) = case.expected {
         let Err(kagari_hir::program::ProgramCheckError::Diagnostics(diagnostics)) = checked else {
-            panic!(
-                "{} ({route:?}): expected diagnostic {code}, got {checked:?}",
-                case.name
-            );
+            panic!("{}: expected diagnostic {code}, got {checked:?}", case.name);
         };
         assert!(
             diagnostics.iter().any(|d| d.diagnostic.kind.code() == code),
-            "{} ({route:?}): {diagnostics:?}",
+            "{}: {diagnostics:?}",
             case.name
         );
         return None;
     }
-    let checked = checked.unwrap_or_else(|error| panic!("{} ({route:?}): {error:?}", case.name));
+    let checked = checked.unwrap_or_else(|error| panic!("{}: {error:?}", case.name));
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let compiled = lower_program_to_bytecode(&mir).unwrap();
     let artifact = KbcArtifact::from_program(
@@ -211,20 +208,57 @@ fn compile(case: &Case<'_>, route: Route) -> Option<PreparedProgram> {
         },
     )
     .unwrap();
-    let artifact = match route {
-        Route::Source | Route::Jit => artifact,
-        Route::Artifact | Route::ArtifactJit => {
-            KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
+    Some(artifact)
+}
+
+struct RoutePrograms {
+    source: PreparedProgram,
+    encoded: PreparedProgram,
+}
+
+impl RoutePrograms {
+    fn new(artifact: KbcArtifact) -> Self {
+        let encoded = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
+        let prepare = |artifact| {
+            PreparedProgram::from_artifact(
+                artifact,
+                &ArtifactCompatibility::default(),
+                &Default::default(),
+            )
+            .unwrap()
+        };
+        Self {
+            source: prepare(artifact),
+            encoded: prepare(encoded),
         }
+    }
+
+    fn get(&self, route: Route) -> &PreparedProgram {
+        match route {
+            Route::Source | Route::Jit => &self.source,
+            Route::Artifact | Route::ArtifactJit => &self.encoded,
+        }
+    }
+}
+
+fn run_routes(case: &Case<'_>) {
+    let Some(artifact) = compile(case) else {
+        return;
     };
-    Some(
-        PreparedProgram::from_artifact(
-            artifact,
-            &ArtifactCompatibility::default(),
-            &Default::default(),
-        )
-        .unwrap(),
-    )
+    // Interpreter and JIT routes consume the same checked input. Validate direct
+    // and serialized products separately; every route still gets a fresh runtime.
+    let programs = RoutePrograms::new(artifact);
+    let candidate = case
+        .published_reload
+        .map(|case| RoutePrograms::new(compile(case).expect("published candidate must compile")));
+    for route in Route::ALL {
+        run(
+            case,
+            route,
+            programs.get(route),
+            candidate.as_ref().map(|candidate| candidate.get(route)),
+        );
+    }
 }
 
 fn assert_outcome(
@@ -296,10 +330,12 @@ fn execute_route(
     }
 }
 
-fn run(case: &Case<'_>, route: Route) {
-    let Some(module) = compile(case, route) else {
-        return;
-    };
+fn run(
+    case: &Case<'_>,
+    route: Route,
+    module: &PreparedProgram,
+    candidate_program: Option<&PreparedProgram>,
+) {
     let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
@@ -411,11 +447,11 @@ fn run(case: &Case<'_>, route: Route) {
     let mut vm = KagariRuntime::new(runtime, Default::default());
     let mut backend = CraneliftBackend::for_host().unwrap();
     for attempt in 0..case.repeat {
-        let outcome = execute_route(&mut vm, &module, &loaded, case, route, &mut backend);
+        let outcome = execute_route(&mut vm, module, &loaded, case, route, &mut backend);
         assert_outcome(case, route, attempt, outcome);
     }
     if let Some(candidate) = case.published_reload {
-        let program = compile(candidate, route).expect("published candidate must compile");
+        let program = candidate_program.expect("published candidate must compile");
         let outer = vm
             .runtime()
             .begin_execution(&loaded, vm.runtime().execution_options())
@@ -425,7 +461,7 @@ fn run(case: &Case<'_>, route: Route) {
             .stage_reload_verified_program(&loaded, case.name, program.bytecode().clone())
             .unwrap();
         let current = vm
-            .reload_program(&loaded, &program, Default::default())
+            .reload_program(&loaded, program, Default::default())
             .unwrap();
         assert_eq!(
             vm.runtime().modules().latest(case.name).unwrap().key(),
@@ -437,14 +473,14 @@ fn run(case: &Case<'_>, route: Route) {
             case,
             route,
             case.repeat,
-            execute_route(&mut vm, &module, &loaded, case, route, &mut backend),
+            execute_route(&mut vm, module, &loaded, case, route, &mut backend),
         );
         drop(outer);
         assert_outcome(
             candidate,
             route,
             0,
-            execute_route(&mut vm, &program, &current, candidate, route, &mut backend),
+            execute_route(&mut vm, program, &current, candidate, route, &mut backend),
         );
         let before = vm.runtime().resources().counters().loaded_modules;
         let stale_members = stale.module().members().count();
@@ -464,7 +500,7 @@ fn run(case: &Case<'_>, route: Route) {
             candidate,
             route,
             1,
-            execute_route(&mut vm, &program, &current, candidate, route, &mut backend),
+            execute_route(&mut vm, program, &current, candidate, route, &mut backend),
         );
     }
     assert_eq!(
@@ -559,25 +595,19 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Value::Bool(true),
         ])),
     );
-    for route in Route::ALL {
-        run(&generic_aggregates, route);
-    }
+    run_routes(&generic_aggregates);
     let checked_where_bounds = Case::new(
         "checked-where-bounds-through-forwarding",
         "trait Get { fn get(self) -> i32; } struct P {} impl Get for P { fn get(self) -> i32 { 42 } } fn read<T>(value: T) -> i32 where T: Get { value.get() } fn wrap<U>(value: U) -> i32 where U: Get { read(value) } fn pass<T>(value: T) -> T where T: Eq + Hash { value } fn main() -> (i32, i32) { (wrap(P {}), pass(7)) }",
         Expected::Value(Value::Tuple(vec![Value::I32(42), Value::I32(7)])),
     );
-    for route in Route::ALL {
-        run(&checked_where_bounds, route);
-    }
+    run_routes(&checked_where_bounds);
     let distinct_trait_methods = Case::new(
         "nominal-trait-methods-on-one-receiver",
         "trait Left { fn get(self) -> i32; } trait Right { fn get(self) -> i32; } struct Point {} impl Left for Point { fn get(self) -> i32 { 11 } } impl Right for Point { fn get(self) -> i32 { 22 } } fn left<T: Left>(x: T) -> i32 { x.get() } fn right<T: Right>(x: T) -> i32 { x.get() } fn main() -> (i32, i32) { val p = Point {}; (left(p), right(p)) }",
         Expected::Value(Value::Tuple(vec![Value::I32(11), Value::I32(22)])),
     );
-    for route in Route::ALL {
-        run(&distinct_trait_methods, route);
-    }
+    run_routes(&distinct_trait_methods);
     for case in [
         Case::new(
             "empty-type-application-is-not-erased",
@@ -625,9 +655,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_IMPL"),
         ),
     ] {
-        for route in Route::ALL {
-            run(&case, route);
-        }
+        run_routes(&case);
     }
     for case in [
         Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(Value::I32(5))).effects(&["i32"], &["i32"]).reflection(),
@@ -635,7 +663,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("bare-function-is-not-return-value", "fn answer() -> i32 { 42 } fn main() -> i32 { answer }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
         Case::new("bare-helper-is-not-a-value", "fn main() { val f = print; }", Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET")),
     ] {
-        for route in Route::ALL { run(&case, route); }
+        run_routes(&case);
     }
     for case in [
         Case::new(
@@ -659,16 +687,14 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
             Expected::Value(Value::I32(5)),
         ),
     ] {
-        for route in Route::ALL {
-            run(&case, route);
-        }
+        run_routes(&case);
     }
     for case in [
         Case::new("enum-value-members", "enum Event { Empty, Data(i32, String) } fn main() -> bool { Event::Empty == Event::Empty() && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }", Expected::Value(Value::Bool(true))),
         Case::new("enum-alias-members", "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a.push(2); x == Event::Data(a) && x != Event::Data([1, 2]) }", Expected::Value(Value::Bool(true))),
         Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(Value::Bool(true))).effects(&["first", "second"], &["first", "second"]),
     ] {
-        for route in Route::ALL { run(&case, route); }
+        run_routes(&case);
     }
     let mut budget_before_overflow = Case::new(
         "budget_before_overflow",
@@ -690,7 +716,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         Case::new("heap-out-of-bounds-preserves-earlier-write", "use observe as test; fn main() { val a = test::array(); a[0] = 42; a[9] = 2; }", Expected::IndexTrap).array(&[1], &[42]),
         Case::new("heap-compound-reads-rhs-write", "use observe as test; fn main() { val a = test::array(); a[0] += if true { a[0] = 10; 2 } else { 0 }; }", Expected::Value(Value::Unit)).array(&[1], &[12]),
     ] {
-        for route in Route::ALL { run(&case, route); }
+        run_routes(&case);
     }
     let mut heap_reject = Case::new(
         "heap-host-rejection-preserves-earlier-write",
@@ -711,9 +737,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     ).array(&[1], &[42]).effects(&["committed"], &["committed"]);
     heap_budget.max_steps = Some(100);
     for case in [heap_reject, heap_cancel, heap_budget] {
-        for route in Route::ALL {
-            run(&case, route);
-        }
+        run_routes(&case);
     }
     for operation in [
         "a.push(9)",
@@ -741,9 +765,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         .array(&[1, 2], &[42, 2])
         .effects(&["before"], &["before"]);
         case.iterating = true;
-        for route in Route::ALL {
-            run(&case, route);
-        }
+        run_routes(&case);
     }
     let mut diamond = Case::new(
         "diamond-calls-shared-dependency",
@@ -765,9 +787,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         "use contract::root::main; pub fn answer() -> i32 { 42 }",
     )]);
     for case in [diamond, cycle] {
-        for route in Route::ALL {
-            run(&case, route);
-        }
+        run_routes(&case);
     }
     let candidate = Case::new(
         "published-dependency-version",
@@ -782,9 +802,7 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
     )
     .modules(&[("dependency", "pub fn answer() -> i32 { 42 }")]);
     versioned.published_reload = Some(&candidate);
-    for route in Route::ALL {
-        run(&versioned, route);
-    }
+    run_routes(&versioned);
     let cases = [
         Case::new("unknown-inherent-impl-target", "impl Missing {} fn main() {}", Expected::Diagnostic("KG_TYPE_UNKNOWN_ANNOTATION")),
         Case::new("unknown-where-target", "fn bad<T>(value: T) where Missing: PartialEq {} fn main() {}", Expected::Diagnostic("KG_TYPE_INVALID_BOUND_TARGET")),
@@ -931,8 +949,6 @@ fn language_contract_routes_preserve_values_diagnostics_and_effects() {
         reject,
     ];
     for case in &cases {
-        for route in Route::ALL {
-            run(case, route);
-        }
+        run_routes(case);
     }
 }

@@ -2,7 +2,7 @@ use super::runtime;
 use crate::{Vm, VmError, executor::Executor, tests::common::compile_test_bytecode};
 use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use kagari_runtime::{RuntimeErrorKind, host::HostFunction, value::Value};
+use kagari_runtime::{RuntimeErrorKind, VerifiedProgram, host::HostFunction, value::Value};
 use std::{cell::RefCell, rc::Rc};
 pub(super) fn route(program: &BytecodeProgram, encoded: bool) -> BytecodeProgram {
     if encoded {
@@ -102,6 +102,10 @@ pub(in crate::tests) fn lifecycle(program: &BytecodeProgram, name: &str) {
         .id;
     let fail = root.functions.iter().find(|f| f.name == "fail").unwrap().id;
     for encoded in [false, true] {
+        // Only runtime state and resource limits vary across lifecycle cuts.
+        // Validate each source/decoded product once, then link its immutable
+        // code into a fresh runtime for every cancellation/allocation scenario.
+        let verified = VerifiedProgram::new(route(program, encoded)).unwrap();
         let mut labels = Vec::new();
         let mut maximum = 0;
         for phase in 0..4 {
@@ -144,7 +148,7 @@ pub(in crate::tests) fn lifecycle(program: &BytecodeProgram, name: &str) {
                     },
                 ))
                 .unwrap();
-                let loaded = rt.load_program(name, route(program, encoded)).unwrap();
+                let loaded = rt.load_verified_program(name, verified.clone()).unwrap();
                 let mut vm = Vm::new(rt);
                 let fixture = vm.execute(&loaded, "setup").unwrap().return_value;
                 let roots = vm.runtime().gc().root_value(fixture.clone()).unwrap();

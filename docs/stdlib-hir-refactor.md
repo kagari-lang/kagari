@@ -930,6 +930,33 @@ and ABI build edges, in addition to removal of textual source-catalog references
 
 ## Progress ledger
 
+- Focused test-cost optimization (2026-10-01, after `adb5baae`), requested by
+  the user while final migration acceptance remains deferred. Worker-thread samples
+  locate repeated source preparation, `TypeCatalog::bindings`, bytecode trait-bound
+  proofs and full-program validation/loading; budget-cut script execution is a
+  small part of the selected sample. Compile language-contract cases once and
+  prepare direct/serialized immutable inputs separately for all four fresh-runtime
+  execution routes. The shared native lifecycle fixture now verifies/decodes once
+  per input route and links shared checked code into a fresh runtime at every
+  allocation/cancellation cut. All original value/diagnostic, native/fallback,
+  generation/reload, side-effect, reentry, budget and GC assertions remain.
+  Production validation and malformed-input tests are unchanged.
+- Same-configuration paired focused runs pass: language-contract harness time
+  319.51s to 108.50s (66.0% reduction); required-method lifecycle 19.86s to 5.19s
+  (73.9%). Single paired O1 observations include sampling interference; build,
+  process launch and tool reporting are separate. Additional callers pass:
+  fallible destinations (4.67s), partition (5.31s), lazy iterators (10.80s).
+  A fixed-source/shared-engine documentation experiment passes all three tests
+  in 414.56s but offers no demonstrated improvement against the historical
+  404.61s reference; it is withdrawn and the original fixture retained.
+  [Performance baseline](performance-baseline.md#test-preparation-hotspots-2026-10-01)
+  records conditions, commands, samples, boundaries and remaining hotspots,
+  including four complete bytecode graph validations per native-enabled preparation.
+  Workspace/all-target Clippy, structure (841 files, zero violations/exceptions),
+  fmt and diff checks pass. `cargo test --workspace --no-run` only builds matching
+  inputs; no whole-workspace test execution or new aggregate time is claimed.
+  Final combined acceptance and ST00-matched source/build/runtime measurements
+  remain open; this performance checkpoint does not complete ST06.
 - ST06 integration checkpoint (2026-10-01, after `ccdb2cf4`): completes the
   feature/fixture, current-documentation and structural-review checklist items
   together. The user requested no further whole-workspace tests and an interim
