@@ -236,7 +236,7 @@ an execution owner without rebuilding a central method catalog in production.
 | Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Application returned-state proof complete in 2; remaining declarations/primitive prerequisites in 3 and full traversal in 5 |
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
 | collect/partition, destination impls, Sum/Product and conversion blankets | 7 | Pending selected destinations and complete composition |
-| debug direct entries / assert_eq | 3 / 7 | Pending |
+| debug direct entries / assert_eq | 3 / 7 | print/assert/panic restored from actual Rust functions, with guarded common host invocation and native Never; selected assert_eq remains pending in 7 |
 | cmp/hash/fmt/ops/convert/iter contracts, seven enums and thirteen type constructors | 2-3 | cmp/Ordering/scalar comparison facts and ops/range/Bound registered; remaining declarations and primitive ownership pending in 3 |
 | Implicit scalar/operator/index/range/closure implementation facts | 3 and 7 | Classify validated engine primitives in 3; composed/blanket contracts finish in 7 |
 | Namespace, variant exports, prelude and legacy source crate | 8 | Pending migration and retirement |
@@ -266,6 +266,7 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Restore all eleven math helpers with closed numeric authoring adapters and application/source-free proofs.
   - [x] Restore all 27 direct String helpers with shared checked text construction, UTF-8 behavior and application/source-free proofs.
   - [x] Restore all six direct Option/Result queries with rooted payloads and preserved error provenance.
+  - [x] Restore print/assert/panic with guarded host invocation and an uninhabited native result.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
 - [ ] 6: Map/Set and custom keys/snapshots/grouping.
@@ -3507,3 +3508,108 @@ Consolidated validation:
 Next restore the three direct debug operations and remaining registered protocol
 declarations/implicit implementation facts. Preserve the complete outstanding
 collection, state, composition, retirement and NR05/ST06 acceptance obligations.
+
+### NR04 checkpoint: direct debug functions, native Never and guarded host invocation (2026-10-02)
+
+Step 3 restores print/assert/panic as actual Rust native functions. Selected
+assert_eq retains its step 7 owner. Remaining protocol declarations and implicit
+implementation facts keep step 3 open; no full NR phase or workspace acceptance
+is claimed, and the unbounded complete-restoration goal remains active.
+
+Changes and boundaries:
+
+- NativeNever is an actually empty Rust enum. Its NativeValue metadata resolves
+  directly to existing BuiltinType::Never; it cannot read, construct or write a
+  script value. NativeResult<NativeNever> supports ordinary native functions that
+  always trap, including an application-owned fatal function with no default
+  packages. The authoring expression adds Never; executable schemas remain
+  runtime ABI 139 / KBC 116 / KMIR 14 / helper ABI 6. This adapter is distinct from
+  conversion-protocol Infallible and does not fabricate a returning Unit result.
+- Assert preserves the ScriptTrap category and supplied message; panic preserves
+  the explicit trap and caller trace. HIR directly imports their real signatures,
+  including static Never coercion. Generated debug.kgr supplies navigation/docs;
+  debug is removed from the legacy bundled-source manifest and default selection
+  installs the ordinary debug provider. No named debug instruction or dispatch
+  branch is added to generic HIR, compiler, verifier or VM machinery.
+- Print is a native continuation that enters its charged native frame before
+  invoking the actual host.log binding. NativeContext::invoke_host exposes the
+  existing Runtime host boundary to any native continuation. Lookup, complete
+  declared argument/result validation, exposure, capabilities, candidate-phase
+  restrictions, host-call/cost budgets and scoped borrows/roots remain intact.
+  The host owns the sink; missing/denied/failed logging traps rather than succeeding
+  silently or writing to process-global output. Completed effects survive traps.
+- An independently registered application Text/echo/fatal provider uses that same
+  host bridge and Never result, compiling and running with every default package
+  disabled. Source-free execution drives actual registered handlers. Refresh the
+  generated debug view and affected provider/projected products; other regenerated
+  current native products stay byte-identical. New public default declarations
+  change dependency fingerprints and affected products require rebuilds.
+
+Behavioral evidence:
+
+- Assert true/false, explicit panic, Never-to-usize coercion, nested caller traces,
+  source-free forged Never import rejection, exact source product bytes, actual
+  registered navigation/signatures and invalid parameter/result contexts pass.
+- Logging observes UTF-8 and exact once-only eager argument effects, omits code
+  after traps/Never calls, rejects unavailable/denied/failed sinks and invalid
+  host return values, and respects every instruction/depth/host-call budget cut.
+  A native frame budget failure precedes the external sink effect. Already completed
+  sink effects remain when cancellation happens inside the host callback.
+- Synchronous host reentry obtains a rooted ordinary script Option result, hands
+  it to the host resource scope, drops the separate result root and forces GC.
+  Scoped values survive while the host callback runs and are collectible after
+  both successful return and host trap. Roots/call depth return to zero and the
+  runtime remains usable. Prepared source-free backend execution uses its actual
+  native-call interpreter fallback and preserves values, effects and Never traps.
+
+Validation discoveries and carried errors:
+
+- Initial test compilation attempted unavailable host-borrow counters/private GC
+  allocation and Display on EmbeddingError. Use public error fields and a real
+  reentered script allocation/root transfer instead; do not widen implementation
+  visibility merely for tests. Final focused debug tests pass.
+- The feature matrix's registration inventory expected the old exact set of
+  generated URIs. Add debug.kgr to that exact set while preserving the complete
+  equality check. The host budget-cut fixture uses a declared 17-step host work
+  hint, exercising cost charging before its sink effect. Broader predecessor
+  frozen algorithm/budget suites remain required under their restoration/final
+  acceptance owners; these focused cuts do not substitute for them.
+- cargo test -p kagari-stdlib --lib reports 4 passes / 3 failures. Existing source
+  preparation fixtures still expect retired intrinsic/numeric markers: preparation
+  indexes a removed marker at tests.rs:94 and malformed-marker checks fail at :151.
+  The bundled-doc test reports undocumented remaining map declarations at :77.
+  These test/index/map files are unchanged by this checkpoint; removing debug
+  from the manifest does not affect either single-source annotation reproduction.
+  Restore remaining declaration documentation alongside its registered family and
+  migrate/transfer retained source-preparation checks when retiring the old crate
+  in step 8. Do not disable assertions or report this suite as accepted.
+- The inherited fourteen ABI/seventeen HIR removed-model lib-test failures and
+  missing implicit user-struct equality binding remain NR04-owned, alongside full
+  legacy consumer, collection/state/composition and final measurement obligations.
+
+Logs: target/native-debug-check.log, target/native-debug-tests.log,
+target/native-debug-generate.log, target/native-debug-*-generate.log,
+target/native-debug-clippy.log, target/native-debug-focused-clippy.log,
+target/native-debug-structure.log, target/native-debug-source-retirement.log and
+target/native-debug-feature-matrix.log and target/native-debug-artifact-tests.log.
+
+Consolidated validation:
+
+- Direct debug passes 7 source-free tests, 9 with source, 8 with native and 10 with
+  source+native. Final focused artifact-only/source+native runs pass 7/10 tests.
+- uv run --locked scripts/check_features.py --native-proof passes all twenty-two
+  standalone targets in artifact-only/source/native/source+native modes:
+  130/202/133/206 tests. All eight production boundaries and the independent ABI
+  build graph pass; artifact/native-only routes exclude source analysis.
+- cargo clippy --workspace --lib -- -D warnings and focused debug/registration
+  tests and debug-generator Clippy pass. Format and git diff --check pass.
+- Structure checks pass for 897 Rust files with zero violations/exceptions.
+  Manual review confirms explicit owner imports, the empty Rust re-export
+  whitelist, scoped host validation, actual native signatures and the unchanged
+  generic compiler/verifier/VM boundary. Full workspace/all-target checks remain
+  open for the carried errors and complete restoration obligations above.
+
+Next restore remaining hash/fmt/convert/iter declarations and primitive facts,
+including the missing implicit user-struct equality binding, then continue complete
+Array/List, state/traversal, Map/Set and composition restoration. Keep source-crate
+retirement and complete NR05/ST06 acceptance/measurements in the original goal.

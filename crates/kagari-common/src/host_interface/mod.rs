@@ -421,7 +421,7 @@ fn codec() -> impl Options {
         .with_limit(MAX_BYTES)
 }
 
-/// The declaration for the current source `print` entry and CLI log binding.
+/// The declaration for the registered `print` entry and CLI log binding.
 pub fn standard_log() -> HostFunctionDeclaration {
     let mut declaration = HostFunctionDeclaration::new(
         "host.log",

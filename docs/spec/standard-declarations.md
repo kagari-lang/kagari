@@ -298,7 +298,11 @@ native/script implementation selections into portable execution contracts.
 Functions and methods returning unit omit the return annotation, for example
 `fn clear(self);`. Callback function types still spell out `-> ()`, as in
 `fn for_each(self, callback: fn(Self::Item) -> ());`.
-Non-returning operations use `-> !`, including `std::debug::panic`. Checked
+Non-returning operations use `-> !`, including `std::debug::panic`. Rust native
+functions use NativeResult<NativeNever> for the actual uninhabited result; no Unit
+value or synthetic script body substitutes for Never. These signatures participate
+in ordinary static coercion, portable import validation and registered invocation.
+NativeNever differs from the declared conversion-protocol Infallible enum. Checked
 signatures and native execution contracts retain Never rather than Unit.
 
 Outer `///` comments belong to the immediately following declaration. They retain

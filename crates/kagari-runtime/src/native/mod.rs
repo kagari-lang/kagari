@@ -4,6 +4,7 @@ pub(crate) mod array;
 pub mod array_api;
 pub mod catalog;
 pub mod cmp_api;
+pub mod debug_api;
 pub mod factory;
 pub mod math_api;
 pub mod numeric_api;
@@ -115,6 +116,11 @@ impl NativeContext<'_> {
     }
     pub fn poll(&self) -> Result<(), RuntimeError> {
         self.runtime.resources().ensure_execution_allowed()
+    }
+    /// Invoke an installed host binding through its existing signature, exposure,
+    /// capability, budget and scoped-borrow checks. No Rust reference escapes.
+    pub fn invoke_host(&self, symbol: &str, arguments: &[Value]) -> Result<Value, RuntimeError> {
+        self.runtime.invoke_host(symbol, arguments)
     }
     pub fn signature(&self) -> &NativeSignature {
         self.signature

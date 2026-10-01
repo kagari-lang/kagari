@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 /// Macro expansion input, resolved without parsing generated Kagari text.
 #[doc(hidden)]
 pub enum TypeExpression {
+    Never,
     Constrained {
         ty: Box<Self>,
         constraint: StandardTypeConstraint,
@@ -69,6 +70,7 @@ impl Scope<'_> {
 
     pub fn resolve(&self, expression: &TypeExpression) -> Result<AbiType, RuntimeError> {
         Ok(match expression {
+            TypeExpression::Never => AbiType::Builtin(BuiltinType::Never),
             TypeExpression::Constrained { ty, constraint } => {
                 let ty = self.resolve(ty)?;
                 let valid = match &ty {

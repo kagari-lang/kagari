@@ -115,6 +115,7 @@ fn authoring_resolves_rust_aliases_and_generic_value_contracts() {
             "kagari://native/game/aliases.kgr",
             "kagari://native/kagari-std/array.kgr",
             "kagari://native/kagari-std/cmp.kgr",
+            "kagari://native/kagari-std/debug.kgr",
             "kagari://native/kagari-std/math.kgr",
             "kagari://native/kagari-std/numeric.kgr",
             "kagari://native/kagari-std/ops.kgr",

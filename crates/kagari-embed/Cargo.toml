@@ -85,6 +85,10 @@ name = "regenerate_native_string_artifact"
 required-features = ["source"]
 
 [[example]]
+name = "regenerate_native_debug_artifact"
+required-features = ["source"]
+
+[[example]]
 name = "regenerate_native_math_artifact"
 required-features = ["source"]
 

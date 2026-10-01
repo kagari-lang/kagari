@@ -63,7 +63,9 @@ pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, R
                 pending.extend(params);
                 pending.push(result);
             }
-            TypeExpression::Parameter(_) | TypeExpression::Associated(_) => {}
+            TypeExpression::Never
+            | TypeExpression::Parameter(_)
+            | TypeExpression::Associated(_) => {}
         }
     }
     let cancel = CancellationToken::default();

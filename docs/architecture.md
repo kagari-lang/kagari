@@ -16,7 +16,7 @@ Rust functions, checked representation aliases/wrappers, traits and impls. `Nati
 metadata and conversions, so aliases use their resolved Rust types. Rust checks
 function bodies and trait method signatures; shared support supplies identities
 and generic binders. Open script generics use rooted checked value proxies.
-The bundled ops, array, cmp, math, numeric, Option, Result and String modules compose the default, optional library using
+The bundled ops, array, cmp, debug, math, numeric, Option, Result and String modules compose the default, optional library using
 the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
 
@@ -29,6 +29,17 @@ Portable native applications retain those predicates for verification and linkin
 Numeric operations validate finite operands without user method dispatch, preserve
 their applied scalar width, and leave algorithm trap ordering with the provider.
 The eleven math helpers use this ordinary route; application functions reuse it.
+
+NativeNever is an uninhabited Rust result adapter whose actual native signature
+returns the existing script ! type. NativeResult<NativeNever> always fails without
+constructing a return value; static checking and portable contracts retain Never.
+It is distinct from the declared Infallible enum used by conversion protocols.
+Direct debug functions are ordinary registrations. Print enters a charged native
+frame before invoking host.log through NativeContext::invoke_host. Application
+continuations use the same host bridge; exposure, capabilities, session budgets,
+scoped borrows/roots, candidate restrictions and result validation remain owned by
+the existing Runtime host boundary. The host supplies the sink, and completed
+effects survive later cancellation or traps. Source tooling views grant no authority.
 
 Cross-package Rust authoring uses explicit NativeCatalog declaration views and
 fully qualified script identities. Consumers retain exact expected trait contracts,

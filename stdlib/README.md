@@ -18,6 +18,8 @@ The native-provider restoration currently installs these optional registered mod
   and lazy traversal remain open under their planned composition/state steps.
 - [option](option.kgr) and [result](result.kgr): rooted is_some/is_none/is_ok/is_err
   and unwrap_or queries, with explicit constructor exports and preserved error origins.
+- [debug](debug.kgr): print through the declared host.log boundary, assert and
+  non-returning panic. Selected equality assertion remains a composition step.
 - Other modules retain required protocols and native representations; their old
   public implementations are temporarily unavailable.
 

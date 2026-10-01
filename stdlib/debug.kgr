@@ -1,1 +1,10 @@
+// Generated from native registration definitions. Do not edit.
 
+/// Write a message through the installed host.log binding and its permissions.
+/// Arguments are evaluated first; completed host effects survive later traps.
+/// Missing, denied or failed logging traps. The host owns the output destination.
+pub fn print(message: String);
+/// Trap with the supplied message when condition is false. Both arguments are eager.
+pub fn assert(condition: bool, message: String);
+/// Always trap with the supplied message and caller trace; no script value returns.
+pub fn panic(message: String) -> !;
