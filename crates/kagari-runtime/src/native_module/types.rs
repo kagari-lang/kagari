@@ -4,7 +4,7 @@ use crate::{error::RuntimeError, native::catalog::NativeCatalog};
 use kagari_abi::{
     native_api::NativeModule,
     scalar::BuiltinType,
-    standard::surface::{StandardEnum, builtin_type},
+    standard::surface::{StandardEnum, StandardTypeConstraint, builtin_type},
     types::{
         AbiType, GenericParameterAbi, NominalAbiType, TypeAbiKind, native::NativeTypeConstructor,
     },
@@ -19,6 +19,10 @@ use std::collections::BTreeMap;
 /// Macro expansion input, resolved without parsing generated Kagari text.
 #[doc(hidden)]
 pub enum TypeExpression {
+    Constrained {
+        ty: Box<Self>,
+        constraint: StandardTypeConstraint,
+    },
     Parameter(usize),
     Associated(usize),
     Projection {
@@ -65,6 +69,22 @@ impl Scope<'_> {
 
     pub fn resolve(&self, expression: &TypeExpression) -> Result<AbiType, RuntimeError> {
         Ok(match expression {
+            TypeExpression::Constrained { ty, constraint } => {
+                let ty = self.resolve(ty)?;
+                let valid = match &ty {
+                    AbiType::Builtin(kind) => constraint.accepts_builtin_number(*kind),
+                    AbiType::Parameter { .. }
+                    | AbiType::SelfType(_)
+                    | AbiType::Projection { .. } => true,
+                    _ => false,
+                };
+                if !valid {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native numeric adapter requires a compatible builtin number",
+                    ));
+                }
+                ty
+            }
             TypeExpression::Projection {
                 receiver,
                 interface,

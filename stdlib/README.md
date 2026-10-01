@@ -4,7 +4,9 @@ The native-provider restoration currently installs these optional registered mod
 
 - [array](array.kgr): ArrayList new/len/is_empty/push/from_fn/sort_by/sort,
   List len/is_empty/get, MutableList.set and indexed views.
-- [math](math.kgr): checked floor/ceil/sqrt on f64 values.
+- [math](math.kgr): all eleven numeric helpers with closed OrderedNumber/SignedNumber
+  bounds, width checks and finite/domain/overflow traps. Applications can install
+  its actual math_api::math provider independently of default library selection.
 - [ops](ops.kgr): operator/index protocols, six range shapes and Bound.
 - [cmp](cmp.kgr): PartialEq/Eq/PartialOrd/Ord, Ordering and checked scalar
   implementations. Floating-point values implement only the partial protocols.

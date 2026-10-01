@@ -156,6 +156,29 @@ pub enum StandardTypeConstraint {
     Comparable,
 }
 
+impl StandardTypeConstraint {
+    /// Closed numeric predicates do not consult user trait implementations.
+    pub fn accepts_builtin_number(self, ty: BuiltinType) -> bool {
+        match self {
+            Self::OrderedNumber => ty.number_type().is_some(),
+            Self::SignedNumber => {
+                ty.integer_layout().is_some_and(|(_, signed)| signed)
+                    || matches!(ty, BuiltinType::F32 | BuiltinType::F64)
+            }
+            Self::HashKey | Self::Comparable => false,
+        }
+    }
+
+    /// Sealed engine predicates that can be written as source bounds.
+    pub fn source_bound_name(self) -> Option<&'static str> {
+        match self {
+            Self::OrderedNumber => Some("OrderedNumber"),
+            Self::SignedNumber => Some("SignedNumber"),
+            Self::HashKey | Self::Comparable => None,
+        }
+    }
+}
+
 const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
     BuiltinTypeSpec {
         ty: BuiltinType::Never,

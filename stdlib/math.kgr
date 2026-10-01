@@ -1,5 +1,21 @@
 // Generated from native registration definitions. Do not edit.
 
+/// Return the smaller finite numeric operand. Ties preserve the left operand.
+pub fn min<T0>(lhs: T0, rhs: T0) -> T0 where T0: OrderedNumber;
+/// Return the larger finite numeric operand. Ties preserve the left operand.
+pub fn max<T0>(lhs: T0, rhs: T0) -> T0 where T0: OrderedNumber;
+/// Clamp a finite numeric value. Traps when the lower bound exceeds the upper bound.
+pub fn clamp<T0>(value: T0, min: T0, max: T0) -> T0 where T0: OrderedNumber;
+/// Return a finite signed magnitude. Traps on the minimum signed integer.
+pub fn abs<T0>(value: T0) -> T0 where T0: SignedNumber;
+/// Round to the nearest integer, with ties away from zero. Requires finite input/result.
+pub fn round(value: f64) -> f64;
+/// Return the sine of a finite angle in radians. Requires a finite result.
+pub fn sin(value: f64) -> f64;
+/// Return the cosine of a finite angle in radians. Requires a finite result.
+pub fn cos(value: f64) -> f64;
+/// Return the tangent of a finite angle in radians. Requires a finite result.
+pub fn tan(value: f64) -> f64;
 /// Round toward negative infinity. Traps for a non-finite input or result.
 pub fn floor(value: f64) -> f64;
 /// Round toward positive infinity. Traps for a non-finite input or result.

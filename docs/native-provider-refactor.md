@@ -228,7 +228,7 @@ an execution owner without rebuilding a central method catalog in production.
 
 | Inventory group | Owning checkpoint | Current state |
 | --- | --- | --- |
-| math's eleven helpers | 1 and 3 | floor/ceil/sqrt restored in checkpoint 1; remaining eight pending |
+| math's eleven helpers | 1 and 3 | All eleven restored as actual Rust native functions, including shared closed numeric adapters and source-free boundary proofs |
 | 175 numeric methods and thirteen FromStr impls | 3 | Registered and exercised across all widths; dedicated portable numeric fixture and budget-cut coverage added |
 | String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | Pending |
 | Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | is_some/is_none/is_ok/is_err/unwrap_or restored; remaining direct queries and composition pending |
@@ -262,6 +262,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
   - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
+  - [x] Restore 175 integer methods and thirteen primitive parsers through actual native signatures.
+  - [x] Restore all eleven math helpers with closed numeric authoring adapters and application/source-free proofs.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
 - [ ] 6: Map/Set and custom keys/snapshots/grouping.
@@ -3322,3 +3324,90 @@ Next continue step 3's remaining direct families and shared primitive ownership,
 then the full collection/state/composition surface and retirement. Full NR05/ST06,
 carried old-model consumers and matched measurements remain required; the goal
 is active and no acceptance scope is removed.
+
+### NR04 checkpoint: complete math and shared closed numeric adapters (2026-10-02)
+
+Step 3 restores the remaining eight math functions alongside floor/ceil/sqrt.
+The direct-family phase remains open for String, debug, remaining declarations
+and shared primitive ownership. No NR phase or full-library acceptance is claimed.
+
+Changes:
+
+- NativeNumber<T> and NativeSignedNumber<T> derive OrderedNumber/SignedNumber
+  bounds from actual Rust parameter/result types. Symbolic authoring expressions
+  carry these constraints; registration resolves and deduplicates them across
+  nested signatures and selected dependencies under the real declaration binder.
+  Incompatible fixed adapters, including bool numbers and unsigned signed numbers,
+  fail during registration. Open slots retain their checked template predicates.
+- ABI declaration validation/rendering and direct HIR import support the existing
+  two source-level numeric engine predicates. They do not fabricate trait contracts
+  or authorize user ordering implementations. The executable proof catalog and
+  typed adapters share the same builtin predicate; portable imports retain their
+  applied requirements and existing verification/linking checks.
+- min/max/clamp cover all ten integer widths and both float widths. abs covers
+  all five signed widths and both floats. Native conversions check shared wire
+  representations against the applied integer bounds. Numeric operations reject
+  non-finite inputs; abs traps at each signed minimum. Equal min/max operands keep
+  the left operand's bits. Clamp validates bounds before inspecting its value,
+  preserving the predecessor's trap order and eager argument side effects.
+- Add round/sin/cos/tan as actual f64 Rust functions with finite input/result
+  checks. Math is directly installable through its owning math_api::math module,
+  like the other optional native packages; no Rust forwarding facade is added.
+- Add an independent application comparison/magnitude provider and exact generated
+  math product. Standalone artifact execution patches verified operands to cover
+  extrema, signed zero and non-finite wire values. The application and math providers
+  can also compile and execute independently with default installation disabled.
+- Refresh the generated math tooling view and affected provider/projected products.
+  The full default namespace changes math dependency fingerprints; the old projected
+  product correctly failed exact-byte and hot-reload checks until regenerated.
+  Explicit numeric/state products remain byte-identical after regeneration.
+  Existing schemas remain runtime ABI 139 / KBC 116 / KMIR 14 / helper ABI 6;
+  the authoring expression extension does not add a serialized runtime model.
+
+Verification and resolved discoveries:
+
+- The complete-math target proves all widths, finite/domain/overflow boundaries,
+  generic forwarding, a valid user Ord implementation that cannot satisfy a
+  numeric bound, exact artifact emission and native navigation, dropped/forged
+  offline requirements, argument evaluation order and already-completed host
+  effects on traps, every logical instruction-budget cut, cancellation and cleanup.
+- An initial side-effect probe used unsupported entry argument passing. Replace it
+  with a real application-owned native recorder and zero-argument entry; the final
+  test observes each actual argument side effect without weakening the assertion.
+  Navigation requires the explicit application module import when defaults are off.
+- A forged narrow constant is rejected by portable access-flow verification before
+  native entry. Keep that offline rejection proof instead of expecting execution
+  of invalid input; typed conversions also enforce widths at their own boundary.
+- The inherited fourteen ABI/seventeen HIR removed-model lib-test errors and the
+  missing implicit user-struct equality binding remain step 3/NR04 debt. They are
+  not rerun unchanged or reported as accepted workspace/all-target checks.
+
+Logs: target/native-math-check.log, target/native-math-provider.log,
+target/native-math-generate.log, target/native-math-tests.log,
+target/native-math-clippy.log, target/native-math-focused-clippy.log,
+target/native-math-structure.log, target/native-math-affected-tests.log,
+target/native-math-projected-generate.log, target/native-math-state-generate.log,
+target/native-math-numeric-generate.log and target/native-math-feature-matrix.log.
+
+Final validation is recorded below after consolidation. The goal remains active
+for the remaining direct families, collection/traversal/composition members, old
+consumer/source-crate retirement, NR05/ST06 validation and matched measurements.
+
+Consolidated final verification:
+
+- The complete math target passes 12 source tests (9 without source).
+- uv run --locked scripts/check_features.py --native-proof passes all twenty
+  standalone targets in artifact-only/source/native/source+native modes:
+  115/182/116/184 tests. All production dependency boundary checks pass.
+- cargo clippy --workspace --lib -- -D warnings and focused math/bounds
+  tests and generators Clippy pass. Affected numeric/projected/state tests pass
+  10/9/13, including canonical bytes and generation-pinned reload.
+- Structure checks pass for 888 Rust files with zero violations/exceptions;
+  formatting and git diff --check pass. Manual review confirms explicit owner
+  imports, the empty Rust re-export whitelist, actual Rust signature authority,
+  checked numeric widths and no named-library dispatch in generic machinery.
+
+Next continue step 3 with the complete non-lazy String helper family and its
+shared checked output/work accounting, then remaining direct families and primitive
+ownership. Method-generic String.parse and lazy traversal retain their planned
+shared-capability dependencies; no required API is dropped from the active goal.

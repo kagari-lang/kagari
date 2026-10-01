@@ -2,11 +2,95 @@
 use kagari_native_macros::native_module;
 
 #[native_module("std::math", runtime = crate)]
-pub(super) mod math {
+pub mod math {
     use crate::{
         error::{RuntimeError, RuntimeErrorKind},
-        native_value::NativeResult,
+        native_value::{
+            NativeResult, NativeValue,
+            number::{NativeNumber, NativeSignedNumber},
+        },
     };
+    use std::cmp::Ordering;
+
+    /// Return the smaller finite numeric operand. Ties preserve the left operand.
+    #[native]
+    pub fn min<T: NativeValue>(
+        lhs: NativeNumber<T>,
+        rhs: NativeNumber<T>,
+    ) -> NativeResult<NativeNumber<T>> {
+        Ok(if lhs.compare(&rhs)? == Ordering::Greater {
+            rhs
+        } else {
+            lhs
+        })
+    }
+
+    /// Return the larger finite numeric operand. Ties preserve the left operand.
+    #[native]
+    pub fn max<T: NativeValue>(
+        lhs: NativeNumber<T>,
+        rhs: NativeNumber<T>,
+    ) -> NativeResult<NativeNumber<T>> {
+        Ok(if lhs.compare(&rhs)? == Ordering::Less {
+            rhs
+        } else {
+            lhs
+        })
+    }
+
+    /// Clamp a finite numeric value. Traps when the lower bound exceeds the upper bound.
+    #[native]
+    pub fn clamp<T: NativeValue>(
+        value: NativeNumber<T>,
+        min: NativeNumber<T>,
+        max: NativeNumber<T>,
+    ) -> NativeResult<NativeNumber<T>> {
+        if min.compare(&max)? == Ordering::Greater {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "math.clamp bounds are reversed",
+            ));
+        }
+        Ok(if value.compare(&min)? == Ordering::Less {
+            min
+        } else if value.compare(&max)? == Ordering::Greater {
+            max
+        } else {
+            value
+        })
+    }
+
+    /// Return a finite signed magnitude. Traps on the minimum signed integer.
+    #[native]
+    pub fn abs<T: NativeValue>(
+        value: NativeSignedNumber<T>,
+    ) -> NativeResult<NativeSignedNumber<T>> {
+        value.checked_abs()
+    }
+
+    /// Round to the nearest integer, with ties away from zero. Requires finite input/result.
+    #[native]
+    pub fn round(value: f64) -> NativeResult<f64> {
+        finite_unary(value, "math.round", f64::round)
+    }
+
+    /// Return the sine of a finite angle in radians. Requires a finite result.
+    #[native]
+    pub fn sin(value: f64) -> NativeResult<f64> {
+        finite_unary(value, "math.sin", f64::sin)
+    }
+
+    /// Return the cosine of a finite angle in radians. Requires a finite result.
+    #[native]
+    pub fn cos(value: f64) -> NativeResult<f64> {
+        finite_unary(value, "math.cos", f64::cos)
+    }
+
+    /// Return the tangent of a finite angle in radians. Requires a finite result.
+    #[native]
+    pub fn tan(value: f64) -> NativeResult<f64> {
+        finite_unary(value, "math.tan", f64::tan)
+    }
 
     /// Round toward negative infinity. Traps for a non-finite input or result.
     #[native]

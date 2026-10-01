@@ -6,6 +6,7 @@ mod conversions;
 #[doc(hidden)]
 pub mod declaration;
 pub mod iterator;
+pub mod number;
 pub mod option;
 pub mod parse;
 pub mod range;

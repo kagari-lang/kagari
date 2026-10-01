@@ -673,12 +673,13 @@ fn supported_type(ty: &AbiType) -> Result<(), NativeApiError> {
 }
 
 fn supported_constraint(constraint: &ConstraintAbi) -> Result<(), NativeApiError> {
-    let ConstraintAbi::Trait(trait_type) = constraint else {
-        return Err(NativeApiError(
-            "native declarations require named trait constraints".into(),
-        ));
-    };
-    supported_type(&AbiType::Trait(trait_type.clone()))
+    match constraint {
+        ConstraintAbi::Trait(trait_type) => supported_type(&AbiType::Trait(trait_type.clone())),
+        ConstraintAbi::Standard(kind) if kind.source_bound_name().is_some() => Ok(()),
+        _ => Err(NativeApiError(
+            "native declaration has no source-level constraint".into(),
+        )),
+    }
 }
 
 fn identifier(name: &str) -> bool {

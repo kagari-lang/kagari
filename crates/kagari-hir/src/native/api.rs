@@ -293,15 +293,7 @@ impl Importer<'_> {
                     .bounds
                     .iter()
                     .zip(&site.bounds[0].constraints)
-                    .map(|(constraint, span)| {
-                        let ConstraintAbi::Trait(trait_type) = constraint else {
-                            return Err(NativeApiError(
-                                "native associated bound requires a named trait".into(),
-                            ));
-                        };
-                        self.nominal_type(trait_type, *span)
-                            .map(|ty| TraitRef { ty })
-                    })
+                    .map(|(constraint, span)| self.constraint_ref(constraint, *span))
                     .collect::<Result<_, _>>()?;
                 associated_types.push(AssociatedType {
                     name,
@@ -547,13 +539,7 @@ impl Importer<'_> {
                 .constraints
                 .iter()
                 .zip(&site.constraints)
-                .map(|(constraint, span)| {
-                    let ConstraintAbi::Trait(trait_type) = constraint else {
-                        return Err(NativeApiError("native bound requires a named trait".into()));
-                    };
-                    self.nominal_type(trait_type, *span)
-                        .map(|ty| TraitRef { ty })
-                })
+                .map(|(constraint, span)| self.constraint_ref(constraint, *span))
                 .collect::<Result<_, _>>()?;
             result.push(TraitBound {
                 target: match &bound.ty {
@@ -565,6 +551,28 @@ impl Importer<'_> {
             });
         }
         Ok(result)
+    }
+
+    fn constraint_ref(
+        &mut self,
+        constraint: &ConstraintAbi,
+        span: Span,
+    ) -> Result<TraitRef, NativeApiError> {
+        let ty = match constraint {
+            ConstraintAbi::Trait(trait_type) => self.nominal_type(trait_type, span)?,
+            ConstraintAbi::Standard(kind) => {
+                let name = kind
+                    .source_bound_name()
+                    .ok_or_else(|| NativeApiError("native bound has no source name".into()))?;
+                self.lowerer.alloc_type(
+                    span,
+                    TypeData {
+                        kind: TypeKind::Named(name.into()),
+                    },
+                )
+            }
+        };
+        Ok(TraitRef { ty })
     }
 
     fn nominal_type(

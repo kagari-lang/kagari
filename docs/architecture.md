@@ -20,6 +20,16 @@ The bundled ops, array, cmp, math, numeric, Option, Result and String modules co
 the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
 
+Closed numeric Rust adapters own their signature predicates. NativeNumber<T>
+and NativeSignedNumber<T> emit OrderedNumber and SignedNumber respectively;
+registration resolves and deduplicates these predicates under the actual generic
+binder, including nested argument/result and selected-callback types. Direct HIR
+import and generated tooling views consume the same checked bound records.
+Portable native applications retain those predicates for verification and linking.
+Numeric operations validate finite operands without user method dispatch, preserve
+their applied scalar width, and leave algorithm trap ordering with the provider.
+The eleven math helpers use this ordinary route; application functions reuse it.
+
 Cross-package Rust authoring uses explicit NativeCatalog declaration views and
 fully qualified script identities. Consumers retain exact expected trait contracts,
 declared parents, referenced bounds and private default-template declarations.

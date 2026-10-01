@@ -158,11 +158,11 @@ impl ProofCatalog<'_> {
                 }))
             }
             StandardTypeConstraint::OrderedNumber => {
-                Ok(matches!(actual, AbiType::Builtin(ty) if ty.number_type().is_some()))
+                Ok(matches!(actual, AbiType::Builtin(ty) if required.accepts_builtin_number(*ty)))
             }
-            StandardTypeConstraint::SignedNumber => Ok(
-                matches!(actual, AbiType::Builtin(ty) if ty.integer_layout().is_some_and(|(_, signed)| signed) || matches!(ty, BuiltinType::F32 | BuiltinType::F64)),
-            ),
+            StandardTypeConstraint::SignedNumber => {
+                Ok(matches!(actual, AbiType::Builtin(ty) if required.accepts_builtin_number(*ty)))
+            }
         }
     }
 }

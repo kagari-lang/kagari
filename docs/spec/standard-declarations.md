@@ -260,10 +260,15 @@ fresh Result under the call's declared result type, with fresh Err origin tracki
 Err values remain ordinary values and do not become runtime traps. Arbitrary Rust
 Result conversion and opaque Rust value representations are not implied.
 
-The minimal NR implementation registers ArrayList new/len/push/from_fn, List
-len/get and MutableList.set, plus math floor/ceil/sqrt. Trait implementation
+The NR implementation registers ArrayList new/len/push/from_fn, List
+len/get and MutableList.set, plus all eleven specified math helpers. Trait implementation
 signatures derive from the registered trait declaration rather than being authored
-a second time. Math inputs/results must be finite; sqrt rejects negative inputs.
+a second time. Closed numeric adapters derive OrderedNumber/SignedNumber bounds
+from actual Rust signatures. They remain sealed engine predicates, independent
+of user ordering implementations. Math inputs/results must be finite; sqrt rejects
+negative inputs, abs checks the applied signed integer width, and clamp validates
+its bounds before comparing the value. Equal min/max operands preserve the left
+operand, including the sign of floating-point zero.
 Remaining source package declarations and namespace/prelude metadata use their legacy route during
 restoration; the rules below describe that route where not superseded here.
 Other standard implementation APIs are temporarily removed; their specified

@@ -1,0 +1,83 @@
+use std::math;
+use game::numbers;
+
+fn i8_min() -> i8 { math::min(0i8, 0i8) }
+fn i8_max() -> i8 { math::max(0i8, 0i8) }
+fn i8_clamp() -> i8 { math::clamp(0i8, 0i8, 0i8) }
+fn i8_application() -> i8 { numbers::smaller(0i8, 0i8) }
+fn i8_abs() -> i8 { math::abs(0i8) }
+fn i8_magnitude() -> i8 { numbers::magnitude(0i8) }
+fn i16_min() -> i16 { math::min(0i16, 0i16) }
+fn i16_max() -> i16 { math::max(0i16, 0i16) }
+fn i16_clamp() -> i16 { math::clamp(0i16, 0i16, 0i16) }
+fn i16_application() -> i16 { numbers::smaller(0i16, 0i16) }
+fn i16_abs() -> i16 { math::abs(0i16) }
+fn i16_magnitude() -> i16 { numbers::magnitude(0i16) }
+fn i32_min() -> i32 { math::min(0i32, 0i32) }
+fn i32_max() -> i32 { math::max(0i32, 0i32) }
+fn i32_clamp() -> i32 { math::clamp(0i32, 0i32, 0i32) }
+fn i32_application() -> i32 { numbers::smaller(0i32, 0i32) }
+fn i32_abs() -> i32 { math::abs(0i32) }
+fn i32_magnitude() -> i32 { numbers::magnitude(0i32) }
+fn i64_min() -> i64 { math::min(0i64, 0i64) }
+fn i64_max() -> i64 { math::max(0i64, 0i64) }
+fn i64_clamp() -> i64 { math::clamp(0i64, 0i64, 0i64) }
+fn i64_application() -> i64 { numbers::smaller(0i64, 0i64) }
+fn i64_abs() -> i64 { math::abs(0i64) }
+fn i64_magnitude() -> i64 { numbers::magnitude(0i64) }
+fn isize_min() -> isize { math::min(0isize, 0isize) }
+fn isize_max() -> isize { math::max(0isize, 0isize) }
+fn isize_clamp() -> isize { math::clamp(0isize, 0isize, 0isize) }
+fn isize_application() -> isize { numbers::smaller(0isize, 0isize) }
+fn isize_abs() -> isize { math::abs(0isize) }
+fn isize_magnitude() -> isize { numbers::magnitude(0isize) }
+fn u8_min() -> u8 { math::min(0u8, 0u8) }
+fn u8_max() -> u8 { math::max(0u8, 0u8) }
+fn u8_clamp() -> u8 { math::clamp(0u8, 0u8, 0u8) }
+fn u8_application() -> u8 { numbers::smaller(0u8, 0u8) }
+fn u16_min() -> u16 { math::min(0u16, 0u16) }
+fn u16_max() -> u16 { math::max(0u16, 0u16) }
+fn u16_clamp() -> u16 { math::clamp(0u16, 0u16, 0u16) }
+fn u16_application() -> u16 { numbers::smaller(0u16, 0u16) }
+fn u32_min() -> u32 { math::min(0u32, 0u32) }
+fn u32_max() -> u32 { math::max(0u32, 0u32) }
+fn u32_clamp() -> u32 { math::clamp(0u32, 0u32, 0u32) }
+fn u32_application() -> u32 { numbers::smaller(0u32, 0u32) }
+fn u64_min() -> u64 { math::min(0u64, 0u64) }
+fn u64_max() -> u64 { math::max(0u64, 0u64) }
+fn u64_clamp() -> u64 { math::clamp(0u64, 0u64, 0u64) }
+fn u64_application() -> u64 { numbers::smaller(0u64, 0u64) }
+fn usize_min() -> usize { math::min(0usize, 0usize) }
+fn usize_max() -> usize { math::max(0usize, 0usize) }
+fn usize_clamp() -> usize { math::clamp(0usize, 0usize, 0usize) }
+fn usize_application() -> usize { numbers::smaller(0usize, 0usize) }
+fn f32_min() -> f32 { math::min(0.0, 0.0) }
+fn f32_max() -> f32 { math::max(0.0, 0.0) }
+fn f32_clamp() -> f32 { math::clamp(0.0, 0.0, 0.0) }
+fn f32_application() -> f32 { numbers::smaller(0.0, 0.0) }
+fn f32_abs() -> f32 { math::abs(0.0) }
+fn f32_magnitude() -> f32 { numbers::magnitude(0.0) }
+fn f64_min() -> f64 { math::min(0.0, 0.0) }
+fn f64_max() -> f64 { math::max(0.0, 0.0) }
+fn f64_clamp() -> f64 { math::clamp(0.0, 0.0, 0.0) }
+fn f64_application() -> f64 { numbers::smaller(0.0, 0.0) }
+fn f64_abs() -> f64 { math::abs(0.0) }
+fn f64_magnitude() -> f64 { numbers::magnitude(0.0) }
+fn floor_value() -> f64 { math::floor(0.0) }
+fn ceil_value() -> f64 { math::ceil(0.0) }
+fn round_value() -> f64 { math::round(0.0) }
+fn sqrt_value() -> f64 { math::sqrt(0.0) }
+fn sin_value() -> f64 { math::sin(0.0) }
+fn cos_value() -> f64 { math::cos(0.0) }
+fn tan_value() -> f64 { math::tan(0.0) }
+
+fn forward<T: OrderedNumber>(a: T, b: T) -> T { numbers::smaller(math::min(a, b), b) }
+fn signed_forward<T: SignedNumber>(a: T) -> T { numbers::magnitude(math::abs(a)) }
+fn forwarded() -> (i32, i32) { (forward(7, 3), signed_forward(-4)) }
+
+fn ordered_arguments() -> i32 {
+    math::clamp(numbers::record(4), numbers::record(1), numbers::record(3))
+}
+fn reversed_arguments() -> i32 {
+    math::clamp(numbers::record(1), numbers::record(3), numbers::record(2))
+}

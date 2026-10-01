@@ -511,10 +511,14 @@ impl Renderer<'_> {
             if index != 0 {
                 self.text.push_str(" + ");
             }
-            let ConstraintAbi::Trait(trait_type) = constraint else {
-                return Err(NativeApiError("native bound requires a named trait".into()));
+            let name = match constraint {
+                ConstraintAbi::Trait(trait_type) => self.module.nominal_spelling(trait_type)?,
+                ConstraintAbi::Standard(kind) => kind
+                    .source_bound_name()
+                    .ok_or_else(|| NativeApiError("native bound has no source name".into()))?
+                    .into(),
             };
-            spans.push(self.name(&self.module.nominal_spelling(trait_type)?));
+            spans.push(self.name(&name));
         }
         Ok(spans)
     }

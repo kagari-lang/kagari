@@ -1,7 +1,10 @@
 //! Resolve typed dependency descriptors under the registered declaration binder.
 use crate::{
     error::RuntimeError,
-    native_module::{Method, invalid, nominal, types::Scope},
+    native_module::{
+        Method, invalid, nominal,
+        types::{Scope, TypeExpression},
+    },
 };
 use kagari_abi::{
     native_api::NativeModule,
@@ -22,6 +25,47 @@ pub(super) struct Selection {
 pub(super) fn resolve(scope: &Scope<'_>, method: &Method) -> Result<Selection, RuntimeError> {
     let mut bounds = BTreeMap::<AbiType, BTreeSet<ConstraintAbi>>::new();
     let mut requirements = vec![];
+    let mut pending: Vec<_> = method.params.iter().map(|(_, ty)| ty).collect();
+    pending.push(&method.result);
+    for selected in &method.selected {
+        pending.extend([&selected.receiver, &selected.interface, &selected.signature]);
+    }
+    while let Some(expression) = pending.pop() {
+        match expression {
+            TypeExpression::Constrained { ty, constraint } => {
+                bounds
+                    .entry(scope.resolve(ty)?)
+                    .or_default()
+                    .insert(ConstraintAbi::Standard(*constraint));
+                pending.push(ty);
+            }
+            TypeExpression::Named {
+                arguments,
+                bindings,
+                ..
+            } => {
+                pending.extend(arguments);
+                pending.extend(bindings.iter().map(|(_, ty)| ty));
+            }
+            TypeExpression::Projection {
+                receiver,
+                interface,
+                ..
+            } => {
+                pending.extend([receiver.as_ref(), interface.as_ref()]);
+            }
+            TypeExpression::Array(ty)
+            | TypeExpression::MutableArray(ty)
+            | TypeExpression::Iter(ty)
+            | TypeExpression::Range(ty, _) => pending.push(ty),
+            TypeExpression::Tuple(types) => pending.extend(types),
+            TypeExpression::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
+            TypeExpression::Parameter(_) | TypeExpression::Associated(_) => {}
+        }
+    }
     let cancel = CancellationToken::default();
     for selected in &method.selected {
         let receiver = scope.resolve(&selected.receiver)?;
