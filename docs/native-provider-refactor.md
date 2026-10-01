@@ -497,6 +497,138 @@ verify pinned callback behavior and unreachable-state collection. Preserve exist
 filter work-limit, non-fused, flat-map inner-state and early-close tests during
 restoration. A frame-only callback test cannot establish persistent-state support.
 
+#### Iterator::map implementation sketch
+
+The declaration remains `fn map<U>(self, callback: fn(Self::Item) -> U) -> Iter<U>`.
+The contract has one required callable, the applied source `Iterator::next`, and
+one managed state product. Its state fields contain the source and callback; its
+stepping result is `Option<U>`. The callback is a captured runtime value rather
+than a statically selected witness. Contract instantiation validates all of these
+relationships without a compiler/verifier branch for map.
+
+The proposed provider API can make this registration explicit:
+
+```rust
+provider.register(
+    MAP_CONTRACT,
+    NativeEntry::direct(map_construct)
+        .state_factory(MAP_STATE_CONTRACT, MapNext::start),
+)?;
+```
+
+These are API sketches, not existing compiling repository APIs. Registration
+resolves the state factory and its provider owner once. The constructor's context
+receives that linked state product together with its instantiated signatures and
+required callables; it does not search a global map-method registry.
+
+```rust
+const SOURCE: StateValueSlot = StateValueSlot::new(0);
+const TRANSFORM: StateValueSlot = StateValueSlot::new(1);
+const SOURCE_NEXT: StateCallableSlot = StateCallableSlot::new(0);
+const REQUIRED_SOURCE_NEXT: RequirementId = RequirementId::new(0);
+
+fn map_construct(
+    cx: &mut NativeContext,
+    args: NativeArguments,
+) -> Result<RootedValue, NativeError> {
+    let source = args.value(0)?;
+    let transform = args.value(1)?;
+    let next = cx.required_callable(REQUIRED_SOURCE_NEXT)?;
+    let state = cx.new_registered_state(
+        [source, transform],
+        [next],
+        (), // Map needs no persistent Rust counter or phase.
+    )?;
+    cx.new_result_iterator(state)
+}
+
+enum MapPhase {
+    Start,
+    WaitingSource,
+    WaitingTransform,
+    Finished,
+}
+
+struct MapNext {
+    state: RootedNativeState,
+    phase: MapPhase,
+}
+
+impl MapNext {
+    fn start(state: RootedNativeState) -> Box<dyn NativeInvocation> {
+        Box::new(Self { state, phase: MapPhase::Start })
+    }
+}
+
+impl NativeInvocation for MapNext {
+    fn resume(
+        &mut self,
+        cx: &mut NativeContext,
+        event: NativeEvent,
+    ) -> Result<NativeStep, NativeError> {
+        match self.phase {
+            MapPhase::Start => {
+                event.expect_start()?;
+                let source = cx.state_value(&self.state, SOURCE)?;
+                let next = cx.state_required_callable(&self.state, SOURCE_NEXT)?;
+                self.phase = MapPhase::WaitingSource;
+                Ok(NativeStep::Call { target: next, args: vec![source] })
+            }
+            MapPhase::WaitingSource => {
+                let value = event.returned()?; // Propagate ordinary call failure.
+                match cx.read_option(value)? {
+                    None => {
+                        cx.end_iteration(&self.state)?;
+                        self.phase = MapPhase::Finished;
+                        Ok(NativeStep::Return(cx.result_none()?))
+                    }
+                    Some(item) => {
+                        let transform = cx.state_callable_value(&self.state, TRANSFORM)?;
+                        self.phase = MapPhase::WaitingTransform;
+                        Ok(NativeStep::Call { target: transform, args: vec![item] })
+                    }
+                }
+            }
+            MapPhase::WaitingTransform => {
+                let mapped = event.returned()?;
+                self.phase = MapPhase::Finished;
+                Ok(NativeStep::Return(cx.result_some(mapped)?))
+            }
+            MapPhase::Finished => Err(NativeError::InvalidContinuation),
+        }
+    }
+}
+```
+
+Slot IDs above are private constants checked against this provider's state/requirement
+descriptor, not global method IDs. The descriptor relates SOURCE to the first
+parameter and iterator-guard dependency, TRANSFORM to the checked function parameter,
+and SOURCE_NEXT to REQUIRED_SOURCE_NEXT's selected callable. Import requirement
+identity and state-local slot index remain distinct. `new_registered_state` converts
+temporary roots to managed graph edges, validates their concrete types and retains
+callable metadata with value captures in traced slots. `new_result_iterator` binds
+the registered stepping entry and the declared result's concrete item type.
+
+Every next call gets a fresh `MapNext`; its root keeps persistent state reachable.
+`Finished` marks only that invocation, not permanent source exhaustion. A later
+next can observe Some after a previous None when allowed by the source contract.
+State accessors return rooted values/checked handles and release internal borrows
+before returning Call. `end_iteration` performs managed guard cleanup under the
+existing dependency/alias policy, without executing a user close method.
+
+The driver executes either source next or transform through the same checked
+Script/Native/interface entry machinery and returns an owned, rooted outcome.
+It contains no MapPhase switch. If transform fails, the source has already advanced;
+that advance and completed side effects remain. Generic failure cleanup releases
+the invocation and appropriate guards. Sticky termination bypasses recoverable
+callback outcomes.
+
+This sketch intentionally groups algorithm phases. The implementation must retain
+the established logical charging, cancellation polls and allocation-failure points,
+including Option payload extraction/construction. A single charge per shown phase
+is not a replacement accounting policy. NR00 records the concrete managed-context
+operations before implementing this example.
+
 #### Minimal slice and removal boundary
 
 Use a small `std::array` slice: `len` tests a direct generic receiver; `from_fn`
@@ -662,6 +794,15 @@ resolved. Do not reopen completed ST phase ledgers for this follow-up.
 
 ## Progress ledger
 
+- 2026-10-01: Added a concrete proposed `Iterator::map` registration, constructor
+  and per-next invocation sketch. Construction captures without traversal;
+  source-next and transform are checked calls on the same driver. Distinguished
+  captured callable values from required-callable metadata, persistent GC edges
+  from invocation roots, and one-call completion from fused exhaustion. Recorded
+  source progress after callback failure, managed guard cleanup and the requirement
+  to retain detailed existing work/allocation boundaries. The API is illustrative
+  and not implemented in Rust by this documentation checkpoint. All 27 local
+  links/heading anchors and diff checks pass; no Rust tests were run.
 - 2026-10-01: Follow-up design review for lazy iterators separates one-call native
   invocation from persistent GC-reachable state. Added managed traced value edges,
   owned Rust payload limits, pinned callable/provider generations and checked
