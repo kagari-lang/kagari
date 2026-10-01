@@ -111,6 +111,7 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
     let root = ModuleIdentity::single_file("wire-root");
     let dependency = ModuleIdentity::single_file("wire-dependency");
     let empty = |identity, dependencies| MirModule {
+        native_targets: vec![],
         identity,
         dependencies,
         interface_instances: vec![],

@@ -220,6 +220,7 @@ impl NativeModuleBuilder {
             associated: &[],
         };
         self.module.implementations.push(NativeImplementation {
+            bounds: vec![],
             generic_params: scope.generics(),
             trait_type: None,
             for_type,

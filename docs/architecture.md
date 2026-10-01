@@ -41,7 +41,9 @@ interface methods require no synthetic script body; diagnostic frames identify
 the actual native target without inventing a source location. ABI validation has
 no syntax, HIR or source catalog dependencies. Native declarations may own ordered
 trait-member requirements. Checked applications carry concrete selected targets
-and signatures; offline verification proves the selection and runtime callbacks
+and signatures. MIR also carries body-free native target contracts for interface
+slots and selected native dependencies; backend lowering consumes those records.
+Offline verification proves the selection and runtime callbacks
 use the owner's retained dependency generation without resolving trait syntax.
 
 Trait method signatures carry declaration override policy independently of their

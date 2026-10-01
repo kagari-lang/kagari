@@ -9,7 +9,7 @@ migration checkpoint with final combined acceptance and matched measurements ope
 Those obligations carry into NR final acceptance; they are not claimed complete.
 The [roadmap](implementation-roadmap.md) records the revised ordering. The first
 checkpoint replaced method override policy. Declaration identities, common imports and a
-direct/trait/callback array proof now execute; method/default callable metadata, persistent
+direct/trait/callback array proof now execute; typed callable/default metadata, persistent
 state, arbitrary external source catalogs and full-library restoration remain open.
 
 ## Current design decision (2026-10-01)
@@ -126,9 +126,9 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Boundary | Current evidence | Required before dependent families |
 | --- | --- | --- |
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
-| Static checking and tooling | Minimal array records, free-function named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
+| Static checking and tooling | Minimal array records, free-function/impl/inherent-method named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered free-function requirements select script/native targets | Complete method/default requirement authoring and remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered free-function requirements select script/native targets | Complete typed requirement authoring, native defaults and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -247,7 +247,8 @@ an execution owner without rebuilding a central method catalog in production.
 - [ ] 2: common selected calls, callback packs and traceable returned state.
   - [x] Typed outer argument packs and checked resumed results; external repeated/nested proof.
   - [x] Named free-function bounds, associated outputs and checked selected trait-member callback proof.
-  - [ ] Native method/default requirements and typed authoring, Ord/sort_by/sort.
+  - [x] Impl/inherent-method bounds, native method requirements and checked MIR target materialization.
+  - [ ] Native default requirements, typed authoring, Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
@@ -2106,3 +2107,54 @@ Next: materialize requirements for native methods and dynamic slots through chec
 MIR facts, add typed requirement authoring, then restore Ord/Ordering and
 sort_by/sort. Prove managed iterator state before bulk dependent restoration.
 Goal mode remains active.
+
+
+### NR02 checkpoint: checked native method applications (2026-10-01)
+
+Checkpoint 2 now carries selected requirements for registered native methods,
+including dynamic interface slots. No complete NR phase is accepted. Typed
+requirement authoring, native defaults, Ord/sorting, managed returned state and
+the remaining library restoration are still open.
+
+- Materialize module-owned concrete native applications in MIR while the checked
+  source catalog is available. Include complete signatures, inherited bounds and
+  selected dependencies; demand their script/native instances and count generic
+  instances in the existing whole-program budget. Share application traversal
+  between instruction calls and body-free native targets.
+- Require ordinary native interface slots to have corresponding checked targets
+  before portable MIR can be sealed, including dynamic-only programs. Backend
+  lowering copies those contracts instead of reconstructing an application from
+  interface signatures. Portable linking reselects requirements and checks actual
+  native targets as well as script bodies.
+- Add implementation bounds and inherent-method bounds to registration records,
+  HIR import and generated tooling coordinates. Canonically combine inherited
+  obligations without silently accepting malformed original bounds. Trait method
+  implementations cannot strengthen their contracts. Bound targets retain the
+  specification's generic-parameter/projection restriction.
+- Extend the independent application fixture with Array<T>: Source where T: Hook
+  and an inherent check_first entry requiring T: Hook. Both invoke caller-private
+  script methods through the shared driver, including forced allocation under GC
+  threshold one, direct/dynamic calls, nested selected native calls, budget cuts,
+  traps and generation-pinned reload. Root/frame counts return to zero.
+- Reject missing, duplicate and forged portable native method targets, removed
+  selected requirements, incorrect signatures/owners and malformed declaration
+  bounds. Missing Hook implementations fail source checking before execution.
+- Bump KMIR to v13 for the explicit native target table. Runtime ABI v138, KBC v115
+  and helper ABI v6 stay unchanged: their schemas already contain complete native
+  applications and portable MIR remains a separately versioned opaque payload.
+  Regenerate the three focused KBC products and verify exact source emission.
+
+Validation actually performed: the previous 77-test SDK run plus the added callback
+trap test yield 78 passing SDK tests, including all 26 native_associated tests.
+The four independent native-proof consumers, eight production boundaries and
+source-free ABI graph pass; source-enabled associated consumers are rerun after
+the additional trap test. Workspace library and focused SDK Clippy pass with
+-D warnings. Format, structure (823 Rust files, zero findings/exceptions) and diff
+checks pass. Manual review covers bounded decoding, explicit owner imports, the
+empty re-export whitelist, checked target ownership and callback roots/version
+retention. Existing full-workspace and all-target fixture failures remain owned by
+NR04; unchanged failures were not rerun or disabled, and final acceptance is open.
+
+Next: expose typed selected-call requirements in Rust authoring and complete native
+default metadata, then restore Ord/Ordering and sort_by/sort. Prove managed iterator
+state before dependent restoration. Goal mode remains active.

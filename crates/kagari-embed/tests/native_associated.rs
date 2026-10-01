@@ -67,7 +67,7 @@ fn associated_declarations_and_bindings_render_checked_sites_and_derived_signatu
             .contains("fn head(self) -> <Self as Source>::Item;")
     );
     assert!(source.text.contains(
-        "impl<T0> Source for Bag<T0> {\n    type Item = T0;\n    pub fn head(self) -> T0;"
+        "impl<T0> Source for Bag<T0> where T0: Hook {\n    type Item = T0;\n    pub fn head(self) -> T0;"
     ));
     assert!(source.text.contains("fn echo<T0>(value: <T0 as Source>::Item, source: T0) -> <T0 as Source>::Item where T0: Source;"));
     let item = associated_type_id(&module.definition(DefinitionKind::Trait, "Source"), "Item");
@@ -353,18 +353,25 @@ fn selected_callbacks_reject_invalid_slots_and_arguments_before_target_entry() {
     for case in 0..3 {
         let target_calls = Rc::new(Cell::new(0));
         let module = fixture_api::module();
-        let handlers = ["head", "echo", "forward", "selected_head", "nested_head"]
-            .into_iter()
-            .map(|name| {
-                let target_calls = target_calls.clone();
-                NativeHandler::new(binding_id(&module.identity, name), 0, move |_| {
-                    if name == "head" {
-                        target_calls.set(target_calls.get() + 1);
-                    }
-                    Ok(Box::new(InvalidSelected(case)))
-                })
+        let handlers = [
+            "head",
+            "echo",
+            "forward",
+            "selected_head",
+            "nested_head",
+            "check_first",
+        ]
+        .into_iter()
+        .map(|name| {
+            let target_calls = target_calls.clone();
+            NativeHandler::new(binding_id(&module.identity, name), 0, move |_| {
+                if name == "head" {
+                    target_calls.set(target_calls.get() + 1);
+                }
+                Ok(Box::new(InvalidSelected(case)))
             })
-            .collect();
+        })
+        .collect();
         let engine = KagariEngine::builder()
             .install_standard_library(false)
             .install(NativeApi::new(vec![module], handlers))
@@ -403,7 +410,12 @@ fn forged_selected_trait_dependencies_are_rejected_offline() {
             .modules
             .iter_mut()
             .flat_map(|module| &mut module.native_imports)
-            .find(|import| !import.callables.is_empty())
+            .find(|import| {
+                import.callables.first().is_some_and(|call| {
+                    matches!(call.implementation, CallableImplementation::Native(_))
+                        && !call.instance.arguments.is_empty()
+                })
+            })
             .unwrap();
         match case {
             0 => import.callables.clear(),
@@ -507,6 +519,41 @@ fn native_callable_requirements_validate_members_binders_and_declared_bounds() {
 }
 
 #[test]
+fn registration_rejects_malformed_impl_and_inherent_method_bounds() {
+    for case in 0..5 {
+        let mut module = fixture_api::module();
+        match case {
+            0 => {
+                module.implementations[0].bounds[0].ty = AbiType::Parameter {
+                    owner: module.implementation_id(1),
+                    position: 0,
+                }
+            }
+            1 => {
+                let bound = &mut module.implementations[0].bounds[0];
+                bound.constraints.push(bound.constraints[0].clone());
+            }
+            2 => {
+                let method = &mut module.implementations[1].methods[0];
+                method.bounds.push(method.bounds[0].clone());
+            }
+            3 => {
+                let bound = &mut module.implementations[1].methods[0].bounds[0];
+                bound.constraints.push(bound.constraints[0].clone());
+            }
+            4 => {
+                module.implementations[1].methods[0].bounds[0].ty = AbiType::Parameter {
+                    owner: module.implementation_id(0),
+                    position: 0,
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(module.validate().is_err(), "malformed native bounds {case}");
+    }
+}
+
+#[test]
 fn associated_output_receivers_select_their_own_native_member_instances() {
     let calls = Rc::new(Cell::new(0));
     let engine = configured_engine(calls.clone(), false);
@@ -533,6 +580,30 @@ fn associated_output_receivers_select_their_own_native_member_instances() {
 }
 
 #[test]
+fn native_inherent_method_requirements_use_checked_script_callbacks_offline() {
+    let engine = configured_engine(Rc::new(Cell::new(0)), false);
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(), Default::default())
+        .unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "selected_method_main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+}
+
+#[test]
 fn native_interface_frames_charge_continuations_and_clean_up_exhausted_budgets() {
     let calls = Rc::new(Cell::new(0));
     let engine = configured_engine(calls.clone(), false);
@@ -547,6 +618,7 @@ fn native_interface_frames_charge_continuations_and_clean_up_exhausted_budgets()
         "selected_native_main",
         "selected_script_main",
         "selected_nested_main",
+        "selected_method_main",
     ] {
         let mut finished = false;
         for limit in 0..100 {
@@ -758,6 +830,50 @@ mod source {
     use super::*;
     use kagari_common::{source::SourceFile, source_database::SourceLayer};
 
+    #[cfg(feature = "native")]
+    #[test]
+    fn portable_mir_rejects_missing_or_forged_native_method_instances() {
+        use kagari_mir::{codec::decode_program, program::verify_program};
+        let engine = engine(Rc::new(Cell::new(0)));
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "memory://native-method-mir.kgr",
+                    "
+            use game::associated::{Source, Hook};
+            impl Hook for i32 { fn check(self) {} }
+            fn main() -> i32 { val source: Source<Item = i32> = [42]; source.head() }
+        ",
+                ),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let payload = &artifact.portable_mir.as_ref().unwrap().bytes;
+        let checked = decode_program(payload, &Default::default()).unwrap();
+        let root = checked.root().clone();
+        let modules = checked.into_unverified();
+        for case in 0..5 {
+            let mut forged = modules.clone();
+            let owner = forged
+                .iter_mut()
+                .find(|module| !module.native_targets.is_empty())
+                .unwrap();
+            match case {
+                0 => owner.native_targets.clear(),
+                1 => owner.native_targets.push(owner.native_targets[0].clone()),
+                2 => owner.native_targets[0].callables.clear(),
+                3 => owner.native_targets[0].signature.result = AbiType::Builtin(BuiltinType::Bool),
+                4 => owner.native_targets[0].instance.declaration.module = root.clone(),
+                _ => unreachable!(),
+            }
+            assert!(
+                verify_program(root.clone(), forged, &Default::default()).is_err(),
+                "forged native MIR {case}"
+            );
+        }
+    }
+
     #[test]
     fn registered_associated_members_navigate_to_generated_docs() {
         let engine = engine(Rc::new(Cell::new(0)));
@@ -859,6 +975,47 @@ mod source {
     }
 
     #[test]
+    fn native_method_script_callback_traps_release_retained_values_and_frames() {
+        let calls = Rc::new(Cell::new(0));
+        let engine = engine(calls.clone());
+        let text = include_str!("fixtures/native_associated.kgr")
+            .replace("scratch[0usize];", "scratch[1usize];");
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("memory://native-method-trap.kgr", text),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime.load_program(&program, Default::default()).unwrap();
+        for entry in [
+            "selected_method_main",
+            "dynamic_main",
+            "selected_native_main",
+        ] {
+            let error = runtime.execute(&loaded, entry, &[], &context).unwrap_err();
+            assert_eq!(
+                error.error_trace().unwrap().frames[0].function_name,
+                "check"
+            );
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                runtime.runtime().resources().counters().current_call_depth,
+                0
+            );
+            assert!(!runtime.runtime().is_quarantined());
+            runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        }
+        assert_eq!(calls.get(), 2);
+    }
+
+    #[test]
     fn registered_output_bounds_reject_missing_and_wrong_script_associations() {
         let calls = Rc::new(Cell::new(0));
         let engine = engine(calls.clone());
@@ -866,6 +1023,8 @@ mod source {
             "use game::associated::Marked; struct Owner {} impl Marked for Owner {} fn main() {}",
             "use game::associated::Marked; struct Owner {} impl Marked for Owner { type Item = i32; } fn main() {}",
             "use game::associated::{echo, Bag}; fn main() { echo::<Bag<i32>>(true, [1]); }",
+            "fn main() { [true].check_first(); }",
+            "use game::associated::Source; fn main() { val source: Source<Item = bool> = [true]; source.head(); }",
         ] {
             assert!(
                 engine

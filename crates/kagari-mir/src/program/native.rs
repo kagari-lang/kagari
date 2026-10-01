@@ -1,12 +1,12 @@
 //! Link provider-qualified imports against carried declarations and witnesses.
-use crate::{
-    function::MirModule,
-    instruction::{CallTarget, Instruction},
-    verify::VerifiedMirModule,
-};
+use crate::{function::MirModule, verify::VerifiedMirModule};
 use kagari_abi::{
     callable::CallableImplementation,
-    types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError},
+    native_import::NativeSignature,
+    types::{
+        ConcreteFunctionIdentity, PublicAbiItem, proofs::ProofCatalog,
+        substitution::TypeTransformError,
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -67,6 +67,9 @@ pub(super) fn validate(
     if !catalog.overrides_valid(cancel)? {
         return Ok(false);
     }
+    if !native_slots_valid(caller, &catalog, cancel)? {
+        return Ok(false);
+    }
     if caller
         .abi
         .native_declarations
@@ -76,23 +79,7 @@ pub(super) fn validate(
     {
         return Ok(false);
     }
-    for import in caller
-        .functions
-        .iter()
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.instructions)
-        .filter_map(|instruction| {
-            if let Instruction::Call {
-                callee: CallTarget::Native(import),
-                ..
-            } = instruction
-            {
-                Some(import)
-            } else {
-                None
-            }
-        })
-    {
+    for import in caller.native_applications() {
         if import.host.is_some() {
             if !import.structurally_valid() {
                 return Ok(false);
@@ -117,6 +104,19 @@ pub(super) fn validate(
             return Ok(false);
         }
         for callable in &import.callables {
+            if let CallableImplementation::Native(binding) = &callable.implementation
+                && !closure
+                    .iter()
+                    .flat_map(|owner| &owner.native_targets)
+                    .any(|target| {
+                        target.instance == callable.instance
+                            && &target.binding == binding
+                            && target.signature == callable.signature
+                            && target.host.is_none()
+                    })
+            {
+                return Ok(false);
+            }
             if callable.implementation == CallableImplementation::Script {
                 let Some(target) = closure
                     .iter()
@@ -142,6 +142,81 @@ pub(super) fn validate(
                 {
                     return Ok(false);
                 }
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn native_slots_valid(
+    module: &MirModule,
+    catalog: &ProofCatalog<'_>,
+    cancel: &CancellationToken,
+) -> Result<bool, TypeTransformError> {
+    let base = module
+        .abi
+        .public_items
+        .iter()
+        .filter_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) if table.generic_params.is_empty() => {
+                Some(ConcreteFunctionIdentity {
+                    declaration: table.declaration.clone(),
+                    arguments: vec![],
+                })
+            }
+            _ => None,
+        });
+    for instance in base.chain(module.interface_instances.iter().cloned()) {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        if instance.declaration.module != module.identity {
+            continue;
+        }
+        let Some(template) = module.abi.public_items.iter().find_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) if table.declaration == instance.declaration => {
+                Some(table)
+            }
+            _ => None,
+        }) else {
+            return Ok(false);
+        };
+        if template.native_bridge
+            || template.host_bridge
+            || instance.arguments.is_empty() && !template.generic_params.is_empty()
+        {
+            continue;
+        }
+        let Some(table) = template.instantiate(&instance.arguments) else {
+            return Ok(false);
+        };
+        for method in &table.methods {
+            let CallableImplementation::Native(binding) = &method.implementation else {
+                continue;
+            };
+            if !method.generic_params.is_empty() {
+                continue;
+            }
+            let mut declaration = instance.declaration.clone();
+            declaration.path.push(DefinitionPathSegment {
+                kind: DefinitionKind::Method,
+                name: method.name.clone(),
+                occurrence: 0,
+            });
+            let signature = NativeSignature {
+                params: method
+                    .params
+                    .iter()
+                    .map(|param| catalog.normalize(&param.ty, cancel))
+                    .collect::<Result<_, _>>()?,
+                result: catalog.normalize(&method.return_type, cancel)?,
+            };
+            if !module.native_targets.iter().any(|target| {
+                target.instance.declaration == declaration
+                    && target.instance.arguments == instance.arguments
+                    && &target.binding == binding
+                    && target.signature == signature
+                    && target.host.is_none()
+            }) {
+                return Ok(false);
             }
         }
     }

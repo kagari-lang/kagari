@@ -1,5 +1,5 @@
 use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
-use kagari_abi::{callable::CallableImplementation, types::ConcreteFunctionIdentity};
+use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_hir::{resolver::resolved::ResolvedName, typeck::FunctionImplementation};
@@ -92,6 +92,11 @@ pub fn lower_program_to_mir(
                     .interface_instances
                     .iter()
                     .filter(|instance| !instance.arguments.is_empty())
+                    .count()
+                + lowered
+                    .native_targets
+                    .iter()
+                    .filter(|target| !target.instance.arguments.is_empty())
                     .count();
             remaining.max_instructions -= lowered
                 .functions
@@ -120,8 +125,13 @@ pub fn lower_program_to_mir(
         }
         let materialized: HashSet<_> = modules
             .iter()
-            .flat_map(|module| &module.functions)
-            .map(|function| &function.instance)
+            .flat_map(|module| {
+                module
+                    .functions
+                    .iter()
+                    .map(|function| &function.instance)
+                    .chain(module.native_targets.iter().map(|target| &target.instance))
+            })
             .collect();
         for instance in modules.iter().flat_map(callable_demands) {
             options.cancel.check().map_err(|_| ProgramError {
@@ -196,8 +206,13 @@ pub fn lower_program_to_mir(
                         typed.id == function
                             && matches!(typed.implementation, FunctionImplementation::Native(_))
                     })
+                    && !owner
+                        .lowered
+                        .registered_native_declarations()
+                        .iter()
+                        .any(|declaration| declaration.declaration == method)
                 {
-                    // Native declarations carry entry contracts, not source bodies.
+                    // Legacy engine/host adapters retain their existing lowering.
                     continue;
                 }
                 if owner
@@ -237,17 +252,8 @@ pub fn lower_program_to_mir(
 fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIdentity> + '_ {
     let callables = callable_demands(module).map(|instance| instance.declaration.module);
     let native = module
-        .functions
-        .iter()
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.instructions)
-        .filter_map(|instruction| match instruction {
-            Instruction::Call {
-                callee: CallTarget::Native(contract),
-                ..
-            } if contract.host.is_none() => Some(contract),
-            _ => None,
-        })
+        .native_applications()
+        .filter(|contract| contract.host.is_none())
         .flat_map(|contract| {
             iter::once(contract.instance.declaration.module.clone()).chain(
                 contract
@@ -260,7 +266,7 @@ fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIden
 }
 
 fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunctionIdentity> + '_ {
-    module
+    let script = module
         .functions
         .iter()
         .flat_map(|function| &function.blocks)
@@ -273,15 +279,12 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
                 declaration: contract.declaration.clone(),
                 arguments: contract.arguments.clone(),
             }],
-            Instruction::Call {
-                callee: CallTarget::Native(import),
-                ..
-            } => import
-                .callables
-                .iter()
-                .filter(|call| call.implementation == CallableImplementation::Script)
-                .map(|call| call.instance.clone())
-                .collect(),
             _ => vec![],
-        })
+        });
+    script.chain(
+        module
+            .native_applications()
+            .flat_map(|import| &import.callables)
+            .map(|call| call.instance.clone()),
+    )
 }

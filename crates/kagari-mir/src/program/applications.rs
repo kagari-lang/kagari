@@ -23,6 +23,20 @@ pub(super) fn validate<'a>(
             validator.types(&required.arguments)?;
         }
     }
+    for import in module.native_applications() {
+        validator.types(&import.instance.arguments)?;
+        validator.types(&import.signature.params)?;
+        validator.validate_type(&import.signature.result)?;
+        validator.bounds(&import.requirements)?;
+        for call in &import.callables {
+            validator.types(&call.instance.arguments)?;
+            validator.validate_type(&call.requirement.receiver)?;
+            validator.trait_application(&call.requirement.interface)?;
+            validator.types(&call.requirement.arguments)?;
+            validator.types(&call.signature.params)?;
+            validator.validate_type(&call.signature.result)?;
+        }
+    }
     validator.layouts(&module.structures, &module.enumerations)?;
     for instance in &module.interface_instances {
         validator.types(&instance.arguments)?;
@@ -54,23 +68,6 @@ pub(super) fn validate<'a>(
                 Instruction::ReadAggregateField { field, .. }
                 | Instruction::WriteAggregateField { field, .. } => {
                     validator.nominal_arguments(&field.owner)?
-                }
-                Instruction::Call {
-                    callee: CallTarget::Native(import),
-                    ..
-                } => {
-                    validator.types(&import.instance.arguments)?;
-                    validator.types(&import.signature.params)?;
-                    validator.validate_type(&import.signature.result)?;
-                    validator.bounds(&import.requirements)?;
-                    for call in &import.callables {
-                        validator.types(&call.instance.arguments)?;
-                        validator.validate_type(&call.requirement.receiver)?;
-                        validator.trait_application(&call.requirement.interface)?;
-                        validator.types(&call.requirement.arguments)?;
-                        validator.types(&call.signature.params)?;
-                        validator.validate_type(&call.signature.result)?;
-                    }
                 }
                 Instruction::Call {
                     callee: CallTarget::SourceFunction(contract),

@@ -4,8 +4,8 @@ use crate::bytecode::BytecodeLoweringError;
 use kagari_abi::{
     callable::CallableImplementation,
     ids::FunctionRef,
-    native_import::{NativeImport, NativeSignature},
-    types::{AbiType, ConcreteFunctionIdentity, InterfaceTableAbi, PublicAbiItem},
+    native_import::NativeImport,
+    types::{AbiType, ConcreteFunctionIdentity, PublicAbiItem},
 };
 use kagari_bytecode::{
     instruction::NativeImportId,
@@ -106,7 +106,15 @@ pub(super) fn collect_interface_tables(
                     {
                         continue;
                     }
-                    let contract = native_application(abi, &instance.arguments, &declaration)?;
+                    let contract = ir
+                        .native_targets
+                        .iter()
+                        .find(|target| {
+                            target.instance.declaration == declaration
+                                && target.instance.arguments == instance.arguments
+                        })
+                        .cloned()
+                        .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
                     let index = imports
                         .iter()
                         .position(|existing| *existing == contract)
@@ -148,44 +156,4 @@ fn child(owner: &DefinitionId, segment: DefinitionPathSegment) -> DefinitionId {
     let mut declaration = owner.clone();
     declaration.path.push(segment);
     declaration
-}
-
-fn native_application(
-    abi: &InterfaceTableAbi,
-    arguments: &[AbiType],
-    declaration: &DefinitionId,
-) -> Result<NativeImport, BytecodeLoweringError> {
-    let invalid = || BytecodeLoweringError::InvalidNativeInterface;
-    let applied = abi.instantiate(arguments).ok_or_else(invalid)?;
-    let method = applied
-        .methods
-        .iter()
-        .find(|method| {
-            declaration
-                .path
-                .last()
-                .is_some_and(|part| part.name == method.name)
-        })
-        .ok_or_else(invalid)?;
-    let CallableImplementation::Native(binding) = &method.implementation else {
-        return Err(invalid());
-    };
-    let import = NativeImport {
-        callables: vec![],
-        instance: ConcreteFunctionIdentity {
-            declaration: declaration.clone(),
-            arguments: arguments.to_vec(),
-        },
-        binding: binding.clone(),
-        host: None,
-        signature: NativeSignature {
-            params: method.params.iter().map(|param| param.ty.clone()).collect(),
-            result: method.return_type.clone(),
-        },
-        requirements: method.bounds.clone(),
-    };
-    if !import.structurally_valid() {
-        return Err(invalid());
-    }
-    Ok(import)
 }

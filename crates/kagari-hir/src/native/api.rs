@@ -20,9 +20,14 @@ use crate::{
 };
 use kagari_abi::{
     callable::CallableImplementation,
-    native_api::{NativeApiError, NativeModule, render::NativeApiSource},
+    native_api::{
+        NativeApiError, NativeModule,
+        render::{NativeApiSource, NativeBoundSite},
+    },
     standard::surface::builtin_type_spec,
-    types::{AbiType, ConstraintAbi, FunctionAbi, GenericParameterAbi, NominalAbiType},
+    types::{
+        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi, NominalAbiType,
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -292,12 +297,13 @@ impl Importer<'_> {
                     function,
                 });
             }
+            let bounds = self.bounds(&implementation.bounds, &site.bounds)?;
             self.lowerer.module.impls.push(Impl {
                 id,
                 generic_params,
                 trait_ref,
                 for_type: Some(for_type),
-                bounds: vec![],
+                bounds,
                 methods,
                 associated_types,
                 associated_consts: vec![],
@@ -376,30 +382,7 @@ impl Importer<'_> {
             });
         }
         let return_type = Some(self.ty(&function.return_type, site.name_span)?);
-        let mut bounds = vec![];
-        for (bound, site) in function.bounds.iter().zip(&site.bounds) {
-            let target_ref = self.ty(&bound.ty, site.target)?;
-            let traits = bound
-                .constraints
-                .iter()
-                .zip(&site.constraints)
-                .map(|(constraint, span)| {
-                    let ConstraintAbi::Trait(trait_type) = constraint else {
-                        return Err(NativeApiError("native bound requires a named trait".into()));
-                    };
-                    self.nominal_type(trait_type, *span)
-                        .map(|ty| TraitRef { ty })
-                })
-                .collect::<Result<_, _>>()?;
-            bounds.push(TraitBound {
-                target: match &bound.ty {
-                    AbiType::Parameter { position, .. } => format!("T{position}"),
-                    _ => String::new(),
-                },
-                target_ref,
-                traits,
-            });
-        }
+        let bounds = self.bounds(&function.bounds, &site.bounds)?;
         self.lowerer.source_map.set_owner(old);
         if let CallableImplementation::Native(binding) = &function.implementation {
             self.native_functions.insert(id, binding.clone());
@@ -421,6 +404,38 @@ impl Importer<'_> {
         });
         Ok(id)
     }
+    fn bounds(
+        &mut self,
+        bounds: &[GenericBoundAbi],
+        sites: &[NativeBoundSite],
+    ) -> Result<Vec<TraitBound>, NativeApiError> {
+        let mut result = vec![];
+        for (bound, site) in bounds.iter().zip(sites) {
+            let target_ref = self.ty(&bound.ty, site.target)?;
+            let traits = bound
+                .constraints
+                .iter()
+                .zip(&site.constraints)
+                .map(|(constraint, span)| {
+                    let ConstraintAbi::Trait(trait_type) = constraint else {
+                        return Err(NativeApiError("native bound requires a named trait".into()));
+                    };
+                    self.nominal_type(trait_type, *span)
+                        .map(|ty| TraitRef { ty })
+                })
+                .collect::<Result<_, _>>()?;
+            result.push(TraitBound {
+                target: match &bound.ty {
+                    AbiType::Parameter { position, .. } => format!("T{position}"),
+                    _ => String::new(),
+                },
+                target_ref,
+                traits,
+            });
+        }
+        Ok(result)
+    }
+
     fn nominal_type(
         &mut self,
         nominal: &NominalAbiType,

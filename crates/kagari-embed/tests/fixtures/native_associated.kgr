@@ -1,5 +1,22 @@
-use game::associated::{Source, echo, forward, selected_head, nested_head};
+use game::associated::{Source, Hook, echo, forward, selected_head, nested_head};
 use game::typed_associated::{TypedSource, Transform};
+impl Hook for i32 {
+    fn check(self) {
+        val scratch = [0];
+        scratch[0usize];
+    }
+}
+impl Hook for ArrayList<i32> {
+    fn check(self) {
+        val scratch = [0];
+        scratch[0usize];
+    }
+}
+fn selected_method_main() -> i32 {
+    val values = [[42]];
+    values.check_first();
+    values[0usize][0usize]
+}
 fn read<S: Source>(source: S) -> S::Item { source.head() }
 fn dynamic_main() -> i32 {
     val source: Source<Item = ArrayList<i32>> = [[42]];

@@ -117,6 +117,7 @@ impl NativeModule {
                 output.text.push_str(" for ");
             }
             let name_span = output.name(&self.type_spelling(&implementation.for_type)?);
+            let bounds = output.bounds(&implementation.bounds)?;
             output.text.push_str(" {\n");
             if let Some(trait_type) = &implementation.trait_type {
                 for (member, ty) in &trait_type.associated_types {
@@ -139,7 +140,12 @@ impl NativeModule {
                 output.function(Self::method_id(&id, &method.name), method, true)?;
             }
             output.text.push_str("}\n\n");
-            output.site(id, start, name_span, generics, vec![]);
+            output.site(id.clone(), start, name_span, generics, vec![]);
+            output
+                .sites
+                .get_mut(&id)
+                .expect("implementation declaration")
+                .bounds = bounds;
         }
         for function in &self.functions {
             output.function(

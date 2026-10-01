@@ -114,6 +114,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     for implementation in module.aggregates.implementations().filter(|item| {
         item.id.module == *module.lowered.source.module_identity() && item.generic_params.is_empty()
     }) {
+        planner.record_interface(&implementation.id, &[], Default::default())?;
         for target in module.aggregates.implementation_methods(implementation) {
             if let Some((_, method)) = module.aggregates.default_method(&target)
                 && module
@@ -131,6 +132,13 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         planner.check()?;
         if request.declaration.module != *module.lowered.source.module_identity() {
             return Err(MirLoweringError::MissingBinding("requested instance owner"));
+        }
+        if planner.prepare_native_target(
+            &request.declaration,
+            &request.arguments.iter().map(raise_type).collect::<Vec<_>>(),
+            Default::default(),
+        )? {
+            continue;
         }
         planner.enqueue_declaration(
             &request.declaration,
@@ -190,6 +198,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
 
     verify_mir(
         MirModule {
+            native_targets: planner.native_targets,
             interface_instances: planner.interface_instances,
             host_types,
             dependencies: module

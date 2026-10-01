@@ -143,6 +143,10 @@ use the same bounded continuation/callback driver as direct native imports.
 They do not require a fabricated script body. The frame pins the implementation
 generation until return and consumes call-depth and logical-step budgets.
 
+MIR records each concrete native interface target with its complete native import
+contract. Bytecode lowering consumes these verified applications; it does not
+rebuild a native method signature or choose its callback dependencies.
+
 Native imports may carry ordered, statically selected trait-member dependencies.
 The declaration owns each receiver/interface/member requirement; its concrete
 application records target identity, type arguments, implementation kind and full

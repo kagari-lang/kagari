@@ -81,6 +81,7 @@ pub enum MirVerificationErrorKind {
     InvalidHostInterface,
     InvalidEnumInitializer,
     InvalidInterfaceTable,
+    InvalidNativeTarget,
     InvalidField,
     InvalidStructInitializer,
     ReadOnlyField,
@@ -117,6 +118,7 @@ impl MirVerificationError {
             MirVerificationErrorKind::InvalidHostInterface => "KG_IR_INVALID_HOST_INTERFACE",
             MirVerificationErrorKind::InvalidEnumInitializer => "KG_IR_INVALID_ENUM_INITIALIZER",
             MirVerificationErrorKind::InvalidInterfaceTable => "KG_IR_INVALID_INTERFACE_TABLE",
+            MirVerificationErrorKind::InvalidNativeTarget => "KG_IR_INVALID_NATIVE_TARGET",
             MirVerificationErrorKind::InvalidField => "KG_IR_INVALID_FIELD",
             MirVerificationErrorKind::InvalidStructInitializer => {
                 "KG_IR_INVALID_STRUCT_INITIALIZER"
@@ -187,6 +189,18 @@ pub(crate) fn verify_with_budget(
                 .is_none_or(|part| part.kind != DefinitionKind::Impl)
         {
             return Err(context.error(MirVerificationErrorKind::InvalidInterfaceTable));
+        }
+    }
+    context.limit(module.native_targets.len(), 4096, "native targets")?;
+    let mut native = HashSet::new();
+    for target in &module.native_targets {
+        context.check_cancel()?;
+        if target.host.is_some()
+            || target.instance.declaration.module != module.identity
+            || !target.structurally_valid()
+            || !native.insert(&target.instance)
+        {
+            return Err(context.error(MirVerificationErrorKind::InvalidNativeTarget));
         }
     }
     context.limit(

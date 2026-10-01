@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub const MIR_MAGIC: [u8; 4] = *b"KMIR";
-pub const MIR_FORMAT_VERSION: u16 = 12;
+pub const MIR_FORMAT_VERSION: u16 = 13;
 pub const MAX_MIR_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
@@ -166,6 +166,7 @@ fn check_counts<'a>(
     let mut functions = 0usize;
     let mut instructions = 0usize;
     let mut blocks = 0usize;
+    let mut native_targets = 0usize;
     for (index, module) in modules.enumerate() {
         check_cancel(cancel)?;
         if index >= decode_limits::MAX_MODULES {
@@ -174,6 +175,12 @@ fn check_counts<'a>(
             ));
         }
         functions = functions.saturating_add(module.functions.len());
+        native_targets = native_targets.saturating_add(module.native_targets.len());
+        if native_targets > decode_limits::MAX_TABLE_RECORDS {
+            return Err(MirCodecError::Encoding(
+                "program native target count limit exceeded".into(),
+            ));
+        }
         if functions > decode_limits::MAX_FUNCTIONS {
             return Err(MirCodecError::Encoding(
                 "program function count limit exceeded".into(),

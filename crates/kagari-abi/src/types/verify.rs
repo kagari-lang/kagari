@@ -839,6 +839,21 @@ fn bounds_valid_in(
     })
 }
 
+pub(crate) fn native_bounds_valid(
+    bounds: &[GenericBoundAbi],
+    parameters: &[GenericParameterAbi],
+    cancel: &CancellationToken,
+) -> bool {
+    let params = parameters
+        .iter()
+        .map(|param| (param.owner.clone(), param.position))
+        .collect();
+    bounds.len() <= 4096
+        && parameters.len() <= 4096
+        && bounds.iter().all(|bound| bound.constraints.len() <= 4096)
+        && bounds_valid(bounds, &params, cancel)
+}
+
 fn constraints_valid(
     constraints: &[ConstraintAbi],
     params: &Parameters,

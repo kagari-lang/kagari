@@ -1,6 +1,7 @@
 use kagari_abi::{
     effects::EffectSet,
     layout::{EnumLayout, StructLayout},
+    native_import::NativeImport,
     representation::ValueType,
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, ModuleAbi, NominalAbiType},
@@ -13,12 +14,16 @@ use serde::{Deserialize, Serialize};
 use crate::{
     debug::MirFunctionDebugMetadata,
     ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
-    instruction::{InstructionBuffer, Terminator},
+    instruction::{CallTarget, Instruction, InstructionBuffer, Terminator},
 };
 use std::iter;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MirModule {
+    /// Concrete native entry contracts invoked without a script body, including
+    /// interface slots and dependencies selected by another native entry.
+    #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
+    pub native_targets: Vec<NativeImport>,
     /// Concrete interface demands, including inherited views that need no
     /// source allocation instruction of their own.
     #[serde(deserialize_with = "kagari_abi::decode_limits::nested")]
@@ -94,6 +99,21 @@ impl MirFunction {
 }
 
 impl MirModule {
+    pub fn native_applications(&self) -> impl Iterator<Item = &NativeImport> {
+        self.native_targets.iter().chain(
+            self.functions
+                .iter()
+                .flat_map(|function| &function.blocks)
+                .flat_map(|block| &block.instructions)
+                .filter_map(|instruction| match instruction {
+                    Instruction::Call {
+                        callee: CallTarget::Native(import),
+                        ..
+                    } => Some(import.as_ref()),
+                    _ => None,
+                }),
+        )
+    }
     pub fn structure(&self, instance: &NominalAbiType) -> Option<&StructLayout> {
         self.structures.iter().find(|layout| {
             layout.declaration == instance.declaration && layout.arguments == instance.arguments

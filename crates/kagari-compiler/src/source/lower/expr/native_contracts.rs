@@ -118,10 +118,13 @@ impl FunctionLowerer<'_, '_> {
 
     fn emit_native_application(
         &mut self,
-        import: NativeImport,
+        mut import: NativeImport,
         result: &TypeId,
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
+        import.callables = self
+            .planner
+            .native_callables(&import, self.function.debug.source_span)?;
         if !import.structurally_valid() {
             return Err(MirLoweringError::MissingBinding(
                 "concrete native entry application",
@@ -180,12 +183,23 @@ impl FunctionLowerer<'_, '_> {
         if let Some(first) = params.first_mut() {
             *first = receiver.clone();
         }
+        let mut bindings = TypeSubstitution::default();
+        let applied_arguments = arguments.iter().map(lower_type).collect::<Vec<_>>();
+        for (param, argument) in function.generic_params.iter().zip(&applied_arguments) {
+            bindings.bind(&param.owner, param.position, argument);
+        }
+        let requirements = bindings
+            .apply_bounds(
+                &checked_bounds(&function.bounds),
+                &self.planner.options.cancel,
+            )
+            .map_err(|_| MirLoweringError::MissingBinding("native method bounds"))?;
         self.emit_native_application(
             NativeImport {
                 callables: vec![],
                 instance: ConcreteFunctionIdentity {
                     declaration: declaration.clone(),
-                    arguments: arguments.iter().map(lower_type).collect(),
+                    arguments: applied_arguments,
                 },
                 binding: binding.clone(),
                 host: None,
@@ -193,7 +207,7 @@ impl FunctionLowerer<'_, '_> {
                     params: params.iter().map(lower_type).collect(),
                     result: lower_type(result),
                 },
-                requirements: vec![],
+                requirements,
             },
             result,
             values,

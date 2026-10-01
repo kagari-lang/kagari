@@ -98,6 +98,7 @@ fn lower_linked_module(
         },
         ..Default::default()
     };
+    context.native_imports = ir.native_targets.clone();
     let functions = ir
         .functions
         .iter()

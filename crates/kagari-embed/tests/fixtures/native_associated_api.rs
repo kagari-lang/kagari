@@ -1,7 +1,7 @@
 //! Application-owned ordinary associated contracts shared by tests and generation.
 use kagari_abi::{
     callable::CallableImplementation,
-    native_api::NativeModule,
+    native_api::{NativeImplementation, NativeModule},
     native_import::{binding_id, callables::NativeCallableRequirement},
     scalar::BuiltinType,
     types::{
@@ -142,6 +142,86 @@ pub fn module() -> NativeModule {
             &[("head", binding_id(&module.identity, "head"))],
         )
         .unwrap();
+    let hook_owner = module.definition(DefinitionKind::Trait, "Hook");
+    let hook = NominalAbiType {
+        declaration: hook_owner.clone(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    };
+    module.traits.push(TraitAbi {
+        name: "Hook".into(),
+        generic_params: vec![],
+        bounds: vec![],
+        supertraits: vec![],
+        associated_types: vec![],
+        associated_consts: vec![],
+        methods: vec![FunctionAbi {
+            name: "check".into(),
+            method_policy: Default::default(),
+            implementation: CallableImplementation::Required,
+            generic_params: vec![],
+            bounds: vec![],
+            params: vec![ParameterAbi {
+                name: "self".into(),
+                ty: AbiType::SelfType(hook_owner),
+                mutable: false,
+            }],
+            return_type: AbiType::Builtin(BuiltinType::Unit),
+        }],
+    });
+    module.implementations[0].bounds = vec![GenericBoundAbi {
+        ty: module.implementations[0].generic_params[0].as_type(),
+        constraints: vec![ConstraintAbi::Trait(hook.clone())],
+    }];
+    module.callable_requirements.insert(
+        NativeModule::method_id(&module.implementation_id(0), "head"),
+        vec![NativeCallableRequirement {
+            receiver: module.implementations[0].generic_params[0].as_type(),
+            interface: hook.clone(),
+            member: NativeModule::method_id(&hook.declaration, "check"),
+            arguments: vec![],
+        }],
+    );
+    let owner = module.implementation_id(1);
+    let parameter = GenericParameterAbi {
+        owner: owner.clone(),
+        position: 0,
+    };
+    let receiver = AbiType::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable);
+    module.implementations.push(NativeImplementation {
+        generic_params: vec![parameter.clone()],
+        bounds: vec![],
+        trait_type: None,
+        for_type: receiver.clone(),
+        methods: vec![FunctionAbi {
+            name: "check_first".into(),
+            method_policy: Default::default(),
+            implementation: CallableImplementation::Native(binding_id(
+                &module.identity,
+                "check_first",
+            )),
+            generic_params: vec![parameter.clone()],
+            bounds: vec![GenericBoundAbi {
+                ty: parameter.as_type(),
+                constraints: vec![ConstraintAbi::Trait(hook.clone())],
+            }],
+            params: vec![ParameterAbi {
+                name: "self".into(),
+                ty: receiver.clone(),
+                mutable: false,
+            }],
+            return_type: AbiType::Builtin(BuiltinType::Unit),
+        }],
+    });
+    module.callable_requirements.insert(
+        NativeModule::method_id(&owner, "check_first"),
+        vec![NativeCallableRequirement {
+            receiver: parameter.as_type(),
+            interface: hook.clone(),
+            member: NativeModule::method_id(&hook.declaration, "check"),
+            arguments: vec![],
+        }],
+    );
     let owner = module.definition(DefinitionKind::Function, "echo");
     let generic = GenericParameterAbi {
         owner: owner.clone(),
@@ -339,11 +419,21 @@ impl NativeInvocationState for Head {
         let Some(Value::Array(id)) = context.argument(0) else {
             return Err(RuntimeError::module_validation("associated array"));
         };
-        context
+        let value = context
             .heap()
             .array_get(id, 0)
-            .map(NativeAction::Complete)
-            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "empty source"))
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "empty source"))?;
+        context.retain(0, value)?;
+        context
+            .selected_callback(0, vec![context.retained(0).unwrap()])
+            .map(NativeAction::Callback)
+    }
+    fn receive(
+        &mut self,
+        context: &mut NativeContext<'_>,
+        _: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        Ok(NativeAction::Complete(context.retained(0).unwrap()))
     }
 }
 struct Forward;
@@ -368,6 +458,28 @@ impl NativeInvocationState for Forward {
         context.heap().alloc_array(vec![])?;
         context.retain(0, value)?;
         Ok(NativeAction::Complete(context.retained(0).unwrap()))
+    }
+}
+struct CheckFirst;
+impl NativeInvocationState for CheckFirst {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        let Some(Value::Array(id)) = context.argument(0) else {
+            return Err(RuntimeError::module_validation("check receiver"));
+        };
+        let value = context
+            .heap()
+            .array_get(id, 0)
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "empty check"))?;
+        context
+            .selected_callback(0, vec![value])
+            .map(NativeAction::Callback)
+    }
+    fn receive(
+        &mut self,
+        _: &mut NativeContext<'_>,
+        _: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        Ok(NativeAction::Complete(Value::Unit))
     }
 }
 struct Selected;
@@ -419,7 +531,7 @@ pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
         let calls = calls.clone();
         handlers.push(NativeHandler::new(
             binding_id(&module.identity, name),
-            0,
+            1,
             move |context| {
                 calls.set(calls.get() + 1);
                 let input = context
@@ -447,6 +559,11 @@ pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
         binding_id(&module.identity, "nested_head"),
         1,
         |_| Ok(Box::new(Nested { first: true })),
+    ));
+    handlers.push(NativeHandler::new(
+        binding_id(&module.identity, "check_first"),
+        0,
+        |_| Ok(Box::new(CheckFirst)),
     ));
     NativeApi::new(vec![module], handlers).unwrap()
 }

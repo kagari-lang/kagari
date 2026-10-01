@@ -1,5 +1,6 @@
 use crate::source::lower::MirLoweringError;
 mod callables;
+mod native;
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, traits::MethodDefault},
@@ -16,6 +17,7 @@ use kagari_hir::{
 
 use kagari_abi::{
     callable::CallableImplementation,
+    native_import::NativeImport,
     representation::ValueType,
     standard::traits::StandardTrait,
     types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
@@ -121,6 +123,7 @@ pub(super) struct InstancePlanner<'a> {
     pub host_types: BTreeSet<DefinitionId>,
     pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
     pub native_tables: Vec<InterfaceTableAbi>,
+    pub native_targets: Vec<NativeImport>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
     keys: HashMap<InstanceKey, InstanceId>,
     generic_count: usize,
@@ -201,6 +204,7 @@ impl<'a> InstancePlanner<'a> {
             host_interfaces: Vec::new(),
             interface_instances: Vec::new(),
             native_tables: Vec::new(),
+            native_targets: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
             interfaces: Default::default(),
@@ -584,6 +588,9 @@ impl<'a> InstancePlanner<'a> {
                 }
                 .lower(self.options, span)?,
             );
+            if declaration.module == *self.module.lowered.source.module_identity() {
+                self.prepare_native_interface(declaration, arguments, span)?;
+            }
         }
         Ok(())
     }

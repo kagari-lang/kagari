@@ -28,7 +28,7 @@ Artifacts may be used by:
 
 ## Current executable contract
 
-Current products use KBC format v115, `kagari-runtime-abi-v138`, `KMIR` v12
+Current products use KBC format v115, `kagari-runtime-abi-v138`, `KMIR` v13
 and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
 the provider descriptor and its separate per-contract version are removed. Older
 products are rejected before execution without a migration reader.
@@ -38,7 +38,10 @@ ID, applied signature, declaration bounds and ordered selected callable applicat
 Each application carries the required receiver/interface/member, concrete target
 identity and type arguments, implementation kind, full signature and conservative
 effects. Offline verification reselects against carried checked implementation
-facts and rejects a mismatched or missing executable target. The runtime invokes
+facts and rejects a mismatched or missing executable target. MIR modules carry
+body-free native target applications for concrete interface slots and selected
+native dependencies; the source-free bytecode lowerer copies these checked
+contracts rather than reconstructing native method applications. The runtime invokes
 the sealed selection through its retained dependency generation. Generic verification
 checks carried source declarations and instantiation. Native effects use a common conservative
 classification, independent of artifact claims. Runtime resolves the installed ID,

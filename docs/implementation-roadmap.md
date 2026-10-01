@@ -18,7 +18,7 @@ native standard algorithm through shared Rust helpers or rooted continuations,
 including lazy adapters, prepared mutations, custom keys and selected script calls.
 Core language primitives keep generic typed instructions. The plan's final ownership
 map covers the complete ST00 inventory. These are predecessor results; the NR reset removed its old algorithms.
-Current products use runtime ABI v138, KBC v115, KMIR v12, registration-owned minimal native declarations
+Current products use runtime ABI v138, KBC v115, KMIR v13, registration-owned minimal native declarations
 and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
@@ -85,8 +85,9 @@ checking; typed Rust traits/impls derive their own associated and Self signature
 Ordinary native interface slots now enter real native frames. Registered generic
 free functions also carry checked selected trait-member callbacks, including
 associated-output receivers, script/private implementations and retained versions.
-Broader bound authoring, native method/default requirements, sorting and managed
-returned state remain pending.
+Impl/inherent-method bounds and selected method callbacks now share checked MIR
+target records, including source-free dynamic slots. Typed bound/requirement
+authoring, native defaults, sorting and managed returned state remain pending.
 
 ## Permissions and execution protection refactor queued
 

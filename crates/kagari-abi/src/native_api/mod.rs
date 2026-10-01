@@ -3,11 +3,11 @@ use crate::{
     callable::CallableImplementation,
     native_import::callables::NativeCallableRequirement,
     types::{
-        AbiType, ConstraintAbi, FunctionAbi, GenericParameterAbi, NativeDeclaration,
-        NominalAbiType, PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
+        AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
+        NativeDeclaration, NominalAbiType, PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
         native::NativeTypeConstructor,
         substitution::{TypeSubstitution, resolve_associated_outputs},
-        verify::{validate, validate_native_declarations},
+        verify::{native_bounds_valid, validate, validate_native_declarations},
     },
 };
 use kagari_common::{
@@ -15,7 +15,7 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     error::Error,
     fmt,
 };
@@ -35,6 +35,8 @@ impl Error for NativeApiError {}
 #[derive(Debug, Clone)]
 pub struct NativeImplementation {
     pub generic_params: Vec<GenericParameterAbi>,
+    /// Obligations inherited by every method's registered callable template.
+    pub bounds: Vec<GenericBoundAbi>,
     pub trait_type: Option<NominalAbiType>,
     pub for_type: AbiType,
     pub methods: Vec<FunctionAbi>,
@@ -43,7 +45,8 @@ pub struct NativeImplementation {
 /// Rust registration definitions own these records. Generated text is a projection.
 /// The initial API supports native storage, traits, generic impls and free functions;
 /// Free functions retain ordinary checked trait bounds and associated projections.
-/// Associated type families and implementation-level bounds remain later steps.
+/// Impl and inherent-method bounds use the same checked declaration model.
+/// Associated type families, method generics and native defaults remain later steps.
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     pub identity: ModuleIdentity,
@@ -175,6 +178,7 @@ impl NativeModule {
             self.documentation.entry(id).or_insert(doc);
         }
         self.implementations.push(NativeImplementation {
+            bounds: vec![],
             generic_params,
             trait_type: Some(trait_type),
             for_type,
@@ -200,6 +204,21 @@ impl NativeModule {
         for (index, implementation) in self.implementations.iter().enumerate() {
             let owner = self.implementation_id(index);
             result.extend(implementation.methods.iter().map(|function| {
+                let mut function = function.clone();
+                let mut bounds = BTreeMap::<AbiType, BTreeSet<ConstraintAbi>>::new();
+                for bound in implementation.bounds.iter().chain(&function.bounds) {
+                    bounds
+                        .entry(bound.ty.clone())
+                        .or_default()
+                        .extend(bound.constraints.clone());
+                }
+                function.bounds = bounds
+                    .into_iter()
+                    .map(|(ty, constraints)| GenericBoundAbi {
+                        ty,
+                        constraints: constraints.into_iter().collect(),
+                    })
+                    .collect();
                 NativeDeclaration {
                     callable_requirements: self
                         .callable_requirements
@@ -207,7 +226,7 @@ impl NativeModule {
                         .cloned()
                         .unwrap_or_default(),
                     declaration: Self::method_id(&owner, &function.name),
-                    function: function.clone(),
+                    function,
                 }
             }));
         }
@@ -283,11 +302,23 @@ impl NativeModule {
                 return Err(fail());
             }
             let mut method_names = HashSet::new();
+            if !native_bounds_valid(
+                &implementation.bounds,
+                &implementation.generic_params,
+                &CancellationToken::default(),
+            ) {
+                return Err(fail());
+            }
             for method in &implementation.methods {
                 if !identifier(&method.name)
                     || !method_names.insert(&method.name)
                     || method.generic_params != implementation.generic_params
-                    || !method.bounds.is_empty()
+                    || (implementation.trait_type.is_some() && !method.bounds.is_empty())
+                    || !native_bounds_valid(
+                        &method.bounds,
+                        &method.generic_params,
+                        &CancellationToken::default(),
+                    )
                 {
                     return Err(fail());
                 }
@@ -358,6 +389,12 @@ impl NativeModule {
             supported_type(&implementation.for_type)?;
             if let Some(trait_type) = &implementation.trait_type {
                 supported_type(&AbiType::Trait(trait_type.clone()))?;
+            }
+            for bound in &implementation.bounds {
+                supported_type(&bound.ty)?;
+                for constraint in &bound.constraints {
+                    supported_constraint(constraint)?;
+                }
             }
         }
         for function in functions {
