@@ -11,8 +11,11 @@ the semantic specifications.
 The [native registration plan](native-provider-refactor.md#current-design-decision-2026-10-01)
 records the active declaration direction. Native API definitions authored in Rust
 own signatures, generic parameters, trait contracts, documentation and binding IDs.
-`native_module!` generates these records from colocated declarations, docs and Rust
-factory bindings; shared expansion support supplies identities and generic binders.
+`#[native_module]` generates records and checked invocation adapters from actual
+Rust functions, native array wrappers, traits and impls. `NativeValue` supplies
+metadata and conversions, so aliases use their resolved Rust types. Rust checks
+function bodies and trait method signatures; shared support supplies identities
+and generic binders. Open script generics use rooted checked value proxies.
 The bundled array library is a default, optional package using the same NativeApi
 installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.

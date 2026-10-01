@@ -63,6 +63,12 @@ pub struct NativeContext<'a> {
     arguments: usize,
 }
 impl NativeContext<'_> {
+    pub(crate) fn heap_owner(&self) -> Rc<GcHeap> {
+        self.runtime.gc.clone()
+    }
+    pub(crate) fn module_owner(&self) -> LoadedModule {
+        self.owner.clone()
+    }
     pub fn heap(&self) -> &GcHeap {
         self.runtime.gc()
     }

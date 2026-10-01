@@ -2,6 +2,8 @@
 use crate::{NativeApi, native::array_api};
 
 pub fn standard_library() -> NativeApi {
-    NativeApi::combine(vec![array_api::api().expect("bundled array API")])
-        .expect("default native packages")
+    NativeApi::combine(vec![
+        array_api::array::native_api().expect("bundled array API"),
+    ])
+    .expect("default native packages")
 }

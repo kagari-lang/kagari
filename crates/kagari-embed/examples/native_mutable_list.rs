@@ -1,29 +1,21 @@
 //! Run MutableList through a native package and inspect its generated declaration view.
 use kagari_common::SourceFile;
 use kagari_embed::{ExecutionContext, KagariEngine, program::PreparedProgram};
-use kagari_runtime::{
-    NativeAction, NativeContext, NativeFactory, NativeInvocationState, RuntimeError, native_module,
-    value::Value,
-};
+use kagari_runtime::{native_module, value::Value};
 
-struct Answer;
-impl NativeInvocationState for Answer {
-    fn advance(&mut self, _: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
-        Ok(NativeAction::Complete(Value::I32(22)))
+#[native_module("demo::math")]
+mod math {
+    /// Return a value supplied by the application.
+    #[native]
+    pub fn answer() -> i32 {
+        22
     }
-}
-fn answer() -> NativeFactory {
-    NativeFactory::new(0, |_| Ok(Box::new(Answer)))
 }
 
 fn main() {
-    let application = native_module! {
-        module demo::math;
-        /// Return a value supplied by the application.
-        fn answer() -> i32 => answer;
-    }
-    .expect("register application native API");
-    let engine = KagariEngine::with_native_apis(Default::default(), vec![application])
+    let engine = KagariEngine::builder()
+        .install(math::native_api())
+        .build()
         .expect("install default and application packages");
     let artifact = engine
         .compile_to_artifact(

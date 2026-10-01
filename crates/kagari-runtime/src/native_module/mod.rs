@@ -1,7 +1,10 @@
-//! Expansion support for `native_module!`; registered ABI records remain authoritative.
+//! Expansion support for `#[native_module]`; registered ABI records remain authoritative.
 //! The public surface here is used by generated code in embedding consumers.
 mod types;
 pub use types::TypeExpression;
+// Generated conversion signatures use the same ABI type as the runtime boundary.
+#[doc(hidden)]
+pub use kagari_abi::types::AbiType;
 
 use crate::{NativeApi, NativeFactory, NativeHandler, RuntimeError};
 use kagari_abi::{
@@ -9,7 +12,7 @@ use kagari_abi::{
     native_api::{NativeImplementation, NativeModule},
     native_import::binding_id,
     types::{
-        AbiType, FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi, TypeAbiKind,
+        FunctionAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi, TypeAbiKind,
         native::NativeTypeConstructor,
     },
 };
@@ -28,7 +31,7 @@ pub struct Method {
 
 #[doc(hidden)]
 pub struct Binding {
-    pub path: &'static str,
+    pub name: &'static str,
     pub factory: fn() -> NativeFactory,
 }
 
@@ -36,7 +39,7 @@ pub struct Binding {
 #[doc(hidden)]
 pub struct NativeModuleBuilder {
     module: NativeModule,
-    handlers: BTreeMap<DefinitionId, (&'static str, NativeHandler)>,
+    handlers: BTreeMap<DefinitionId, NativeHandler>,
 }
 
 impl NativeModuleBuilder {
@@ -258,38 +261,29 @@ impl NativeModuleBuilder {
     }
 
     pub fn finish(self) -> Result<NativeApi, RuntimeError> {
-        NativeApi::new(
-            vec![self.module],
-            self.handlers
-                .into_values()
-                .map(|(_, handler)| handler)
-                .collect(),
-        )
+        NativeApi::new(vec![self.module], self.handlers.into_values().collect())
     }
 
     fn bind(&mut self, binding: &Binding) -> Result<DefinitionId, RuntimeError> {
-        let name = binding
-            .path
-            .rsplit("::")
-            .next()
-            .ok_or_else(|| invalid("missing native entry name"))?
-            .trim();
-        let id = binding_id(&self.module.identity, name);
-        if let Some((path, _)) = self.handlers.get(&id) {
-            if *path != binding.path {
-                return Err(invalid(
-                    "different factory paths have the same native binding name",
-                ));
-            }
-        } else {
-            self.handlers.insert(
-                id.clone(),
-                (
-                    binding.path,
-                    NativeHandler::from_factory(id.clone(), (binding.factory)()),
-                ),
-            );
+        let name = binding.name;
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+            || name.as_bytes()[0].is_ascii_digit()
+        {
+            return Err(invalid("native binding name must be an identifier"));
         }
+        let id = binding_id(&self.module.identity, name);
+        if self.handlers.contains_key(&id) {
+            return Err(invalid(
+                "native binding name belongs to more than one Rust implementation",
+            ));
+        }
+        self.handlers.insert(
+            id.clone(),
+            NativeHandler::from_factory(id.clone(), (binding.factory)()),
+        );
         Ok(id)
     }
 

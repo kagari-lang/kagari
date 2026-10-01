@@ -13,7 +13,7 @@ mod runtime;
 pub use context::{ExecutionContext, JitPolicy, PanicPolicy};
 #[cfg(feature = "source")]
 pub use engine::source::{ArtifactOptions, CheckedModule, CompileOptions, NativeInputExport};
-pub use engine::{EngineConfig, KagariEngine};
+pub use engine::{EngineConfig, KagariEngine, KagariEngineBuilder};
 pub use error::{
     CompilationPhase, DiagnosticLabel, EmbeddingDiagnostic, EmbeddingError, ReloadValidationError,
     RuntimeFailureKind,

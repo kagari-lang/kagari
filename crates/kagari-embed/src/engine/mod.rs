@@ -1,6 +1,8 @@
 //! Engine configuration and optional source compilation state.
+mod builder;
 #[cfg(feature = "source")]
 pub(crate) mod source;
+pub use builder::KagariEngineBuilder;
 
 use crate::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_abi::native_api::NativeApiSource;
@@ -38,6 +40,10 @@ pub struct KagariEngine {
 }
 
 impl KagariEngine {
+    pub fn builder() -> KagariEngineBuilder {
+        KagariEngineBuilder::default()
+    }
+
     pub fn new(config: EngineConfig) -> Self {
         Self::with_native_apis(config, vec![]).expect("default native API installation")
     }

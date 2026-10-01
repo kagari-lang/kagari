@@ -10,8 +10,8 @@ use kagari_abi::{
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
 use kagari_embed::{EngineConfig, KagariEngine};
 use kagari_runtime::{
-    NativeAction, NativeApi, NativeContext, NativeFactory, NativeHandler, NativeInvocationState,
-    RuntimeError, native_module, standard_library, value::Value,
+    NativeAction, NativeApi, NativeContext, NativeHandler, NativeInvocationState, RuntimeError,
+    native_module, standard_library, value::Value,
 };
 
 struct Answer;
@@ -41,17 +41,16 @@ fn application_module() -> NativeModule {
     });
     module
 }
-fn application_api() -> NativeApi {
-    native_module! {
-        module game::math;
-        /// Return the application-owned answer.
-        fn answer() -> i32 => answer;
+#[native_module("game::math")]
+mod math {
+    /// Return the application-owned answer.
+    #[native]
+    pub fn answer() -> i32 {
+        42
     }
-    .unwrap()
 }
-
-fn answer() -> NativeFactory {
-    NativeFactory::new(0, |_| Ok(Box::new(Answer)))
+fn application_api() -> NativeApi {
+    math::native_api().unwrap()
 }
 
 #[test]
@@ -65,62 +64,89 @@ fn authoring_matches_explicit_records_and_preserves_documentation() {
     assert_eq!(api.modules()[0].documentation, expected.documentation);
 }
 
+#[native_module("game::aliases", runtime = kagari_runtime)]
+mod aliases {
+    use kagari_runtime::{NativeResult, NativeValue};
+    type Count = usize;
+    /// Preserve aliases and checked optional values.
+    #[native]
+    pub fn increment(value: Count) -> NativeResult<Option<Count>> {
+        Ok(value.checked_add(1))
+    }
+    #[native]
+    pub fn identity<T: NativeValue>(value: T) -> T {
+        value
+    }
+    #[native]
+    pub fn positive(value: i32) -> bool {
+        value > 0
+    }
+    #[native]
+    pub fn text(value: String) -> String {
+        value
+    }
+}
+
 #[test]
-fn authoring_expansion_respects_consumer_names_and_factory_scope() {
-    type Box = u8;
-    type Result = u16;
-    type Option = u32;
-    let _: (Box, Result, Option) = (0, 0, 0);
-    fn __kagari_native_builder() -> NativeFactory {
-        answer()
-    }
-    use kagari_runtime as renamed_runtime;
-    let api = native_module! {
-        runtime = renamed_runtime;
-        module game::callbacks;
-        fn call(callback: fn(i32) -> i32) -> i32 => __kagari_native_builder;
-    }
-    .unwrap();
+fn authoring_resolves_rust_aliases_and_generic_value_contracts() {
+    let api = aliases::native_api().unwrap();
+    let text = &api.declaration_sources()[0].text;
+    assert!(text.contains("fn increment(value: usize) -> Option<usize>;"));
+    assert!(text.contains("fn identity<T0>(value: T0) -> T0;"));
+    assert!(text.contains("fn positive(value: i32) -> bool;"));
+    let engine = KagariEngine::builder().install(Ok(api)).build().unwrap();
+    assert_eq!(engine.native_declaration_sources().len(), 2);
     assert!(
-        api.declaration_sources()[0]
-            .text
-            .contains("fn call(callback: fn(i32) -> i32) -> i32;")
+        KagariEngine::builder()
+            .install(math::native_api())
+            .install(math::native_api())
+            .build()
+            .is_err()
+    );
+    assert!(
+        KagariEngine::builder()
+            .install(Err(RuntimeError::module_validation("rejected package")))
+            .build()
+            .is_err()
     );
 }
 
-#[test]
-fn authoring_rejects_bad_generics_parent_impls_and_factory_collisions() {
-    let duplicate = native_module! {
-        module game::math;
-        fn bad<T, T>() -> i32 => answer;
-    };
-    assert!(duplicate.is_err());
-    let bad_enum = native_module! {
-        module game::math;
-        fn bad() -> Option<i32, bool> => answer;
-    };
-    assert!(bad_enum.is_err());
-    let parent = native_module! {
-        module game::collections;
-        type Array<T> = native_array<T>;
-        trait Parent<T> { fn len(self) -> usize; }
-        trait Child<T>: Parent<T> { fn count(self) -> usize; }
-        impl<T> Child<T> for Array<T> { count => answer; }
-    };
-    assert!(parent.is_err());
-    let collision = native_module! {
-        module game::math;
-        fn first() -> i32 => answer;
-        fn second() -> i32 => factories::answer;
-    };
-    assert!(collision.is_err());
+#[cfg(feature = "source")]
+#[native_module("game::retained")]
+mod retained {
+    use kagari_runtime::{NativeArray, NativeResult, RuntimeError};
+    use std::cell::RefCell;
+    thread_local! {
+        static SAVED: RefCell<Option<NativeArray<i32>>> = const { RefCell::new(None) };
+    }
+    #[native]
+    pub fn save(value: NativeArray<i32>) -> usize {
+        let len = value.len();
+        SAVED.with(|saved| *saved.borrow_mut() = Some(value));
+        len
+    }
+    #[native]
+    pub fn take() -> NativeResult<NativeArray<i32>> {
+        SAVED
+            .with(|saved| saved.borrow_mut().take())
+            .ok_or_else(|| RuntimeError::module_validation("missing retained array"))
+    }
 }
 
-mod factories {
-    use super::*;
-    pub fn answer() -> NativeFactory {
-        super::answer()
+#[native_module("game::collision")]
+mod collision {
+    #[native(binding = "same")]
+    pub fn first() -> i32 {
+        1
     }
+    #[native(binding = "same")]
+    pub fn second() -> i32 {
+        2
+    }
+}
+#[test]
+fn different_rust_functions_cannot_silently_share_a_binding() {
+    assert!(collision::native_api().is_err());
 }
 
 #[test]
@@ -273,10 +299,16 @@ mod source {
 
     #[test]
     fn authoring_keeps_runtime_output_contract_validation() {
-        let api = native_module! {
-            module game::math;
-            fn wrong() -> usize => answer;
-        }
+        // Advanced factories still reject forged runtime results after installation.
+        let mut module = application_module();
+        module.functions[0].name = "wrong".into();
+        module.functions[0].return_type = AbiType::Builtin(BuiltinType::USize);
+        let id = binding_id(&module.identity, "wrong");
+        module.functions[0].implementation = CallableImplementation::Native(id.clone());
+        let api = NativeApi::new(
+            vec![module],
+            vec![NativeHandler::new(id, 0, |_| Ok(Box::new(Answer)))],
+        )
         .unwrap();
         let engine = KagariEngine::with_native_apis(Default::default(), vec![api]).unwrap();
         let artifact = engine
@@ -299,6 +331,102 @@ mod source {
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert_eq!(
             runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
+    }
+
+    #[test]
+    fn typed_rust_alias_generic_and_optional_values_execute_under_gc() {
+        let mut config = EngineConfig::default();
+        config.default_runtime.gc.collection_threshold = Some(1);
+        let engine = KagariEngine::builder()
+            .config(config)
+            .install(aliases::native_api())
+            .build()
+            .unwrap();
+        assert_eq!(
+            execute(
+                &engine,
+                r#"
+            use game::aliases::{increment, identity, positive, text};
+            fn main() -> i32 {
+                val values = identity([20, 22]);
+                val view: List<i32> = values;
+                if positive(values[0usize]) && increment(1usize) == Some(2usize)
+                    && view.get(1usize) == Some(22) && view.get(4usize) == None
+                    && text("typed") == "typed" {
+                    identity(values[0usize]) + values[1usize]
+                } else { 0 }
+            }
+        "#
+            ),
+            Value::I32(42)
+        );
+        assert!(
+            engine
+                .compile_source(
+                    SourceFile::new(
+                        "memory://typed-input.kgr",
+                        "use game::aliases::positive; fn main() -> bool { positive(1usize) }"
+                    ),
+                    Default::default()
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn typed_array_roots_survive_a_call_and_reject_another_heap() {
+        let engine = KagariEngine::builder()
+            .install(retained::native_api())
+            .build()
+            .unwrap();
+        let prepare = |text| {
+            let artifact = engine
+                .compile_to_artifact(
+                    SourceFile::new("memory://retained-native.kgr", text),
+                    Default::default(),
+                    Default::default(),
+                )
+                .unwrap();
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap()
+        };
+        let save = prepare("use game::retained::save; fn main() -> usize { save([42]) }");
+        let take = prepare("use game::retained::take; fn main() -> i32 { take()[0usize] }");
+        let context = ExecutionContext::default();
+        let mut first = engine.runtime(context.clone());
+        let save_loaded = first.load_program(&save, Default::default()).unwrap();
+        let take_loaded = first.load_program(&take, Default::default()).unwrap();
+        assert_eq!(
+            first
+                .execute(&save_loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::U64(1)
+        );
+        first.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            first
+                .execute(&take_loaded, "main", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        assert_eq!(first.runtime().gc().active_roots(), 0);
+
+        first.execute(&save_loaded, "main", &[], &context).unwrap();
+        let mut second = engine.runtime(context.clone());
+        let other_loaded = second.load_program(&take, Default::default()).unwrap();
+        assert!(
+            second
+                .execute(&other_loaded, "main", &[], &context)
+                .is_err()
+        );
+        assert_eq!(first.runtime().gc().active_roots(), 0);
+        assert_eq!(second.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            second.runtime().resources().counters().current_call_depth,
             0
         );
     }

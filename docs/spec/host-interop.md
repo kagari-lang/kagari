@@ -103,14 +103,31 @@ method callback.
 
 ## Function Registration
 
-The minimal native package API also accepts application-owned Rust factories.
-`NativeModule` records own declarations; `NativeApi::new` pairs all native binding
-IDs with factories and validates before publication. `KagariEngine::with_native_apis`
-uses this route for default and application packages. Generated `.kgr` provides
+The minimal native package API accepts actual Rust functions through
+`#[native_module("game::math")]` and `#[native]`. `#[native_type]` currently
+supports a one-parameter `NativeArray<T>` wrapper; `#[native_trait]` and
+`#[native_impl]` export actual Rust required traits and implementations. Rust
+checks bodies, return types and trait conformance. `NativeValue` conversions
+supply scalar, String, Option and checked array metadata, including Rust aliases.
+Open generics require inline `T: NativeValue` and compile once using checked rooted
+`GenericValue<slot>` proxies; this does not register arbitrary Rust generics.
+
+`NativeResult<T>` returns T to script and propagates RuntimeError as a trap.
+`#[context]` injects a checked NativeCall without adding a script argument.
+NativeArray operations preserve bounds, aliasing and heap guards. Readonly
+applications permit reads and reject mutations. NativeFn<usize, T> supplies the
+checked index callback for the current array proof; NativeContinuation<T> reuses
+the rooted resumable driver and logical budget steps. NativeIndex is a by-value
+Rust bridge for the existing script indexing contract, not an unrestricted
+Rust reference returned by std::ops::Index.
+
+`module::native_api()` builds validated NativeModule records and typed factories.
+`KagariEngine::builder().install(module::native_api()).build()` installs application
+packages along with the optional default package. Generated `.kgr` provides
 navigation and documentation, while compiler signatures are imported directly.
-Factories use the existing rooted native invocation and callback lifecycle.
-This initial interface is low-level; typed Rust derives and migration of existing
-host opaque/type/path adapters remain pending. Their authority, permission, scoped
+Advanced NativeApi::new/NativeFactory registrations retain runtime result,
+application, ownership and callback validation. Migration of existing host
+opaque/type/path adapters remains pending; their authority, permission, scoped
 borrow, schema and output checks below continue to apply.
 
 The current function API is `HostFunction::new(declaration, callback)`. Its

@@ -54,10 +54,12 @@ The latest registration-owned checkpoint replaces the array declaration binary
 with native API definitions shared by direct HIR import, runtime installation and
 `.kgr` generation for tooling. Default array installation can be disabled; user
 native packages use the same path. MutableList.set and ArrayList's derived trait
-implementation provide the minimal proof. A declarative `native_module!` authoring
-checkpoint now keeps documentation, contracts and handler bindings together and
-generates identities/generic binders. Standard-library selection only aggregates
-ordinary native packages. Automatic typed Rust adapters are still pending.
+implementation provide the minimal proof. The typed `#[native_module]` checkpoint
+now derives signatures and invocation adapters from actual Rust functions, array
+wrappers, traits and impls, including aliases and checked generic values. Engine
+builder installation selects ordinary native packages. Rust trait conformance,
+callback steps and runtime value checks remain explicit. Arbitrary Rust/opaque type
+derives and full interoperability migration remain pending.
 Other library declarations and legacy
 host type/path adapters remain migration work. No NR implementation phase has been
 accepted yet.

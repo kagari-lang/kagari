@@ -40,6 +40,7 @@ pub mod metadata;
 pub mod module;
 mod native;
 pub mod native_module;
+mod native_value;
 pub mod numeric;
 pub mod range;
 pub mod reflection;
@@ -70,6 +71,10 @@ pub use native::{
     NativeAction, NativeApi, NativeCallback, NativeContext, NativeEntry, NativeFactory,
     NativeHandler, NativeInvocationState, NativeProgress, NativeRegistration, NativeRegistry,
     standard_library,
+};
+pub use native_value::{
+    GenericValue, NativeArray, NativeCall, NativeContinuation, NativeFn, NativeIndex, NativeResult,
+    NativeReturn, NativeValue,
 };
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};

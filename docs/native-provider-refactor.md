@@ -35,7 +35,22 @@ scoped borrow validation, roots, callback cleanup, budgets and generation pinnin
 Primitive representations and language protocols remain engine capabilities.
 Existing synchronous host adapters retain their checks during the bounded migration.
 
-### Declarative authoring implementation
+### Typed Rust authoring implementation
+
+The latest user instruction activates a bounded typed adapter implementation and
+supersedes the declaration/factory DSL below. This checkpoint exports real Rust
+functions, array wrappers and trait impls; full opaque host derivation stays queued.
+
+- [x] Replace the function-like DSL with `#[native_module]` and Rust item markers.
+- [x] Derive checked metadata and invocation adapters from Rust value/return types,
+  including aliases, Option and open generic rooted value proxies.
+- [x] Register ArrayList/List/MutableList from actual Rust declarations and impls.
+- [x] Retain resumable typed from_fn callbacks and predecessor logical budget steps.
+- [x] Add Engine builder package selection and migrate application tests/examples.
+- [x] Validate typed value ownership, negative Rust contracts and all focused routes.
+- [x] Complete structural review and record the checkpoint validation ledger.
+
+### Superseded declarative authoring implementation
 
 The user requested replacing the raw ABI assembly in `standard_library()` with a
 readable registration entrypoint. This bounded NR01 follow-up owns authoring and
@@ -68,8 +83,8 @@ restoration and final acceptance obligations.
 
 The initial public model supports array storage, free functions, required traits,
 generic inherent/trait implementations and existing callback function types.
-Associated declarations, method-local generics, nonempty native bounds, automatic
-Rust derives and the full legacy host type/path adapter migration remain subsequent
+Associated declarations, method-local generics, nonempty script bounds, arbitrary
+Rust/opaque derives and the full legacy host type/path adapter migration remain subsequent
 NR/RI work. Remaining library declarations are temporarily retained by the existing
 source package; the minimal array module comes only from native registration data.
 The generated text may be parsed for CST/tool queries, but is never lowered to
@@ -1202,7 +1217,7 @@ commands and durable scope/results are retained here. No structural allowances o
 compatibility readers were added.
 
 
-### Declarative authoring checkpoint (2026-10-01)
+### Superseded declarative authoring checkpoint (2026-10-01)
 
 Starting from clean `b97579c7`, the user requested improving the registration form
 of `standard_library()`. This checkpoint replaces handwritten ABI assembly in the
@@ -1298,3 +1313,97 @@ failures are unchanged and remain NR04 restoration obligations. Those unchanged
 commands were not repeated; no tests are disabled and no NR phase exit or whole-
 workspace acceptance is claimed. Transient logs are `target/nr-authoring-*.log`;
 these commands and results are durable resumption evidence.
+
+### Typed Rust authoring checkpoint (2026-10-01)
+
+The user requested implementing the final-facing API instead of continuing a
+separate signature/factory DSL. This supersedes the preceding authoring checkpoint.
+The bounded implementation is actual Rust functions, array storage wrappers and
+required traits/impls, with one shared registration path for default/application APIs.
+
+Implementation and ownership:
+
+- `#[native_module("game::math")]` retains ordinary Rust definitions and consumes
+  `#[native]`, `#[native_type]`, `#[native_trait]` and `#[native_impl]` markers.
+  The proc macro generates adapters and a fallible `native_api()` entrypoint.
+  Metadata comes from the actual NativeValue/NativeReturn types; type aliases
+  resolve through Rust. Trait method bodies and signatures are checked by Rust,
+  while portable records still undergo NativeApi validation before publication.
+- Remove the old function-like macro/parser/expander directly. The proc-macro
+  crate contains Rust item authoring and signature substitution only; it never
+  loads a Kagari source parser. Shared expansion support still owns identities,
+  declaration binders and record construction rather than a second validator.
+- NativeCall owns roots and a pinned LoadedModule. Scalar/String/Option conversions
+  are checked; GenericValue<slot> supplies one rooted erased representation per
+  script generic position. NativeArray handles preserve heap identity, roots,
+  ownership checks, shared storage, bounds and readonly mutation rejection.
+  Cross-runtime transfers reject even when numeric heap IDs could coincide.
+- Actual Rust ArrayList/List/MutableList contracts replace the array DSL and raw
+  synchronous factories. NativeIndex bridges the existing script by-value Index
+  contract without exporting unrestricted heap references. NativeFn<usize, T>
+  drives from_fn callbacks through the predecessor's exact phase sequence and
+  rooted driver; push retains its two logical steps. No generic HIR/VM dispatch
+  code or executable ABI schema changes are needed.
+- Engine builder collects fallible package registrations and validates composition
+  on build; default installation remains optional. The Runnable MutableList example
+  installs an ordinary Rust answer() -> i32 and returns I32(42).
+- Distinct implementations cannot silently share a binding name. List::len has
+  its own array_list_len entry rather than reusing the inherent Rust len wrapper.
+  This changes a native binding identity: rebuild consumers using the old array
+  declarations. Regenerate native_provider.kbc; generated array.kgr remains exact
+  and unchanged because tooling declarations do not encode executable binding IDs.
+
+The actual application entrypoint is:
+
+```rust
+#[native_module("game::math")]
+mod math {
+    #[native]
+    pub fn is_positive(value: i32) -> bool { value > 0 }
+}
+let engine = KagariEngine::builder().install(math::native_api()).build()?;
+```
+
+See [the Rust array contracts](../crates/kagari-runtime/src/native/array_api.rs),
+[typed value ownership](../crates/kagari-runtime/src/native_value/mod.rs),
+[the runnable application](../crates/kagari-embed/examples/native_mutable_list.rs)
+and [independent negative Rust checks](../scripts/check_native_authoring.py).
+NativeResult<T> maps an error to a trap; NativeContinuation<T> uses the existing
+resumable lifecycle with two scratch roots for this slice. NativeArray::new uses
+its declared array result type. Supported generics require inline T: NativeValue;
+arbitrary opaque Rust derives, method-local generics, associated declarations,
+script bounds, full callback argument packs and the legacy host/path migration
+remain later NR/RI work. Full standard-library restoration remains NR04-owned.
+
+Validation actually performed:
+
+- `cargo test -p kagari-native-macros --lib`: one unsupported-form test passes.
+- `cargo test -p kagari-embed --test native_registration --test native_provider_artifact
+  --test native_provider_reset --test host_interfaces`: 34 tests pass. Coverage
+  includes typed aliases/Option/generic values under GC, retained array ownership,
+  cross-heap rejection and cleanup, duplicate bindings, generic/dynamic MutableList,
+  readonly reads/rejection, encoded fixture agreement, forged outputs/imports,
+  nested callback budget boundaries, navigation/docs/completion and existing host
+  permission/borrow/reentry/reload checks. No behavioral assertion was weakened.
+- `uv run python scripts/check_native_authoring.py`: standalone consumers reject
+  wrong Rust return types (E0308), mismatched Rust trait impl signatures (E0053)
+  and unscoped &str parameters lacking NativeValue conversions (E0277). A valid
+  consumer also compiles aliases, generic proxies, renamed runtime paths and
+  consumer names that shadow standard constructors or adapter locals.
+- `uv run python scripts/check_features.py --native-proof`: artifact-only,
+  source-only, native-only and source+native standalone consumers pass, along
+  with all eight production graph checks and source-independent ABI build checks.
+- `cargo clippy --workspace --lib -- -D warnings`, proc-macro all-target Clippy,
+  and focused embed targets/examples Clippy pass. `cargo run -p kagari-embed
+  --example native_mutable_list` returns I32(42) and displays generated views.
+- `uv run --locked scripts/check_structure.py`: 803 Rust files, zero violations,
+  zero exceptions. Format, Markdown link existence and diff checks pass. Manual
+  review covers macro token trees, explicit generated runtime paths, supported
+  rooted representations, module ownership and re-export placement. The hidden
+  AbiType re-export is confined to the intentional expansion boundary and avoids
+  requiring every consumer to declare a separate ABI dependency.
+
+The inherited full-workspace/all-target and legacy stdlib fixture failures recorded
+above remain NR04 debt. Those unchanged failing commands were not repeated. This
+checkpoint completes the requested bounded typed API; it does not accept an NR
+phase or claim full Rust interoperability or full-library restoration.

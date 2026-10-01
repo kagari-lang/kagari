@@ -15,12 +15,14 @@ use std::collections::BTreeMap;
 /// Macro expansion input, resolved without parsing generated Kagari text.
 #[doc(hidden)]
 pub enum TypeExpression {
+    Parameter(usize),
     Named {
         path: Vec<&'static str>,
         arguments: Vec<Self>,
         bindings: Vec<(&'static str, Self)>,
     },
     Array(Box<Self>),
+    MutableArray(Box<Self>),
     Tuple(Vec<Self>),
     Function {
         params: Vec<Self>,
@@ -49,6 +51,20 @@ impl Scope<'_> {
 
     pub fn resolve(&self, expression: &TypeExpression) -> Result<AbiType, RuntimeError> {
         Ok(match expression {
+            TypeExpression::Parameter(position) => {
+                if *position >= self.names.len() {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native generic slot is not declared",
+                    ));
+                }
+                AbiType::Parameter {
+                    owner: self.owner.clone(),
+                    position: *position,
+                }
+            }
+            TypeExpression::MutableArray(item) => {
+                AbiType::Array(Box::new(self.resolve(item)?), CollectionAccess::Mutable)
+            }
             TypeExpression::Array(item) => {
                 AbiType::Array(Box::new(self.resolve(item)?), CollectionAccess::ReadOnly)
             }
