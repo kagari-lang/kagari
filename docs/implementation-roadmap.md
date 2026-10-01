@@ -18,7 +18,7 @@ native standard algorithm through shared Rust helpers or rooted continuations,
 including lazy adapters, prepared mutations, custom keys and selected script calls.
 Core language primitives keep generic typed instructions. The plan's final ownership
 map covers the complete ST00 inventory. These are predecessor results; the NR reset removed its old algorithms.
-Current products use runtime ABI v138, KBC v115, KMIR v13, registration-owned minimal native declarations
+Current products use runtime ABI v139, KBC v116, KMIR v14, registration-owned minimal native declarations
 and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current
@@ -63,6 +63,12 @@ derives and full interoperability migration remain pending.
 Other library declarations and legacy
 host type/path adapters remain migration work. No NR implementation phase has been
 accepted yet.
+
+The portable native-default checkpoint maps trait binders explicitly to ordinary
+registered templates, validates inherited obligations and associated outputs, and
+resolves concrete native slots on the shared execution driver. Rust/source default
+authoring and materialization remain the next NR02 prerequisite; encoded-product
+acceptance does not imply that source compilation can yet emit these records.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
 refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;

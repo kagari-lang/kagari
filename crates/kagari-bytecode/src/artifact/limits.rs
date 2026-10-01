@@ -235,6 +235,11 @@ fn add_callable_requirement(
 fn add_function_contract(function: &FunctionAbi, add: &mut impl FnMut(usize) -> bool) -> bool {
     match &function.implementation {
         CallableImplementation::Native(id) => add(id.module.path.len()) && add(id.path.len()),
+        CallableImplementation::NativeDefault(application) => {
+            add(application.declaration.module.path.len())
+                && add(application.declaration.path.len())
+                && add(application.arguments.len())
+        }
         _ => true,
     }
 }

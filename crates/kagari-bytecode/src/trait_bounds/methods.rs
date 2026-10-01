@@ -1,9 +1,12 @@
 //! Compare executable method signatures after canonical substitution and projection resolution.
 use crate::module::{BytecodeModule, CallableTarget};
-use kagari_abi::types::{
-    AbiType, PublicAbiItem,
-    proofs::ProofCatalog,
-    substitution::{TypeSubstitution, TypeTransformError},
+use kagari_abi::{
+    callable::CallableImplementation,
+    types::{
+        AbiType, PublicAbiItem,
+        proofs::ProofCatalog,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
 use kagari_common::cancellation::CancellationToken;
 
@@ -39,6 +42,44 @@ pub(super) fn valid(
             let Some(method) = abi.methods.iter().find(|method| &method.name == name) else {
                 return Ok(false);
             };
+            if let CallableImplementation::NativeDefault(application) = &method.implementation {
+                let CallableTarget::Native(target) = slot.target else {
+                    return Ok(false);
+                };
+                if table.arguments.len() != abi.generic_params.len()
+                    || !method.generic_params.is_empty()
+                {
+                    return Ok(false);
+                }
+                let mut substitution = TypeSubstitution::default();
+                for (parameter, argument) in abi.generic_params.iter().zip(&table.arguments) {
+                    substitution.bind(&parameter.owner, parameter.position, argument);
+                }
+                let application = application.apply(&substitution, cancel)?;
+                let Some(resolved) = catalog.resolve_native_default(&application, cancel)? else {
+                    return Ok(false);
+                };
+                let import = &module.native_imports[target.index()];
+                if resolved.instance != import.instance
+                    || resolved.implementation
+                        != CallableImplementation::Native(import.binding.clone())
+                    || resolved.signature != import.signature
+                {
+                    return Ok(false);
+                }
+                let normalize = |ty| catalog.normalize(&substitution.apply(ty, cancel)?, cancel);
+                if method
+                    .params
+                    .iter()
+                    .map(|p| normalize(&p.ty))
+                    .collect::<Result<Vec<_>, _>>()?
+                    != resolved.signature.params
+                    || normalize(&method.return_type)? != resolved.signature.result
+                {
+                    return Ok(false);
+                }
+                continue;
+            }
             if identity.arguments.len() != abi.generic_params.len() + method.generic_params.len() {
                 return Ok(false);
             }

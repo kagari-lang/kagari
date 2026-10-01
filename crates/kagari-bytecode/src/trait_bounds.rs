@@ -179,6 +179,9 @@ fn linked_bounds_match(
             .collect(),
         closure.iter().flat_map(|module| &module.enumerations),
         closure.iter().flat_map(|module| declarations(module)),
+        closure
+            .iter()
+            .flat_map(|module| &module.native_declarations),
         &cancel,
     )?;
     if !methods::valid(module, &catalog, &cancel)

@@ -195,10 +195,9 @@ pub(crate) fn verify_with_budget(
     let mut native = HashSet::new();
     for target in &module.native_targets {
         context.check_cancel()?;
-        if target.host.is_some()
-            || target.instance.declaration.module != module.identity
-            || !target.structurally_valid()
-            || !native.insert(&target.instance)
+        // A table may retain a default from another module. Linked validation
+        // authenticates the target against that owner's declaration and closure.
+        if target.host.is_some() || !target.structurally_valid() || !native.insert(&target.instance)
         {
             return Err(context.error(MirVerificationErrorKind::InvalidNativeTarget));
         }

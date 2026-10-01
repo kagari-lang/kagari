@@ -62,6 +62,9 @@ pub(super) fn validate(
             .collect(),
         closure.iter().flat_map(|module| &module.enumerations),
         declarations,
+        closure
+            .iter()
+            .flat_map(|module| &module.abi.native_declarations),
         cancel,
     )?;
     if !catalog.overrides_valid(cancel)? {
@@ -189,9 +192,6 @@ fn native_slots_valid(
             return Ok(false);
         };
         for method in &table.methods {
-            let CallableImplementation::Native(binding) = &method.implementation else {
-                continue;
-            };
             if !method.generic_params.is_empty() {
                 continue;
             }
@@ -209,10 +209,32 @@ fn native_slots_valid(
                     .collect::<Result<_, _>>()?,
                 result: catalog.normalize(&method.return_type, cancel)?,
             };
+            let (target_instance, binding) = match &method.implementation {
+                CallableImplementation::Native(binding) => (
+                    ConcreteFunctionIdentity {
+                        declaration,
+                        arguments: instance.arguments.clone(),
+                    },
+                    binding.clone(),
+                ),
+                CallableImplementation::NativeDefault(application) => {
+                    let Some(resolved) = catalog.resolve_native_default(application, cancel)?
+                    else {
+                        return Ok(false);
+                    };
+                    let CallableImplementation::Native(binding) = resolved.implementation else {
+                        return Ok(false);
+                    };
+                    if resolved.signature != signature {
+                        return Ok(false);
+                    }
+                    (resolved.instance, binding)
+                }
+                _ => continue,
+            };
             if !module.native_targets.iter().any(|target| {
-                target.instance.declaration == declaration
-                    && target.instance.arguments == instance.arguments
-                    && &target.binding == binding
+                target.instance == target_instance
+                    && target.binding == binding
                     && target.signature == signature
                     && target.host.is_none()
             }) {

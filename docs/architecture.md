@@ -37,6 +37,17 @@ source-derived declaration payloads. Remaining library declarations temporarily
 use `kagari-stdlib` source preparation until their NR04 restoration.
 
 Required, Script and Native implementations share checked callable facts.
+NativeDefault is symbolic declaration metadata: an explicit application of an
+ordinary registered native function template, including the mapping of Self,
+trait arguments and associated outputs to that template's generic parameters.
+Portable proof checks the actual template signature and obligations, applies the
+implementation substitution and resolves a concrete ordinary Native target.
+Dynamic slots may retain a template from another module with different generic
+arguments from the implementing table. Final methods must preserve the declared
+application; distinct methods can share a checked native target. Runtime execution
+uses the existing native driver and retained dependency generation. Rust/source
+authoring and checked-source materialization of these default records remain open
+under NR02; the current proof uses portable declarations and encoded products.
 Portable Native implementations carry a binding DefinitionId; registered Rust
 factories supply execution. Source-free runtimes receive the same checked native
 records directly from installed packages. Host adapters retain passing styles,

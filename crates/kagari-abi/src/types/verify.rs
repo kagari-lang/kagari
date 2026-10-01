@@ -683,7 +683,6 @@ fn method_contract_matches(
     cancel: &CancellationToken,
 ) -> bool {
     if matches!(implemented.implementation, CallableImplementation::Required)
-        || !declared.method_policy.override_allowed
         || declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
     {
@@ -706,6 +705,27 @@ fn method_contract_matches(
         normalize(&ty)
     };
     let actual = |ty: &AbiType| normalize(ty);
+    let inherited_default = match (&declared.implementation, &implemented.implementation) {
+        (
+            CallableImplementation::NativeDefault(declared),
+            CallableImplementation::NativeDefault(implemented),
+        ) => {
+            declared.declaration == implemented.declaration
+                && declared.arguments.len() == implemented.arguments.len()
+                && declared.arguments.iter().zip(&implemented.arguments).all(
+                    |(declared, implemented)| {
+                        expected(declared).is_ok_and(|declared| {
+                            actual(implemented).is_ok_and(|implemented| declared == implemented)
+                        })
+                    },
+                )
+        }
+        (_, CallableImplementation::NativeDefault(_)) => false,
+        _ => declared.method_policy.override_allowed,
+    };
+    if !inherited_default {
+        return false;
+    }
     let signatures = iter::once(expected(&declared.return_type))
         .chain(iter::once(actual(&implemented.return_type)))
         .chain(declared.params.iter().map(|p| expected(&p.ty)))
@@ -888,10 +908,22 @@ fn function_valid(
                 || nominal_valid(id, DefinitionKind::Method))
                 && id.within_path_limit()
         }
+        CallableImplementation::NativeDefault(application) => {
+            parent.last().is_some_and(|owner| {
+                matches!(owner.kind, DefinitionKind::Trait | DefinitionKind::Impl)
+            }) && application.declaration.within_path_limit()
+                && (nominal_valid(&application.declaration, DefinitionKind::Function)
+                    || nominal_valid(&application.declaration, DefinitionKind::Method))
+                && application.arguments.len() <= 4096
+        }
     };
     if function.name.is_empty()
         || !implementation_valid
         || (!function.method_policy.override_allowed
+            && !matches!(
+                function.implementation,
+                CallableImplementation::NativeDefault(_)
+            )
             && !parent
                 .last()
                 .is_some_and(|owner| owner.kind == DefinitionKind::Trait))
@@ -907,6 +939,13 @@ fn function_valid(
     parameters(&function.generic_params, &owner, outer).is_some_and(|params| {
         bounds_valid_in(&function.bounds, &params, self_owner, cancel)
             && signature_valid(function, &params, self_owner, cancel)
+            && match &function.implementation {
+                CallableImplementation::NativeDefault(application) => application
+                    .arguments
+                    .iter()
+                    .all(|argument| type_valid(argument, &params, self_owner, cancel)),
+                _ => true,
+            }
     })
 }
 fn signature_valid(

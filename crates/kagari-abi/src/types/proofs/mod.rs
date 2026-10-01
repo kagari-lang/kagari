@@ -4,6 +4,7 @@
 //! responsibility, while this layer checks dependency-dependent obligations.
 mod callables;
 mod composition;
+pub mod defaults;
 mod normalize;
 mod ownership;
 mod search;
@@ -11,10 +12,12 @@ mod structural;
 
 use crate::{
     layout::EnumLayout,
+    layout::LayoutValidationError,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
-        InterfaceTableAbi, NominalAbiType, TraitAbi, inheritance,
+        InterfaceTableAbi, NativeDeclaration, NominalAbiType, TraitAbi, inheritance,
         substitution::{TypeSubstitution, TypeTransformError},
+        verify::validate_native_declarations,
     },
 };
 use kagari_common::{
@@ -25,9 +28,11 @@ use kagari_common::{
 use std::{
     cell::Cell,
     collections::{BTreeMap, HashSet},
+    slice,
 };
 
 const MAX_IMPLEMENTATIONS: usize = 4096;
+const MAX_NATIVE_DECLARATIONS: usize = 4096;
 const MAX_CHECKS: usize = 100_000;
 const MAX_DEPTH: usize = 64;
 
@@ -36,6 +41,7 @@ pub struct ProofCatalog<'a> {
     hosts: Vec<&'a HostTypeDeclaration>,
     enumerations: BTreeMap<NominalAbiType, Vec<&'a AbiType>>,
     contracts: BTreeMap<DefinitionId, &'a TraitAbi>,
+    native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration>,
 }
 
 struct Budget<'a> {
@@ -67,6 +73,7 @@ impl<'a> ProofCatalog<'a> {
         hosts: Vec<&'a HostTypeDeclaration>,
         enumerations: impl IntoIterator<Item = &'a EnumLayout>,
         contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitAbi)>,
+        native_declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
@@ -145,12 +152,39 @@ impl<'a> ProofCatalog<'a> {
                 return Err(TypeTransformError::InvalidContract);
             }
         }
-        Ok(Self {
+        let mut templates = BTreeMap::new();
+        for template in native_declarations {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if templates.len() >= MAX_NATIVE_DECLARATIONS {
+                return Err(TypeTransformError::LimitExceeded);
+            }
+            validate_native_declarations(
+                slice::from_ref(template),
+                &template.declaration.module,
+                cancel,
+            )
+            .map_err(|error| match error {
+                LayoutValidationError::Cancelled => TypeTransformError::Cancelled,
+                _ => TypeTransformError::InvalidContract,
+            })?;
+            if templates
+                .insert(template.declaration.clone(), template)
+                .is_some()
+            {
+                return Err(TypeTransformError::InvalidContract);
+            }
+        }
+        let result = Self {
             tables,
             hosts: unique_hosts,
             enumerations: payloads,
             contracts: declarations,
-        })
+            native_declarations: templates,
+        };
+        if !result.native_defaults_valid(cancel)? {
+            return Err(TypeTransformError::InvalidContract);
+        }
+        Ok(result)
     }
 
     pub fn ancestry(

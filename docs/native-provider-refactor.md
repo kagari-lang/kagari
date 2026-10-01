@@ -128,7 +128,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function/impl/inherent-method named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered requirements select script/native targets; injected NativeSelected handles derive local or cataloged external requirements for free/inherent entries, with exact provider contracts checked at composition/install/link | Projected receivers, native defaults and remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; injected NativeSelected handles derive local or external requirements; portable defaults resolve explicit template applications and execute through ordinary native slots | Projected receivers, Rust/source default authoring and materialization, associated families and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -250,7 +250,9 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Impl/inherent-method bounds, native method requirements and checked MIR target materialization.
   - [x] Typed local-trait selected handles, generated bounds and registration signature checks for free/inherent entries.
   - [x] External typed trait catalogs and foreign native implementation signatures, with actual provider installation and portable contract matching.
-  - [ ] Projected receivers, native default requirements and Ord/sort_by/sort.
+  - [x] Portable native default template applications, inherited obligations and encoded dynamic execution.
+  - [ ] Rust/source native default authoring and checked-source materialization.
+  - [ ] Projected receivers and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
@@ -552,6 +554,12 @@ enum Implementation {
     Required,
     Script(BodyId),
     Native(DefinitionId),
+    NativeDefault(NativeDefaultApplication),
+}
+
+struct NativeDefaultApplication {
+    declaration: DefinitionId,
+    arguments: Vec<AbiType>,
 }
 
 struct MethodPolicy {
@@ -582,7 +590,9 @@ authority token. Declarations own signatures and runtime installation owns handl
 model. Direct versus resumable execution does not change ordinary call typing.
 
 Trait defaults use the declaration's implementation and explicit method policy:
-Required awaits selection; Script and Native can supply defaults. Override policy
+Required awaits selection; Script and NativeDefault can supply defaults. An
+explicit NativeDefault application selects an ordinary registered Native template;
+it is resolved before executable imports or callbacks are published. Override policy
 must not be inferred from a binding key. Local rebinding writeability, collection
 access and host passing styles remain distinct.
 
@@ -2050,7 +2060,6 @@ applications and linking, exposing them to the shared callback driver. Restore
 Ord/Ordering and sort_by/sort after that proof, followed by managed iterator state.
 Goal mode remains active.
 
-
 ### NR02 checkpoint: checked selected trait-member callbacks (2026-10-01)
 
 Checkpoint 2 advances the static selected-call path for registered generic free
@@ -2274,4 +2283,72 @@ failures were not rerun or disabled. Final acceptance remains open.
 Next: complete native default contracts and projected requirements needed by
 Ord/Ordering and sort_by/sort, then prove managed iterator state. Preserve NR04
 integration errors and NR05/ST06 combined behavior and measurement obligations.
+Goal mode remains active.
+
+### NR02 checkpoint: portable native default applications (2026-10-01)
+
+Checkpoint 2 now validates native default declarations and executes encoded dynamic
+default calls. This accepts the portable foundation only. Rust/source default
+authoring and materialization, projected requirements, associated families,
+Ord/sorting and managed returned state remain open; no NR phase is accepted.
+
+- Add NativeDefaultApplication with an actual native template DefinitionId and
+  explicit symbolic arguments. Keep declaration metadata distinct from execution:
+  selected callbacks and executable imports require a resolved ordinary Native
+  instance. Do not infer Self, associated outputs or template order from binding
+  names, and do not synthesize a script body or add a second runtime dispatcher.
+- Supply validated native declarations to the shared source-free ProofCatalog.
+  Check template arity, parameter mutability, applied parameter/result types and
+  obligations under the trait/method bounds and implicit Self contract. Generic
+  assumptions entail declared parents through the bounded ancestry proof; ordinary
+  associated outputs retain their canonical Self projections and declared bounds.
+  Concrete selection checks normalized template arguments and concrete bounds.
+- Apply default mappings during interface instantiation and selected resolution.
+  Final methods require the canonical inherited application; changed template IDs,
+  arguments, opaque Native replacements and Script replacements reject. Different
+  members may share one checked physical native target; method identities remain
+  unique. Dynamic slots check the full mapping, binding and signature, rather than
+  incorrectly equating template arguments with the implementing table's arguments.
+- Validate default slot targets in linked portable MIR/bytecode. A MIR native target
+  can belong to another module; complete dependency proofs still authenticate its
+  owning declaration and exact application. Runtime retains receiver/heap/version
+  checks and uses the sealed target on the common driver. HIR/source default
+  producers and source-to-MIR lowering are still pending, not accepted by this test.
+- Add nine independent ABI tests, including reordered trait/Self parameters,
+  associated output mapping, inherited template obligations, final override
+  rejection, malformed signatures/bounds, bounded decode and cancellation. Add
+  four encoded-product tests using actual registered Rust functions and selected
+  callbacks with default installation disabled, GC threshold one, shared default
+  targets, forged applications and every logical budget cut. Root/frame counts and
+  allocated heap objects return to zero after resource failure.
+- Bump runtime ABI to v139, KBC to v116 and KMIR to v14; helper ABI remains v6.
+  Regenerate the four focused products and preserve exact source emission. Older
+  products require rebuilding; do not patch their headers or add a legacy reader.
+
+Validation actually performed: nine ABI integration tests and 87 focused SDK tests
+across eleven targets pass, including four default tests, 13 selected tests and 26
+associated tests. Workspace library and focused ABI/SDK Clippy pass with warnings
+denied. Format, structure (833 Rust files, zero findings/exceptions) and diff checks
+pass. All four standalone native-proof feature consumers, eight production
+boundaries and the source-free ABI graph pass. Manual review covers actual owner
+imports, the empty re-export whitelist, template binder/target ownership, bounded
+decoding and proof work, canonical final applications, shared slots, callback roots
+and retained generations.
+
+Integration checks attempted and still NR04-owned:
+`cargo test -p kagari-abi --lib` fails before execution on obsolete
+EngineNativeBinding and RuntimePrimitive::Integer/ArrayListNew/StringLenChars
+imports in old validation/numeric tests; 14 compiler errors include cascading slice
+diagnostics. `cargo test -p kagari-embed --no-default-features --test artifact_features`
+fails before execution on NativeImport.binding_version, which no longer exists.
+Logs are target/native-default-abi-lib.log and
+target/native-default-carried-full-artifact.log. These checks are neither accepted
+nor disabled. Full workspace/all-target integration and the old complete artifact
+remain open; all errors must be resolved before NR05/ST06 acceptance.
+
+Next: derive default applications from actual typed Rust function templates,
+import them into HIR and materialize checked source calls and slots without
+implementation-owned fake bodies. Then complete projected requirements and
+Ord/sorting, prove managed iterator state, restore dependent families, retire
+legacy callers and run NR05/ST06 combined behavior and measurement acceptance.
 Goal mode remains active.

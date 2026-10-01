@@ -234,8 +234,10 @@ Method-local generic parameters and enclosing impl binders are retained in ABI
 signature checks. Readonly interfaces expose their declared methods through
 ordinary bridges; native bindings carry no receiver Read/Write flags. The registered List retains its Index supertrait; ArrayList supplies both len and
 get through registered native entries. MutableList extends List and adds set.
-Selected default callable/witness metadata remains NR02 work, rather than the old
-method-specific traversal and conversion catalogs.
+Portable native default applications name an ordinary registered template and
+explicit generic arguments. Their checked signatures and bounds replace
+method-specific traversal and conversion catalogs. Rust/source authoring and
+materialization of these applications remain NR02 work.
 
 Installed native defaults that forbid replacement explicitly carry
 `#[method_policy(Final)]` in their declaration. Unannotated defaults remain
@@ -262,6 +264,20 @@ script body. Engine functions, native impl methods and native defaults carry con
 callable identities, checked substitutions, full parameter/result types, bounds and
 selected protocol applications. Compiler lowering encodes these facts without
 looking up declaration syntax or expanding public standard algorithms.
+
+`NativeDefault` is not an executable implementation kind. Its declaration names a
+native template and explicitly maps Self, trait arguments, ordinary associated
+outputs and method arguments to template arguments. Portable validation checks
+template existence, parameter mutability, exact applied parameter/result types and
+the template's bounds under the trait contract, including parent obligations.
+Concrete selection normalizes the mapping and resolves a normal Native instance.
+A final default implementation must retain that canonical application; substituting
+an unrelated native binding or script body is invalid. Dynamic slots authenticate
+the same applied signature and target against the complete dependency closure,
+even when the template belongs to another module or multiple members share it.
+Unresolved default applications cannot enter selected callbacks or runtime linking.
+The current acceptance covers portable proof and encoded execution; registered
+Rust/default authoring, source materialization and associated families remain open.
 
 Portable verification validates each native application against its carried source
 declaration. Runtime linking resolves its ID and checks the applied signature against

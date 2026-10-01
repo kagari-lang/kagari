@@ -3,6 +3,7 @@
 //! referenced arity and members without an implicit standard-library catalog.
 
 use crate::{
+    callable::CallableImplementation,
     layout::{EnumLayout, StructLayout},
     slots::SemanticSlots,
     types::{
@@ -149,6 +150,9 @@ where
     }
 
     pub fn function(&self, function: &FunctionAbi) -> Result<(), TypeTransformError> {
+        if let CallableImplementation::NativeDefault(application) = &function.implementation {
+            self.types(&application.arguments)?;
+        }
         self.bounds(&function.bounds)?;
         self.types(function.params.iter().map(|p| &p.ty))?;
         self.validate_type(&function.return_type)

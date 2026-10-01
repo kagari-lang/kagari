@@ -118,16 +118,34 @@ impl ProofCatalog<'_> {
                     .collect::<Result<_, _>>()?,
                 result: normalize(&method.return_type)?,
             };
+            let (instance, implementation) = if let CallableImplementation::NativeDefault(
+                application,
+            ) = &method.implementation
+            {
+                let application = application.apply(&substitution, cancel)?;
+                let Some(resolved) = self.resolve_native_default(&application, cancel)? else {
+                    return Ok(None);
+                };
+                if resolved.signature != signature {
+                    return Ok(None);
+                }
+                (resolved.instance, resolved.implementation)
+            } else {
+                (
+                    ConcreteFunctionIdentity {
+                        declaration,
+                        arguments: arguments
+                            .into_iter()
+                            .chain(requirement.arguments.iter().cloned())
+                            .collect(),
+                    },
+                    method.implementation.clone(),
+                )
+            };
             selected = Some(NativeCallableApplication {
                 requirement: requirement.clone(),
-                instance: ConcreteFunctionIdentity {
-                    declaration,
-                    arguments: arguments
-                        .into_iter()
-                        .chain(requirement.arguments.iter().cloned())
-                        .collect(),
-                },
-                implementation: method.implementation.clone(),
+                instance,
+                implementation,
                 signature,
                 effects: EffectSet::native_call(),
             });

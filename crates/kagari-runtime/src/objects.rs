@@ -8,6 +8,7 @@ use crate::{
 use kagari_bytecode::{module::CallableTarget, trait_bounds::interface_ancestors};
 
 use kagari_abi::{
+    callable::CallableImplementation,
     ids::FunctionRef,
     operations::IterOp,
     representation::ValueType,
@@ -162,7 +163,16 @@ impl Runtime {
                             .get(import.index())
                             .map(|import| &import.instance),
                     }
-                    .is_some_and(|identity| identity.arguments == linked.arguments)
+                    .is_some_and(|identity| match &method.implementation {
+                        CallableImplementation::NativeDefault(application) => {
+                            // The sealed program checked the template argument
+                            // mapping and signature. Its arguments need not be
+                            // the implementing table's own generic arguments.
+                            matches!(slot.target, CallableTarget::Native(_))
+                                && identity.declaration == application.declaration
+                        }
+                        _ => identity.arguments == linked.arguments,
+                    })
             });
             let Some(slot) = candidates.next() else {
                 return Err(invalid());

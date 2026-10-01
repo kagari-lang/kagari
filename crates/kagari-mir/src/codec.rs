@@ -15,7 +15,7 @@ use crate::{
 };
 
 pub const MIR_MAGIC: [u8; 4] = *b"KMIR";
-pub const MIR_FORMAT_VERSION: u16 = 13;
+pub const MIR_FORMAT_VERSION: u16 = 14;
 pub const MAX_MIR_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]

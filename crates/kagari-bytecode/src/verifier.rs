@@ -371,7 +371,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 || slot.method.module != trait_type.declaration.module
                 || slot.method.path.len() != trait_type.declaration.path.len() + 1
                 || slot.method.path[..slot.method.path.len() - 1] != trait_type.declaration.path
-                || !used.insert(slot.target)
+                || !used.insert(&slot.method)
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -388,8 +388,11 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                         .functions
                         .get(target.index())
                         .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
-                    if matches!(method.implementation, CallableImplementation::Native(_))
-                        && !abi.native_bridge
+                    if matches!(
+                        method.implementation,
+                        CallableImplementation::Native(_)
+                            | CallableImplementation::NativeDefault(_)
+                    ) && !abi.native_bridge
                     {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
@@ -409,14 +412,29 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                     if abi.host_bridge
                         || abi.native_bridge
                         || import.host.is_some()
-                        || method.implementation
-                            != CallableImplementation::Native(import.binding.clone())
+                        || match &method.implementation {
+                            CallableImplementation::Native(binding) => binding != &import.binding,
+                            CallableImplementation::NativeDefault(application) => {
+                                application.declaration != import.instance.declaration
+                                    || application.arguments.len()
+                                        != import.instance.arguments.len()
+                            }
+                            _ => true,
+                        }
                     {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
                     &import.instance
                 }
             };
+            if matches!(
+                method.implementation,
+                CallableImplementation::NativeDefault(_)
+            ) {
+                // The linked proof checks the template, substituted arguments,
+                // binding and signature against the complete dependency closure.
+                continue;
+            }
             if identity.declaration.module != abi.declaration.module
                 || identity.declaration.path.len() != abi.declaration.path.len() + 1
                 || identity.declaration.path[..identity.declaration.path.len() - 1]

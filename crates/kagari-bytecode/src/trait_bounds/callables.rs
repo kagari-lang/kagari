@@ -37,6 +37,6 @@ pub(super) fn target_valid(call: &NativeCallableApplication, closure: &[&Bytecod
                 && import.signature == call.signature
                 && import.host.is_none()
         }),
-        CallableImplementation::Required => false,
+        CallableImplementation::Required | CallableImplementation::NativeDefault(_) => false,
     }
 }

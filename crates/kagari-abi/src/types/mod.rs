@@ -414,7 +414,7 @@ impl InterfaceTableAbi {
                 Some(FunctionAbi {
                     method_policy: method.method_policy,
                     name: method.name.clone(),
-                    implementation: method.implementation.clone(),
+                    implementation: method.implementation.apply(&substitution, &cancel).ok()?,
                     generic_params: method
                         .generic_params
                         .iter()

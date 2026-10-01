@@ -107,7 +107,8 @@ impl NativeImport {
                     && match &call.implementation {
                         CallableImplementation::Script => true,
                         CallableImplementation::Native(binding) => binding.within_path_limit(),
-                        CallableImplementation::Required => false,
+                        CallableImplementation::Required
+                        | CallableImplementation::NativeDefault(_) => false,
                     }
             })
             && self.instance.arguments.iter().all(valid)

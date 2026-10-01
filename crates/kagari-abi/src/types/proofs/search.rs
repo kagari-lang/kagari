@@ -136,6 +136,21 @@ impl ProofCatalog<'_> {
     ) -> Result<bool, TypeTransformError> {
         budget.step(depth)?;
         if assumptions.iter().filter(|bound| bound.ty == *receiver).flat_map(|bound| &bound.constraints).any(|bound| matches!(bound, ConstraintAbi::Trait(available) if satisfies(available, interface))) { return Ok(true); }
+        for bound in assumptions.iter().filter(|bound| bound.ty == *receiver) {
+            for constraint in &bound.constraints {
+                let ConstraintAbi::Trait(available) = constraint else {
+                    continue;
+                };
+                budget.step(depth)?;
+                if self
+                    .ancestry(available, receiver, budget.cancel)?
+                    .iter()
+                    .any(|parent| satisfies(parent, interface))
+                {
+                    return Ok(true);
+                }
+            }
+        }
         if let AbiType::Trait(view) = receiver
             && self
                 .ancestry(view, receiver, budget.cancel)?

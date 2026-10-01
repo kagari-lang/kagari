@@ -211,7 +211,7 @@ impl NativeContext<'_> {
                         && import.signature == selected.signature
                 })
                 .map(|index| CallableTarget::Native(NativeImportId::new(index))),
-            CallableImplementation::Required => None,
+            CallableImplementation::Required | CallableImplementation::NativeDefault(_) => None,
         }
         .ok_or_else(invalid)?;
         let roots = self
