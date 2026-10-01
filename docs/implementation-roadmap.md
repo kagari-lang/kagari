@@ -24,6 +24,97 @@ measurements. Generated host declaration documents, Rust registration macros, LS
 transport and further backend expansion remain later work. This migration does not
 reopen completed historical phase ledgers.
 
+## Native provider and contract unification (queued)
+
+The [native provider refactor plan](native-provider-refactor.md) follows completion
+of ST06 and its final acceptance; it is not part of the active ST00-ST06 work.
+NR00-NR05 replace remaining per-standard-method infrastructure policy with common
+native contracts, provider registration and a shared callback/resumption lifecycle
+usable by both built-in and host implementations. Adding a native function using
+existing capabilities must require only its declaration, implementation, provider
+registration and tests, without changes to generic HIR/compiler/verifier/VM logic.
+Provider authority, storage primitives and observable execution semantics remain
+explicit. NR00 re-audits the completed ST06 result before implementation begins.
+
+## Permissions and execution protection refactor queued
+
+The [execution policy refactor plan](execution-policy-refactor.md) follows NR05
+acceptance and precedes async implementation. EP00-EP05 replace per-execution
+permission matrices with installed API access and exact logical charging with
+coarse runaway protection. Runtime heap/depth limits, root work/cancellation and
+host-owned scheduling/service limits remain distinct. Field writeability follows
+declarations and exposed adapters, not extra permission flags. This is queued
+planning only; existing ST/NR semantics remain in force until its implementing phases.
+
+## Rust value and opaque interoperability queued
+
+The [Rust interoperability plan](rust-interop-design.md) defines ordinary typed
+value conversion, an optional schema-backed Serde adapter and retained opaque
+objects. Module registration owns type names; parameters, results and properties
+share recursive binding rules. Opaque wrappers are cloneable without cloning their
+payloads, and modifying methods use host-managed interior mutation. Rust borrow
+exposure and automatic exclusive receivers remain separate future work.
+RI00-RI05 are queued after native provider unification, with proposed execution
+after execution-policy simplification. This synchronous binding work does not
+depend on async or change its prerequisites; activation and exact scheduling remain
+pending. No current ST/NR scope is expanded.
+
+## Host API unification queued
+
+The [host API refactor plan](host-api-refactor.md) unifies preparation, loading,
+calls and reload around Engine, Program, Runtime and a stable Script installation.
+Normal calls infer Rust types and use an explicit outer tuple as the argument list;
+each tuple element is one script value, with no implicit spreading of tuple returns.
+HA00-HA05 follow native provider, execution-policy and Rust interop acceptance.
+Latest-version function entries with root-pinned execution are a proposal to confirm
+at activation. The synchronous facade does not require async implementation or
+change the existing async prerequisites; later integration shares its type and
+version contracts. This is planning only and does not expand current migrations.
+
+The package and update proposals below refine HA's previously open identity and
+reload-compatibility gates. Freeze their contracts before HA's affected phases;
+UP owns lower-level update validation/cutover and HA owns the public facade. This
+is not a requirement that both whole tracks finish before either can begin.
+
+## Package and dependency design queued
+
+The [package design](package-design.md) proposes Cargo-style dependency declarations,
+stable logical identities, exact resolved graphs and source-to-module mapping.
+PK00-PK04 distinguish packages from executable Programs and runtime installations.
+The first-delivery source kinds, single-selection policy and manifest defaults are
+review choices. Freeze package identity before HA's package input and UP's compatibility
+implementation. Activation follows the active ST/NR work; exact placement alongside
+EP/RI/HA remains to be agreed without adding scope to those active predecessors.
+
+## Compatible hot reload and state replacement queued
+
+The [update model](update-model-design.md) separates compatible code publication
+from explicit player-state export, fresh-environment restoration and host cutover.
+Compatible updates preserve existing contracts and may add new concrete types with
+trait implementations; adding trait impls to old types is excluded. State replacement
+permits code restructuring but carries data, not old tasks or runtime object identities.
+UP00-UP05 own compatibility and cutover; RI supplies conversion/root foundations,
+PK supplies identity and dependency facts, and HA supplies embedding entrypoints.
+Synchronous acceptance does not require async. Async integration must later cover
+quiescence, cancellation and late completions using the same update boundaries.
+
+## Async script and native execution design
+
+The [async execution proposal](async-execution-design.md) describes typed native
+operations awaited by async scripts, with host-driven single-threaded execution.
+It is a design-only follow-up after native provider unification and execution-policy
+simplification, not an active implementation phase. Task semantics, owned execution
+lifetimes and completion
+contracts require review before activation. Ordinary callback-bearing natives
+remain distinct from external async waits; no async work is added to ST or NR
+acceptance, and multi-threaded script execution remains out of scope.
+
+The companion [host task scope design](host-task-scope-design.md) covers synchronous
+handlers launching scope-owned async work, generic Native registration and
+Actor-mailbox dispatch through a bounded drive API. It refines the async proposal's
+task lifetime and scheduling contract without adding Actor or Tokio policy to core
+execution or creating another active implementation track.
+
 ## Never type (complete)
 
 Scope: introduce the uninhabited type `!` in source, checked types, executable

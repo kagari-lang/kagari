@@ -53,6 +53,11 @@ the [implementation roadmap](implementation-roadmap.md). Current behavior remain
 defined by the language specifications until the corresponding migration phase
 updates the implementation and documentation together.
 
+The queued [native provider and contract refactor](native-provider-refactor.md)
+follows ST06 final acceptance. It addresses remaining per-method infrastructure
+coupling and public host access to the shared native callback/resumption mechanism.
+That follow-up does not expand or interrupt this plan's current phase scope.
+
 ## Objective
 
 Introduce `kagari-stdlib` as the owner of the bundled standard-library source
