@@ -63,7 +63,7 @@ fn sets_preserve_every_budget_cut() {
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

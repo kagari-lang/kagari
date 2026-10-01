@@ -14,19 +14,11 @@ use kagari_abi::{
 };
 use std::{
     cell::Cell,
-    collections::HashSet,
     rc::{Rc, Weak},
 };
 
 #[derive(Debug)]
-pub(super) enum IteratorKind {
-    Collection,
-    Adapter { dependencies: Vec<Value> },
-}
-
-#[derive(Debug)]
 pub(super) struct NativeIter {
-    pub(super) kind: IteratorKind,
     pub(super) source: Value,
     pub(super) item_type: AbiType,
     pub(super) position: u128,
@@ -48,70 +40,41 @@ fn invalid() -> RuntimeError {
 
 impl GcHeap {
     /// Reopening an indexed adapter must validate and protect its retained source.
-    pub(crate) fn resume_iter(&self, value: &Value) -> Result<(), RuntimeError> {
+    pub fn resume_iter(&self, value: &Value) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         let session = self.resources.active_session().ok_or_else(invalid)?;
-        let mut pending = vec![value.clone()];
-        let mut visited = HashSet::new();
-        while let Some(value) = pending.pop() {
-            self.resources.consume_instruction_steps(1)?;
-            let Value::GcHandle(id) = value else {
+        self.resources.consume_instruction_steps(1)?;
+        let Value::GcHandle(id) = value else {
+            return Err(invalid());
+        };
+        let (source, revision, needs_guard) = {
+            let objects = self.objects.borrow();
+            let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, *id) else {
                 return Err(invalid());
             };
-            if !visited.insert(id) {
-                continue;
-            }
-            let (source, dependencies, revision, needs_guard) = {
-                let objects = self.objects.borrow();
-                let Some(HeapObject::Iter(iter)) = self.readable_object(&objects, id) else {
-                    return Err(invalid());
-                };
-                (
-                    iter.source.clone(),
-                    match &iter.kind {
-                        IteratorKind::Collection => None,
-                        IteratorKind::Adapter { dependencies } => Some(dependencies.clone()),
-                    },
-                    iter.revision,
-                    iter.guard.is_none() && iter.loops.get() == 0,
-                )
-            };
-            if let Some(dependencies) = dependencies {
-                for dependency in dependencies {
-                    match dependency {
-                        Value::GcHandle(_) => pending.push(dependency),
-                        Value::Array(slot) => {
-                            let Some(Value::Enum(value)) = self.array_get(slot, 0) else {
-                                return Err(invalid());
-                            };
-                            let snapshot = self.enum_snapshot(value).ok_or_else(invalid)?;
-                            if snapshot.tag == EnumTag::OptionSome {
-                                pending.extend(snapshot.fields);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                continue;
-            }
-            if self.collection_revision(&source) != Some(revision) {
+            (
+                iter.source.clone(),
+                iter.revision,
+                iter.guard.is_none() && iter.loops.get() == 0,
+            )
+        };
+        if self.collection_revision(&source) != Some(revision) {
+            return Err(invalid());
+        }
+        if needs_guard {
+            session
+                .iter_guards
+                .borrow_mut()
+                .try_reserve(1)
+                .map_err(|_| self.resource_limit("iterator registry"))?;
+            let guard = self.begin_collection_iteration(&source)?;
+            let mut objects = self.objects.borrow_mut();
+            let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, *id) else {
                 return Err(invalid());
-            }
-            if needs_guard {
-                session
-                    .iter_guards
-                    .borrow_mut()
-                    .try_reserve(1)
-                    .map_err(|_| self.resource_limit("iterator registry"))?;
-                let guard = self.begin_collection_iteration(&source)?;
-                let mut objects = self.objects.borrow_mut();
-                let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
-                    return Err(invalid());
-                };
-                iter.guard = Some(guard);
-                iter.session = Rc::downgrade(&session);
-                session.iter_guards.borrow_mut().insert(id);
-            }
+            };
+            iter.guard = Some(guard);
+            iter.session = Rc::downgrade(&session);
+            session.iter_guards.borrow_mut().insert(*id);
         }
         Ok(())
     }
@@ -132,44 +95,14 @@ impl GcHeap {
     }
 
     fn close_iter_tree(&self, value: &Value) -> Result<(), RuntimeError> {
-        let mut pending = vec![value.clone()];
-        let mut visited = HashSet::new();
-        while let Some(Value::GcHandle(id)) = pending.pop() {
-            if !visited.insert(id) {
-                continue;
-            }
-            let mut objects = self.objects.borrow_mut();
-            let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, id) else {
-                return Err(invalid());
-            };
-            iter.guard = None;
-            let dependencies = match &iter.kind {
-                IteratorKind::Collection => None,
-                IteratorKind::Adapter { dependencies } => Some(dependencies.clone()),
-            };
-            drop(objects);
-            if let Some(dependencies) = dependencies {
-                for dependency in dependencies {
-                    match dependency {
-                        Value::GcHandle(_) => pending.push(dependency),
-                        Value::Array(slot) => {
-                            // Dynamic inner iterators retain their own guards. Read the
-                            // live slot on close rather than retaining an obsolete inner.
-                            let Some(Value::Enum(value)) = self.array_get(slot, 0) else {
-                                return Err(invalid());
-                            };
-                            let snapshot = self.enum_snapshot(value).ok_or_else(invalid)?;
-                            match snapshot.tag {
-                                EnumTag::OptionSome => pending.extend(snapshot.fields),
-                                EnumTag::OptionNone => {}
-                                _ => return Err(invalid()),
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
+        let Value::GcHandle(id) = value else {
+            return Err(invalid());
+        };
+        let mut objects = self.objects.borrow_mut();
+        let Some(HeapObject::Iter(iter)) = self.object_mut(&mut objects, *id) else {
+            return Err(invalid());
+        };
+        iter.guard = None;
         Ok(())
     }
     fn collection_revision(&self, source: &Value) -> Option<u64> {
@@ -227,7 +160,6 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("iterator registry"))?;
         let guard = Some(self.begin_collection_iteration(source)?);
         let id = self.alloc_object(HeapObject::Iter(Box::new(NativeIter {
-            kind: IteratorKind::Collection,
             source: source.clone(),
             item_type,
             position: 0,

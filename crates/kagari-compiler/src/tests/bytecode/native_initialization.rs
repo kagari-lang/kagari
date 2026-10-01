@@ -3,7 +3,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     scalar::BuiltinType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
     types::AbiType,
 };
 use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
@@ -21,16 +21,16 @@ fn array_initializers_reject_forged_callback_and_storage_contracts() {
         ));
         let root = program.root.index();
         let import = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| {
-                import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayListFromFn)
+                import.binding == EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayListFromFn)
             })
             .unwrap();
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..10 {
             let mut forged = artifact.clone();
-            let contract = &mut forged.program.modules[root].engine_imports[import];
+            let contract = &mut forged.program.modules[root].native_imports[import];
             match mutation {
                 0 => contract.signature.params[0] = AbiType::Builtin(BuiltinType::I32),
                 1 => {
@@ -69,11 +69,10 @@ fn array_initializers_reject_forged_callback_and_storage_contracts() {
                     for function in &mut forged.program.modules[root].functions {
                         for instruction in &mut function.instructions {
                             if let BytecodeInstruction::Call { callee, .. } = instruction
-                                && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
+                                && matches!(callee,CallTarget::Native(id) if id.index()==import)
                             {
-                                *callee = CallTarget::StandardIntrinsic(
-                                    StandardIntrinsic::ArrayListFromFn,
-                                );
+                                *callee =
+                                    CallTarget::RuntimePrimitive(RuntimePrimitive::ArrayListFromFn);
                                 replaced = true;
                             }
                         }

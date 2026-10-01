@@ -1,32 +1,18 @@
 //! Encode a selected callable application without reconstructing its declaration.
-use crate::source::{
-    lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer},
-    types::{raise_nominal_type, raise_type},
-};
+use crate::source::lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer};
 use kagari_abi::{
-    callable::{EngineNativeBinding, NativeCall},
-    native_import::{
-        ENGINE_NATIVE_BINDING_VERSION, EngineNativeImport, NativeSignature, NativeWitness,
-        NativeWitnessImplementation,
-    },
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
-    types::{
-        ConcreteFunctionIdentity, ConstraintAbi, GenericBoundAbi, substitution::TypeSubstitution,
-    },
+    native_import::{NativeImport, NativeSignature},
+    types::{ConcreteFunctionIdentity, substitution::TypeSubstitution},
 };
-use kagari_common::{
-    Span,
-    collection::CollectionAccess,
-    identity::{DefinitionId, associated_type_id},
-};
+use kagari_common::{Span, identity::DefinitionId};
 use kagari_hir::{
-    builtin::traits::StandardTraitSemantics,
+    aggregates::MethodDefault,
     callable::AppliedCallSignature,
     declarations::DeclarationId,
     native::NativeBinding,
     resolver::ResolvedName,
     typeck::{CallTarget, FunctionImplementation},
-    types::{TypeId, TypeSubstitution as HirSubstitution, abi::lower_type},
+    types::{NominalType, TypeId, TypeSubstitution as HirSubstitution, abi::lower_type},
 };
 use kagari_mir::instruction::{CallTarget as MirCallTarget, Instruction, MirValue};
 use std::slice;
@@ -44,7 +30,7 @@ impl FunctionLowerer<'_, '_> {
         application: &AppliedCallSignature,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<EngineNativeImport, MirLoweringError> {
+    ) -> Result<NativeImport, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("checked engine native contract");
         let (declaration, function) = match target {
             CallTarget::Function(id) => {
@@ -77,11 +63,12 @@ impl FunctionLowerer<'_, '_> {
             }
             _ => return Err(invalid()),
         };
-        let FunctionImplementation::Native(NativeBinding::Engine(binding)) =
-            function.implementation
+        let FunctionImplementation::Native(NativeBinding::Provider(binding)) =
+            &function.implementation
         else {
             return Err(invalid());
         };
+        let binding = binding.clone();
         let function = function.clone();
         let arguments = self
             .planner
@@ -100,7 +87,6 @@ impl FunctionLowerer<'_, '_> {
                 &self.planner.options.cancel,
             )
             .map_err(|_| invalid())?;
-        let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
         let params =
             self.planner
                 .arguments(&application.params, &self.instance.substitution, span)?;
@@ -109,145 +95,46 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
-        self.native_destinations(binding, &params, &result[0], &mut witnesses)?;
-        self.native_collection_source(binding, &params, &mut witnesses)?;
-        self.native_key_witnesses(binding, &params, &result[0], &mut witnesses)?;
-        if matches!(
-            binding,
-            EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::MapKeys
-                    | StandardIntrinsic::MapValues
-                    | StandardIntrinsic::MapEntries
-                    | StandardIntrinsic::ArrayRemoveRange
-            )
-        ) {
-            witnesses.push(self.native_list_result(&result[0])?);
-        }
-        let contract = EngineNativeImport {
+        let import = NativeImport {
             instance: ConcreteFunctionIdentity {
                 declaration,
                 arguments,
             },
-            binding,
-            binding_version: ENGINE_NATIVE_BINDING_VERSION,
+            contract: (*binding).clone(),
             signature: NativeSignature {
                 params: params.iter().map(lower_type).collect(),
                 result: lower_type(&result[0]),
             },
             requirements,
-            witnesses,
         };
-        if contract.resolve().is_none() {
+        if !import.structurally_valid() {
             return Err(invalid());
         }
-        Ok(contract)
+        Ok(import)
     }
-    pub(super) fn native_requirement_witnesses(
+
+    fn emit_native_application(
         &mut self,
-        binding: EngineNativeBinding,
-        requirements: &[GenericBoundAbi],
-    ) -> Result<Vec<NativeWitness>, MirLoweringError> {
-        let invoked_protocols = matches!(
-            binding,
-            EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::StringParse
-                    | StandardIntrinsic::DebugAssertEq
-                    | StandardIntrinsic::LinkedHashMapFrom
-                    | StandardIntrinsic::LinkedHashSetFrom
-                    | StandardIntrinsic::ArrayCopyWithin
-                    | StandardIntrinsic::ArrayRemoveRange
-                    | StandardIntrinsic::ArraySort
-                    | StandardIntrinsic::ArraySortByKey
-                    | StandardIntrinsic::ArrayDedup
-            )
-        ) || self.key_binding(binding)
-            || matches!(
-                binding,
-                EngineNativeBinding::Protocol(
-                    NativeProtocolMethod::NumericSum
-                        | NativeProtocolMethod::NumericProduct
-                        | NativeProtocolMethod::CollectionFromIterator
-                        | NativeProtocolMethod::OptionFromIterator
-                        | NativeProtocolMethod::ResultFromIterator
-                )
-            );
-        let mut witnesses = Vec::new();
-        for bound in requirements {
-            for constraint in &bound.constraints {
-                let ConstraintAbi::Trait(interface) = constraint else {
-                    continue;
-                };
-                let receiver = raise_type(&bound.ty);
-                let applied = raise_nominal_type(interface);
-                let witness = if invoked_protocols {
-                    if StandardTrait::from_id(&interface.declaration)
-                        == Some(StandardTrait::FromIterator)
-                    {
-                        let [item] = applied.arguments.as_slice() else {
-                            return Err(MirLoweringError::MissingBinding(
-                                "native destination item",
-                            ));
-                        };
-                        let source =
-                            TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
-                        self.lower_native_witness(&receiver, &applied, &[source])?
-                    } else {
-                        self.lower_native_witness(&receiver, &applied, &[])?
-                    }
-                } else {
-                    let implementation = if let Some((declaration, arguments)) = self
-                        .planner
-                        .catalog
-                        .concrete_interface_implementation(
-                            &applied,
-                            &receiver,
-                            &Default::default(),
-                            self.planner.options.max_type_nodes,
-                            self.planner.options.max_type_depth,
-                            &self.planner.options.cancel,
-                        )
-                        .map_err(|_| MirLoweringError::MissingBinding("native witness"))?
-                    {
-                        NativeWitnessImplementation::Table(ConcreteFunctionIdentity {
-                            declaration,
-                            arguments: arguments.iter().map(lower_type).collect(),
-                        })
-                    } else {
-                        match receiver {
-                            TypeId::Host(_) => NativeWitnessImplementation::Host,
-                            TypeId::Trait(_) => NativeWitnessImplementation::Interface,
-                            _ => NativeWitnessImplementation::Primitive,
-                        }
-                    };
-                    NativeWitness {
-                        receiver: bound.ty.clone(),
-                        interface: interface.clone(),
-                        implementation,
-                        methods: vec![],
-                    }
-                };
-                if !witnesses.contains(&witness) {
-                    witnesses.push(witness);
-                }
-                if invoked_protocols
-                    && StandardTrait::from_id(&interface.declaration)
-                        == Some(StandardTrait::Iterable)
-                {
-                    let iterator =
-                        self.iteration_output(StandardTrait::Iterable, &receiver, "Iter")?;
-                    let mut applied = StandardTrait::Iterator.nominal();
-                    let item = self.iteration_output(StandardTrait::Iterable, &receiver, "Item")?;
-                    applied
-                        .associated_types
-                        .insert(associated_type_id(&applied.declaration, "Item"), item);
-                    let witness = self.lower_native_witness(&iterator, &applied, &[])?;
-                    if !witnesses.contains(&witness) {
-                        witnesses.push(witness);
-                    }
-                }
-            }
+        import: NativeImport,
+        result: &TypeId,
+        values: &[MirValue],
+    ) -> Result<MirValue, MirLoweringError> {
+        if !import.structurally_valid() {
+            return Err(MirLoweringError::MissingBinding(
+                "concrete provider application",
+            ));
         }
-        Ok(witnesses)
+        let dst = self.alloc_temp(self.value_type(result)?);
+        self.function
+            .semantic
+            .registers
+            .insert(dst.temp.index(), lower_type(result));
+        self.emit(Instruction::Call {
+            dst: Some(dst),
+            callee: MirCallTarget::Native(Box::new(import)),
+            args: values.iter().copied().collect(),
+        });
+        Ok(dst)
     }
 
     pub(super) fn lower_native_implementation(
@@ -258,20 +145,20 @@ impl FunctionLowerer<'_, '_> {
         result: &TypeId,
         values: &[MirValue],
     ) -> Result<MirValue, MirLoweringError> {
-        let invalid = || MirLoweringError::MissingBinding("selected native implementation");
         let function = self
             .planner
             .native_function(declaration)
-            .ok_or_else(invalid)?
+            .ok_or(MirLoweringError::MissingBinding(
+                "selected provider declaration",
+            ))?
             .clone();
-        let FunctionImplementation::Native(NativeBinding::Engine(binding)) =
-            function.implementation
+        let FunctionImplementation::Native(NativeBinding::Provider(binding)) =
+            &function.implementation
         else {
-            return Err(invalid());
+            return Err(MirLoweringError::MissingBinding(
+                "selected provider implementation",
+            ));
         };
-        if arguments.len() != function.generic_params.len() {
-            return Err(invalid());
-        }
         let substitution: HirSubstitution = function
             .generic_params
             .iter()
@@ -281,72 +168,95 @@ impl FunctionLowerer<'_, '_> {
         let mut params = function
             .params
             .iter()
-            .map(|parameter| {
+            .map(|p| {
                 self.planner
                     .catalog
-                    .normalize_type(&parameter.ty.instantiate(&substitution))
+                    .normalize_type(&p.ty.instantiate(&substitution))
             })
             .collect::<Vec<_>>();
-        // Selected readonly capabilities keep their outer storage access in the
-        // executable application; the declaration's generic payload stays invariant.
-        if let Some(parameter) = params.first_mut()
-            && lower_type(parameter).can_weaken_to(&lower_type(receiver))
-        {
-            *parameter = receiver.clone();
+        if let Some(first) = params.first_mut() {
+            *first = receiver.clone();
         }
-        let arguments: Vec<_> = arguments.iter().map(lower_type).collect();
-        let mut substitution = TypeSubstitution::default();
-        for (parameter, argument) in function.generic_params.iter().zip(&arguments) {
-            substitution.bind(&parameter.owner, parameter.position, argument);
-        }
-        let requirements = substitution
-            .apply_bounds(
-                &checked_bounds(&function.bounds),
-                &self.planner.options.cancel,
-            )
-            .map_err(|_| invalid())?;
-        let mut witnesses = self.native_requirement_witnesses(binding, &requirements)?;
-        self.native_destinations(binding, &params, result, &mut witnesses)?;
-        self.native_collection_source(binding, &params, &mut witnesses)?;
-        self.native_key_witnesses(binding, &params, result, &mut witnesses)?;
-        if matches!(
-            binding,
-            EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::MapKeys
-                    | StandardIntrinsic::MapValues
-                    | StandardIntrinsic::MapEntries
-                    | StandardIntrinsic::ArrayRemoveRange
-            )
-        ) {
-            witnesses.push(self.native_list_result(result)?);
-        }
-        let contract = EngineNativeImport {
-            instance: ConcreteFunctionIdentity {
-                declaration: declaration.clone(),
-                arguments,
+        self.emit_native_application(
+            NativeImport {
+                instance: ConcreteFunctionIdentity {
+                    declaration: declaration.clone(),
+                    arguments: arguments.iter().map(lower_type).collect(),
+                },
+                contract: (**binding).clone(),
+                signature: NativeSignature {
+                    params: params.iter().map(lower_type).collect(),
+                    result: lower_type(result),
+                },
+                requirements: vec![],
             },
-            binding,
-            binding_version: ENGINE_NATIVE_BINDING_VERSION,
-            signature: NativeSignature {
-                params: params.iter().map(lower_type).collect(),
-                result: lower_type(result),
-            },
-            requirements,
-            witnesses,
+            result,
+            values,
+        )
+    }
+
+    pub(super) fn lower_native_default(
+        &mut self,
+        receiver: &TypeId,
+        interface: &NominalType,
+        method: &DefinitionId,
+        arguments: &[TypeId],
+        values: &[MirValue],
+    ) -> Result<MirValue, MirLoweringError> {
+        let signature = self
+            .planner
+            .catalog
+            .trait_method(method)
+            .ok_or(MirLoweringError::MissingBinding(
+                "selected provider default",
+            ))?
+            .clone();
+        let Some(MethodDefault::Native(NativeBinding::Provider(binding))) = &signature.default
+        else {
+            return Err(MirLoweringError::MissingBinding(
+                "provider default implementation",
+            ));
         };
-        if contract.resolve().is_none() {
-            return Err(invalid());
-        }
-        let dst = self.alloc_temp(self.value_type(result)?);
-        self.function
-            .semantic
-            .registers
-            .insert(dst.temp.index(), lower_type(result));
-        self.emit(Instruction::Call {
-            dst: Some(dst),
-            callee: MirCallTarget::Native(NativeCall::Engine(Box::new(contract))),
-            args: values.iter().copied().collect(),
-        });
-        Ok(dst)
+        let arguments = interface
+            .arguments
+            .iter()
+            .chain(arguments)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut substitution: HirSubstitution = signature
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(arguments.iter().cloned())
+            .collect();
+        substitution.insert_receiver(signature.owner.clone(), receiver.clone());
+        let instantiate = |ty: &TypeId| {
+            self.planner.catalog.normalize_type(
+                &ty.instantiate(&substitution)
+                    .with_associated_types(interface),
+            )
+        };
+        let params = signature
+            .params
+            .iter()
+            .map(|p| instantiate(&p.ty))
+            .collect::<Vec<_>>();
+        let result = instantiate(&signature.return_type);
+        self.emit_native_application(
+            NativeImport {
+                instance: ConcreteFunctionIdentity {
+                    declaration: method.clone(),
+                    arguments: arguments.iter().map(lower_type).collect(),
+                },
+                contract: (**binding).clone(),
+                signature: NativeSignature {
+                    params: params.iter().map(lower_type).collect(),
+                    result: lower_type(&result),
+                },
+                requirements: vec![],
+            },
+            &result,
+            values,
+        )
     }
 }

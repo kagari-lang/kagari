@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -56,22 +56,22 @@ fn keys_preserve_every_budget_cut() {
             })
             .unwrap();
         let binding = EngineNativeBinding::Intrinsic(match *operation {
-            "get" => StandardIntrinsic::MapGet,
-            "contains_key" => StandardIntrinsic::MapContainsKey,
-            "map_insert" => StandardIntrinsic::MapInsert,
-            "map_remove" => StandardIntrinsic::MapRemove,
-            "contains" => StandardIntrinsic::SetContains,
-            "set_insert" => StandardIntrinsic::SetInsert,
-            "set_remove" => StandardIntrinsic::SetRemove,
-            "get_or_insert_with" => StandardIntrinsic::MapGetOrInsertWith,
-            "update" => StandardIntrinsic::MapUpdate,
+            "get" => RuntimePrimitive::MapGet,
+            "contains_key" => RuntimePrimitive::MapContainsKey,
+            "map_insert" => RuntimePrimitive::MapInsert,
+            "map_remove" => RuntimePrimitive::MapRemove,
+            "contains" => RuntimePrimitive::SetContains,
+            "set_insert" => RuntimePrimitive::SetInsert,
+            "set_remove" => RuntimePrimitive::SetRemove,
+            "get_or_insert_with" => RuntimePrimitive::MapGetOrInsertWith,
+            "update" => RuntimePrimitive::MapUpdate,
             _ => panic!(),
         });
         assert!(
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

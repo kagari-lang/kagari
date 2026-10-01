@@ -1,5 +1,5 @@
 use crate::source::lower::MirLoweringError;
-use kagari_abi::callable::NativeCall;
+
 use kagari_common::{
     cancellation::CancellationToken,
     host_interface::{HostPathSegmentDeclaration, HostTypeDeclaration},
@@ -55,9 +55,10 @@ pub(super) fn collect(
             }
         }
         if let Instruction::Call {
-            callee: CallTarget::Native(NativeCall::Host(function)),
+            callee: CallTarget::Native(import),
             ..
         } = instruction
+            && let Some(function) = &import.contract.host
         {
             for ty in function
                 .params

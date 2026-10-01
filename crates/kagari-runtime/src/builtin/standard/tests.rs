@@ -1,5 +1,5 @@
 use super::*;
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::RuntimePrimitive;
 
 use crate::gc::{GcHeap, GcHeapConfig};
 
@@ -34,7 +34,7 @@ fn join_validates_native_arguments_and_leaves_the_array_unchanged() {
     );
 }
 
-fn call(gc: &GcHeap, intrinsic: StandardIntrinsic, args: &[Value]) -> Result<Value, BuiltinError> {
+fn call(gc: &GcHeap, intrinsic: RuntimePrimitive, args: &[Value]) -> Result<Value, BuiltinError> {
     invoke(gc, intrinsic, args)
 }
 
@@ -58,7 +58,7 @@ fn builtin_standard_array_helpers_mutate_and_return_options() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::ArrayLen,
+            RuntimePrimitive::ArrayLen,
             std::slice::from_ref(&array)
         )
         .unwrap(),
@@ -66,13 +66,13 @@ fn builtin_standard_array_helpers_mutate_and_return_options() {
     );
     call(
         &gc,
-        StandardIntrinsic::ArrayPush,
+        RuntimePrimitive::ArrayPush,
         &[array.clone(), Value::I32(3)],
     )
     .unwrap();
     call(
         &gc,
-        StandardIntrinsic::ArrayInsert,
+        RuntimePrimitive::ArrayInsert,
         &[array.clone(), Value::U64(1), Value::I32(2)],
     )
     .unwrap();
@@ -87,7 +87,7 @@ fn builtin_standard_array_helpers_mutate_and_return_options() {
 
     let removed = call(
         &gc,
-        StandardIntrinsic::ArrayRemove,
+        RuntimePrimitive::ArrayRemove,
         &[array.clone(), Value::I32(1)],
     )
     .unwrap();
@@ -95,7 +95,7 @@ fn builtin_standard_array_helpers_mutate_and_return_options() {
         option_variant(&gc, &removed),
         ("Some".to_owned(), vec![Value::I32(2)])
     );
-    let missing = call(&gc, StandardIntrinsic::ArrayGet, &[array, Value::I32(99)]).unwrap();
+    let missing = call(&gc, RuntimePrimitive::ArrayGet, &[array, Value::I32(99)]).unwrap();
     assert_eq!(
         option_variant(&gc, &missing),
         ("None".to_owned(), Vec::new())
@@ -108,16 +108,16 @@ fn builtin_standard_map_helpers_preserve_order_and_return_options() {
         GcHeapConfig::default(),
         std::rc::Rc::new(crate::resource::ResourceState::default()),
     );
-    let map = call(&gc, StandardIntrinsic::LinkedHashMapNew, &[]).unwrap();
+    let map = call(&gc, RuntimePrimitive::LinkedHashMapNew, &[]).unwrap();
     call(
         &gc,
-        StandardIntrinsic::MapInsert,
+        RuntimePrimitive::MapInsert,
         &[map.clone(), Value::Str("hp".to_owned()), Value::I32(100)],
     )
     .unwrap();
     call(
         &gc,
-        StandardIntrinsic::MapInsert,
+        RuntimePrimitive::MapInsert,
         &[map.clone(), Value::Str("mp".to_owned()), Value::I32(40)],
     )
     .unwrap();
@@ -125,7 +125,7 @@ fn builtin_standard_map_helpers_preserve_order_and_return_options() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::MapContainsKey,
+            RuntimePrimitive::MapContainsKey,
             &[map.clone(), Value::Str("hp".to_owned())]
         )
         .unwrap(),
@@ -133,7 +133,7 @@ fn builtin_standard_map_helpers_preserve_order_and_return_options() {
     );
     let keys = call(
         &gc,
-        StandardIntrinsic::MapKeysStorage,
+        RuntimePrimitive::MapKeysStorage,
         std::slice::from_ref(&map),
     )
     .unwrap();
@@ -146,7 +146,7 @@ fn builtin_standard_map_helpers_preserve_order_and_return_options() {
     );
     let removed = call(
         &gc,
-        StandardIntrinsic::MapRemove,
+        RuntimePrimitive::MapRemove,
         &[map.clone(), Value::Str("hp".to_owned())],
     )
     .unwrap();
@@ -156,7 +156,7 @@ fn builtin_standard_map_helpers_preserve_order_and_return_options() {
     );
     let missing = call(
         &gc,
-        StandardIntrinsic::MapGet,
+        RuntimePrimitive::MapGet,
         &[map, Value::Str("hp".to_owned())],
     )
     .unwrap();
@@ -175,7 +175,7 @@ fn builtin_standard_string_helpers_validate_utf8_boundaries() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::StringLenBytes,
+            RuntimePrimitive::StringLenBytes,
             &[Value::Str("éx".to_owned())]
         )
         .unwrap(),
@@ -184,7 +184,7 @@ fn builtin_standard_string_helpers_validate_utf8_boundaries() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::StringLenChars,
+            RuntimePrimitive::StringLenChars,
             &[Value::Str("éx".to_owned())]
         )
         .unwrap(),
@@ -192,7 +192,7 @@ fn builtin_standard_string_helpers_validate_utf8_boundaries() {
     );
     let good = call(
         &gc,
-        StandardIntrinsic::StringSlice,
+        RuntimePrimitive::StringSlice,
         &[Value::Str("éx".to_owned()), Value::U64(0), Value::U64(2)],
     )
     .unwrap();
@@ -202,7 +202,7 @@ fn builtin_standard_string_helpers_validate_utf8_boundaries() {
     );
     let bad = call(
         &gc,
-        StandardIntrinsic::StringSlice,
+        RuntimePrimitive::StringSlice,
         &[Value::Str("éx".to_owned()), Value::U64(1), Value::U64(2)],
     )
     .unwrap();
@@ -223,7 +223,7 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::OptionUnwrapOr,
+            RuntimePrimitive::OptionUnwrapOr,
             &[some.clone(), Value::I32(0)]
         )
         .unwrap(),
@@ -232,7 +232,7 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::OptionUnwrapOr,
+            RuntimePrimitive::OptionUnwrapOr,
             &[none, Value::I32(0)]
         )
         .unwrap(),
@@ -241,7 +241,7 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::ResultUnwrapOr,
+            RuntimePrimitive::ResultUnwrapOr,
             &[ok.clone(), Value::I32(0)]
         )
         .unwrap(),
@@ -250,7 +250,7 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::ResultIsErr,
+            RuntimePrimitive::ResultIsErr,
             std::slice::from_ref(&err)
         )
         .unwrap(),
@@ -259,8 +259,8 @@ fn builtin_standard_option_result_helpers_use_standard_enum_values() {
 
     // Callback semantics are covered by the source/decoded native family matrix.
     // Unvalidated physical calls cannot select the resumable implementation.
-    assert!(call(&gc, StandardIntrinsic::OptionMap, &[some, Value::Unit]).is_err());
-    assert!(call(&gc, StandardIntrinsic::ResultAndThen, &[ok, Value::Unit]).is_err());
+    assert!(call(&gc, RuntimePrimitive::OptionMap, &[some, Value::Unit]).is_err());
+    assert!(call(&gc, RuntimePrimitive::ResultAndThen, &[ok, Value::Unit]).is_err());
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn builtin_standard_math_and_debug_helpers_are_deterministic() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::MathMin,
+            RuntimePrimitive::MathMin,
             &[Value::I64(8), Value::I64(3)]
         )
         .unwrap(),
@@ -281,21 +281,21 @@ fn builtin_standard_math_and_debug_helpers_are_deterministic() {
     assert_eq!(
         call(
             &gc,
-            StandardIntrinsic::MathClamp,
+            RuntimePrimitive::MathClamp,
             &[Value::I32(12), Value::I32(0), Value::I32(10)]
         )
         .unwrap(),
         Value::I32(10)
     );
     assert_eq!(
-        call(&gc, StandardIntrinsic::MathSqrt, &[Value::F64(9.0)]).unwrap(),
+        call(&gc, RuntimePrimitive::MathSqrt, &[Value::F64(9.0)]).unwrap(),
         Value::F64(3.0)
     );
-    assert!(call(&gc, StandardIntrinsic::MathSqrt, &[Value::F64(-1.0)]).is_err());
+    assert!(call(&gc, RuntimePrimitive::MathSqrt, &[Value::F64(-1.0)]).is_err());
     assert!(
         call(
             &gc,
-            StandardIntrinsic::DebugAssertEq,
+            RuntimePrimitive::AssertEq,
             &[Value::I32(1), Value::I32(1), Value::Str("same".into())]
         )
         .is_err()
@@ -303,7 +303,7 @@ fn builtin_standard_math_and_debug_helpers_are_deterministic() {
     assert!(
         call(
             &gc,
-            StandardIntrinsic::DebugPanic,
+            RuntimePrimitive::DebugPanic,
             &[Value::Str("boom".to_owned())]
         )
         .is_err()
@@ -317,37 +317,37 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
     let set = Value::Set(gc.alloc_set(vec![Value::I32(1)]).unwrap());
     let operations = [
         (
-            StandardIntrinsic::ArrayPush,
+            RuntimePrimitive::ArrayPush,
             vec![array.clone(), Value::I32(2)],
         ),
-        (StandardIntrinsic::ArrayPop, vec![array.clone()]),
+        (RuntimePrimitive::ArrayPop, vec![array.clone()]),
         (
-            StandardIntrinsic::ArrayInsert,
+            RuntimePrimitive::ArrayInsert,
             vec![array.clone(), Value::I32(0), Value::I32(2)],
         ),
         (
-            StandardIntrinsic::ArrayRemove,
+            RuntimePrimitive::ArrayRemove,
             vec![array.clone(), Value::I32(0)],
         ),
-        (StandardIntrinsic::ArrayClear, vec![array.clone()]),
+        (RuntimePrimitive::ArrayClear, vec![array.clone()]),
         (
-            StandardIntrinsic::MapInsert,
+            RuntimePrimitive::MapInsert,
             vec![map.clone(), Value::I32(3), Value::I32(4)],
         ),
         (
-            StandardIntrinsic::MapRemove,
+            RuntimePrimitive::MapRemove,
             vec![map.clone(), Value::I32(1)],
         ),
-        (StandardIntrinsic::MapClear, vec![map.clone()]),
+        (RuntimePrimitive::MapClear, vec![map.clone()]),
         (
-            StandardIntrinsic::SetInsert,
+            RuntimePrimitive::SetInsert,
             vec![set.clone(), Value::I32(2)],
         ),
         (
-            StandardIntrinsic::SetRemove,
+            RuntimePrimitive::SetRemove,
             vec![set.clone(), Value::I32(1)],
         ),
-        (StandardIntrinsic::SetClear, vec![set.clone()]),
+        (RuntimePrimitive::SetClear, vec![set.clone()]),
     ];
     for (op, args) in operations {
         let snapshot = || match &args[0] {
@@ -383,12 +383,12 @@ fn collection_iteration_rejects_structural_alias_writes_before_allocation() {
     let guard = gc.begin_collection_iteration(&map).unwrap();
     invoke(
         &gc,
-        StandardIntrinsic::MapInsert,
+        RuntimePrimitive::MapInsert,
         &[map, Value::I32(1), Value::I32(9)],
     )
     .unwrap();
     drop(guard);
     let guard = gc.begin_collection_iteration(&set).unwrap();
-    invoke(&gc, StandardIntrinsic::SetInsert, &[set, Value::I32(1)]).unwrap();
+    invoke(&gc, RuntimePrimitive::SetInsert, &[set, Value::I32(1)]).unwrap();
     drop(guard);
 }

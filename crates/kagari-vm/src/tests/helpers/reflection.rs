@@ -452,12 +452,12 @@ fn standard_collection_reflection_metadata_reports_runtime_categories() {
             vec![
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(0)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashMapNew),
+                    callee: CallTarget::RuntimePrimitive(RuntimePrimitive::LinkedHashMapNew),
                     args: vec![],
                 },
                 BytecodeInstruction::Call {
                     dst: Some(Register::new(1)),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashSetNew),
+                    callee: CallTarget::RuntimePrimitive(RuntimePrimitive::LinkedHashSetNew),
                     args: vec![],
                 },
                 BytecodeInstruction::Call {

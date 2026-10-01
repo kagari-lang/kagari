@@ -28,38 +28,36 @@ Artifacts may be used by:
 
 ## Current executable contract
 
-Current products use KBC format v111, `kagari-runtime-abi-v134`, `KMIR` v9,
-engine-native binding contract v2 and runtime-helper ABI v6. Older versions are
-rejected before execution; the loader has no migration reader. Historical version
-notes below describe their checkpoints rather than the current representation.
+Current products use KBC format v112, `kagari-runtime-abi-v135`, `KMIR` v10
+and runtime-helper ABI v6. Each provider contract has its own version; the closed
+engine binding version is removed. Older products are rejected before execution
+with no migration reader. Historical notes below describe predecessor formats.
 
-Engine native imports carry concrete callable identity, provider binding, signature,
-substitutions, obligations and selected protocol witnesses. Their declarations,
-layouts, interface tables and private dependencies travel with the whole program.
-Verification checks authority, binding/version agreement, invariant payload types,
-associated outputs, method arguments and the complete dependency closure. Only
-closed engine operation contracts remain in ABI; source signature catalogs and
-runtime source lookup are absent. Host imports preserve their separate required
-HostInterface, passing styles, capabilities and nominal ownership checks.
+One native import table carries source identity, concrete type arguments,
+provider/entry key, versioned descriptor, applied signature and declaration bounds.
+Descriptor signatures use independent binders. Generic verification checks carried
+source declarations and instantiation; structural agreement does not grant provider
+authority. Optimizers treat Native effects conservatively. Runtime requires a full
+matching installed contract, including access/effects, and pins the entry owner.
 
-Callable declarations carry method override policy separately from implementation
-identity. Source-free interface verification rejects replacement entries for a
-final trait method, including when signature projections defer other checks.
-Required methods must allow an implementation; non-trait callable declarations
-cannot carry final method policy.
+Synchronous host calls use the same import table and invocation driver. Their full
+optional HostFunctionDeclaration must match the required HostInterface and installed
+registration; permissions, passing styles, schemas and borrow checks remain.
+Source declarations, layouts, interfaces and private dependencies accompany the
+program. Executable contracts have no source-analysis dependency.
 
-Lazy iterators contain runtime-owned rooted captures pinned to their checked import
-and execution version. Captures are created during execution; artifacts contain no
-live heap state, Rust references or compiler-generated iterator step functions.
-Native callbacks and public collection algorithms use shared runtime continuations.
-Iteration, range, enum and aggregate language primitives remain typed generic
-instructions. Unit-returning storage calls retain separately charged mutation and
-return publication, preserving committed effects on later termination.
+Callable method policy remains independent of binding identity. Final methods
+cannot be replaced; required and non-trait declarations cannot be final.
 
-The tracked SDK fixture retains a direct scalar JIT entry and source-free native
-library/required-method entries. All four SDK feature routes validate and execute
-the same bytes; native-only builds compile the scalar through Cranelift and make
-an explicit pre-entry fallback decision for unsupported library calls.
+Invocation state owns Rust data and explicit roots. Checked callbacks run on shared
+frames; return values stay rooted while receive() runs. Work uses logical budget
+safepoints and unit mutations retain separate publication. Artifacts contain no
+live heap state/Rust references. Generic persistent traced state remains NR03 work.
+
+The reset native_provider.kbc fixture covers array direct/interface/callback calls
+with serialized and source-free execution. The old feature_artifact.kbc remains
+tracked for NR04 restoration: its bytes/API are superseded and do not load under
+v112. This does not reduce the required final feature matrix.
 
 ## SDK Feature Boundary
 
@@ -68,7 +66,7 @@ set enables both `source` and `native`; hosts may disable defaults and select:
 
 | SDK features | Available preparation and execution | Production dependency boundary |
 | --- | --- | --- |
-| None | Validate/load/reload artifacts and interpret bytecode | No stdlib, compiler, HIR, syntax, MIR, codegen or concrete backend |
+| None | Validate/load/reload artifacts and interpret bytecode | No source stdlib, compiler, HIR, syntax, MIR, codegen or concrete backend |
 | `source` | Source analysis and artifact emission, plus bytecode execution | Stdlib/compiler source/HIR/syntax/MIR enabled; no codegen required |
 | `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no stdlib, HIR or syntax |
 | `source,native` | Both paths | Combination of the above |

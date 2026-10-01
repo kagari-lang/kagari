@@ -1,5 +1,5 @@
 //! Closed scalar and native representation facts; no source declaration catalog.
-use crate::{scalar::BuiltinType, standard::StandardIntrinsic};
+use crate::scalar::BuiltinType;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,28 +293,4 @@ pub fn standard_constraint_name(constraint: StandardTypeConstraint) -> &'static 
         StandardTypeConstraint::SignedNumber => "SignedNumber",
         StandardTypeConstraint::Comparable => "PartialEq",
     }
-}
-
-pub fn collection_read_method(intrinsic: StandardIntrinsic) -> bool {
-    matches!(
-        intrinsic,
-        StandardIntrinsic::ArrayCapacity
-            | StandardIntrinsic::MapCapacity
-            | StandardIntrinsic::SetCapacity
-            | StandardIntrinsic::ArrayLen
-            | StandardIntrinsic::ArrayIsEmpty
-            | StandardIntrinsic::ArrayGet
-            | StandardIntrinsic::ArrayJoin
-            | StandardIntrinsic::MapLen
-            | StandardIntrinsic::MapIsEmpty
-            | StandardIntrinsic::MapContainsKey
-            | StandardIntrinsic::MapGet
-            | StandardIntrinsic::MapKeys
-            | StandardIntrinsic::MapValues
-            | StandardIntrinsic::MapEntries
-            | StandardIntrinsic::SetLen
-            | StandardIntrinsic::SetIsEmpty
-            | StandardIntrinsic::SetContains
-            | StandardIntrinsic::SetToArray
-    )
 }

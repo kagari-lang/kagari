@@ -1,8 +1,5 @@
 use crate::{MirLoweringError, MirLoweringOptions, source::lower};
-use kagari_abi::{
-    callable::NativeCall, native_import::NativeWitnessImplementation,
-    types::ConcreteFunctionIdentity,
-};
+use kagari_abi::types::ConcreteFunctionIdentity;
 use kagari_common::{DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_mir::{
@@ -231,21 +228,12 @@ fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIden
         .flat_map(|block| &block.instructions)
         .filter_map(|instruction| match instruction {
             Instruction::Call {
-                callee: CallTarget::Native(NativeCall::Engine(contract)),
+                callee: CallTarget::Native(contract),
                 ..
-            } => Some(contract),
+            } if contract.contract.host.is_none() => Some(contract),
             _ => None,
         })
-        .flat_map(|contract| {
-            let mut owners = vec![contract.instance.declaration.module.clone()];
-            for witness in &contract.witnesses {
-                owners.push(witness.interface.declaration.module.clone());
-                if let NativeWitnessImplementation::Table(instance) = &witness.implementation {
-                    owners.push(instance.declaration.module.clone());
-                }
-            }
-            owners
-        });
+        .map(|contract| contract.instance.declaration.module.clone());
     callables.chain(native)
 }
 
@@ -263,15 +251,6 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
                 declaration: contract.declaration.clone(),
                 arguments: contract.arguments.clone(),
             }],
-            Instruction::Call {
-                callee: CallTarget::Native(NativeCall::Engine(contract)),
-                ..
-            } => contract
-                .witnesses
-                .iter()
-                .flat_map(|witness| &witness.methods)
-                .cloned()
-                .collect(),
             _ => vec![],
         })
 }

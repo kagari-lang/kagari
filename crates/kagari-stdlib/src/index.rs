@@ -11,9 +11,7 @@ use std::collections::BTreeSet;
 /// Written annotation only. HIR validates its semantic meaning and target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NativeMarkerKind {
-    Intrinsic,
-    Numeric,
-    ParseRadix,
+    Native,
     MethodPolicy,
     BuiltinType,
     BuiltinEnum,
@@ -84,9 +82,7 @@ pub(crate) fn declarations(
         let mut seen = BTreeSet::new();
         for attr in node.children().filter_map(Attribute::cast) {
             let kind = match attr.name_text().as_deref() {
-                Some("intrinsic") => NativeMarkerKind::Intrinsic,
-                Some("numeric") => NativeMarkerKind::Numeric,
-                Some("parse_radix") => NativeMarkerKind::ParseRadix,
+                Some("native") => NativeMarkerKind::Native,
                 Some("method_policy") => NativeMarkerKind::MethodPolicy,
                 Some("builtin_type") => NativeMarkerKind::BuiltinType,
                 Some("builtin_enum") => NativeMarkerKind::BuiltinEnum,
@@ -121,14 +117,7 @@ pub(crate) fn declarations(
         }
         if markers
             .iter()
-            .filter(|marker| {
-                matches!(
-                    marker.kind,
-                    NativeMarkerKind::Intrinsic
-                        | NativeMarkerKind::Numeric
-                        | NativeMarkerKind::ParseRadix
-                )
-            })
+            .filter(|marker| matches!(marker.kind, NativeMarkerKind::Native))
             .count()
             > 1
         {

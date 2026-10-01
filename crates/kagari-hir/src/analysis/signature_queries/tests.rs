@@ -36,7 +36,7 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
             .any(|function| {
                 matches!(
                     function.implementation,
-                    FunctionImplementation::Native(NativeBinding::Engine(
+                    FunctionImplementation::Native(NativeBinding::Provider(
                         EngineNativeBinding::Intrinsic(_)
                     ))
                 )

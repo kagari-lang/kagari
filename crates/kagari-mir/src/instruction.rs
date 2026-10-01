@@ -1,19 +1,15 @@
 use serde::{Deserialize, Serialize};
 mod operands;
 use kagari_abi::{
-    callable::NativeCall,
-    effects::{EffectSet, standard_intrinsic_effects},
-    native_import::{EngineNativeImport, EngineNativeOperation},
+    effects::{EffectSet, runtime_primitive_effects},
+    native_import::NativeImport,
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, IterOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
-use kagari_common::{
-    host_interface::{HostFunctionDeclaration, HostPathDeclaration},
-    identity::DefinitionId,
-};
+use kagari_common::{host_interface::HostPathDeclaration, identity::DefinitionId};
 use smallvec::SmallVec;
 
 use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
@@ -272,7 +268,7 @@ pub enum CallTarget {
     SourceFunction(Box<SourceFunctionContract>),
     Function(InstanceId),
     InterfaceMethod(Box<InterfaceCallContract>),
-    Native(NativeCall<Box<EngineNativeImport>, Box<HostFunctionDeclaration>>),
+    Native(Box<NativeImport>),
     Value(MirValue),
     Closure {
         value: MirValue,
@@ -280,7 +276,7 @@ pub enum CallTarget {
         params: Vec<ValueType>,
         return_type: ValueType,
     },
-    StandardIntrinsic(StandardIntrinsic),
+    RuntimePrimitive(RuntimePrimitive),
     RuntimeHelper(RuntimeHelper),
 }
 
@@ -407,15 +403,17 @@ impl CallTarget {
                 EffectSet::call()
             }
             Self::InterfaceMethod(_) => EffectSet::runtime_call(),
-            Self::Native(NativeCall::Engine(contract)) => contract
-                .resolve()
-                .map(EngineNativeOperation::effects)
-                .unwrap_or_else(EffectSet::runtime_call),
-            Self::Native(NativeCall::Host(declaration)) => EffectSet {
-                allocates: declaration.effects.may_allocate,
+            Self::Native(_) => EffectSet {
+                reads_module: true,
+                writes_module: true,
+                reads_path: true,
+                writes_path: true,
+                reads_aggregate: true,
+                writes_aggregate: true,
+                allocates: true,
                 ..EffectSet::runtime_call()
             },
-            Self::StandardIntrinsic(intrinsic) => standard_intrinsic_effects(*intrinsic),
+            Self::RuntimePrimitive(intrinsic) => runtime_primitive_effects(*intrinsic),
             Self::RuntimeHelper(helper) => helper.effects(),
         }
     }

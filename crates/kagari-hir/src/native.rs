@@ -1,18 +1,17 @@
 //! HIR representation hooks supplied only by an installed native declaration.
 use crate::{host::HostFunctionId, types::TypeId};
-use kagari_abi::{
-    callable::EngineNativeBinding, scalar::BuiltinType, standard::surface::StandardEnum,
-};
+use kagari_abi::{provider::NativeContract, scalar::BuiltinType, standard::surface::StandardEnum};
 use kagari_common::{collection::CollectionAccess, range::RangeKind};
+use std::sync::Arc;
 
 pub(crate) mod signatures;
 pub(crate) mod stdlib;
 
 /// Provider-qualified semantic binding. Host identities are scoped to the
 /// installed offline interface; neither variant is a runtime function pointer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeBinding {
-    Engine(EngineNativeBinding),
+    Provider(Arc<NativeContract>),
     Host(HostFunctionId),
 }
 

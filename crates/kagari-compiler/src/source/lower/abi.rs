@@ -413,7 +413,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 .find(|typed| typed.id == function.id)?;
             if !matches!(
                 typed.implementation,
-                FunctionImplementation::Native(NativeBinding::Engine(_))
+                FunctionImplementation::Native(NativeBinding::Provider(_))
             ) {
                 return None;
             }
@@ -541,7 +541,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &hir::Impl) -> Vec<
         result.push(FunctionAbi {
             method_policy: method.policy,
             name: method.name.clone(),
-            implementation: match method.default.expect("selected default method") {
+            implementation: match method.default.clone().expect("selected default method") {
                 MethodDefault::Script => CallableImplementation::Script,
                 MethodDefault::Native(binding) => {
                     CallableImplementation::Native(native_binding_abi(module, binding))
@@ -587,7 +587,7 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
             })
             .map_or_else(Default::default, |method| method.policy),
         name: typed.name.clone(),
-        implementation: match typed.implementation {
+        implementation: match typed.implementation.clone() {
             FunctionImplementation::Required => CallableImplementation::Required,
             FunctionImplementation::Script => CallableImplementation::Script,
             FunctionImplementation::Native(binding) => {
@@ -611,7 +611,9 @@ fn function_abi(module: &AnalyzedModule, function: &hir::Function) -> Option<Fun
 
 fn native_binding_abi(module: &AnalyzedModule, binding: NativeBinding) -> PortableNativeBinding {
     match binding {
-        NativeBinding::Engine(binding) => PortableNativeBinding::Engine(binding),
+        NativeBinding::Provider(binding) => {
+            PortableNativeBinding::Provider(Box::new((*binding).clone()))
+        }
         NativeBinding::Host(id) => PortableNativeBinding::Host(
             module
                 .names

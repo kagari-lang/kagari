@@ -41,7 +41,7 @@ impl CallableSignature for TypedFunction {
     }
 
     fn implementation(&self) -> FunctionImplementation {
-        self.implementation
+        self.implementation.clone()
     }
 
     fn parameters(&self) -> impl ExactSizeIterator<Item = (&str, &TypeId)> {

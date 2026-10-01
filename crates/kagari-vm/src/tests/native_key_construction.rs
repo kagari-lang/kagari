@@ -1,7 +1,7 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
 use kagari_abi::{
     callable::EngineNativeBinding,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod},
+    standard::{RuntimePrimitive, bindings::NativeProtocolMethod},
 };
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
@@ -53,16 +53,16 @@ fn key_construction_preserves_every_budget_cut() {
             EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
         } else {
             EngineNativeBinding::Intrinsic(if map {
-                StandardIntrinsic::LinkedHashMapFrom
+                RuntimePrimitive::LinkedHashMapFrom
             } else {
-                StandardIntrinsic::LinkedHashSetFrom
+                RuntimePrimitive::LinkedHashSetFrom
             })
         };
         assert!(
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

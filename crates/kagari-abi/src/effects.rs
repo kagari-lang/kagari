@@ -1,4 +1,4 @@
-use crate::standard::StandardIntrinsic;
+use crate::standard::RuntimePrimitive;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectSet {
@@ -127,169 +127,14 @@ impl EffectSet {
     }
 }
 
-pub fn standard_intrinsic_effects(intrinsic: StandardIntrinsic) -> EffectSet {
-    let runtime_read = EffectSet::runtime_call().union(EffectSet::aggregate_read());
-    let mutating = matches!(
-        intrinsic,
-        StandardIntrinsic::KeyMapInsert
-            | StandardIntrinsic::KeyMapRemove
-            | StandardIntrinsic::KeySetInsert
-            | StandardIntrinsic::KeySetRemove
-            | StandardIntrinsic::ArrayPush
-            | StandardIntrinsic::ArrayPop
-            | StandardIntrinsic::ArrayInsert
-            | StandardIntrinsic::ArrayReserve
-            | StandardIntrinsic::MapReserve
-            | StandardIntrinsic::SetReserve
-            | StandardIntrinsic::ArraySwap
-            | StandardIntrinsic::ArrayReverse
-            | StandardIntrinsic::ArrayTruncate
-            | StandardIntrinsic::ArrayExtend
-            | StandardIntrinsic::ArrayExtendStorage
-            | StandardIntrinsic::ArraySwapRemove
-            | StandardIntrinsic::ArrayRemove
-            | StandardIntrinsic::ArrayClear
-            | StandardIntrinsic::ArrayFill
-            | StandardIntrinsic::ArrayCopyFrom
-            | StandardIntrinsic::ArrayCopyFromStorage
-            | StandardIntrinsic::ArrayRemoveRange
-            | StandardIntrinsic::ArrayCopyWithin
-            | StandardIntrinsic::ArrayCopyWithinBounds
-            | StandardIntrinsic::ArrayRetain
-            | StandardIntrinsic::MapRetain
-            | StandardIntrinsic::SetRetain
-            | StandardIntrinsic::ArraySort
-            | StandardIntrinsic::ArraySortBy
-            | StandardIntrinsic::ArraySortByKey
-            | StandardIntrinsic::ArrayDedup
-            | StandardIntrinsic::ArrayReplaceStorage
-            | StandardIntrinsic::CollectionRetainStorage
-            | StandardIntrinsic::CollectionMutationBegin
-            | StandardIntrinsic::CollectionMutationEnd
-            | StandardIntrinsic::MapGetOrInsertWith
-            | StandardIntrinsic::MapUpdate
-            | StandardIntrinsic::MapInsert
-            | StandardIntrinsic::MapRemove
-            | StandardIntrinsic::MapClear
-            | StandardIntrinsic::SetInsert
-            | StandardIntrinsic::SetRemove
-            | StandardIntrinsic::SetClear
-    );
-    let allocating = matches!(intrinsic, StandardIntrinsic::Integer(method, _) if method.allocates())
-        || matches!(
-            intrinsic,
-            StandardIntrinsic::ArrayRemoveRangePrepare
-                | StandardIntrinsic::KeyCandidates
-                | StandardIntrinsic::KeyMapGet
-                | StandardIntrinsic::KeyMapRemove
-                | StandardIntrinsic::ArrayGet
-                | StandardIntrinsic::ArrayPop
-                | StandardIntrinsic::ArrayReserve
-                | StandardIntrinsic::MapReserve
-                | StandardIntrinsic::SetReserve
-                | StandardIntrinsic::ArraySwap
-                | StandardIntrinsic::ArrayReverse
-                | StandardIntrinsic::ArrayTruncate
-                | StandardIntrinsic::ArrayExtend
-                | StandardIntrinsic::ArrayExtendStorage
-                | StandardIntrinsic::ArraySwapRemove
-                | StandardIntrinsic::ArrayRemove
-                | StandardIntrinsic::ArrayWithCapacity
-                | StandardIntrinsic::MapWithCapacity
-                | StandardIntrinsic::SetWithCapacity
-                | StandardIntrinsic::ArrayListNew
-                | StandardIntrinsic::LinkedHashMapNew
-                | StandardIntrinsic::LinkedHashSetNew
-                | StandardIntrinsic::ArrayListFrom
-                | StandardIntrinsic::LinkedHashMapFrom
-                | StandardIntrinsic::LinkedHashSetFrom
-                | StandardIntrinsic::MapGet
-                | StandardIntrinsic::MapRemove
-                | StandardIntrinsic::MapKeys
-                | StandardIntrinsic::MapValues
-                | StandardIntrinsic::MapEntries
-                | StandardIntrinsic::MapKeysStorage
-                | StandardIntrinsic::MapValuesStorage
-                | StandardIntrinsic::MapEntriesStorage
-                | StandardIntrinsic::SetToArray
-                | StandardIntrinsic::ArrayJoin
-                | StandardIntrinsic::StringParse
-                | StandardIntrinsic::ParseNumber(_)
-                | StandardIntrinsic::ParseRadix(_)
-                | StandardIntrinsic::StringSlice
-                | StandardIntrinsic::StringReplace
-                | StandardIntrinsic::StringReplaceN
-                | StandardIntrinsic::StringRepeat
-                | StandardIntrinsic::StringToAsciiLowercase
-                | StandardIntrinsic::StringToAsciiUppercase
-                | StandardIntrinsic::StringToLowercase
-                | StandardIntrinsic::StringToUppercase
-                | StandardIntrinsic::StringBytes
-                | StandardIntrinsic::StringCharIndices
-                | StandardIntrinsic::StringSplit
-                | StandardIntrinsic::StringSplitN
-                | StandardIntrinsic::StringSplitOnce
-                | StandardIntrinsic::StringRsplitOnce
-                | StandardIntrinsic::StringSplitWhitespace
-                | StandardIntrinsic::StringLines
-                | StandardIntrinsic::StringTrim
-                | StandardIntrinsic::StringTrimStart
-                | StandardIntrinsic::StringTrimEnd
-                | StandardIntrinsic::StringFind
-                | StandardIntrinsic::StringRfind
-                | StandardIntrinsic::StringStripPrefix
-                | StandardIntrinsic::StringStripSuffix
-                | StandardIntrinsic::OptionUnwrapOrElse
-                | StandardIntrinsic::OptionOrElse
-                | StandardIntrinsic::OptionMapOr
-                | StandardIntrinsic::OptionMapOrElse
-                | StandardIntrinsic::OptionFilter
-                | StandardIntrinsic::OptionIsSomeAnd
-                | StandardIntrinsic::OptionZip
-                | StandardIntrinsic::OptionFlatten
-                | StandardIntrinsic::OptionTranspose
-                | StandardIntrinsic::ResultUnwrapOrElse
-                | StandardIntrinsic::ResultOrElse
-                | StandardIntrinsic::ResultMapOr
-                | StandardIntrinsic::ResultMapOrElse
-                | StandardIntrinsic::ResultOk
-                | StandardIntrinsic::ResultErr
-                | StandardIntrinsic::ResultIsOkAnd
-                | StandardIntrinsic::ResultIsErrAnd
-                | StandardIntrinsic::ResultFlatten
-                | StandardIntrinsic::ResultTranspose
-                | StandardIntrinsic::OptionMap
-                | StandardIntrinsic::OptionAndThen
-                | StandardIntrinsic::OptionOkOr
-                | StandardIntrinsic::OptionOkOrElse
-                | StandardIntrinsic::ResultMap
-                | StandardIntrinsic::ResultMapErr
-                | StandardIntrinsic::ResultAndThen
-        );
-
-    let mut effects = match intrinsic {
-        StandardIntrinsic::MathMin
-        | StandardIntrinsic::MathMax
-        | StandardIntrinsic::MathClamp
-        | StandardIntrinsic::MathAbs
-        | StandardIntrinsic::MathFloor
-        | StandardIntrinsic::MathCeil
-        | StandardIntrinsic::MathRound
-        | StandardIntrinsic::MathSqrt
-        | StandardIntrinsic::MathSin
-        | StandardIntrinsic::MathCos
-        | StandardIntrinsic::MathTan => EffectSet::runtime_call(),
-        StandardIntrinsic::DebugPrint
-        | StandardIntrinsic::DebugAssert
-        | StandardIntrinsic::DebugAssertEq
-        | StandardIntrinsic::DebugPanic => EffectSet::runtime_call(),
-        _ => runtime_read,
-    };
-    if mutating {
-        effects = effects.union(EffectSet::aggregate_write());
+pub fn runtime_primitive_effects(primitive: RuntimePrimitive) -> EffectSet {
+    let read = EffectSet::runtime_call().union(EffectSet::aggregate_read());
+    match primitive {
+        RuntimePrimitive::ValueEq | RuntimePrimitive::ValueHash | RuntimePrimitive::Assert => read,
+        RuntimePrimitive::ValuePartialCmp
+        | RuntimePrimitive::ValueCmp
+        | RuntimePrimitive::ValueDebug
+        | RuntimePrimitive::ValueDisplay
+        | RuntimePrimitive::StringPartsJoin => read.union(EffectSet::allocation()),
     }
-    if allocating {
-        effects = effects.union(EffectSet::allocation());
-    }
-    effects
 }

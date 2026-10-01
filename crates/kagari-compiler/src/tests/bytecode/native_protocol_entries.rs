@@ -4,7 +4,7 @@ use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::{NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, intrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::{RuntimePrimitive, intrinsic, surface::StandardEnum, traits::StandardTrait},
     types::{AbiType, ConstraintAbi, GenericBoundAbi, PublicAbiItem},
 };
 use kagari_bytecode::{KbcArtifact, verify_program};
@@ -30,27 +30,27 @@ fn protocol_entries_reject_forged_signatures_witnesses_and_required_methods() {
     for (body, operation) in [
         (
             "val result=\"42\".parse::<i32>();",
-            StandardIntrinsic::StringParse,
+            RuntimePrimitive::StringParse,
         ),
         (
             "val result=\"42\".parse::<Wrapped<i32>>();",
-            StandardIntrinsic::StringParse,
+            RuntimePrimitive::StringParse,
         ),
         (
             "std::debug::assert_eq(42,42,\"equal\");",
-            StandardIntrinsic::DebugAssertEq,
+            RuntimePrimitive::AssertEq,
         ),
         (
             "std::debug::assert_eq(Wrapped{value:42},Wrapped{value:42},\"equal\");",
-            StandardIntrinsic::DebugAssertEq,
+            RuntimePrimitive::AssertEq,
         ),
         (
             "std::debug::assert_eq(Some(Wrapped{value:42}),Some(Wrapped{value:42}),\"equal\");",
-            StandardIntrinsic::DebugAssertEq,
+            RuntimePrimitive::AssertEq,
         ),
         (
             "val source:List<i32> =[42];std::debug::assert_eq(source,source,\"equal\");",
-            StandardIntrinsic::DebugAssertEq,
+            RuntimePrimitive::AssertEq,
         ),
     ] {
         let program = common::bytecode_ok(&format!(
@@ -63,14 +63,14 @@ fn main(){{{body}}}
         ));
         let root = program.root.index();
         let index = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == EngineNativeBinding::Intrinsic(operation))
             .unwrap();
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..19 {
             let mut forged = artifact.clone();
-            let import = &mut forged.program.modules[root].engine_imports[index];
+            let import = &mut forged.program.modules[root].native_imports[index];
             let boolean = AbiType::Builtin(BuiltinType::Bool);
             match mutation {
                 0 => import.binding_version -= 1,
@@ -92,10 +92,10 @@ fn main(){{{body}}}
                 }),
                 12 => {
                     import.binding = EngineNativeBinding::Intrinsic(
-                        if operation == StandardIntrinsic::StringParse {
-                            StandardIntrinsic::DebugAssertEq
+                        if operation == RuntimePrimitive::StringParse {
+                            RuntimePrimitive::AssertEq
                         } else {
-                            StandardIntrinsic::StringParse
+                            RuntimePrimitive::StringParse
                         },
                     )
                 }
@@ -188,17 +188,17 @@ fn main(){val result="bad".parse::<Wrapped<i32>>();}
                 );
             }
             3 => {
-                let index=module.engine_imports.iter().position(|import|import.binding==EngineNativeBinding::Intrinsic(StandardIntrinsic::StringParse) && matches!(&import.signature.result,AbiType::StandardEnum{args,..} if matches!(args[0],AbiType::Struct(_)))).unwrap();
+                let index=module.native_imports.iter().position(|import|import.binding==EngineNativeBinding::Intrinsic(RuntimePrimitive::StringParse) && matches!(&import.signature.result,AbiType::StandardEnum{args,..} if matches!(args[0],AbiType::Struct(_)))).unwrap();
                 let AbiType::StandardEnum { args, .. } =
-                    &mut module.engine_imports[index].signature.result
+                    &mut module.native_imports[index].signature.result
                 else {
                     panic!()
                 };
                 args[1] = AbiType::Builtin(BuiltinType::Bool);
             }
             _ => {
-                let index=module.engine_imports.iter().position(|import|import.binding==EngineNativeBinding::Intrinsic(StandardIntrinsic::StringParse) && matches!(&import.signature.result,AbiType::StandardEnum{args,..} if matches!(args[0],AbiType::Struct(_)))).unwrap();
-                module.engine_imports[index]
+                let index=module.native_imports.iter().position(|import|import.binding==EngineNativeBinding::Intrinsic(RuntimePrimitive::StringParse) && matches!(&import.signature.result,AbiType::StandardEnum{args,..} if matches!(args[0],AbiType::Struct(_)))).unwrap();
+                module.native_imports[index]
                     .witnesses
                     .iter_mut()
                     .find(|witness| !witness.methods.is_empty())

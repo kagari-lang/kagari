@@ -80,14 +80,14 @@ fn main(){{{source}val rhs:Set<{item}> =Policy{{items:[{element}]}};val output:{
                 ));
                 let root = program.root.index();
                 let import = program.modules[root]
-                    .engine_imports
+                    .native_imports
                     .iter()
                     .position(|i| i.binding == EngineNativeBinding::TraitDefault(*operation))
                     .unwrap();
                 let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
                 for mutation in 0..18 {
                     let mut forged = artifact.clone();
-                    let contract = &mut forged.program.modules[root].engine_imports[import];
+                    let contract = &mut forged.program.modules[root].native_imports[import];
                     let selected = |source, protocol| {
                         contract
                             .witnesses
@@ -187,7 +187,7 @@ fn main(){{{source}val rhs:Set<{item}> =Policy{{items:[{element}]}};val output:{
                     checked += 1;
                 }
                 for protocol in [StandardTrait::Hash, StandardTrait::PartialEq] {
-                    let contract = &artifact.program.modules[root].engine_imports[import];
+                    let contract = &artifact.program.modules[root].native_imports[import];
                     let Some(selected) = contract.witnesses.iter().position(|w| {
                         StandardTrait::from_id(&w.interface.declaration) == Some(protocol)
                     }) else {
@@ -195,7 +195,7 @@ fn main(){{{source}val rhs:Set<{item}> =Policy{{items:[{element}]}};val output:{
                     };
                     for mutation in 0..8 {
                         let mut forged = artifact.clone();
-                        let contract = &mut forged.program.modules[root].engine_imports[import];
+                        let contract = &mut forged.program.modules[root].native_imports[import];
                         let w = &mut contract.witnesses[selected];
                         assert_eq!(w.methods.len(), 1);
                         match mutation {

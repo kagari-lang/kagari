@@ -100,7 +100,11 @@ impl HostRegistry {
                 }
             }
         }
-        Ok(LinkedHostBindings { functions, paths })
+        Ok(LinkedHostBindings {
+            functions,
+            paths,
+            native: vec![],
+        })
     }
 
     pub(super) fn path_fingerprint(

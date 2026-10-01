@@ -2,15 +2,15 @@ use crate::{
     ExecutionPhase, ResourceState, RuntimeError,
     cache::ReloadDependencySnapshot,
     host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
+    native::NativeRegistration,
+    reload::ModuleEpoch,
+    value::Value,
 };
-use kagari_abi::{
-    layout::{EnumLayout, EnumVariantLayout, StructLayout},
-    native_import::EngineNativeOperation,
-};
+use kagari_abi::layout::{EnumLayout, EnumVariantLayout, StructLayout};
 use kagari_bytecode as bytecode;
 use kagari_bytecode::{
-    ArtifactFingerprint, BytecodeModule, BytecodeProgram, EngineImportId, EnumId, HostImportId,
-    ModuleRef, PathId, StructId,
+    ArtifactFingerprint, BytecodeModule, BytecodeProgram, EnumId, ModuleRef, NativeImportId,
+    PathId, StructId,
 };
 use kagari_common::identity::ModuleIdentity;
 use std::{
@@ -20,8 +20,6 @@ use std::{
     rc::Rc,
     sync::Arc,
 };
-
-use crate::{reload::ModuleEpoch, value::Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleId(u64);
@@ -96,7 +94,7 @@ impl ModuleEpochRetentionCounts {
 /// ```
 #[derive(Debug, Clone)]
 pub struct LoadedModule {
-    program: Arc<LinkedProgram>,
+    program: Rc<LinkedProgram>,
     slot: ModuleRef,
 }
 
@@ -162,13 +160,14 @@ pub struct LinkedModule {
     pub epoch: ModuleEpoch,
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
-    engine_bindings: Vec<EngineNativeOperation>,
+    native_bindings: Vec<Rc<NativeRegistration>>,
     pub(crate) host_bindings: LinkedHostBindings,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedHostBindings {
     pub functions: Vec<HostFunctionId>,
+    pub native: Vec<Rc<NativeRegistration>>,
     pub paths: Vec<HostPathDescriptorId>,
 }
 
@@ -237,12 +236,8 @@ impl LoadedModule {
         })
     }
     /// Registry entries are resolved once for this immutable program generation.
-    pub fn engine_binding(&self, import: EngineImportId) -> Option<EngineNativeOperation> {
-        self.engine_bindings.get(import.index()).copied()
-    }
-
-    pub fn host_binding(&self, import: HostImportId) -> Option<HostFunctionId> {
-        self.host_bindings.functions.get(import.index()).copied()
+    pub fn native_binding(&self, import: NativeImportId) -> Option<Rc<NativeRegistration>> {
+        self.native_bindings.get(import.index()).cloned()
     }
 
     pub fn path_binding(&self, path: PathId) -> Option<HostPathDescriptorId> {
@@ -308,7 +303,7 @@ impl StructLayoutRef {
     }
     pub(crate) fn matches(&self, other: &Self) -> bool {
         self.module.registry_owner == other.module.registry_owner
-            && ((Arc::ptr_eq(&self.module.program, &other.module.program)
+            && ((Rc::ptr_eq(&self.module.program, &other.module.program)
                 && self.module.slot == other.module.slot
                 && self.id == other.id)
                 || self.layout() == other.layout())
@@ -489,13 +484,9 @@ impl ModuleStore {
                 } else {
                     format!("{}::{}", name, bytecode.identity)
                 };
-                let engine_bindings = bytecode
-                    .engine_imports
-                    .iter()
-                    .map(|import| import.resolve().expect("sealed engine native binding"))
-                    .collect();
+                let native_bindings = host_bindings.native.clone();
                 LinkedModule {
-                    engine_bindings,
+                    native_bindings,
                     id,
                     name: display,
                     epoch,
@@ -505,7 +496,7 @@ impl ModuleStore {
                 }
             })
             .collect();
-        let program = Arc::new(LinkedProgram {
+        let program = Rc::new(LinkedProgram {
             code: program,
             root,
             fingerprint,

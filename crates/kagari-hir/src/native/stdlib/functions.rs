@@ -1,56 +1,19 @@
 use crate::{hir::FunctionKind, lower::LoweredModule, native::stdlib::invalid};
-use kagari_abi::{
-    callable::EngineNativeBinding,
-    standard::{
-        StandardIntrinsic,
-        bindings::{NativeDefaultMethod, NativeProtocolMethod},
-    },
-};
-use kagari_common::{cancellation::CancellationToken, integer::IntegerMethod};
+use kagari_common::cancellation::CancellationToken;
 use kagari_stdlib::{NativeMarkerKind, PackageError, ParsedStdlibFile};
-use serde::{
-    Deserialize,
-    de::value::{Error as DeserializationError, StrDeserializer},
-};
-
-fn binding<T: for<'de> Deserialize<'de>>(text: &str) -> Option<T> {
-    T::deserialize(StrDeserializer::<DeserializationError>::new(text)).ok()
-}
-
-#[cfg(test)]
-#[test]
-fn native_binding_names_are_closed_and_exact() {
-    assert_eq!(
-        binding::<NativeDefaultMethod>("IteratorMap"),
-        Some(NativeDefaultMethod::Map)
-    );
-    assert_eq!(
-        binding::<NativeDefaultMethod>("ListJoin"),
-        Some(NativeDefaultMethod::ListJoin)
-    );
-    assert_eq!(binding::<NativeDefaultMethod>("IteratorListJoin"), None);
-    assert_eq!(binding::<NativeDefaultMethod>("Map"), None);
-    assert_eq!(binding::<StandardIntrinsic>("ArraySortUnknown"), None);
-    assert_eq!(
-        binding::<NativeProtocolMethod>("CollectionIter"),
-        Some(NativeProtocolMethod::CollectionIter)
-    );
-}
+use kagari_stdlib_provider::contracts;
+use std::{collections::HashMap, sync::Arc};
 
 pub(super) fn install(
     file: &ParsedStdlibFile,
     lowered: &mut LoweredModule,
     cancel: &CancellationToken,
 ) -> Result<(), PackageError> {
+    let contracts: HashMap<_, _> = contracts().into_iter().collect();
     for site in file.declarations() {
         cancel.check()?;
         for marker in &site.markers {
-            if !matches!(
-                marker.kind,
-                NativeMarkerKind::Intrinsic
-                    | NativeMarkerKind::Numeric
-                    | NativeMarkerKind::ParseRadix
-            ) {
+            if !matches!(marker.kind, NativeMarkerKind::Native) {
                 continue;
             }
             let function = lowered
@@ -72,43 +35,16 @@ pub(super) fn install(
                     "a native function cannot also have a script body",
                 ));
             }
-            let kind = match marker.kind {
-                NativeMarkerKind::Intrinsic if function.kind == FunctionKind::TraitMethod => {
-                    binding::<NativeDefaultMethod>(&marker.binding)
-                        .map(EngineNativeBinding::TraitDefault)
-                }
-                NativeMarkerKind::Intrinsic => binding::<StandardIntrinsic>(&marker.binding)
-                    .map(EngineNativeBinding::Intrinsic)
-                    .or_else(|| {
-                        (function.kind == FunctionKind::ImplMethod)
-                            .then(|| {
-                                binding::<NativeProtocolMethod>(&marker.binding)
-                                    .map(EngineNativeBinding::Protocol)
-                            })
-                            .flatten()
-                    }),
-                NativeMarkerKind::Numeric if function.kind == FunctionKind::ImplMethod => {
-                    binding::<IntegerMethod>(&marker.binding).map(EngineNativeBinding::Integer)
-                }
-                NativeMarkerKind::ParseRadix
-                    if function.kind == FunctionKind::ImplMethod
-                        && marker.binding == "ParseRadix" =>
-                {
-                    Some(EngineNativeBinding::ParseRadix)
-                }
-                _ => None,
-            }
-            .ok_or_else(|| {
+            let contract = contracts.get(marker.binding.as_str()).ok_or_else(|| {
                 invalid(
                     file,
                     marker.span,
-                    format!(
-                        "unknown or misplaced native function binding `{}`",
-                        marker.binding
-                    ),
+                    format!("native provider has no binding `{}`", marker.binding),
                 )
             })?;
-            lowered.native_functions.insert(function.id, kind);
+            lowered
+                .native_functions
+                .insert(function.id, Arc::new(contract.clone()));
             lowered
                 .native_attributes
                 .insert((marker.span.start, marker.span.end));

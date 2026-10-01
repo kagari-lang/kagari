@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -45,16 +45,16 @@ fn retention_preserves_every_budget_cut() {
         let baseline = baseline::all().find(|case| case.name == name).unwrap();
         let program = compile_test_bytecode(&source);
         let binding = EngineNativeBinding::Intrinsic(match name.split('_').next().unwrap() {
-            "array" => StandardIntrinsic::ArrayRetain,
-            "map" => StandardIntrinsic::MapRetain,
-            "set" => StandardIntrinsic::SetRetain,
+            "array" => RuntimePrimitive::ArrayRetain,
+            "map" => RuntimePrimitive::MapRetain,
+            "set" => RuntimePrimitive::SetRetain,
             mode => panic!("unknown retention case {mode}"),
         });
         assert!(
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

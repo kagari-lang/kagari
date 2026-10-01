@@ -51,11 +51,11 @@ fn main()->i32 {{val value:{ty} ={value};val source:ArrayList<{ty}> =[value];val
             ));
             let root = program.root.index();
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|import| import.binding == EngineNativeBinding::TraitDefault(binding))
                 .unwrap();
-            let equality = program.modules[root].engine_imports[import]
+            let equality = program.modules[root].native_imports[import]
                 .witnesses
                 .iter()
                 .position(|witness| {
@@ -63,13 +63,13 @@ fn main()->i32 {{val value:{ty} ={value};val source:ArrayList<{ty}> =[value];val
                         == Some(StandardTrait::PartialEq)
                 })
                 .unwrap();
-            let derived = program.modules[root].engine_imports[import].witnesses[equality]
+            let derived = program.modules[root].native_imports[import].witnesses[equality]
                 .implementation
                 == NativeWitnessImplementation::Derived;
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
             for mutation in 0..8 {
                 let mut forged = artifact.clone();
-                let contract = &mut forged.program.modules[root].engine_imports[import];
+                let contract = &mut forged.program.modules[root].native_imports[import];
                 let witness = &mut contract.witnesses[equality];
                 match mutation {
                     0 => {
@@ -109,7 +109,7 @@ fn main()->i32 {{val value:{ty} ={value};val source:ArrayList<{ty}> =[value];val
             if derived {
                 for mutation in 0..5 {
                     let mut forged = artifact.clone();
-                    let witness = &mut forged.program.modules[root].engine_imports[import]
+                    let witness = &mut forged.program.modules[root].native_imports[import]
                         .witnesses[equality];
                     match mutation {
                         0 => witness.methods.clear(),

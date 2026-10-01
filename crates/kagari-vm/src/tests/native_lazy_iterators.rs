@@ -155,7 +155,7 @@ fn native_lazy_iterators_execute_all_checked_shapes() {
     let mut failures = Vec::new();
     for (name, source) in cases::cases() {
         let program = compile_test_bytecode(&source);
-        assert!(program.modules.iter().flat_map(|module| &module.engine_imports).any(|import| matches!(import.binding, EngineNativeBinding::TraitDefault(operation) if operation.lazy())), "{name} native constructor");
+        assert!(program.modules.iter().flat_map(|module| &module.native_imports).any(|import| matches!(import.binding, EngineNativeBinding::TraitDefault(operation) if operation.lazy())), "{name} native constructor");
         assert!(
             program
                 .modules

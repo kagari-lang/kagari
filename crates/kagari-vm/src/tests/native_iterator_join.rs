@@ -184,7 +184,7 @@ fn join_preserves_effects_and_every_budget_cut() {
         let baseline = BASELINE.iter().find(|case| case.name == name).unwrap();
         let program = compile_test_bytecode(&source);
         let defaults: Vec<_> = program.modules[program.root.index()]
-            .engine_imports
+            .native_imports
             .iter()
             .filter_map(|import| match import.resolve() {
                 Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(

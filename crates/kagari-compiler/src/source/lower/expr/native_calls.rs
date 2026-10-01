@@ -3,7 +3,7 @@
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
-use kagari_abi::callable::{EngineNativeBinding, NativeCall};
+
 use kagari_hir::{
     hir,
     native::NativeBinding,
@@ -34,26 +34,14 @@ impl FunctionLowerer<'_, '_> {
             }
             _ => return Ok(false),
         };
-        let binding = match signature.implementation {
-            FunctionImplementation::Script => return Ok(false),
-            FunctionImplementation::Required => {
-                return Err(MirLoweringError::MissingBinding(
-                    "unimplemented callable requirement",
-                ));
-            }
-            FunctionImplementation::Native(NativeBinding::Engine(binding)) => binding,
-            FunctionImplementation::Native(NativeBinding::Host(_)) => {
-                return Err(MirLoweringError::MissingBinding(
-                    "source callable has a host binding",
-                ));
-            }
-        };
-        match binding {
-            EngineNativeBinding::Intrinsic(_)
-            | EngineNativeBinding::Integer(_)
-            | EngineNativeBinding::ParseRadix => Ok(true),
-            EngineNativeBinding::TraitDefault(_) | EngineNativeBinding::Protocol(_) => Err(
-                MirLoweringError::MissingBinding("native trait callable witness"),
+        match &signature.implementation {
+            FunctionImplementation::Script => Ok(false),
+            FunctionImplementation::Required => Err(MirLoweringError::MissingBinding(
+                "unimplemented callable requirement",
+            )),
+            FunctionImplementation::Native(NativeBinding::Provider(_)) => Ok(true),
+            FunctionImplementation::Native(NativeBinding::Host(_)) => Err(
+                MirLoweringError::MissingBinding("source callable has a host binding"),
             ),
         }
     }
@@ -74,7 +62,7 @@ impl FunctionLowerer<'_, '_> {
         let dst = self.alloc_temp(self.expr_type(expr)?);
         self.emit(Instruction::Call {
             dst: Some(dst),
-            callee: MirCallTarget::Native(NativeCall::Engine(Box::new(contract))),
+            callee: MirCallTarget::Native(Box::new(contract)),
             args: lowered,
         });
         Ok(dst)

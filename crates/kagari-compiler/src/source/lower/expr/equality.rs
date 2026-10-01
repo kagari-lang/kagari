@@ -3,7 +3,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
-    standard::{StandardIntrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::{RuntimePrimitive, surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_hir::{
     builtin::traits::StandardTraitSemantics,
@@ -67,14 +67,14 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn emit_intrinsic(
         &mut self,
-        intrinsic: StandardIntrinsic,
+        intrinsic: RuntimePrimitive,
         args: &[MirValue],
         ty: ValueType,
     ) -> MirValue {
         let dst = self.alloc_temp(ty);
         self.emit(Instruction::Call {
             dst: Some(dst),
-            callee: CallTarget::StandardIntrinsic(intrinsic),
+            callee: CallTarget::RuntimePrimitive(intrinsic),
             args: args.iter().copied().collect(),
         });
         dst
@@ -148,7 +148,7 @@ impl FunctionLowerer<'_, '_> {
                 });
                 return Ok(dst);
             }
-            return Ok(self.emit_intrinsic(StandardIntrinsic::ValueHash, args, result_ty));
+            return Ok(self.emit_intrinsic(RuntimePrimitive::ValueHash, args, result_ty));
         }
         let method = &self.protocol_method(protocol, 0)?;
         if let Some((declaration, arguments)) =
@@ -258,13 +258,13 @@ impl FunctionLowerer<'_, '_> {
             _ => {
                 let dst = self.alloc_temp(result_ty);
                 let intrinsic = if protocol == StandardTrait::PartialEq {
-                    StandardIntrinsic::ValueEq
+                    RuntimePrimitive::ValueEq
                 } else {
-                    StandardIntrinsic::ValueHash
+                    RuntimePrimitive::ValueHash
                 };
                 self.emit(Instruction::Call {
                     dst: Some(dst),
-                    callee: CallTarget::StandardIntrinsic(intrinsic),
+                    callee: CallTarget::RuntimePrimitive(intrinsic),
                     args: args.iter().copied().collect(),
                 });
                 Ok(dst)
@@ -300,7 +300,7 @@ impl FunctionLowerer<'_, '_> {
             let dst = self.alloc_temp(ValueType::I64);
             self.emit(Instruction::Call {
                 dst: Some(dst),
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ValueHash),
+                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::ValueHash),
                 args: [tuple].into_iter().collect(),
             });
             return Ok(dst);

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{PreparedNativeEntry, tests::native_fixtures};
-use kagari_abi::callable::NativeCall;
+
 use kagari_bytecode::{BytecodeProgram, ModuleRef};
 use kagari_runtime::{BackendInvocationError, NativeInvocationFailure};
 

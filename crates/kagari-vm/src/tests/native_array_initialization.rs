@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -87,10 +87,10 @@ fn initialization_preserves_every_budget_cut() {
         let program = compile_test_bytecode(&source);
         assert_eq!(
             program.modules[program.root.index()]
-                .engine_imports
+                .native_imports
                 .iter()
                 .filter(|import| import.binding
-                    == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayListFromFn))
+                    == EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayListFromFn))
                 .count(),
             1,
             "{name}"

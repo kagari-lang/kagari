@@ -4,7 +4,7 @@ use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::{NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, intrinsic, traits::StandardTrait},
+    standard::{RuntimePrimitive, intrinsic, traits::StandardTrait},
     types::{AbiType, ConstraintAbi, GenericBoundAbi},
 };
 use kagari_bytecode::{KbcArtifact, verify_program};
@@ -13,30 +13,30 @@ use kagari_bytecode::{KbcArtifact, verify_program};
 fn string_iterator_calls_reject_forged_constructor_contracts() {
     let mut checked = 0;
     for (method, args, operation) in [
-        ("bytes", "", StandardIntrinsic::StringBytes),
-        ("char_indices", "", StandardIntrinsic::StringCharIndices),
-        ("split", "\",\"", StandardIntrinsic::StringSplit),
-        ("splitn", "2usize,\",\"", StandardIntrinsic::StringSplitN),
+        ("bytes", "", RuntimePrimitive::StringBytes),
+        ("char_indices", "", RuntimePrimitive::StringCharIndices),
+        ("split", "\",\"", RuntimePrimitive::StringSplit),
+        ("splitn", "2usize,\",\"", RuntimePrimitive::StringSplitN),
         (
             "split_whitespace",
             "",
-            StandardIntrinsic::StringSplitWhitespace,
+            RuntimePrimitive::StringSplitWhitespace,
         ),
-        ("lines", "", StandardIntrinsic::StringLines),
+        ("lines", "", RuntimePrimitive::StringLines),
     ] {
         let program = common::bytecode_ok(&format!(
             "fn main(){{val output=\"é😀,x\".{method}({args});}}"
         ));
         let root = program.root.index();
         let import = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|i| i.binding == EngineNativeBinding::Intrinsic(operation))
             .unwrap();
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..12 {
             let mut forged = artifact.clone();
-            let contract = &mut forged.program.modules[root].engine_imports[import];
+            let contract = &mut forged.program.modules[root].native_imports[import];
             match mutation {
                 0 => contract.binding_version -= 1,
                 1 => contract.signature.params.clear(),
@@ -69,10 +69,10 @@ fn string_iterator_calls_reject_forged_constructor_contracts() {
                     ))],
                 }),
                 9 => {
-                    let binding = if operation == StandardIntrinsic::StringLines {
-                        StandardIntrinsic::StringBytes
+                    let binding = if operation == RuntimePrimitive::StringLines {
+                        RuntimePrimitive::StringBytes
                     } else {
-                        StandardIntrinsic::StringLines
+                        RuntimePrimitive::StringLines
                     };
                     contract.binding = EngineNativeBinding::Intrinsic(binding);
                 }

@@ -13,7 +13,7 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    pub(crate) fn prepare_array_removal(
+    pub fn prepare_array_removal(
         &self,
         target: HeapObjectId,
         start: Bound<usize>,

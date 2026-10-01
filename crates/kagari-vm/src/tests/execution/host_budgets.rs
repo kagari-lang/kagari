@@ -1,5 +1,4 @@
 use super::*;
-use kagari_abi::callable::NativeCall;
 
 #[test]
 fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {

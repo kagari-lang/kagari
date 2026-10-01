@@ -3,7 +3,7 @@
 use crate::source::lower::{MirLoweringError, debug::capture_origin, instances::InstancePlanner};
 use kagari_abi::{
     callable::CallableImplementation,
-    callable::NativeCall,
+    native_import::NativeImport,
     slots::SemanticSlots,
     types::{
         AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ModuleAbi, ParameterAbi,
@@ -112,7 +112,7 @@ pub(super) fn collect(
             temps.push(MirTemp { ty: result.ty });
             instructions.push(Instruction::Call {
                 dst: Some(result),
-                callee: CallTarget::Native(NativeCall::Host(Box::new(host_call))),
+                callee: CallTarget::Native(Box::new(NativeImport::from_host(&host_call))),
                 args: arguments.into(),
             });
             let terminator = Terminator::Return(Some(result));

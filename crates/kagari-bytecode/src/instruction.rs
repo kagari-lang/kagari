@@ -1,11 +1,10 @@
 use crate::ModuleRef;
 use kagari_abi::{
-    callable::NativeCall,
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
     operations::{IterOp, StandardEnumOp},
     representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
 use serde::{Deserialize, Serialize};
@@ -85,17 +84,6 @@ impl JumpTarget {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct HostImportId(u32);
-impl HostImportId {
-    pub fn new(index: usize) -> Self {
-        Self(index as u32)
-    }
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StructId(u32);
 
 impl StructId {
@@ -129,8 +117,8 @@ impl PathId {
 
 /// Index of a concrete engine binding resolved when the module is linked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct EngineImportId(u32);
-impl EngineImportId {
+pub struct NativeImportId(u32);
+impl NativeImportId {
     pub fn new(index: usize) -> Self {
         Self(index as u32)
     }
@@ -181,7 +169,7 @@ pub enum CallTarget {
         interface: NominalAbiType,
         method_slot: u32,
     },
-    Native(NativeCall<EngineImportId, HostImportId>),
+    Native(NativeImportId),
     Register(Register),
     ClosureRegister {
         register: Register,
@@ -189,7 +177,7 @@ pub enum CallTarget {
         params: Vec<ValueType>,
         return_type: ValueType,
     },
-    StandardIntrinsic(StandardIntrinsic),
+    RuntimePrimitive(RuntimePrimitive),
     RuntimeHelper(RuntimeHelper),
 }
 

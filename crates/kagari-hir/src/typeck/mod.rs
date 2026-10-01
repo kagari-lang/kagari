@@ -128,7 +128,7 @@ pub struct TypedFunction {
 /// The enclosing module/function identity selects a script body; required trait
 /// methods await an implementation. Native bindings are installed input and do
 /// not acquire authority from the declaration's name or source URI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FunctionImplementation {
     Script,
     Native(NativeBinding),

@@ -339,8 +339,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::IteratorCapture(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -365,8 +364,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::IteratorCapture(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 }

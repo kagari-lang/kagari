@@ -4,7 +4,7 @@ use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeDefaultMethod, traits::StandardTrait},
+    standard::{RuntimePrimitive, bindings::NativeDefaultMethod, traits::StandardTrait},
     types::{AbiType, PublicAbiItem},
 };
 use kagari_bytecode::{KbcArtifact, verify_program};
@@ -14,17 +14,17 @@ fn map_snapshots_reject_forged_traversal_and_result_construction() {
     for source in ["map", "custom", "dynamic", "native"] {
         for (direct, default, method) in [
             (
-                StandardIntrinsic::MapKeys,
+                RuntimePrimitive::MapKeys,
                 NativeDefaultMethod::MapKeysView,
                 "keys",
             ),
             (
-                StandardIntrinsic::MapValues,
+                RuntimePrimitive::MapValues,
                 NativeDefaultMethod::MapValuesView,
                 "values",
             ),
             (
-                StandardIntrinsic::MapEntries,
+                RuntimePrimitive::MapEntries,
                 NativeDefaultMethod::MapEntriesView,
                 "entries",
             ),
@@ -50,11 +50,11 @@ fn main()->i32{{{setup}val out=source.{method}();42}}
                 EngineNativeBinding::TraitDefault(default)
             };
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|import| import.binding == binding)
                 .unwrap();
-            let factory = program.modules[root].engine_imports[import]
+            let factory = program.modules[root].native_imports[import]
                 .witnesses
                 .iter()
                 .position(|witness| {
@@ -66,7 +66,7 @@ fn main()->i32{{{setup}val out=source.{method}();42}}
             for mutation in 0..16 {
                 let mut forged = artifact.clone();
                 let module = &mut forged.program.modules[root];
-                let contract = &mut module.engine_imports[import];
+                let contract = &mut module.native_imports[import];
                 let witness = &mut contract.witnesses[factory];
                 match mutation {
                     0 => {

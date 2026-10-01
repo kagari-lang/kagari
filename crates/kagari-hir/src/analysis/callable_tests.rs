@@ -11,7 +11,7 @@ use crate::{
 use kagari_abi::{
     callable::EngineNativeBinding,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeDefaultMethod, surface::StandardEnum},
+    standard::{RuntimePrimitive, bindings::NativeDefaultMethod, surface::StandardEnum},
 };
 use kagari_common::{
     DiagnosticKind, SourceFile,
@@ -63,7 +63,7 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
             assert_eq!(imported.declaration.module.path, ["numeric"]);
             assert!(call.type_arguments.is_empty());
             match imported.signature.implementation {
-                FunctionImplementation::Native(NativeBinding::Engine(
+                FunctionImplementation::Native(NativeBinding::Provider(
                     EngineNativeBinding::Integer(IntegerMethod::WrappingAdd),
                 )) => {
                     assert_eq!(imported.signature.params[0].ty, TypeId::Builtin(expected));
@@ -72,7 +72,7 @@ fn wide() { (1u64).wrapping_add(2u64); u64::from_str_radix("ff", 16u32); }
                         Some(TypeId::Builtin(expected))
                     );
                 }
-                FunctionImplementation::Native(NativeBinding::Engine(
+                FunctionImplementation::Native(NativeBinding::Provider(
                     EngineNativeBinding::ParseRadix,
                 )) => {
                     let TypeId::StandardEnum { args, .. } = &imported.signature.return_type else {
@@ -131,7 +131,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         ("next", FunctionImplementation::Required),
         (
             "map",
-            FunctionImplementation::Native(NativeBinding::Engine(
+            FunctionImplementation::Native(NativeBinding::Provider(
                 EngineNativeBinding::TraitDefault(NativeDefaultMethod::Map),
             )),
         ),
@@ -195,11 +195,11 @@ fn main() -> i32 {
         };
         let expected = match name {
             "identity" => FunctionImplementation::Script,
-            "bound" => FunctionImplementation::Native(NativeBinding::Engine(
-                EngineNativeBinding::Intrinsic(StandardIntrinsic::MathClamp),
+            "bound" => FunctionImplementation::Native(NativeBinding::Provider(
+                EngineNativeBinding::Intrinsic(RuntimePrimitive::MathClamp),
             )),
-            "unwrap_or" => FunctionImplementation::Native(NativeBinding::Engine(
-                EngineNativeBinding::Intrinsic(StandardIntrinsic::OptionUnwrapOr),
+            "unwrap_or" => FunctionImplementation::Native(NativeBinding::Provider(
+                EngineNativeBinding::Intrinsic(RuntimePrimitive::OptionUnwrapOr),
             )),
             _ => continue,
         };

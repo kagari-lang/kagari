@@ -479,7 +479,7 @@ fn main()->i32{
             .iter_mut()
             .find(|module| module.identity.path == ["model"])
             .unwrap();
-        assert!(owner.engine_imports.iter().any(|contract| {
+        assert!(owner.native_imports.iter().any(|contract| {
             contract.witnesses.iter().any(|witness| matches!(
                 &witness.implementation,
                 NativeWitnessImplementation::Table(instance)

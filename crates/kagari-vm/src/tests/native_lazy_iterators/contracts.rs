@@ -31,7 +31,7 @@ fn lazy_witness_order_preserves_every_budget_cut() {
             for import in program
                 .modules
                 .iter_mut()
-                .flat_map(|module| &mut module.engine_imports)
+                .flat_map(|module| &mut module.native_imports)
             {
                 import.witnesses.reverse();
             }
@@ -50,11 +50,11 @@ fn native_list_source_and_readonly_result_require_distinct_applications() {
         let program = compile_test_bytecode(source);
         let root = program.root.index();
         let index = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
             .unwrap();
-        let contract = &program.modules[root].engine_imports[index];
+        let contract = &program.modules[root].native_imports[index];
         let applications: Vec<_> = contract
             .witnesses
             .iter()
@@ -97,14 +97,14 @@ fn native_list_source_and_readonly_result_require_distinct_applications() {
         );
         for removed in [source, result] {
             let mut forged = program.clone();
-            forged.modules[root].engine_imports[index]
+            forged.modules[root].native_imports[index]
                 .witnesses
                 .remove(removed);
             reject(&forged, &format!("{name} missing application {removed}"));
         }
         for (destination, replacement) in [(source, result), (result, source)] {
             let mut forged = program.clone();
-            let witnesses = &mut forged.modules[root].engine_imports[index].witnesses;
+            let witnesses = &mut forged.modules[root].native_imports[index].witnesses;
             witnesses[destination] = witnesses[replacement].clone();
             reject(
                 &forged,
@@ -139,15 +139,15 @@ fn lazy_constructor_contracts_reject_forged_types_witnesses_and_applications() {
         let program = compile_test_bytecode(source);
         let root = program.root.index();
         let index = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
             .unwrap();
-        let contract = &program.modules[root].engine_imports[index];
+        let contract = &program.modules[root].native_imports[index];
         let mut mutations = Vec::new();
         for mutation in 0..4 {
             let mut forged = program.clone();
-            let import = &mut forged.modules[root].engine_imports[index];
+            let import = &mut forged.modules[root].native_imports[index];
             match mutation {
                 0 => {
                     import.signature.params.pop();
@@ -172,7 +172,7 @@ fn lazy_constructor_contracts_reject_forged_types_witnesses_and_applications() {
         for witness in 0..contract.witnesses.len() {
             for mutation in 0..4 {
                 let mut forged = program.clone();
-                let import = &mut forged.modules[root].engine_imports[index];
+                let import = &mut forged.modules[root].native_imports[index];
                 match mutation {
                     0 => {
                         import.witnesses.remove(witness);

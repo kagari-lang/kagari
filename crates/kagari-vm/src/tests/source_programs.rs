@@ -158,7 +158,7 @@ fn cross_module_debug_frames_keep_their_member_identity() {
 }
 
 #[test]
-fn direct_engine_imports_run_from_source_and_decoded_artifacts() {
+fn direct_native_imports_run_from_source_and_decoded_artifacts() {
     let program = fixture(
         r#"
         pub fn answer() -> i32 {
@@ -171,7 +171,7 @@ fn direct_engine_imports_run_from_source_and_decoded_artifacts() {
     let imports: Vec<_> = program
         .modules
         .iter()
-        .flat_map(|module| &module.engine_imports)
+        .flat_map(|module| &module.native_imports)
         .collect();
     assert_eq!(imports.len(), 3);
     assert!(
@@ -196,16 +196,16 @@ fn direct_engine_imports_run_from_source_and_decoded_artifacts() {
 }
 
 #[test]
-fn forged_engine_imports_reject_versions_providers_signatures_and_obligations() {
+fn forged_native_imports_reject_versions_providers_signatures_and_obligations() {
     let program = fixture("pub fn answer() -> i32 { std::math::clamp(42, 0, 100) }");
     let member = program
         .modules
         .iter()
-        .position(|module| !module.engine_imports.is_empty())
+        .position(|module| !module.native_imports.is_empty())
         .unwrap();
     for corrupt in 0..7 {
         let mut forged = program.clone();
-        let import = &mut forged.modules[member].engine_imports[0];
+        let import = &mut forged.modules[member].native_imports[0];
         match corrupt {
             0 => import.binding_version += 1,
             1 => import.signature.params.pop().map(|_| ()).unwrap(),
@@ -226,7 +226,7 @@ fn forged_engine_imports_reject_versions_providers_signatures_and_obligations() 
                             instruction,
                             kagari_bytecode::BytecodeInstruction::Call {
                                 callee: kagari_bytecode::CallTarget::Native(
-                                    kagari_abi::callable::NativeCall::Engine(_)
+                                    kagari_abi::callable::NativeCall::Provider(_)
                                 ),
                                 ..
                             }
@@ -271,7 +271,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         program
             .modules
             .iter()
-            .flat_map(|module| &module.engine_imports)
+            .flat_map(|module| &module.native_imports)
             .any(|import| matches!(
                 import.signature.params.first(),
                 Some(kagari_abi::types::AbiType::Array(_, _))
@@ -306,25 +306,25 @@ fn hash_storage_native_imports_carry_and_validate_selected_witnesses() {
         .enumerate()
         .find_map(|(index, module)| {
             module
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|import| !import.witnesses.is_empty())
                 .map(|import| (index, import))
         })
         .unwrap();
     assert!(
-        program.modules[owner].engine_imports[import]
+        program.modules[owner].native_imports[import]
             .witnesses
             .len()
             >= 2
     );
     let mut missing = program.clone();
-    missing.modules[owner].engine_imports[import]
+    missing.modules[owner].native_imports[import]
         .witnesses
         .clear();
     assert!(kagari_bytecode::verify_program(&missing).is_err());
     let mut forged = program.clone();
-    forged.modules[owner].engine_imports[import].witnesses[0].implementation =
+    forged.modules[owner].native_imports[import].witnesses[0].implementation =
         kagari_abi::native_import::NativeWitnessImplementation::Host;
     assert!(kagari_bytecode::verify_program(&forged).is_err());
     let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
@@ -344,7 +344,7 @@ fn hash_storage_native_imports_carry_and_validate_selected_witnesses() {
 #[test]
 fn low_level_storage_writes_reject_element_type_forgery() {
     use kagari_abi::{
-        callable::NativeCall, scalar::BuiltinType, standard::StandardIntrinsic, types::AbiType,
+        callable::NativeCall, scalar::BuiltinType, standard::RuntimePrimitive, types::AbiType,
     };
     use kagari_bytecode::{BytecodeInstruction, CallTarget, Register};
     let mut program = fixture(
@@ -360,24 +360,23 @@ fn low_level_storage_writes_reject_element_type_forgery() {
         .modules
         .iter()
         .position(|module| {
-            module.engine_imports.iter().any(|import| {
-                import.resolve()
-                    == Some(EngineNativeOperation::Direct(StandardIntrinsic::ArrayPush))
+            module.native_imports.iter().any(|import| {
+                import.resolve() == Some(EngineNativeOperation::Direct(RuntimePrimitive::ArrayPush))
             })
         })
         .unwrap();
-    let imports = program.modules[member].engine_imports.clone();
+    let imports = program.modules[member].native_imports.clone();
     let function = program.modules[member]
         .functions
         .iter_mut()
         .find(|function| function.name == "answer")
         .unwrap();
     let wrong = function.metadata.semantic.registers.iter().find_map(|(index,ty)| matches!(ty,AbiType::Array(item,_) if item.as_ref() == &AbiType::Builtin(BuiltinType::String)).then_some(Register::new(*index))).unwrap();
-    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction,BytecodeInstruction::Call {callee:CallTarget::Native(NativeCall::Engine(id)),..} if imports[id.index()].resolve()==Some(EngineNativeOperation::Direct(StandardIntrinsic::ArrayPush)) && matches!(&imports[id.index()].signature.params[0],AbiType::Array(item,_) if matches!(item.as_ref(),AbiType::Array(_, _))))).unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction,BytecodeInstruction::Call {callee:CallTarget::Native(id),..} if imports[id.index()].resolve()==Some(EngineNativeOperation::Direct(RuntimePrimitive::ArrayPush)) && matches!(&imports[id.index()].signature.params[0],AbiType::Array(item,_) if matches!(item.as_ref(),AbiType::Array(_, _))))).unwrap();
     let BytecodeInstruction::Call { callee, .. } = instruction else {
         unreachable!()
     };
-    *callee = CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush);
+    *callee = CallTarget::RuntimePrimitive(RuntimePrimitive::ArrayPush);
     // The low-level form still has a valid physical contract and semantic slot
     // facts; this exercises the storage verifier independently of native imports.
     kagari_bytecode::verify_program(&program).unwrap();
@@ -393,7 +392,7 @@ fn low_level_storage_writes_reject_element_type_forgery() {
             matches!(
                 instruction,
                 BytecodeInstruction::Call {
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayPush),
+                    callee: CallTarget::RuntimePrimitive(RuntimePrimitive::ArrayPush),
                     ..
                 }
             )

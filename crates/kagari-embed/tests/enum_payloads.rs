@@ -73,7 +73,7 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
     assert!(
         invoke_standard(
             runtime.runtime().gc(),
-            kagari_abi::standard::StandardIntrinsic::OptionIsSome,
+            kagari_abi::standard::RuntimePrimitive::OptionIsSome,
             &[Value::Enum(handle)]
         )
         .is_err()

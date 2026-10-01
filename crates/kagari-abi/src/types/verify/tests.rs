@@ -32,7 +32,7 @@ fn requirements_are_not_executable_functions_or_forged_native_entries() {
     assert!(!valid(&function));
     function.method_policy.override_allowed = true;
     function.implementation =
-        CallableImplementation::Native(NativeBinding::Engine(EngineNativeBinding::ParseRadix));
+        CallableImplementation::Native(NativeBinding::Provider(EngineNativeBinding::ParseRadix));
     assert!(!valid(&function));
 }
 

@@ -65,7 +65,7 @@ fn main(){{val items:ArrayList<Item<{key}>> =[Item{{key:{expression}}}];val sour
             ));
             let root = program.root.index();
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|i| {
                     i.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::GroupBy)
@@ -74,7 +74,7 @@ fn main(){{val items:ArrayList<Item<{key}>> =[Item{{key:{expression}}}];val sour
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
             for mutation in 0..17 {
                 let mut forged = artifact.clone();
-                let contract = &mut forged.program.modules[root].engine_imports[import];
+                let contract = &mut forged.program.modules[root].native_imports[import];
                 let next = contract
                     .witnesses
                     .iter()
@@ -180,7 +180,7 @@ fn main(){{val items:ArrayList<Item<{key}>> =[Item{{key:{expression}}}];val sour
                 checked += 1;
             }
             for protocol in [StandardTrait::Hash, StandardTrait::PartialEq] {
-                let contract = &artifact.program.modules[root].engine_imports[import];
+                let contract = &artifact.program.modules[root].native_imports[import];
                 let selected = contract
                     .witnesses
                     .iter()
@@ -193,7 +193,7 @@ fn main(){{val items:ArrayList<Item<{key}>> =[Item{{key:{expression}}}];val sour
                 }
                 for mutation in 0..8 {
                     let mut forged = artifact.clone();
-                    let contract = &mut forged.program.modules[root].engine_imports[import];
+                    let contract = &mut forged.program.modules[root].native_imports[import];
                     let witness = &mut contract.witnesses[selected];
                     assert_eq!(witness.methods.len(), 1);
                     match mutation {

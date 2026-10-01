@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     aggregates::MethodDefault, builtin::traits::StandardTraitSemantics, native::NativeBinding,
 };
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 
 #[test]
 fn infers_array_method_call_types() {
@@ -167,31 +167,31 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                     .iter()
                     .find(|function| {
                         function.implementation
-                            == FunctionImplementation::Native(NativeBinding::Engine(
+                            == FunctionImplementation::Native(NativeBinding::Provider(
                                 EngineNativeBinding::Intrinsic(binding),
                             ))
                     })
             })
             .expect("checked native function signature")
     };
-    let map_get = signature(StandardIntrinsic::MapGet);
+    let map_get = signature(RuntimePrimitive::MapGet);
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
     for kind in [StandardTrait::Eq, StandardTrait::Hash] {
         assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal().declaration)));
     }
-    assert_eq!(signature(StandardIntrinsic::StringSlice).params.len(), 3);
+    assert_eq!(signature(RuntimePrimitive::StringSlice).params.len(), 3);
     for binding in [
-        StandardIntrinsic::OptionAndThen,
-        StandardIntrinsic::ResultMapErr,
-        StandardIntrinsic::MathClamp,
-        StandardIntrinsic::DebugAssert,
-        StandardIntrinsic::MapInsert,
+        RuntimePrimitive::OptionAndThen,
+        RuntimePrimitive::ResultMapErr,
+        RuntimePrimitive::MathClamp,
+        RuntimePrimitive::Assert,
+        RuntimePrimitive::MapInsert,
     ] {
         assert_eq!(
             signature(binding).implementation,
-            FunctionImplementation::Native(NativeBinding::Engine(EngineNativeBinding::Intrinsic(
-                binding
-            )))
+            FunctionImplementation::Native(NativeBinding::Provider(
+                EngineNativeBinding::Intrinsic(binding)
+            ))
         );
     }
     assert!(!facts.aggregates.inherent_methods().any(|method| matches!(
@@ -209,13 +209,13 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         .unwrap();
     assert_eq!(
         difference.default,
-        Some(MethodDefault::Native(NativeBinding::Engine(
+        Some(MethodDefault::Native(NativeBinding::Provider(
             EngineNativeBinding::TraitDefault(
                 kagari_abi::standard::bindings::NativeDefaultMethod::SetDifference
             )
         )))
     );
-    let len_chars = signature(StandardIntrinsic::StringLenChars);
+    let len_chars = signature(RuntimePrimitive::StringLenChars);
     assert_eq!(len_chars.params.len(), 1);
     assert_eq!(len_chars.params[0].name, "self");
 }
@@ -401,8 +401,8 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("keys tail expr");
     assert_eq!(
         binding(keys_tail),
-        crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
-            EngineNativeBinding::Intrinsic(StandardIntrinsic::MapKeys)
+        crate::typeck::FunctionImplementation::Native(NativeBinding::Provider(
+            EngineNativeBinding::Intrinsic(RuntimePrimitive::MapKeys)
         ))
     );
     let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
@@ -419,8 +419,8 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
         .expect("chars tail expr");
     assert_eq!(
         binding(chars_tail),
-        crate::typeck::FunctionImplementation::Native(NativeBinding::Engine(
-            EngineNativeBinding::Intrinsic(StandardIntrinsic::StringLenChars)
+        crate::typeck::FunctionImplementation::Native(NativeBinding::Provider(
+            EngineNativeBinding::Intrinsic(RuntimePrimitive::StringLenChars)
         ))
     );
 

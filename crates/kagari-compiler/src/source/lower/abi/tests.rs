@@ -129,8 +129,8 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
                 let expected = match method.default {
                     None => CallableImplementation::Required,
                     Some(MethodDefault::Script) => CallableImplementation::Script,
-                    Some(MethodDefault::Native(HirNativeBinding::Engine(binding))) => {
-                        CallableImplementation::Native(NativeBinding::Engine(binding))
+                    Some(MethodDefault::Native(HirNativeBinding::Provider(binding))) => {
+                        CallableImplementation::Native(NativeBinding::Provider(binding))
                     }
                     Some(MethodDefault::Native(_)) => panic!("installed host default"),
                 };

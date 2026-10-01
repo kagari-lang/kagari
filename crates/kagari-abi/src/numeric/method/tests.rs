@@ -1,5 +1,5 @@
 use super::*;
-use crate::{contracts::verify_intrinsic, representation::ValueType, standard::StandardIntrinsic};
+use crate::{contracts::verify_intrinsic, representation::ValueType, standard::RuntimePrimitive};
 
 #[test]
 fn numeric_contracts_preserve_width_sign_and_compound_results() {
@@ -85,7 +85,7 @@ fn physical_verification_rejects_wrong_numeric_arity_representations_and_binding
         ),
     ];
     for (method, receiver, parameters, result) in cases {
-        let binding = StandardIntrinsic::Integer(method, receiver);
+        let binding = RuntimePrimitive::Integer(method, receiver);
         assert!(verify_intrinsic(Some(result), binding, &parameters).is_ok());
         assert!(verify_intrinsic(Some(ValueType::Bool), binding, &parameters).is_err());
         assert!(verify_intrinsic(Some(result), binding, &parameters[..1]).is_err());
@@ -101,7 +101,7 @@ fn physical_verification_rejects_wrong_numeric_arity_representations_and_binding
     assert!(
         verify_intrinsic(
             Some(ValueType::I32),
-            StandardIntrinsic::Integer(IntegerMethod::WrappingAddSigned, BuiltinType::I32),
+            RuntimePrimitive::Integer(IntegerMethod::WrappingAddSigned, BuiltinType::I32),
             &[ValueType::I32, ValueType::I32]
         )
         .is_err()
@@ -109,7 +109,7 @@ fn physical_verification_rejects_wrong_numeric_arity_representations_and_binding
     assert!(
         verify_intrinsic(
             Some(ValueType::F64),
-            StandardIntrinsic::Integer(IntegerMethod::WrappingAdd, BuiltinType::F64),
+            RuntimePrimitive::Integer(IntegerMethod::WrappingAdd, BuiltinType::F64),
             &[ValueType::F64, ValueType::F64]
         )
         .is_err()
@@ -120,27 +120,27 @@ fn physical_verification_rejects_wrong_numeric_arity_representations_and_binding
 fn engine_operation_arity_is_checked_before_operand_access() {
     for (binding, args, result) in [
         (
-            StandardIntrinsic::ArrayListNew,
+            RuntimePrimitive::ArrayListNew,
             vec![],
             ValueType::HeapObject,
         ),
         (
-            StandardIntrinsic::StringLenChars,
+            RuntimePrimitive::StringLenChars,
             vec![ValueType::Str],
             ValueType::U64,
         ),
         (
-            StandardIntrinsic::StringContains,
+            RuntimePrimitive::StringContains,
             vec![ValueType::Str, ValueType::Str],
             ValueType::Bool,
         ),
         (
-            StandardIntrinsic::StringSlice,
+            RuntimePrimitive::StringSlice,
             vec![ValueType::Str, ValueType::U64, ValueType::U64],
             ValueType::HeapObject,
         ),
         (
-            StandardIntrinsic::StringReplaceN,
+            RuntimePrimitive::StringReplaceN,
             vec![
                 ValueType::Str,
                 ValueType::Str,
@@ -150,7 +150,7 @@ fn engine_operation_arity_is_checked_before_operand_access() {
             ValueType::Str,
         ),
         (
-            StandardIntrinsic::KeyMapInsert,
+            RuntimePrimitive::KeyMapInsert,
             vec![
                 ValueType::HeapObject,
                 ValueType::I64,

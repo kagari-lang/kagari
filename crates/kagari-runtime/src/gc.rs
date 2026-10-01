@@ -2,7 +2,6 @@ mod arrays;
 mod maps_sets;
 use crate::{
     ErrorTrace, ExecutionPhase, ModuleKey,
-    gc::iter::IteratorKind,
     module::{LoadedModule, RetainedRuntimeProgram, StructLayoutRef},
     resource::ResourceState,
     value::EnumTag,
@@ -33,8 +32,7 @@ mod array_ops;
 mod capacity;
 mod custom_keys;
 mod iter;
-pub(crate) mod lazy_iter;
-mod mutations;
+pub mod mutations;
 mod string_iter;
 
 use crate::{
@@ -170,7 +168,6 @@ struct ObjectSlot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcObjectKind {
     Iter,
-    IteratorCapture,
     Array,
     Map,
     Set,
@@ -191,7 +188,6 @@ pub struct ClosureValueSnapshot {
 #[derive(Debug)]
 enum HeapObject {
     Iter(Box<iter::NativeIter>),
-    IteratorCapture(Box<lazy_iter::IteratorCapture>),
     Array(Vec<Value>),
     Map(IndexMap<MapKey, Value>),
     Set(IndexMap<MapKey, ()>),
@@ -218,7 +214,6 @@ impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
             Self::Iter(_) => 1,
-            Self::IteratorCapture(state) => 1 + state.captures.len(),
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
             Self::Set(values) => values.len(),
@@ -533,16 +528,7 @@ impl GcHeap {
                         guard.iter_loops.push(iter.loops.clone());
                         iter.loops.set(count);
                         iter.guard = None;
-                        if let IteratorKind::Adapter { dependencies } = &iter.kind {
-                            pending.extend(
-                                dependencies
-                                    .iter()
-                                    .filter(|v| matches!(v, Value::GcHandle(_)))
-                                    .cloned(),
-                            );
-                        } else {
-                            pending.push(iter.source.clone());
-                        }
+                        pending.push(iter.source.clone());
                     }
                     source => guard
                         ._children
@@ -697,7 +683,6 @@ impl GcHeap {
         let objects = self.objects.borrow();
         match self.object_ref(&objects, id)? {
             HeapObject::Iter(_) => Some(GcObjectKind::Iter),
-            HeapObject::IteratorCapture(_) => Some(GcObjectKind::IteratorCapture),
             HeapObject::Array(_) => Some(GcObjectKind::Array),
             HeapObject::Map(_) => Some(GcObjectKind::Map),
             HeapObject::Set(_) => Some(GcObjectKind::Set),
@@ -1149,7 +1134,6 @@ impl GcHeap {
             }
             traced.push(id);
             match object {
-                HeapObject::IteratorCapture(state) => pending.extend(state.captures.iter().rev()),
                 HeapObject::Iter(iter) => {
                     pending.push(&iter.source);
                 }
@@ -1184,8 +1168,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::IteratorCapture(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1204,8 +1187,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::IteratorCapture(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 
@@ -1224,8 +1206,7 @@ impl GcHeap {
             | HeapObject::Interface { .. }
             | HeapObject::Closure { .. }
             | HeapObject::Cell { .. }
-            | HeapObject::Iter(_)
-            | HeapObject::IteratorCapture(_) => None,
+            | HeapObject::Iter(_) => None,
         }
     }
 }

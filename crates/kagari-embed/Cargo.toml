@@ -37,3 +37,7 @@ required-features = ["source"]
 [[example]]
 name = "regenerate_feature_artifact"
 required-features = ["source"]
+
+[[example]]
+name = "regenerate_native_provider_artifact"
+required-features = ["source"]

@@ -1,12 +1,10 @@
 use crate::{
     NativeCallback, NativeProgress, Runtime, RuntimeError,
     frame::{ExecutionStack, ReturnDestination},
-    gc::lazy_iter::IteratorRequest,
     native::{NativeAction, NativeCallbackTarget, NativeInvocation},
     value::Value,
 };
-use kagari_abi::types::AbiType;
-use kagari_bytecode::{EngineImportId, Register};
+use kagari_bytecode::{NativeImportId, Register};
 use std::rc::Rc;
 
 impl ExecutionStack {
@@ -25,7 +23,7 @@ impl ExecutionStack {
     pub fn begin_native(
         &self,
         runtime: &Runtime,
-        import: EngineImportId,
+        import: NativeImportId,
         arguments: &[Value],
         destination: Option<Register>,
     ) -> Result<NativeProgress, RuntimeError> {
@@ -48,43 +46,6 @@ impl ExecutionStack {
         frame.native.push(invocation);
         drop(frame);
         self.process_native_action(runtime, action)
-    }
-    /// Native lazy steps share the active scope and charged driver. Their pinned
-    /// constructor contract owns captures and selected protocols after reload.
-    pub fn begin_iterator_step(
-        &self,
-        runtime: &Runtime,
-        value: &Value,
-        ty: &AbiType,
-        destination: Option<Register>,
-    ) -> Result<Option<NativeProgress>, RuntimeError> {
-        self.validate_native_runtime(runtime)?;
-        let Some(request) = runtime.gc().iterator_request(value, ty)? else {
-            return Ok(None);
-        };
-        if !self.current()?.native.is_empty() {
-            return Err(self
-                .session
-                .resources
-                .quarantine("iterator step replaced its continuation"));
-        }
-        self.push_iterator_request(runtime, request, destination)?;
-        Ok(Some(NativeProgress::Continue))
-    }
-    fn push_iterator_request(
-        &self,
-        runtime: &Runtime,
-        request: IteratorRequest,
-        destination: Option<Register>,
-    ) -> Result<(), RuntimeError> {
-        let invocation = NativeInvocation::iterator_step(runtime, request, destination)?;
-        let mut frame = self.current_mut()?;
-        frame
-            .native
-            .try_reserve(1)
-            .map_err(|_| self.session.resources.limit("native continuation capacity"))?;
-        frame.native.push(invocation);
-        Ok(())
     }
     pub fn has_native_continuation(&self) -> Result<bool, RuntimeError> {
         Ok(!self.current()?.native.is_empty())
@@ -109,47 +70,14 @@ impl ExecutionStack {
         loop {
             match action {
                 NativeAction::Continue => return Ok(NativeProgress::Continue),
-                NativeAction::Callback(request) => return Ok(NativeProgress::Callback(request)),
-                NativeAction::BuiltinFailure(error) => {
-                    return Ok(NativeProgress::BuiltinFailure(error));
-                }
-                NativeAction::TypeMismatch(detail) => {
-                    return Ok(NativeProgress::TypeMismatch(detail));
-                }
-                NativeAction::InvalidIndex(index) => {
-                    return Ok(NativeProgress::InvalidIndex(index));
-                }
-                NativeAction::Publish(value) => {
-                    let mut frame = self.current_mut()?;
-                    let destination = frame
-                        .native
-                        .last()
-                        .ok_or_else(|| {
-                            RuntimeError::module_validation("missing native publication")
-                        })?
-                        .destination;
-                    if let Some(destination) = destination {
-                        frame.write_register(destination, value)?;
-                    }
-                    return Ok(NativeProgress::Continue);
-                }
-                NativeAction::Finish => {
-                    self.current_mut()?.native.pop().ok_or_else(|| {
-                        RuntimeError::module_validation("missing native completion")
-                    })?;
-                    if !self.current()?.native.is_empty() {
-                        return Err(RuntimeError::module_validation(
-                            "nested native finish has no value",
-                        ));
-                    }
-                    return Ok(NativeProgress::Finished);
+                NativeAction::Callback(request) => {
+                    return Ok(NativeProgress::Callback(Box::new(request)));
                 }
                 NativeAction::Complete(value) => {
                     let completed = self.current_mut()?.native.pop().ok_or_else(|| {
                         RuntimeError::module_validation("missing native completion")
                     })?;
                     let destination = completed.destination;
-                    drop(completed);
                     if self.current()?.native.is_empty() {
                         if let Some(destination) = destination {
                             self.current_mut()?.write_register(destination, value)?;
@@ -177,28 +105,13 @@ impl ExecutionStack {
     pub fn push_native_callback(
         &self,
         runtime: &Runtime,
-        request: NativeCallback,
+        request: Box<NativeCallback>,
     ) -> Result<(), RuntimeError> {
         self.validate_native_runtime(runtime)?;
         match request.target {
-            NativeCallbackTarget::Iterator(step) => {
-                if !request.arguments.is_empty() {
-                    return Err(RuntimeError::module_validation(
-                        "iterator step has callback arguments",
-                    ));
-                }
-                return self.push_iterator_request(runtime, step, None);
-            }
-            NativeCallbackTarget::Interface(method) => {
-                self.push_interface_method(runtime, *method, &request.arguments, None)?;
-            }
             NativeCallbackTarget::Closure(closure) => {
                 self.push_closure(runtime, closure, &request.arguments, None)?
             }
-            NativeCallbackTarget::Function {
-                implementation,
-                function,
-            } => self.push_resolved(implementation, function, &request.arguments, None, None)?,
         }
         self.current_mut()?.return_to = ReturnDestination::Native;
         Ok(())
@@ -231,10 +144,8 @@ impl ExecutionStack {
                 let action = self.receive_native(runtime, value)?;
                 match self.process_native_action(runtime, action)? {
                     NativeProgress::Continue | NativeProgress::Finished => {}
-                    _ => {
-                        return Err(RuntimeError::module_validation(
-                            "invalid native callback return action",
-                        ));
+                    NativeProgress::Callback(request) => {
+                        self.push_native_callback(runtime, request)?
                     }
                 }
             }

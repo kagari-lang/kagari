@@ -4,7 +4,7 @@ use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    standard::{RuntimePrimitive, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
@@ -34,13 +34,13 @@ fn main(){{val a=[20,22];val r={range};{action}}}
 "#
             ));
             let binding = EngineNativeBinding::Intrinsic(if method == "copy" {
-                StandardIntrinsic::ArrayCopyWithin
+                RuntimePrimitive::ArrayCopyWithin
             } else {
-                StandardIntrinsic::ArrayRemoveRange
+                RuntimePrimitive::ArrayRemoveRange
             });
             let root = program.root.index();
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|i| i.binding == binding)
                 .unwrap();
@@ -48,7 +48,7 @@ fn main(){{val a=[20,22];val r={range};{action}}}
             for mutation in 0..16 {
                 let mut forged = artifact.clone();
                 let module = &mut forged.program.modules[root];
-                let contract = &mut module.engine_imports[import];
+                let contract = &mut module.native_imports[import];
                 let witness = contract
                     .witnesses
                     .iter()
@@ -150,7 +150,7 @@ fn main(){{val a=[20,22];val r={range};{action}}}
                             *access = CollectionAccess::ReadOnly;
                         } else {
                             contract.binding =
-                                EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayCopyFrom)
+                                EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayCopyFrom)
                         }
                     }
                     14 => contract
@@ -162,10 +162,10 @@ fn main(){{val a=[20,22];val r={range};{action}}}
                         for f in &mut module.functions {
                             for instruction in &mut f.instructions {
                                 if let BytecodeInstruction::Call { callee, .. } = instruction
-                                    && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
+                                    && matches!(callee,CallTarget::Native(id) if id.index()==import)
                                 {
-                                    *callee = CallTarget::StandardIntrinsic(
-                                        StandardIntrinsic::ArrayCopyWithin,
+                                    *callee = CallTarget::RuntimePrimitive(
+                                        RuntimePrimitive::ArrayCopyWithin,
                                     );
                                     replaced = true;
                                 }

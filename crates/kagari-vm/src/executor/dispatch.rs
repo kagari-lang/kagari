@@ -1,13 +1,5 @@
-use kagari_abi::{
-    callable::NativeCall,
-    native_import::{EngineCoreOperation, EngineNativeOperation},
-    operations::IterOp,
-    standard::StandardIntrinsic,
-    types::AbiType,
-};
-use kagari_bytecode::{
-    BytecodeInstruction, CallTarget, EngineImportId, PathId, Register, RuntimeHelper,
-};
+use kagari_abi::{operations::IterOp, standard::RuntimePrimitive, types::AbiType};
+use kagari_bytecode::{BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper};
 use kagari_runtime::{
     HostPathDescriptorId, NativeProgress, numeric, range::RangeValue, value::Value,
 };
@@ -26,9 +18,6 @@ impl<'a> Executor<'a> {
                 .stack
                 .push_native_callback(self.runtime, request)
                 .map_err(VmError::RuntimeError),
-            NativeProgress::BuiltinFailure(error) => Err(VmError::from(error)),
-            NativeProgress::TypeMismatch(detail) => Err(VmError::TypeMismatch(detail)),
-            NativeProgress::InvalidIndex(index) => Err(VmError::InvalidIndex(index)),
         }
     }
 
@@ -39,13 +28,6 @@ impl<'a> Executor<'a> {
         op: IterOp,
         dst: Option<Register>,
     ) -> Result<(), VmError> {
-        if op == IterOp::Next
-            && let Some(progress) = self
-                .stack
-                .begin_iterator_step(self.runtime, source, ty, dst)?
-        {
-            return self.dispatch_native_progress(progress);
-        }
         let result = self
             .runtime
             .iter_operation(self.current_frame()?.loaded(), source, ty, op)?;
@@ -71,43 +53,6 @@ impl<'a> Executor<'a> {
             self.current_frame_mut()?.write_register(dst, result)?;
         }
         Ok(())
-    }
-
-    fn dispatch_core_binding(
-        &mut self,
-        operation: EngineCoreOperation,
-        import: EngineImportId,
-        dst: Option<Register>,
-        args: Vec<Value>,
-    ) -> Result<(), VmError> {
-        let signature = self
-            .current_loaded()?
-            .bytecode
-            .engine_imports
-            .get(import.index())
-            .ok_or(VmError::UnsupportedInstruction(
-                "missing native primitive contract",
-            ))?
-            .signature
-            .clone();
-        let [source] = args.as_slice() else {
-            return Err(VmError::TypeMismatch("native primitive arguments"));
-        };
-        let [ty] = signature.params.as_slice() else {
-            return Err(VmError::TypeMismatch("native primitive signature"));
-        };
-        match operation {
-            EngineCoreOperation::IterNew => self.dispatch_iterator(source, ty, IterOp::New, dst),
-            EngineCoreOperation::IterNext => self.dispatch_iterator(source, ty, IterOp::Next, dst),
-            EngineCoreOperation::RangeStartBound | EngineCoreOperation::RangeEndBound => self
-                .dispatch_range_bound(
-                    source.clone(),
-                    ty,
-                    &signature.result,
-                    operation == EngineCoreOperation::RangeEndBound,
-                    dst,
-                ),
-        }
     }
 
     pub(crate) fn dispatch_instruction(
@@ -558,39 +503,13 @@ impl<'a> Executor<'a> {
                     .push_interface_method(self.runtime, resolved, &arguments, dst)
                     .map_err(VmError::RuntimeError)
             }
-            CallTarget::Native(NativeCall::Engine(import)) => {
-                let binding = self.current_loaded()?.engine_binding(import).ok_or(
-                    VmError::UnsupportedInstruction("unlinked engine native import"),
-                )?;
-                match binding {
-                    EngineNativeOperation::Direct(operation) => {
-                        self.dispatch_standard_intrinsic(operation, dst, arg_values)
-                    }
-                    EngineNativeOperation::Core(operation) => {
-                        self.dispatch_core_binding(operation, import, dst, arg_values)
-                    }
-                    EngineNativeOperation::Resumable(_) => {
-                        let progress =
-                            self.stack
-                                .begin_native(self.runtime, import, &arg_values, dst)?;
-                        self.dispatch_native_progress(progress)
-                    }
-                }
+            CallTarget::Native(import) => {
+                let progress = self
+                    .stack
+                    .begin_native(self.runtime, import, &arg_values, dst)?;
+                self.dispatch_native_progress(progress)
             }
-            CallTarget::Native(NativeCall::Host(import)) => {
-                let binding = self
-                    .current_loaded()?
-                    .host_binding(import)
-                    .ok_or(VmError::UnsupportedInstruction("unlinked host import"))?;
-                let value = self
-                    .runtime
-                    .invoke_bound_host(binding, &arg_values)
-                    .map_err(VmError::RuntimeError)?;
-                if let Some(dst) = dst {
-                    self.current_frame_mut()?.write_register(dst, value)?;
-                }
-                Ok(())
-            }
+
             CallTarget::Register(_) => Err(VmError::UnsupportedCallTarget(Box::new(callee))),
             CallTarget::ClosureRegister {
                 register,
@@ -618,7 +537,7 @@ impl<'a> Executor<'a> {
                     .push_closure(self.runtime, closure, &arg_values, dst)
                     .map_err(VmError::RuntimeError)
             }
-            CallTarget::StandardIntrinsic(intrinsic) => {
+            CallTarget::RuntimePrimitive(intrinsic) => {
                 self.dispatch_standard_intrinsic(intrinsic, dst, arg_values)
             }
             CallTarget::RuntimeHelper(helper) => {
@@ -629,51 +548,10 @@ impl<'a> Executor<'a> {
 
     fn dispatch_standard_intrinsic(
         &mut self,
-        intrinsic: StandardIntrinsic,
+        intrinsic: RuntimePrimitive,
         dst: Option<Register>,
         args: Vec<Value>,
     ) -> Result<(), VmError> {
-        if matches!(
-            intrinsic,
-            StandardIntrinsic::CollectionMutationBegin | StandardIntrinsic::CollectionMutationEnd
-        ) {
-            let value = args
-                .first()
-                .ok_or(VmError::TypeMismatch("mutation target"))?;
-            if intrinsic == StandardIntrinsic::CollectionMutationBegin {
-                self.current_frame_mut()?.begin_collection_mutation(value)?;
-            } else {
-                self.current_frame_mut()?.end_collection_mutation(value)?;
-            }
-            if let Some(dst) = dst {
-                self.current_frame_mut()?.write_register(dst, Value::Unit)?;
-            }
-            return Ok(());
-        }
-        if intrinsic == StandardIntrinsic::KeyLookupBegin {
-            self.current_frame_mut()?.begin_key_lookup(
-                args.first()
-                    .ok_or(VmError::TypeMismatch("key lookup collection"))?,
-            )?;
-            if let Some(dst) = dst {
-                self.current_frame_mut()?.write_register(dst, Value::Unit)?;
-            }
-            return Ok(());
-        }
-        if matches!(
-            intrinsic,
-            StandardIntrinsic::KeyMapGet
-                | StandardIntrinsic::KeyMapInsert
-                | StandardIntrinsic::KeyMapRemove
-                | StandardIntrinsic::KeySetContains
-                | StandardIntrinsic::KeySetInsert
-                | StandardIntrinsic::KeySetRemove
-        ) {
-            self.current_frame_mut()?.end_key_lookup(
-                args.first()
-                    .ok_or(VmError::TypeMismatch("key lookup collection"))?,
-            )?;
-        }
         let value = self
             .runtime
             .invoke_standard_builtin(intrinsic, &args)

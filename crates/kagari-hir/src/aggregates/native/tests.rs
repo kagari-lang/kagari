@@ -241,7 +241,7 @@ fn every_native_signature_retains_resolved_public_types() {
         for function in file.signatures().facts().functions() {
             if !matches!(
                 function.implementation,
-                FunctionImplementation::Native(NativeBinding::Engine(_))
+                FunctionImplementation::Native(NativeBinding::Provider(_))
             ) {
                 continue;
             }

@@ -2,16 +2,55 @@ use crate::{
     PreparedReload, Runtime, StagedReload,
     cache::{InterpreterCacheId, ReloadDependencySnapshot, ReloadInvalidation},
     error::RuntimeError,
-    module::{LoadedModule, VerifiedProgram},
+    module::{LinkedHostBindings, LoadedModule, VerifiedProgram},
+    native::{NativeRegistration, registration::host_registration},
     reload::{
         ReloadValidationError, validate_reload_artifact_candidate, validate_reload_candidate,
         validate_verified_reload_candidate,
     },
 };
 use kagari_bytecode as bytecode;
-use kagari_bytecode::{ArtifactCompatibility, ArtifactFingerprint, BytecodeProgram, KbcArtifact};
+use kagari_bytecode::{
+    ArtifactCompatibility, ArtifactFingerprint, BytecodeModule, BytecodeProgram, KbcArtifact,
+};
 
 impl Runtime {
+    pub fn register_native(
+        &mut self,
+        registration: NativeRegistration,
+    ) -> Result<(), RuntimeError> {
+        self.providers.install(registration)
+    }
+    fn link_native_module(
+        &self,
+        module: &BytecodeModule,
+    ) -> Result<LinkedHostBindings, RuntimeError> {
+        let mut bindings = self.host.link_module(module, &self.types)?;
+        bindings.native = module
+            .native_imports
+            .iter()
+            .map(|import| {
+                if let Some(required) = &import.contract.host {
+                    let slot = module
+                        .host_interface
+                        .functions
+                        .iter()
+                        .position(|host| host == required)
+                        .ok_or_else(|| {
+                            RuntimeError::module_validation("missing host authority contract")
+                        })?;
+                    let binding = *bindings.functions.get(slot).ok_or_else(|| {
+                        RuntimeError::module_validation("missing host native entry")
+                    })?;
+                    Ok(host_registration(import, binding))
+                } else {
+                    self.providers.link(import)
+                }
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(bindings)
+    }
+
     pub fn validate_loaded_module(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
         if !module.belongs_to(self.host.owner()) {
@@ -50,7 +89,7 @@ impl Runtime {
         let bindings = program
             .modules()
             .iter()
-            .map(|module| self.host.link_module(module, &self.types))
+            .map(|module| self.link_native_module(module))
             .collect::<Result<Vec<_>, _>>()?;
         let epoch = self.epochs.reserve(&name)?;
         let module = self
@@ -126,7 +165,7 @@ impl Runtime {
         let bindings = program
             .modules()
             .iter()
-            .map(|module| self.host.link_module(module, &self.types))
+            .map(|module| self.link_native_module(module))
             .collect::<Result<Vec<_>, _>>()
             .map_err(ReloadValidationError::Runtime)?;
         Ok(PreparedReload {
@@ -153,8 +192,7 @@ impl Runtime {
         validate_verified_reload_candidate(&baseline, &name, &program, latest.as_ref())?;
         for (module, prepared) in program.modules().iter().zip(&bindings) {
             let current = self
-                .host
-                .link_module(module, &self.types)
+                .link_native_module(module)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.functions != prepared.functions || current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(
@@ -230,8 +268,7 @@ impl Runtime {
                 ));
             }
             let current = self
-                .host
-                .link_module(&member.bytecode, &self.types)
+                .link_native_module(&member.bytecode)
                 .map_err(ReloadValidationError::Runtime)?;
             if current.functions != member.host_bindings.functions
                 || current.paths != member.host_bindings.paths

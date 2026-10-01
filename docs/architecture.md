@@ -158,7 +158,9 @@ The builtin layer owns:
 - builtin metadata for type checking, bytecode, reflection profiles, reload validation, and JIT lowering
 
 The standard library is not a historical compatibility layer and is not implemented as a second copy of core containers in Kagari source.
-Core containers and string operations are runtime-native builtins with stable intrinsic identifiers.
+Container storage is engine-owned. Public native library functions use provider
+contracts and linked import slots; the current reset reinstalls only the array proof.
+Remaining library algorithms are tracked in the [active plan](native-provider-refactor.md).
 `stdlib/*.kgr` is the authoritative declaration surface. HIR processes these declarations; ABI owns shared executable identities/contracts and runtime owns implementations. Source declarations do not own storage, GC, resource accounting or host state.
 
 Ordered map and set behavior is deterministic.
@@ -223,8 +225,12 @@ function/program links and bounded analyses: initialization, liveness, effects,
 logical roots, safepoints, source/debug origins and logical budget points. Public
 passes consume verified input, make bounded changes and reverify the result.
 
-The ABI crate owns nominal executable types, signatures, layouts, standard intrinsic
-contracts, helper/native calling representations and version constants. Compiler
+The ABI crate owns nominal executable types, signatures, layouts, provider
+contracts, language primitives, helper/native representations and version constants.
+The offline standard descriptor crate has no source/handler dependency. HIR carries
+installed descriptor facts; MIR carries concrete native imports and bytecode
+deduplicates them. Runtime links against trusted registrations and drives erased
+state with explicit roots and checked callbacks, without standard-method selection. Compiler
 core lowers verified MIR into the register/local bytecode contract. Bytecode validates
 its own instructions, metadata, dependency graph and canonical artifact envelope.
 Native-enabled preparation also proves correspondence of optional portable MIR to

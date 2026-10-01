@@ -1,5 +1,3 @@
-//! Types and protocols available without an explicit import.
-
 pub use std::array::{ArrayList, List, MutableList};
 pub use std::map::{LinkedHashMap, Map, MutableMap};
 pub use std::set::{LinkedHashSet, Set, MutableSet};

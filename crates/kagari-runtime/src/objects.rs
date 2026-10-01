@@ -6,7 +6,6 @@ use crate::{
     value::{self, EnumTag, Value},
 };
 use kagari_abi::{
-    callable::{CallableImplementation, EngineNativeBinding, NativeBinding},
     ids::FunctionRef,
     operations::IterOp,
     representation::ValueType,
@@ -133,15 +132,6 @@ impl Runtime {
                 .iter()
                 .find(|method| method.name == declared.name);
             let Some(method) = method else {
-                if matches!(
-                    declared.implementation,
-                    CallableImplementation::Native(NativeBinding::Engine(
-                        EngineNativeBinding::TraitDefault(_)
-                    ))
-                ) {
-                    methods.push(None);
-                    continue;
-                }
                 return Err(invalid());
             };
             if !method.generic_params.is_empty() {

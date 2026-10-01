@@ -1,4 +1,4 @@
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::RuntimePrimitive;
 use kagari_runtime::{ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind, value::Value};
 
 fn limited(heap: Option<usize>, allocation: Option<usize>) -> Runtime {
@@ -55,19 +55,19 @@ fn standard_growth_obeys_shared_limits_without_charging_failed_writes() {
         let set = runtime.alloc_set(vec![Value::I32(1)]).unwrap();
         let operations = [
             (
-                StandardIntrinsic::ArrayPush,
+                RuntimePrimitive::ArrayPush,
                 vec![Value::Array(array), Value::I32(3)],
             ),
             (
-                StandardIntrinsic::ArrayInsert,
+                RuntimePrimitive::ArrayInsert,
                 vec![Value::Array(array), Value::I32(0), Value::I32(3)],
             ),
             (
-                StandardIntrinsic::MapInsert,
+                RuntimePrimitive::MapInsert,
                 vec![Value::Map(map), Value::I32(2), Value::I32(3)],
             ),
             (
-                StandardIntrinsic::SetInsert,
+                RuntimePrimitive::SetInsert,
                 vec![Value::Set(set), Value::I32(2)],
             ),
         ];
@@ -112,13 +112,13 @@ fn option_allocation_failure_does_not_remove_an_array_or_map_entry() {
             .alloc_map(vec![(Value::I32(1), Value::I32(42))])
             .unwrap();
         for (intrinsic, args) in [
-            (StandardIntrinsic::ArrayPop, vec![Value::Array(array)]),
+            (RuntimePrimitive::ArrayPop, vec![Value::Array(array)]),
             (
-                StandardIntrinsic::ArrayRemove,
+                RuntimePrimitive::ArrayRemove,
                 vec![Value::Array(array), Value::I32(0)],
             ),
             (
-                StandardIntrinsic::MapRemove,
+                RuntimePrimitive::MapRemove,
                 vec![Value::Map(map), Value::I32(1)],
             ),
         ] {
@@ -145,7 +145,7 @@ fn successful_removal_accounts_prepared_result_and_never_refunds_allocation_budg
     let runtime = limited(None, Some(4));
     let array = runtime.alloc_array(vec![Value::I32(42)]).unwrap();
     let result = runtime
-        .invoke_standard_builtin(StandardIntrinsic::ArrayPop, &[Value::Array(array)])
+        .invoke_standard_builtin(RuntimePrimitive::ArrayPop, &[Value::Array(array)])
         .unwrap();
     let Value::Enum(result) = result else {
         panic!("Option result")

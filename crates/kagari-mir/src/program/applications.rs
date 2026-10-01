@@ -1,5 +1,5 @@
 use crate::{CallTarget, Instruction, MirModule};
-use kagari_abi::callable::NativeCall;
+
 use kagari_abi::types::{
     TraitAbi, applications::ApplicationValidator, substitution::TypeTransformError,
 };
@@ -48,17 +48,13 @@ pub(super) fn validate<'a>(
                     validator.nominal_arguments(&field.owner)?
                 }
                 Instruction::Call {
-                    callee: CallTarget::Native(NativeCall::Engine(import)),
+                    callee: CallTarget::Native(import),
                     ..
                 } => {
                     validator.types(&import.instance.arguments)?;
                     validator.types(&import.signature.params)?;
                     validator.validate_type(&import.signature.result)?;
                     validator.bounds(&import.requirements)?;
-                    for witness in &import.witnesses {
-                        validator.validate_type(&witness.receiver)?;
-                        validator.trait_application(&witness.interface)?;
-                    }
                 }
                 Instruction::Call {
                     callee: CallTarget::SourceFunction(contract),

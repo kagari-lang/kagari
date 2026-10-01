@@ -1,7 +1,7 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
 use kagari_abi::{
     callable::EngineNativeBinding,
-    standard::{StandardIntrinsic, bindings::NativeDefaultMethod},
+    standard::{RuntimePrimitive, bindings::NativeDefaultMethod},
 };
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
@@ -47,14 +47,14 @@ fn map_snapshots_preserve_every_budget_cut() {
         let program = compile_test_bytecode(&source);
         assert_eq!(
             program.modules[program.root.index()]
-                .engine_imports
+                .native_imports
                 .iter()
                 .filter(|import| matches!(
                     import.binding,
                     EngineNativeBinding::Intrinsic(
-                        StandardIntrinsic::MapKeys
-                            | StandardIntrinsic::MapValues
-                            | StandardIntrinsic::MapEntries
+                        RuntimePrimitive::MapKeys
+                            | RuntimePrimitive::MapValues
+                            | RuntimePrimitive::MapEntries
                     ) | EngineNativeBinding::TraitDefault(
                         NativeDefaultMethod::MapKeysView
                             | NativeDefaultMethod::MapValuesView

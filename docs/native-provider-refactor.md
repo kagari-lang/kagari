@@ -1,6 +1,6 @@
 # Native Provider and Contract Refactor Plan
 
-Status: implementation started at the declaration-policy boundary; no NR phase is accepted.
+Status: the old implementation reset and minimal array provider execute end to end; no NR phase is accepted.
 The 2026-10-01 user direction changes the previous ST06 prerequisite: design the
 HIR/MIR native boundary first, replace the old standard implementation paths and
 prove a small standard-library slice before restoring the remaining algorithms.
@@ -8,8 +8,9 @@ prove a small standard-library slice before restoring the remaining algorithms.
 migration checkpoint with final combined acceptance and matched measurements open.
 Those obligations carry into NR final acceptance; they are not claimed complete.
 The [roadmap](implementation-roadmap.md) records the revised ordering. The first
-checkpoint replaces method override policy; provider keys, common imports and
-the minimal library execution slice remain pending.
+checkpoint replaced method override policy. Provider keys, common imports and a
+direct/trait/callback array proof now execute; required-callable metadata, persistent
+state, arbitrary external source catalogs and full-library restoration remain open.
 
 ## Objective and acceptance boundary
 
@@ -59,11 +60,11 @@ must classify the replacement inputs and record an owner for each remaining case
 | --- | --- | --- |
 | [HIR method defaults](../crates/kagari-hir/src/aggregates/traits.rs) | `NativeDefaultMethod` lists decide override eligibility | Checked declaration policy, applied uniformly |
 | [Installed bindings](../crates/kagari-hir/src/native/stdlib/functions.rs) | Marker installation selects intrinsic/default/protocol enums | Provider-qualified binding lookup against an offline contract set |
-| [Compiler native applications](../crates/kagari-compiler/src/source/lower/expr/native_contracts.rs) and [defaults](../crates/kagari-compiler/src/source/lower/expr/native_defaults.rs) | Method-specific branches choose source/destination, key, lazy and trait witness applications | Contract-owned callable requirements, checked HIR selections and generic bounded materialization |
+| [Compiler native applications](../crates/kagari-compiler/src/source/lower/expr/native_contracts.rs) and defaults (`../crates/kagari-compiler/src/source/lower/expr/native_defaults.rs`; removed during reset) | Method-specific branches choose source/destination, key, lazy and trait witness applications | Contract-owned callable requirements, checked HIR selections and generic bounded materialization |
 | [Callable identities](../crates/kagari-abi/src/callable.rs) | Public native methods use central engine operation families | Provider-owned binding identities, separate from language primitives |
-| [Native contract checks](../crates/kagari-abi/src/native_import/contract.rs) and [callback checks](../crates/kagari-abi/src/native_import/contract/callbacks.rs) | Per-method signature, callback and constraint branches | Generic instantiation and trusted registration-contract comparison |
+| Native contract checks (`../crates/kagari-abi/src/native_import/contract.rs`; removed during reset) and callback checks (`../crates/kagari-abi/src/native_import/contract/callbacks.rs`; removed during reset) | Per-method signature, callback and constraint branches | Generic instantiation and trusted registration-contract comparison |
 | [Effects](../crates/kagari-abi/src/effects.rs) and [import resolution](../crates/kagari-abi/src/native_import.rs) | Central method lists classify mutation, allocation and resumability | Trusted descriptor facts and linked entry capabilities |
-| [Witness validation](../crates/kagari-abi/src/native_import/linked/protocols.rs) | Iterator/Ord/aggregation-specific method selection | Explicit required callable applications and generic witness verification |
+| Witness validation (`../crates/kagari-abi/src/native_import/linked/protocols.rs`; removed during reset) | Iterator/Ord/aggregation-specific method selection | Explicit required callable applications and generic witness verification |
 | [MIR calls](../crates/kagari-mir/src/instruction.rs) and [bytecode access checks](../crates/kagari-bytecode/src/access.rs) | Parallel intrinsic targets and per-operation type/access propagation | Uniform public native calls; narrowly separated primitive instructions |
 | [Runtime continuation factory](../crates/kagari-runtime/src/native/mod.rs) | Closed Enum/Iterator states and aggregation entry policy | Provider entry factories and a common invocation lifecycle |
 | [Interface construction](../crates/kagari-runtime/src/objects.rs) | Omitted method slots recognized through Engine/TraitDefault identity | Explicit resolved default-callable metadata |
@@ -866,3 +867,127 @@ resolved. Do not reopen completed ST phase ledgers for this follow-up.
   after NR05. Clarified that nested callback continuations do not require external
   wait scheduling in this migration. All NR phases remain unstarted; this update
   changes no implementation scope and remains uncommitted at the user's request.
+
+### Reset execution checkpoint (2026-10-01)
+
+The user authorized deleting the old standard implementation before rebuilding a
+minimal library. The replacement proof uses ArrayList new/len/push/from_fn, including
+generic instantiation and a real script callback. This reset task is narrower than
+the NR02/NR03 phase exit matrix: sort, persistent map and external callbacks remain
+their owning phase's acceptance work. All predecessor behavior tests remain tracked;
+their unavailable API cases belong to NR04 restoration, not a reduced final matrix.
+Provider-owned contracts replace closed public-method binding identities. Generic
+offline validation establishes structural agreement only; runtime installation must
+compare the complete trusted contract and pin the actual entry before execution.
+
+
+Reset acceptance, distinct from NR phase acceptance:
+
+- [x] Delete old standard implementations and public-operation routing.
+- [x] Connect provider contracts and concrete applications across HIR/MIR/bytecode/runtime.
+- [x] Reinstall a small standard library and prove source, encoded and source-free execution.
+
+The reset starts from clean `89a4a57`. It removes closed public intrinsic,
+integer/radix, protocol/default binding and continuation-family catalogs, compiler
+witness selectors and runtime collection/lazy algorithms. Required type/protocol
+sources remain; other public standard methods are temporarily unavailable.
+Predecessor tests retain their assertions and remain restoration obligations.
+A scan of every deleted Rust file confirms no inline test functions were deleted.
+No compatibility aliases, old readers or success stubs replace deleted code.
+
+Implemented ownership:
+
+| Owner | Reset data and execution model |
+| --- | --- |
+| ABI | Provider/entry key, per-contract version, independent generic binder, portable signature, parameter access, effects and optional full host authority declaration |
+| Offline standard provider | Populated kagari-stdlib-provider crate; only ABI/common dependencies, no parser/HIR/handlers |
+| HIR | Installed source signatures and shared immutable descriptor facts; ordinary type checking selects concrete applications |
+| MIR | Uniform Native target carries a checked concrete import; existing function/interface targets handle script and trait calls |
+| Bytecode | One deduplicated native import table for provider entries and synchronous host adapters |
+| Runtime | Trusted registration factory and erased invocation state; full-contract linking, pinned handler owner, explicit roots and checked callback/completion |
+
+The proof owns ArrayList new/len/push/from_fn. List len reuses the same entry;
+List get is an ordinary script method, with its Index supertrait retained.
+ABI signature checking includes enclosing impl binders. Primitive receiver impls
+use trait-owner coherence instead of the old all-native-method exemption. Read
+access is provider metadata, not a standard-method allowlist. Map/Set required
+Iterable Item contracts remain, without an obsolete fixed Iter output constraint.
+
+The reviewed engine inventory retains numeric arithmetic, layouts/discriminants,
+generic index/aggregate operations, language comparison/hash/format hooks,
+StringPartsJoin and Assert. GC owns bounded allocation, checked storage operations,
+mutation preparation/commit, iteration guards and custom-key storage APIs; their
+visibility supports provider code without exposing Rust host references or bypassing
+validation. The array algorithm/factory lives in runtime native/array.rs. Generic
+invocation, HIR policy, ABI and VM contain no array-method selector. Native effects
+remain conservative at optimization time; runtime compares descriptor effects too.
+
+Invocation Rust state uses explicit rooted argument/scratch slots. Returning script
+values stay rooted after frame pop and before receive() retains them. Callback
+signatures, values and results are checked; receive() can request another callback.
+Loaded modules pin registration owners across callbacks/reload. Duplicate keys are
+rejected; replacing provider generations is not yet exposed. Synchronous host
+adapters retain full host registration, permission, schema, passing and borrow
+checks while sharing the same import slots and frame driver.
+
+This is a concrete initial model, not the full target design. HIR shares descriptor
+values rather than InstalledContractId arenas; MIR embeds a concrete import before
+bytecode deduplication. Arbitrary required-callable applications, selected default
+callable tables, persistent traced provider cells and function-valued offline host
+schemas remain NR01-NR03 work. Nonempty native declaration bounds are currently
+unsupported. No returned lazy iterator is claimed. NR04 owns remaining algorithms,
+API/test construction and full-library fixture restoration. NR05 owns the isolated
+extension matrix, full acceptance and matched measurements.
+
+Wire products use runtime ABI v135, KBC v112, KMIR v10 and helper ABI v6. Closed
+native-binding versioning is removed; standard provider contracts are individually
+v1. The new native_provider.kbc fixture proves the reset without replacing the old
+feature_artifact.kbc with reduced behavior; the old bytes must be regenerated after
+NR04 restores their APIs.
+
+Passing reset validation:
+
+- `cargo check --workspace`; `cargo clippy --workspace --lib -- -D warnings`.
+- `cargo test -p kagari-embed --test native_provider_reset`: 8 tests covering
+  ordinary/generic calls, captured heap callbacks, zero-count behavior, readonly
+  access, forged provider/version/effect rejection, traps, every budget boundary
+  of a nested callback workload and an embedding-owned registered callback entry.
+- `cargo test -p kagari-embed --test host_interfaces`: 8 existing tests for
+  permissions, output contracts, nested host roots, associated outputs, parent
+  bridges, GC, synchronous reentry, reload and trap cleanup.
+- `cargo test -p kagari-embed --test native_provider_artifact`: 3 tests for repeated
+  source-free execution/GC, exact source/fixture agreement and unsupported wire version rejection.
+- `cargo test -p kagari-embed --no-default-features --test native_provider_artifact`:
+  2 tests. Production `cargo tree -p kagari-embed --no-default-features --edges normal`
+  includes offline descriptors but excludes compiler, source stdlib, HIR, syntax,
+  MIR and codegen.
+- The same fixture passes all four feature routes: defaults (3 artifact tests),
+  source-only (3), native-only (2) and neither (2). Reproduction: add
+  `--no-default-features --features source` or `--features native` to the focused
+  artifact command above. These prove the reset fixture, not the NR05 full-library
+  standalone consumer/JIT matrix.
+
+Carried integration errors (reproduced, owning phase NR04):
+
+- `cargo test --workspace` and `cargo clippy --workspace --all-targets -- -D warnings`
+  fail compiling preserved legacy tests: E0432 EngineNativeBinding/standard::bindings,
+  E0599 removed Integer/ArrayListNew/StringLenChars primitive variants, and obsolete
+  NativeImport fields/witness constructors. Compiler tests report 369 errors and
+  HIR tests 17 errors in the all-target check. These are intentional removed-model
+  consumers, not production library build errors; their contracts/behavior must be
+  ported and restored, not disabled or weakened.
+- The old full-library fixture remains KBC v111 and intentionally cannot load as
+  v112. Its source also uses removed APIs; NR04 owns re-emission after restoration.
+
+Structural review found no introduced production globs, repeated parent traversal,
+handwritten include files or expanded compatibility facades. The syntax checker
+passes 787 Rust files with zero violations/exceptions. Native descriptor payloads
+are bounded on decoding and included in aggregate artifact record accounting.
+Root-slot arithmetic rejects overflow; callback progress uses a boxed request
+after removal of obsolete error variants. Normal module boundaries isolate the
+array algorithm and integration-test helpers. Format/diff checks and 103 live local
+file links plus 19 heading anchors pass; four deleted historical Rust references
+now retain plain paths instead of broken links. CRLF conventions are retained.
+The focused proof targets also pass Clippy with warnings denied. No structural
+allowances were added. Logs are ignored target/nr-*.log. No NR phase exit or full
+acceptance is claimed.

@@ -7,12 +7,16 @@ use crate::{
     value::Value,
 };
 use indexmap::IndexMap;
-use kagari_abi::standard::StandardIntrinsic;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreparedCollectionCommit {
+    ReplaceArray,
+    Retain,
+}
 
 impl GcHeap {
-    pub(crate) fn commit_prepared_collection(
+    pub fn commit_prepared_collection(
         &self,
-        operation: StandardIntrinsic,
+        operation: PreparedCollectionCommit,
         args: &[Value],
     ) -> Result<(), RuntimeError> {
         let invalid =
@@ -39,7 +43,7 @@ impl GcHeap {
             .checked_add(1)
             .ok_or_else(invalid)?;
         let allocation = || self.resource_limit("prepared collection storage");
-        let prepared = if operation == StandardIntrinsic::ArrayReplaceStorage {
+        let prepared = if operation == PreparedCollectionCommit::ReplaceArray {
             let HeapObject::Array(original) = source else {
                 return Err(invalid());
             };

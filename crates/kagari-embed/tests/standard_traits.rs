@@ -568,7 +568,7 @@ fn make()->(Test,LinkedHashSet<Key>) {
     assert!(
         vm.runtime()
             .invoke_standard_builtin(
-                kagari_abi::standard::StandardIntrinsic::SetContains,
+                kagari_abi::standard::RuntimePrimitive::SetContains,
                 &[values[1].clone(), values[0].clone()],
             )
             .is_err()
@@ -711,7 +711,7 @@ fn key_calls_carry_checked_storage_and_selected_protocols() {
     use kagari_abi::{
         callable::EngineNativeBinding,
         native_import::{EngineNativeOperation, NativeWitnessImplementation},
-        standard::StandardIntrinsic,
+        standard::RuntimePrimitive,
     };
     use kagari_bytecode::{BytecodeInstruction, CallTarget};
     for custom in [false, true] {
@@ -738,31 +738,31 @@ fn key_calls_carry_checked_storage_and_selected_protocols() {
             .flat_map(|f| &f.instructions)
             .filter_map(|op| match op {
                 BytecodeInstruction::Call {
-                    callee: CallTarget::StandardIntrinsic(op),
+                    callee: CallTarget::RuntimePrimitive(op),
                     ..
                 } => Some(*op),
                 _ => None,
             })
             .collect();
         for operation in [
-            StandardIntrinsic::KeyLookupBegin,
-            StandardIntrinsic::KeyCandidates,
-            StandardIntrinsic::KeyMapInsert,
-            StandardIntrinsic::MapInsert,
-            StandardIntrinsic::MapGet,
+            RuntimePrimitive::KeyLookupBegin,
+            RuntimePrimitive::KeyCandidates,
+            RuntimePrimitive::KeyMapInsert,
+            RuntimePrimitive::MapInsert,
+            RuntimePrimitive::MapGet,
         ] {
             assert!(
                 !calls.contains(&operation),
                 "retired compiler key expansion: {operation:?}"
             );
         }
-        for operation in [StandardIntrinsic::MapInsert, StandardIntrinsic::MapGet] {
+        for operation in [RuntimePrimitive::MapInsert, RuntimePrimitive::MapGet] {
             let binding = EngineNativeBinding::Intrinsic(operation);
             let contract = artifact
                 .program
                 .modules
                 .iter()
-                .flat_map(|module| &module.engine_imports)
+                .flat_map(|module| &module.native_imports)
                 .find(|import| import.binding == binding)
                 .unwrap();
             assert_eq!(

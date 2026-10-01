@@ -4,7 +4,7 @@ use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{RuntimePrimitive, bindings::NativeProtocolMethod, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_bytecode::{KbcArtifact, verify_program};
@@ -81,20 +81,20 @@ fn main(){{{setup}val output:{storage} ={owner}::{method}(source);}}
                         EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
                     } else {
                         EngineNativeBinding::Intrinsic(if destination == "map" {
-                            StandardIntrinsic::LinkedHashMapFrom
+                            RuntimePrimitive::LinkedHashMapFrom
                         } else {
-                            StandardIntrinsic::LinkedHashSetFrom
+                            RuntimePrimitive::LinkedHashSetFrom
                         })
                     };
                     let import = program.modules[root]
-                        .engine_imports
+                        .native_imports
                         .iter()
                         .position(|i| i.binding == binding)
                         .unwrap();
                     let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
                     for mutation in 0..30 {
                         let mut forged = artifact.clone();
-                        let contract = &mut forged.program.modules[root].engine_imports[import];
+                        let contract = &mut forged.program.modules[root].native_imports[import];
                         let iterable = contract
                             .witnesses
                             .iter()
@@ -169,7 +169,7 @@ fn main(){{{setup}val output:{storage} ={owner}::{method}(source);}}
                                 .push(AbiType::Builtin(BuiltinType::I32)),
                             11 => {
                                 contract.binding = EngineNativeBinding::Intrinsic(
-                                    StandardIntrinsic::ArrayListFromFn,
+                                    RuntimePrimitive::ArrayListFromFn,
                                 )
                             }
                             12 => contract

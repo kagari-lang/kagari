@@ -47,7 +47,7 @@ fn list_queries_preserve_every_budget_cut() {
         let program = compile_test_bytecode(&source);
         assert_eq!(
             program.modules[program.root.index()]
-                .engine_imports
+                .native_imports
                 .iter()
                 .filter(|import| matches!(
                     import.binding,

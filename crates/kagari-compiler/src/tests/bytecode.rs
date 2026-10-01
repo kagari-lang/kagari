@@ -2,7 +2,7 @@ use crate::tests::common;
 use kagari_abi::{
     ids::FunctionRef,
     representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
     types::{PublicAbiItem, TypeAbiKind},
 };
 use kagari_bytecode::{

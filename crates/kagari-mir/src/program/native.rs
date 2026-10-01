@@ -1,10 +1,6 @@
 //! Link provider-qualified imports against carried declarations and witnesses.
 use crate::{CallTarget, Instruction, MirModule, VerifiedMirModule};
-use kagari_abi::{
-    callable::NativeCall,
-    native_import::NativeSignature,
-    types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError},
-};
+use kagari_abi::types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
@@ -71,7 +67,7 @@ pub(super) fn validate(
         .flat_map(|block| &block.instructions)
         .filter_map(|instruction| {
             if let Instruction::Call {
-                callee: CallTarget::Native(NativeCall::Engine(import)),
+                callee: CallTarget::Native(import),
                 ..
             } = instruction
             {
@@ -81,6 +77,12 @@ pub(super) fn validate(
             }
         })
     {
+        if import.contract.host.is_some() {
+            if !import.structurally_valid() {
+                return Ok(false);
+            }
+            continue;
+        }
         let Some(owner) = closure
             .iter()
             .find(|owner| owner.identity == import.instance.declaration.module)
@@ -95,40 +97,7 @@ pub(super) fn validate(
         else {
             return Ok(false);
         };
-        if !import.matches_declaration(
-            declaration,
-            &catalog,
-            |id| {
-                closure
-                    .iter()
-                    .find(|owner| owner.identity == id.module)?
-                    .abi
-                    .public_items
-                    .iter()
-                    .find_map(|item| {
-                        if let PublicAbiItem::InterfaceTable(table) = item {
-                            (table.declaration == *id).then_some(table.as_ref())
-                        } else {
-                            None
-                        }
-                    })
-            },
-            |instance| {
-                let function = closure
-                    .iter()
-                    .find(|owner| owner.identity == instance.declaration.module)?
-                    .functions
-                    .iter()
-                    .find(|function| function.instance == *instance)?;
-                Some(NativeSignature {
-                    params: (0..function.params.len())
-                        .map(|slot| function.semantic.params.get(&slot).cloned())
-                        .collect::<Option<Vec<_>>>()?,
-                    result: function.semantic.result.clone()?,
-                })
-            },
-            cancel,
-        )? {
+        if !import.matches_declaration(declaration, &catalog, cancel)? {
             return Ok(false);
         }
     }

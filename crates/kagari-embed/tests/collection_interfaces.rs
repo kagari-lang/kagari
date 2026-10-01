@@ -319,7 +319,7 @@ fn map_snapshot_return_types_reject_writes_without_annotations() {
 fn map_snapshots_reject_calls_that_bypass_native_contracts() {
     use kagari_abi::{
         callable::{EngineNativeBinding, NativeCall},
-        standard::StandardIntrinsic,
+        standard::RuntimePrimitive,
     };
     use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
     let engine = KagariEngine::default();
@@ -328,14 +328,14 @@ fn map_snapshots_reject_calls_that_bypass_native_contracts() {
         Default::default(), Default::default()).unwrap();
     verify_program(&artifact.program).unwrap();
     for public in [
-        StandardIntrinsic::MapKeys,
-        StandardIntrinsic::MapValues,
-        StandardIntrinsic::MapEntries,
+        RuntimePrimitive::MapKeys,
+        RuntimePrimitive::MapValues,
+        RuntimePrimitive::MapEntries,
     ] {
         let mut forged = artifact.program.clone();
         let root = &mut forged.modules[artifact.program.root.index()];
         let import = root
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == EngineNativeBinding::Intrinsic(public))
             .unwrap();
@@ -345,7 +345,7 @@ fn map_snapshots_reject_calls_that_bypass_native_contracts() {
                 if let BytecodeInstruction::Call { callee, .. } = instruction
                     && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
                 {
-                    *callee = CallTarget::StandardIntrinsic(public);
+                    *callee = CallTarget::RuntimePrimitive(public);
                     replaced = true;
                 }
             }

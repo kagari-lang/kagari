@@ -32,7 +32,7 @@ fn main(){{{source}}}
         ));
         let root = program.root.index();
         let index = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| {
                 import.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::ListJoin)
@@ -41,7 +41,7 @@ fn main(){{{source}}}
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..18 {
             let mut forged = artifact.clone();
-            let import = &mut forged.program.modules[root].engine_imports[index];
+            let import = &mut forged.program.modules[root].native_imports[index];
             let witness = |kind| {
                 import
                     .witnesses

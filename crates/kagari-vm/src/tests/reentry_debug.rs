@@ -2,7 +2,7 @@ use crate::{
     DebugPauseReason, DebugSession, SourceBreakpoint, Vm,
     tests::{common::compile_test_bytecode, native_fixtures},
 };
-use kagari_abi::callable::NativeCall;
+
 use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact};
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{

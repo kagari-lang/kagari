@@ -218,7 +218,7 @@ fn verifier_rejects_malformed_adapter_contracts_and_negative_usize_arguments() {
             *constant = ConstantOperand::I64(-1);
         } else {
             let contract = module
-                .engine_imports
+                .native_imports
                 .iter_mut()
                 .find(|contract| {
                     contract.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::Map)

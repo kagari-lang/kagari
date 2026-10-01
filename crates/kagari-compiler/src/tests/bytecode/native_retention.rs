@@ -3,7 +3,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     scalar::BuiltinType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
     types::AbiType,
 };
 use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
@@ -55,13 +55,13 @@ fn main(){{{setup}val p:fn({signature})->bool =|{parameters}|true;{action}}}
 "#
                 ));
                 let binding = EngineNativeBinding::Intrinsic(match kind {
-                    "array" => StandardIntrinsic::ArrayRetain,
-                    "map" => StandardIntrinsic::MapRetain,
-                    _ => StandardIntrinsic::SetRetain,
+                    "array" => RuntimePrimitive::ArrayRetain,
+                    "map" => RuntimePrimitive::MapRetain,
+                    _ => RuntimePrimitive::SetRetain,
                 });
                 let root = program.root.index();
                 let import = program.modules[root]
-                    .engine_imports
+                    .native_imports
                     .iter()
                     .position(|i| i.binding == binding)
                     .unwrap();
@@ -69,7 +69,7 @@ fn main(){{{setup}val p:fn({signature})->bool =|{parameters}|true;{action}}}
                 for mutation in 0..16 {
                     let mut forged = artifact.clone();
                     let module = &mut forged.program.modules[root];
-                    let contract = &mut module.engine_imports[import];
+                    let contract = &mut module.native_imports[import];
                     match mutation {
                         0 => {
                             let AbiType::Function { params, .. } =
@@ -111,9 +111,9 @@ fn main(){{{setup}val p:fn({signature})->bool =|{parameters}|true;{action}}}
                         },
                         5 => {
                             contract.binding = EngineNativeBinding::Intrinsic(if kind == "array" {
-                                StandardIntrinsic::SetRetain
+                                RuntimePrimitive::SetRetain
                             } else {
-                                StandardIntrinsic::ArrayRetain
+                                RuntimePrimitive::ArrayRetain
                             })
                         }
                         6 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
@@ -176,13 +176,13 @@ fn main(){{{setup}val p:fn({signature})->bool =|{parameters}|true;{action}}}
                                 for instruction in &mut function.instructions {
                                     if let BytecodeInstruction::Call { callee, args, .. } =
                                         instruction
-                                        && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
+                                        && matches!(callee,CallTarget::Native(id) if id.index()==import)
                                     {
                                         if mutation == 14 {
-                                            *callee = CallTarget::StandardIntrinsic(match kind {
-                                                "array" => StandardIntrinsic::ArrayRetain,
-                                                "map" => StandardIntrinsic::MapRetain,
-                                                _ => StandardIntrinsic::SetRetain,
+                                            *callee = CallTarget::RuntimePrimitive(match kind {
+                                                "array" => RuntimePrimitive::ArrayRetain,
+                                                "map" => RuntimePrimitive::MapRetain,
+                                                _ => RuntimePrimitive::SetRetain,
                                             });
                                         } else {
                                             args[0] = args[1];

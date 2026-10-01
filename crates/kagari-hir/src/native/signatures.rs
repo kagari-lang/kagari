@@ -8,8 +8,8 @@ use crate::{
     types::abi::{lower_nominal_type, lower_type},
 };
 use kagari_abi::{
-    native_import::{NativeSignature, contract::binding_signature_valid},
-    types::{ConstraintAbi, GenericBoundAbi},
+    native_import::NativeSignature,
+    types::{ConstraintAbi, GenericBoundAbi, GenericParameterAbi},
 };
 use kagari_common::{Diagnostic, DiagnosticKind, cancellation::CancellationToken};
 
@@ -24,8 +24,8 @@ pub(crate) fn validate(
         if cancel.check().is_err() {
             break;
         }
-        if let FunctionImplementation::Native(NativeBinding::Engine(binding)) =
-            function.implementation
+        if let FunctionImplementation::Native(NativeBinding::Provider(binding)) =
+            &function.implementation
             && !valid(function, aggregates)
         {
             diagnostics.push(
@@ -40,7 +40,7 @@ pub(crate) fn validate(
 }
 
 fn valid(function: &TypedFunction, aggregates: &AggregateCatalog) -> bool {
-    let FunctionImplementation::Native(NativeBinding::Engine(binding)) = function.implementation
+    let FunctionImplementation::Native(NativeBinding::Provider(binding)) = &function.implementation
     else {
         return true;
     };
@@ -73,7 +73,16 @@ fn valid(function: &TypedFunction, aggregates: &AggregateCatalog) -> bool {
                 .collect(),
         })
         .collect();
-    binding_signature_valid(binding, &signature, &bounds)
+    let parameters = function
+        .generic_params
+        .iter()
+        .map(|p| GenericParameterAbi {
+            owner: p.owner.clone(),
+            position: p.position,
+        })
+        .collect::<Vec<_>>();
+    bounds.iter().all(|bound| bound.constraints.is_empty())
+        && binding.matches_signature(&parameters, &signature)
 }
 
 #[cfg(test)]

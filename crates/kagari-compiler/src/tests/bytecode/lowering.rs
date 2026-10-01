@@ -675,7 +675,7 @@ fn main() -> i32 { VALUE }
 }
 
 #[test]
-fn stdlib_calls_lower_to_provider_qualified_engine_imports() {
+fn stdlib_calls_lower_to_provider_qualified_native_imports() {
     let bytecode = common::bytecode_ok(
         r#"
 fn main() -> usize {
@@ -693,13 +693,13 @@ fn main() -> usize {
         .expect("expected main function");
 
     for expected in [
-        StandardIntrinsic::ArrayPush,
-        StandardIntrinsic::ArrayPop,
-        StandardIntrinsic::ArrayLen,
+        RuntimePrimitive::ArrayPush,
+        RuntimePrimitive::ArrayPop,
+        RuntimePrimitive::ArrayLen,
     ] {
-        let imports = &bytecode.modules[bytecode.root.index()].engine_imports;
+        let imports = &bytecode.modules[bytecode.root.index()].native_imports;
         assert_eq!(function.instructions.iter().filter(|instruction| matches!(instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(kagari_abi::callable::NativeCall::Engine(import)), .. }
+            BytecodeInstruction::Call { callee: CallTarget::Native(kagari_abi::callable::NativeCall::Provider(import)), .. }
                 if imports[import.index()].resolve() == Some(EngineNativeOperation::Direct(expected))
         )).count(), 1, "{expected:?}");
     }

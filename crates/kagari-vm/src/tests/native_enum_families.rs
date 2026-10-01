@@ -1,7 +1,6 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
 use kagari_abi::{
-    callable::EngineNativeBinding, native_import::EngineNativeOperation,
-    standard::StandardIntrinsic,
+    callable::EngineNativeBinding, native_import::EngineNativeOperation, standard::RuntimePrimitive,
 };
 use kagari_bytecode::{BytecodeProgram, KbcArtifact};
 use kagari_common::host_interface::standard_log;
@@ -635,12 +634,12 @@ fn enum_families_preserve_results_effect_positions_and_every_budget_cut() {
         let program = compile_test_bytecode(&case.source);
         assert_eq!(
             program.modules[program.root.index()]
-                .engine_imports
+                .native_imports
                 .iter()
                 .filter(|import| matches!(
                     import.resolve(),
                     Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation)))
-                        if operation != StandardIntrinsic::DebugAssertEq
+                        if operation != RuntimePrimitive::AssertEq
                 ))
                 .count(),
             1,

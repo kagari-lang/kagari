@@ -6,10 +6,13 @@ use crate::{
         MAX_ARTIFACT_TABLE_RECORDS, exceeds_encoded_size,
     },
 };
-use kagari_abi::native_import::NativeWitnessImplementation;
 use kagari_abi::types::{
     AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
     PublicAbiItem,
+};
+use kagari_abi::{
+    callable::{CallableImplementation, NativeBinding},
+    provider::NativeContract,
 };
 use kagari_common::{
     host_interface::{HostInterface, HostPathSegmentDeclaration, HostValueType},
@@ -26,26 +29,14 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         *total = total.saturating_add(length);
         length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
     };
-    for import in &module.engine_imports {
+    for import in &module.native_imports {
         if !add(import.instance.arguments.len())
             || !add(import.signature.params.len())
+            || !add_provider_contract(&import.contract, &mut add)
             || !add(import.requirements.len())
             || !add_abi_bounds(&import.requirements, &mut add)
-            || !add(import.witnesses.len())
         {
             return false;
-        }
-        for witness in &import.witnesses {
-            if !add(witness.interface.arguments.len())
-                || !add(witness.interface.associated_types.len())
-            {
-                return false;
-            }
-            if let NativeWitnessImplementation::Table(instance) = &witness.implementation
-                && !add(instance.arguments.len())
-            {
-                return false;
-            }
         }
     }
     for declaration in &module.native_declarations {
@@ -54,6 +45,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             || !add(function.bounds.len())
             || !add_abi_bounds(&function.bounds, &mut add)
             || !add(function.params.len())
+            || !add_function_contract(function, &mut add)
         {
             return false;
         }
@@ -123,6 +115,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add(item.bounds.len())
                     && add_abi_bounds(&item.bounds, &mut add)
                     && add(item.params.len())
+                    && add_function_contract(item, &mut add)
             }
             PublicAbiItem::Const(_) => true,
             PublicAbiItem::Type(item) => {
@@ -156,6 +149,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add(method.bounds.len())
                             && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
+                            && add_function_contract(method, &mut add)
                     })
             }
             PublicAbiItem::InterfaceTable(item) => {
@@ -178,6 +172,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                             && add(method.bounds.len())
                             && add_abi_bounds(&method.bounds, &mut add)
                             && add(method.params.len())
+                            && add_function_contract(method, &mut add)
                     })
             }
         };
@@ -203,12 +198,31 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add(method.bounds.len())
                     && add_abi_bounds(&method.bounds, &mut add)
                     && add(method.params.len())
+                    && add_function_contract(method, &mut add)
             })
         {
             return false;
         }
     }
     true
+}
+
+fn add_provider_contract(contract: &NativeContract, add: &mut impl FnMut(usize) -> bool) -> bool {
+    add(contract.signature.params.len())
+        && add(contract.parameter_access.len())
+        && contract
+            .host
+            .as_ref()
+            .is_none_or(|host| add(host.params.len()))
+}
+
+fn add_function_contract(function: &FunctionAbi, add: &mut impl FnMut(usize) -> bool) -> bool {
+    match &function.implementation {
+        CallableImplementation::Native(NativeBinding::Provider(contract)) => {
+            add_provider_contract(contract, add)
+        }
+        _ => true,
+    }
 }
 
 pub(super) fn add_abi_bounds(
@@ -262,9 +276,9 @@ pub(super) fn function_abi_identity_limit(function: &FunctionAbi) -> bool {
 pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
     let valid = |ty: &AbiType| ty.within_wire_limits();
     module
-        .engine_imports
+        .native_imports
         .iter()
-        .all(|import| import.resolve().is_some())
+        .all(|import| import.structurally_valid())
         && module.native_declarations.iter().all(|declaration| {
             let function = &declaration.function;
             declaration.declaration.within_path_limit()
@@ -428,7 +442,7 @@ pub(super) fn program_count_limit(program: &BytecodeProgram) -> Option<&'static 
                 module.dependencies.len(),
                 module.host_interface.types.len(),
                 module.host_interface.functions.len(),
-                module.engine_imports.len(),
+                module.native_imports.len(),
                 module.native_declarations.len(),
                 module.host_interface.paths.len(),
                 module.module_slots.len(),

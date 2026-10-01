@@ -1,148 +1,20 @@
-//! Standard convert protocols.
-
-/// Infallible explicit conversion.
-///
-/// Calls and argument matching do not insert conversions. Result propagation with `?`
-/// uses this protocol to convert an error into the enclosing function's error type.
-/// Implement this protocol on the destination type. The corresponding reverse protocol is
-/// derived automatically.
-///
-/// # Examples
-///
-/// ```kgr
-/// struct Count { val value: i32 }
-/// impl From<i32> for Count {
-///     fn from(value: i32) -> Self { Count { value } }
-/// }
-/// fn main() {
-///     val count: Count = 7.into();
-///     std::debug::assert(count.value == 7, "converted");
-/// }
-/// ```
-/// Error propagation uses the same implementation:
-///
-/// ```kgr
-/// struct AppError { val code: i32 }
-/// impl From<i32> for AppError {
-///     fn from(code: i32) -> Self { AppError { code } }
-/// }
-/// fn read() -> Result<i32, i32> { Err(42) }
-/// fn load() -> Result<i32, AppError> { Ok(read()?) }
-/// fn main() {
-///     match load() {
-///         Err(error) => std::debug::assert_eq(error.code, 42, "converted error"),
-///         Ok(_) => std::debug::assert(false, "expected error"),
-///     };
-/// }
-/// ```
 pub trait From<Source> {
-    /// Perform the explicit conversion.
     fn from(value: Source) -> Self;
 }
-
-/// Infallible explicit conversion.
-///
-/// Explicit `.into()` calls use this protocol. Result propagation selects the destination
-/// `From` implementation directly. This reverse protocol is derived from it and
-/// cannot be implemented independently.
-///
-/// # Examples
-///
-/// ```kgr
-/// struct Count { val value: i32 }
-/// impl From<i32> for Count {
-///     fn from(value: i32) -> Self { Count { value } }
-/// }
-/// fn main() {
-///     val count: Count = 7.into();
-///     std::debug::assert(count.value == 7, "converted");
-/// }
-/// ```
 pub trait Into<Target> {
-    /// Perform the explicit conversion.
     fn into(self) -> Target;
 }
-
-/// Fallible explicit conversion.
-///
-/// Fallible conversions are explicit; argument matching and `?` never call TryFrom.
-/// Implement this protocol on the destination type. The corresponding reverse protocol is
-/// derived automatically. Business rejection is represented by Err; traps and termination
-/// remain separate.
-///
-/// # Examples
-///
-/// ```kgr
-/// struct Count { val value: i32 }
-/// impl TryFrom<i32> for Count {
-///     type Error = String;
-///     fn try_from(value: i32) -> Result<Self, String> { Ok(Count { value }) }
-/// }
-/// fn main() {
-///     val count: Result<Count, String> = 7.try_into();
-///     std::debug::assert(count.is_ok(), "converted");
-/// }
-/// ```
 pub trait TryFrom<Source> {
-    /// The business error type.
     type Error;
-    /// Perform the explicit conversion.
     fn try_from(value: Source) -> Result<Self, Self::Error>;
 }
-
-/// Fallible explicit conversion.
-///
-/// Fallible conversions are explicit; argument matching and `?` never call TryFrom. This
-/// reverse protocol is derived from the destination type's forward implementation and
-/// cannot be implemented independently. Business rejection is represented by Err; traps and
-/// termination remain separate.
-///
-/// # Examples
-///
-/// ```kgr
-/// struct Count { val value: i32 }
-/// impl TryFrom<i32> for Count {
-///     type Error = String;
-///     fn try_from(value: i32) -> Result<Self, String> { Ok(Count { value }) }
-/// }
-/// fn main() {
-///     val count: Result<Count, String> = 7.try_into();
-///     std::debug::assert(count.is_ok(), "converted");
-/// }
-/// ```
 pub trait TryInto<Target> {
-    /// The business error type.
     type Error;
-    /// Perform the explicit conversion.
     fn try_into(self) -> Result<Target, Self::Error>;
 }
-
-/// A checked integer conversion rejected a value outside the destination range.
-///
-/// Integer TryFrom/TryInto return this error for potentially lossy conversions.
-/// The source value is never modified. Use `as` when truncation is intentional.
-///
-/// # Examples
-///
-/// ```kgr
-/// val result: Result<u8, std::convert::TryFromIntError> = u8::try_from(256u16);
-/// std::debug::assert(result.is_err(), "out of range");
-/// ```
 #[builtin_enum(TryFromIntError)]
 pub enum TryFromIntError {
-    /// The source value cannot be represented by the destination integer type.
     OutOfRange,
 }
-
-/// The error type of built-in TryFrom conversions that cannot fail.
-///
-/// This enum has no values. Lossless built-in conversions always return Ok.
-///
-/// # Examples
-///
-/// ```kgr
-/// val result: Result<u16, std::convert::Infallible> = u16::try_from(42u8);
-/// std::debug::assert(result == Ok(42u16), "lossless");
-/// ```
 #[builtin_enum(Infallible)]
 pub enum Infallible {}

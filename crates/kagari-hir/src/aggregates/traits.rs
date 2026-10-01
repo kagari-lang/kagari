@@ -42,7 +42,7 @@ pub struct MethodSignature {
 
 /// The method declaration owns a default's identity and checked signature.
 /// A native default has no script body to instantiate for an implementing type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MethodDefault {
     Script,
     Native(NativeBinding),
@@ -202,7 +202,7 @@ impl AggregateCatalog {
                 self.methods
                     .insert(method_id.clone(), (id.clone(), methods.len()));
                 methods.push(MethodSignature {
-                    default: match function.implementation {
+                    default: match function.implementation.clone() {
                         FunctionImplementation::Native(binding) => {
                             Some(MethodDefault::Native(binding))
                         }

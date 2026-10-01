@@ -1,7 +1,7 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
 use kagari_abi::{
     callable::EngineNativeBinding,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod},
+    standard::{RuntimePrimitive, bindings::NativeProtocolMethod},
 };
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
@@ -51,9 +51,9 @@ fn array_copy_preserves_every_budget_cut() {
             EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
         } else {
             match name.split('_').next().unwrap() {
-                "from" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayListFrom),
-                "copy" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayCopyFrom),
-                "extend" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayExtend),
+                "from" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayListFrom),
+                "copy" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayCopyFrom),
+                "extend" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayExtend),
                 mode => panic!("unknown snapshot case {mode}"),
             }
         };
@@ -61,7 +61,7 @@ fn array_copy_preserves_every_budget_cut() {
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

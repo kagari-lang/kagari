@@ -63,7 +63,7 @@ fn source_free_native_imports_reject_forged_binding_versions() {
     let import = program
         .modules
         .iter_mut()
-        .flat_map(|module| &mut module.engine_imports)
+        .flat_map(|module| &mut module.native_imports)
         .next()
         .unwrap();
     import.binding_version += 1;

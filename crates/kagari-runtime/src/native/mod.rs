@@ -1,674 +1,244 @@
-//! Bounded native method state retained by the caller's execution frame.
-mod array_copy;
-mod array_initialization;
-mod array_ranges;
-mod destination_factory;
-mod destinations;
-mod enums;
-mod iterators;
-mod keys;
-mod lazy_iterators;
-mod list_equality;
-mod list_join;
-mod lists;
-mod map_snapshots;
-mod partition;
-mod prepared_arrays;
-mod protocol_entries;
-mod protocols;
-mod results;
-mod retention;
-mod sources;
-mod string_iterators;
-mod unit_mutations;
+//! A frame-owned invocation drives provider state without identifying library methods.
+pub(crate) mod array;
+pub(crate) mod registration;
 use crate::{
-    LoadedModule, RootedInterfaceMethod, Runtime, RuntimeError,
-    builtin::BuiltinError,
-    gc::{ClosureValueSnapshot, RootSet, lazy_iter::IteratorRequest},
-    native::{
-        array_copy::ArrayCopy,
-        array_initialization::ArrayInitialization,
-        array_ranges::ArrayRange,
-        destination_factory::Factory,
-        destinations::Fallible,
-        enums::{EnumInvocation, SCRATCH_ROOTS},
-        iterators::IteratorInvocation,
-        keys::KeyInvocation,
-        lazy_iterators::{LazyInvocation, StepCallScope},
-        list_equality::EqualityInvocation,
-        list_join::ListJoin,
-        lists::ListInvocation,
-        map_snapshots::SnapshotInvocation,
-        partition::Partition,
-        prepared_arrays::PreparedArray,
-        protocol_entries::ProtocolEntry,
-        retention::Retention,
-        string_iterators::StringIterator,
-    },
+    LoadedModule, Runtime, RuntimeError,
+    gc::{ClosureValueSnapshot, GcHeap, RootSet},
     value::Value,
 };
-use kagari_abi::{
-    callable::EngineNativeBinding,
-    ids::FunctionRef,
-    native_import::EngineNativeOperation,
-    standard::{
-        StandardIntrinsic,
-        bindings::{NativeDefaultMethod, NativeProtocolMethod},
-        traits::StandardTrait,
-    },
-    types::AbiType,
-};
-use kagari_bytecode::{EngineImportId, Register};
+use kagari_abi::{native_import::NativeSignature, types::AbiType};
+use kagari_bytecode::{NativeImportId, Register};
+pub use registration::{NativeEntry, NativeRegistration, NativeRegistry};
+use std::{iter, rc::Rc};
 
-/// A checked callback request. Its callable and arguments stay rooted by the
-/// suspended native invocation until the callback's frame has been entered.
 pub struct NativeCallback {
     pub(crate) target: NativeCallbackTarget,
     pub(crate) arguments: Vec<Value>,
+    result: AbiType,
+    _roots: RootSet,
 }
-
 pub(crate) enum NativeCallbackTarget {
-    Iterator(IteratorRequest),
     Closure(ClosureValueSnapshot),
-    Interface(Box<RootedInterfaceMethod>),
-    Function {
-        implementation: LoadedModule,
-        function: FunctionRef,
-    },
 }
-
-/// Driver actions contain no library policy. Each advance is one charged logical
-/// operation; callbacks use the same frame stack as ordinary script calls.
 pub enum NativeProgress {
     Continue,
-    Callback(NativeCallback),
+    Callback(Box<NativeCallback>),
     Finished,
-    BuiltinFailure(BuiltinError),
-    TypeMismatch(&'static str),
-    InvalidIndex(usize),
 }
-
-pub(crate) enum NativeAction {
+pub enum NativeAction {
     Continue,
     Callback(NativeCallback),
-    Publish(Value),
-    Finish,
     Complete(Value),
-    BuiltinFailure(BuiltinError),
-    TypeMismatch(&'static str),
-    InvalidIndex(usize),
 }
 
-enum NativeState {
-    UnitMutation,
-    Lazy(LazyInvocation),
-    Key(KeyInvocation),
-    PreparedArray(Box<PreparedArray>),
-    Retention(Retention),
-    ArrayRange(ArrayRange),
-    ArrayCopy(ArrayCopy),
-    ArrayInitialization(ArrayInitialization),
-    Enum(EnumInvocation),
-    Iterator(IteratorInvocation),
-    List(ListInvocation),
-    ListJoin(ListJoin),
-    ListEquality(EqualityInvocation),
-    MapSnapshot(SnapshotInvocation),
-    StringIterator(StringIterator),
-    ProtocolEntry(ProtocolEntry),
-    Fallible(Fallible),
-    Factory(Factory),
-    Partition(Partition),
-    Forward,
+/// Values retained across allocation/callbacks belong in explicit root slots.
+/// Provider state must never retain a heap/host borrow or an execution-frame borrow.
+/// Each advance/receive call performs bounded work. Longer loops must charge and
+/// poll explicitly; returning Continue requests another charged driver step.
+pub trait NativeInvocationState {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError>;
+    fn receive(
+        &mut self,
+        _context: &mut NativeContext<'_>,
+        _value: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        Err(RuntimeError::module_validation(
+            "native entry received an unrequested callback result",
+        ))
+    }
+}
+
+pub struct NativeContext<'a> {
+    runtime: &'a Runtime,
+    owner: &'a LoadedModule,
+    signature: &'a NativeSignature,
+    roots: &'a RootSet,
+    arguments: usize,
+}
+impl NativeContext<'_> {
+    pub fn heap(&self) -> &GcHeap {
+        self.runtime.gc()
+    }
+    pub fn charge(&self, steps: u64) -> Result<(), RuntimeError> {
+        self.runtime.resources().consume_instruction_steps(steps)
+    }
+    pub fn poll(&self) -> Result<(), RuntimeError> {
+        self.runtime.resources().ensure_execution_allowed()
+    }
+    pub fn signature(&self) -> &NativeSignature {
+        self.signature
+    }
+    pub fn argument(&self, slot: usize) -> Option<Value> {
+        (slot < self.arguments)
+            .then(|| self.roots.get(slot))
+            .flatten()
+    }
+    pub fn retained(&self, slot: usize) -> Option<Value> {
+        self.arguments
+            .checked_add(slot)
+            .and_then(|index| self.roots.get(index))
+    }
+    pub fn retain(&mut self, slot: usize, value: Value) -> Result<(), RuntimeError> {
+        let index = self
+            .arguments
+            .checked_add(slot)
+            .ok_or_else(|| RuntimeError::module_validation("invalid native root slot"))?;
+        self.roots
+            .set(self.heap(), index, value)
+            .ok_or_else(|| RuntimeError::module_validation("invalid native root slot or value"))
+    }
+    pub fn callback(
+        &self,
+        value: &Value,
+        signature: &AbiType,
+        arguments: Vec<Value>,
+    ) -> Result<NativeCallback, RuntimeError> {
+        callback(self.runtime, value, signature, arguments)
+    }
+    pub fn matches(&self, value: &Value, ty: &AbiType) -> bool {
+        self.runtime
+            .matches_interface_method_abi(value, ty, self.owner)
+    }
 }
 
 pub(crate) struct NativeInvocation {
     pub(crate) destination: Option<Register>,
     implementation: LoadedModule,
-    import: EngineImportId,
+    import: NativeImportId,
     roots: RootSet,
-    state: NativeState,
+    state: Box<dyn NativeInvocationState>,
+    waiting: Option<AbiType>,
     entry: Option<NativeAction>,
-    _step_scope: Option<StepCallScope>,
+    _registration: Rc<NativeRegistration>,
 }
-
 impl NativeInvocation {
     pub(crate) fn start(
         runtime: &Runtime,
         implementation: LoadedModule,
-        import: EngineImportId,
+        import: NativeImportId,
         arguments: &[Value],
         destination: Option<Register>,
     ) -> Result<Self, RuntimeError> {
-        let contract = implementation
-            .bytecode
-            .engine_imports
-            .get(import.index())
-            .ok_or_else(|| RuntimeError::module_validation("invalid native continuation import"))?;
-        if arguments.len() != contract.signature.params.len() {
+        let registration = implementation
+            .native_binding(import)
+            .ok_or_else(|| RuntimeError::module_validation("native import was not linked"))?;
+        let signature = &implementation.bytecode.native_imports[import.index()].signature;
+        if arguments.len() != signature.params.len()
+            || arguments.iter().zip(&signature.params).any(|(value, ty)| {
+                !runtime.matches_interface_method_abi(value, ty, &implementation)
+            })
+        {
             return Err(RuntimeError::module_validation(
-                "native continuation argument count",
+                "native arguments differ from the checked application",
             ));
         }
-        let mut entry = None;
-        let mut state = match implementation.engine_binding(import) {
-            Some(EngineNativeOperation::Resumable(
-                EngineNativeBinding::Intrinsic(
-                    StandardIntrinsic::ArrayPush
-                    | StandardIntrinsic::ArrayInsert
-                    | StandardIntrinsic::ArrayClear
-                    | StandardIntrinsic::MapClear
-                    | StandardIntrinsic::SetClear,
-                )
-                | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionSet),
-            )) => NativeState::UnitMutation,
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
-                operation,
-            ))) if operation.lazy() => {
-                NativeState::Lazy(LazyInvocation::constructor(operation, arguments))
-            }
-            Some(EngineNativeOperation::Resumable(binding))
-                if matches!(
-                    binding,
-                    EngineNativeBinding::Intrinsic(
-                        StandardIntrinsic::LinkedHashMapFrom | StandardIntrinsic::LinkedHashSetFrom
-                    ) | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator)
-                ) && matches!(
-                    contract.signature.result,
-                    AbiType::Map { .. } | AbiType::Set(..)
-                ) =>
-            {
-                NativeState::Key(KeyInvocation::construct(contract, arguments)?)
-            }
-
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
-                NativeDefaultMethod::Collect,
-            ))) => NativeState::Factory(Factory::collect(&implementation, contract, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
-                NativeDefaultMethod::Partition,
-            ))) => NativeState::Partition(Partition::start(&implementation, contract, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Protocol(
-                NativeProtocolMethod::OptionFromIterator | NativeProtocolMethod::ResultFromIterator,
-            ))) => NativeState::Fallible(Fallible::start(&implementation, contract, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                operation @ (StandardIntrinsic::StringParse | StandardIntrinsic::DebugAssertEq),
-            ))) => {
-                NativeState::ProtocolEntry(ProtocolEntry::start(operation, contract, arguments)?)
-            }
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                operation @ (StandardIntrinsic::StringBytes
-                | StandardIntrinsic::StringCharIndices
-                | StandardIntrinsic::StringSplit
-                | StandardIntrinsic::StringSplitN
-                | StandardIntrinsic::StringSplitWhitespace
-                | StandardIntrinsic::StringLines),
-            ))) => NativeState::StringIterator(StringIterator::start(operation, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                operation @ (StandardIntrinsic::MapGet
-                | StandardIntrinsic::MapContainsKey
-                | StandardIntrinsic::MapInsert
-                | StandardIntrinsic::MapRemove
-                | StandardIntrinsic::SetContains
-                | StandardIntrinsic::SetInsert
-                | StandardIntrinsic::SetRemove
-                | StandardIntrinsic::MapGetOrInsertWith
-                | StandardIntrinsic::MapUpdate),
-            ))) => NativeState::Key(KeyInvocation::start(operation, contract, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                operation @ (StandardIntrinsic::ArraySort
-                | StandardIntrinsic::ArraySortBy
-                | StandardIntrinsic::ArraySortByKey
-                | StandardIntrinsic::ArrayDedup),
-            ))) => {
-                NativeState::PreparedArray(Box::new(PreparedArray::start(operation, arguments)?))
-            }
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::ArrayRetain
-                | StandardIntrinsic::MapRetain
-                | StandardIntrinsic::SetRetain,
-            ))) => NativeState::Retention(Retention::start(&contract.signature, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::ArrayCopyWithin | StandardIntrinsic::ArrayRemoveRange,
-            ))) => NativeState::ArrayRange(ArrayRange::start(contract, arguments)),
-            Some(EngineNativeOperation::Resumable(
-                EngineNativeBinding::Intrinsic(
-                    StandardIntrinsic::ArrayListFrom
-                    | StandardIntrinsic::ArrayCopyFrom
-                    | StandardIntrinsic::ArrayExtend,
-                )
-                | EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator),
-            )) => NativeState::ArrayCopy(ArrayCopy::start(contract, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(
-                StandardIntrinsic::ArrayListFromFn,
-            ))) => NativeState::ArrayInitialization(ArrayInitialization::start(arguments)?),
-            Some(EngineNativeOperation::Resumable(
-                EngineNativeBinding::Intrinsic(
-                    StandardIntrinsic::MapKeys
-                    | StandardIntrinsic::MapValues
-                    | StandardIntrinsic::MapEntries,
-                )
-                | EngineNativeBinding::TraitDefault(
-                    NativeDefaultMethod::MapKeysView
-                    | NativeDefaultMethod::MapValuesView
-                    | NativeDefaultMethod::MapEntriesView,
-                ),
-            )) => NativeState::MapSnapshot(SnapshotInvocation::start(contract, arguments)?),
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Intrinsic(operation))) => {
-                NativeState::Enum(EnumInvocation::start(
-                    runtime,
-                    operation,
-                    &contract.signature,
-                    arguments,
-                )?)
-            }
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::TraitDefault(
-                operation,
-            ))) => {
-                if operation == NativeDefaultMethod::GroupBy {
-                    NativeState::Key(KeyInvocation::group(contract, arguments)?)
-                } else if matches!(
-                    operation,
-                    NativeDefaultMethod::SetUnion
-                        | NativeDefaultMethod::SetIntersection
-                        | NativeDefaultMethod::SetDifference
-                        | NativeDefaultMethod::SetSymmetricDifference
-                        | NativeDefaultMethod::SetIsSubset
-                        | NativeDefaultMethod::SetIsSuperset
-                        | NativeDefaultMethod::SetIsDisjoint
-                ) {
-                    NativeState::Key(KeyInvocation::sets(operation, arguments))
-                } else if matches!(
-                    operation,
-                    NativeDefaultMethod::ListContains
-                        | NativeDefaultMethod::ListStartsWith
-                        | NativeDefaultMethod::ListEndsWith
-                ) {
-                    NativeState::ListEquality(EqualityInvocation::start(operation, arguments)?)
-                } else if operation == NativeDefaultMethod::ListJoin {
-                    NativeState::ListJoin(ListJoin::start(contract, arguments)?)
-                } else if matches!(
-                    operation,
-                    NativeDefaultMethod::ListFirst
-                        | NativeDefaultMethod::ListLast
-                        | NativeDefaultMethod::ListBinarySearch
-                ) {
-                    NativeState::List(ListInvocation::start(operation, arguments)?)
-                } else {
-                    let target = if matches!(
-                        operation,
-                        NativeDefaultMethod::Sum | NativeDefaultMethod::Product
-                    ) {
-                        Some(
-                            contract
-                                .witnesses
-                                .iter()
-                                .find(|witness| {
-                                    witness.receiver == contract.signature.result
-                                        && StandardTrait::from_id(&witness.interface.declaration)
-                                            == Some(if operation == NativeDefaultMethod::Sum {
-                                                StandardTrait::Sum
-                                            } else {
-                                                StandardTrait::Product
-                                            })
-                                })
-                                .ok_or_else(|| {
-                                    RuntimeError::module_validation("missing aggregation witness")
-                                })?,
-                        )
-                    } else {
-                        None
-                    };
-                    if let Some(witness) = target.filter(|witness| {
-                        !protocols::numeric_destination(&implementation, witness, operation)
-                    }) {
-                        entry = Some(NativeAction::Callback(protocols::aggregate(
-                            runtime,
-                            &implementation,
-                            witness,
-                            arguments[0].clone(),
-                            &contract.signature.params[0],
-                        )?));
-                        NativeState::Forward
-                    } else {
-                        NativeState::Iterator(IteratorInvocation::start(
-                            runtime, operation, contract, arguments,
-                        )?)
-                    }
-                }
-            }
-            Some(EngineNativeOperation::Resumable(EngineNativeBinding::Protocol(
-                operation @ (NativeProtocolMethod::NumericSum
-                | NativeProtocolMethod::NumericProduct),
-            ))) => NativeState::Iterator(IteratorInvocation::start(
-                runtime,
-                if operation == NativeProtocolMethod::NumericSum {
-                    NativeDefaultMethod::Sum
-                } else {
-                    NativeDefaultMethod::Product
-                },
-                contract,
-                arguments,
-            )?),
-            _ => {
-                return Err(RuntimeError::module_validation(
-                    "invalid native continuation binding",
-                ));
-            }
-        };
+        let mut values = arguments.to_vec();
+        values.resize(arguments.len() + registration.scratch_slots, Value::Unit);
         let roots = runtime
             .gc()
-            .root_execution_values(
-                arguments
-                    .iter()
-                    .cloned()
-                    .chain(match &mut state {
-                        NativeState::UnitMutation => vec![],
-                        NativeState::Key(state) => vec![Value::Unit; state.scratch_roots()],
-                        NativeState::Enum(_) => vec![Value::Unit; SCRATCH_ROOTS],
-                        NativeState::PreparedArray(_) => {
-                            vec![Value::Unit; prepared_arrays::SCRATCH_ROOTS]
-                        }
-                        NativeState::Retention(_) => vec![Value::Unit; retention::SCRATCH_ROOTS],
-                        NativeState::Iterator(state) => state.initial.take().ok_or_else(|| {
-                            RuntimeError::module_validation("missing terminal initial roots")
-                        })?,
-                        NativeState::ListJoin(_) => vec![Value::Unit; iterators::SCRATCH_ROOTS],
-                        NativeState::List(state) => state.initial.take().ok_or_else(|| {
-                            RuntimeError::module_validation("missing List initial roots")
-                        })?,
-                        NativeState::ListEquality(state) => {
-                            state.initial.take().ok_or_else(|| {
-                                RuntimeError::module_validation(
-                                    "missing List equality initial roots",
-                                )
-                            })?
-                        }
-                        NativeState::StringIterator(_) => {
-                            vec![Value::Unit; string_iterators::SCRATCH_ROOTS]
-                        }
-                        NativeState::ProtocolEntry(_) => {
-                            vec![Value::Unit; protocol_entries::SCRATCH_ROOTS]
-                        }
-                        NativeState::Factory(state) => vec![Value::Unit; state.scratch_roots()],
-                        NativeState::Partition(state) => vec![Value::Unit; state.scratch_roots()],
-                        NativeState::Fallible(state) => vec![Value::Unit; state.scratch_roots()],
-                        NativeState::Forward => vec![],
-                        NativeState::Lazy(state) => state.constructor_roots()?,
-                        NativeState::ArrayInitialization(_) => {
-                            vec![Value::Unit; array_initialization::SCRATCH_ROOTS]
-                        }
-                        NativeState::ArrayCopy(_) => vec![Value::Unit; array_copy::SCRATCH_ROOTS],
-                        NativeState::ArrayRange(_) => {
-                            vec![Value::Unit; array_ranges::SCRATCH_ROOTS]
-                        }
-                        NativeState::MapSnapshot(state) => {
-                            state.initial.take().ok_or_else(|| {
-                                RuntimeError::module_validation(
-                                    "missing Map snapshot initial roots",
-                                )
-                            })?
-                        }
-                    })
-                    .collect(),
-            )
-            .ok_or_else(|| {
-                RuntimeError::module_validation("invalid native continuation argument")
-            })?;
-        if let NativeState::MapSnapshot(state) = &state {
-            entry = state
-                .initialize(runtime, arguments, &roots)?
-                .map(NativeAction::BuiltinFailure);
-        }
-        if let NativeState::ArrayInitialization(state) = &state {
-            entry = state
-                .initialize(runtime, &roots)?
-                .map(NativeAction::BuiltinFailure);
-        }
-        if let NativeState::PreparedArray(state) = &mut state {
-            state.initialize(runtime, &roots)?;
-        }
-        if let NativeState::Retention(state) = &mut state {
-            state.initialize(runtime, &roots)?;
-        }
-        let initialized = match &mut state {
-            NativeState::UnitMutation => {
-                Some(unit_mutations::initialize(runtime, contract, arguments)?)
-            }
-            NativeState::Lazy(state) => {
-                Some(state.advance(runtime, &implementation, import, contract, &roots)?)
-            }
-            NativeState::Factory(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            NativeState::Partition(state) => Some(state.initialize(runtime, &roots)?),
-            NativeState::Fallible(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            NativeState::ProtocolEntry(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            NativeState::StringIterator(state) => Some(state.initialize(runtime, &roots)?),
-            NativeState::ListJoin(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            NativeState::Key(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            NativeState::ArrayRange(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            NativeState::ArrayCopy(state) => {
-                Some(state.initialize(runtime, &implementation, contract, &roots)?)
-            }
-            _ => None,
+            .root_execution_values(values)
+            .ok_or_else(|| RuntimeError::module_validation("native invocation roots"))?;
+        let mut context = NativeContext {
+            runtime,
+            owner: &implementation,
+            signature,
+            roots: &roots,
+            arguments: arguments.len(),
         };
-        if let Some(action) = initialized {
-            entry = Some(action);
-        }
-        Ok(Self {
+        let mut state = (registration.entry)(&mut context)?;
+        let entry = state.advance(&mut context)?;
+        let mut invocation = Self {
+            destination,
             implementation,
             import,
-            destination,
             roots,
             state,
-            entry,
-            _step_scope: None,
-        })
+            waiting: None,
+            entry: None,
+            _registration: registration,
+        };
+        invocation.entry = Some(invocation.validate_action(runtime, entry)?);
+        Ok(invocation)
     }
-
     pub(crate) fn take_entry(&mut self) -> NativeAction {
-        self.entry.take().unwrap_or(NativeAction::Continue)
+        self.entry.take().expect("native entry action")
     }
-
-    pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
-        let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
-        match &mut self.state {
-            NativeState::UnitMutation => Ok(NativeAction::Complete(Value::Unit)),
-            NativeState::Lazy(state) => state.advance(
-                runtime,
-                &self.implementation,
-                self.import,
-                contract,
-                &self.roots,
-            ),
-            NativeState::Factory(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
+    fn validate_action(
+        &mut self,
+        runtime: &Runtime,
+        action: NativeAction,
+    ) -> Result<NativeAction, RuntimeError> {
+        match &action {
+            NativeAction::Callback(request) => {
+                if self.waiting.replace(request.result.clone()).is_some() {
+                    return Err(RuntimeError::module_validation(
+                        "native entry requested overlapping callbacks",
+                    ));
+                }
             }
-            NativeState::Partition(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
+            NativeAction::Complete(value) => {
+                let result = &self.implementation.bytecode.native_imports[self.import.index()]
+                    .signature
+                    .result;
+                if !runtime.matches_interface_method_abi(value, result, &self.implementation) {
+                    return Err(RuntimeError::module_validation(
+                        "native result differs from its checked application",
+                    ));
+                }
             }
-            NativeState::Fallible(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::ProtocolEntry(state) => state.advance(runtime, &self.roots),
-            NativeState::ListJoin(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::StringIterator(state) => {
-                state.advance(runtime, &self.implementation, &self.roots)
-            }
-            NativeState::Key(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::PreparedArray(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::Retention(state) => state.advance(
-                runtime,
-                &self.implementation,
-                &contract.signature,
-                &self.roots,
-            ),
-            NativeState::ArrayRange(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::ArrayCopy(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::ArrayInitialization(state) => {
-                state.advance(runtime, &contract.signature, &self.roots)
-            }
-            NativeState::Enum(state) => state.advance(
-                runtime,
-                &self.implementation,
-                &contract.signature,
-                &self.roots,
-            ),
-            NativeState::Iterator(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::List(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::ListEquality(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
-            NativeState::Forward => Err(RuntimeError::module_validation(
-                "aggregation callback is pending",
-            )),
-            NativeState::MapSnapshot(state) => {
-                state.advance(runtime, &self.implementation, contract, &self.roots)
-            }
+            NativeAction::Continue => {}
         }
+        Ok(action)
     }
-
+    pub(crate) fn advance(&mut self, runtime: &Runtime) -> Result<NativeAction, RuntimeError> {
+        if self.waiting.is_some() {
+            return Err(RuntimeError::module_validation(
+                "native callback has not returned",
+            ));
+        }
+        let signature = &self.implementation.bytecode.native_imports[self.import.index()].signature;
+        let mut context = NativeContext {
+            runtime,
+            owner: &self.implementation,
+            signature,
+            roots: &self.roots,
+            arguments: signature.params.len(),
+        };
+        let action = self.state.advance(&mut context)?;
+        self.validate_action(runtime, action)
+    }
     pub(crate) fn receive(
         &mut self,
         runtime: &Runtime,
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
-        let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
-        match &mut self.state {
-            NativeState::UnitMutation => Err(RuntimeError::module_validation(
-                "unit mutation has no callback",
-            )),
-            NativeState::Lazy(state) => state.receive(runtime, &self.roots, value),
-            NativeState::Factory(state) => {
-                state.receive(runtime, &self.implementation, contract, &self.roots, value)
-            }
-            NativeState::Partition(state) => {
-                state.receive(runtime, &self.implementation, contract, &self.roots, value)
-            }
-            NativeState::Fallible(state) => {
-                state.receive(runtime, &self.implementation, contract, &self.roots, value)
-            }
-            NativeState::ProtocolEntry(state) => {
-                state.receive(runtime, &self.implementation, contract, &self.roots, value)
-            }
-            NativeState::ListJoin(state) => {
-                state.receive(runtime, &self.implementation, contract, &self.roots, value)
-            }
-            NativeState::StringIterator(_) => Err(RuntimeError::module_validation(
-                "string constructor has no callback",
-            )),
-            NativeState::Key(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
-            NativeState::PreparedArray(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
-            NativeState::Retention(state) => {
-                state.receive(runtime, &self.implementation, &self.roots, value)
-            }
-            NativeState::ArrayRange(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
-            NativeState::ArrayCopy(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
-            NativeState::ArrayInitialization(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()].signature,
-                &self.roots,
-                value,
-            ),
-            NativeState::Enum(state) => state
-                .receive(runtime, &self.roots, value)
-                .map(|()| NativeAction::Continue),
-            NativeState::Iterator(state) => state
-                .receive(
-                    runtime,
-                    &self.implementation,
-                    &self.implementation.bytecode.engine_imports[self.import.index()],
-                    &self.roots,
-                    value,
-                )
-                .map(|()| NativeAction::Continue),
-            NativeState::List(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
-            NativeState::ListEquality(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
-            NativeState::Forward => {
-                let contract = &self.implementation.bytecode.engine_imports[self.import.index()];
-                if !runtime.matches_interface_method_abi(
-                    &value,
-                    &contract.signature.result,
-                    &self.implementation,
-                ) {
-                    return Err(RuntimeError::module_validation(
-                        "aggregation callback result mismatch",
-                    ));
-                }
-                Ok(NativeAction::Complete(value))
-            }
-            NativeState::MapSnapshot(state) => state.receive(
-                runtime,
-                &self.implementation,
-                &self.implementation.bytecode.engine_imports[self.import.index()],
-                &self.roots,
-                value,
-            ),
+        // The returning script frame has been popped. Keep its result reachable
+        // while the provider receives it, including allocations before retain().
+        let _result_root = runtime
+            .gc()
+            .root_execution_values(vec![value.clone()])
+            .ok_or_else(|| RuntimeError::module_validation("native callback return root"))?;
+        let expected = self
+            .waiting
+            .take()
+            .ok_or_else(|| RuntimeError::module_validation("unexpected native callback return"))?;
+        if !runtime.matches_interface_method_abi(&value, &expected, &self.implementation) {
+            return Err(RuntimeError::module_validation(
+                "native callback result contract",
+            ));
         }
+        let signature = &self.implementation.bytecode.native_imports[self.import.index()].signature;
+        let mut context = NativeContext {
+            runtime,
+            owner: &self.implementation,
+            signature,
+            roots: &self.roots,
+            arguments: signature.params.len(),
+        };
+        let action = self.state.receive(&mut context, value)?;
+        self.validate_action(runtime, action)
     }
 }
-
 fn callback(
     runtime: &Runtime,
     value: &Value,
@@ -697,6 +267,15 @@ fn callback(
     }
     Ok(NativeCallback {
         target: NativeCallbackTarget::Closure(closure),
+        _roots: runtime
+            .gc()
+            .root_execution_values(
+                iter::once(value.clone())
+                    .chain(arguments.iter().cloned())
+                    .collect(),
+            )
+            .ok_or_else(|| RuntimeError::module_validation("native callback roots"))?,
+        result: result.as_ref().clone(),
         arguments,
     })
 }

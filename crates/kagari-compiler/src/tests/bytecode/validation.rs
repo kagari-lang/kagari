@@ -7,7 +7,7 @@ use kagari_abi::{
     native_import::{EngineNativeOperation, NativeWitnessImplementation},
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic,
+        RuntimePrimitive,
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
         traits::{self as standard_traits, StandardTrait},
     },
@@ -32,11 +32,11 @@ impl<T> Product<T> for Bucket<T> {fn product<I:Iterable<Item=T>>(source:I)->Self
         ));
         let root = program.root.index();
         let import = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
             .unwrap();
-        let destination = program.modules[root].engine_imports[import]
+        let destination = program.modules[root].native_imports[import]
             .witnesses
             .iter()
             .position(|witness| {
@@ -48,7 +48,7 @@ impl<T> Product<T> for Bucket<T> {fn product<I:Iterable<Item=T>>(source:I)->Self
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..12 {
             let mut forged = artifact.clone();
-            let contract = &mut forged.program.modules[root].engine_imports[import];
+            let contract = &mut forged.program.modules[root].native_imports[import];
             let witness = &mut contract.witnesses[destination];
             match mutation {
                 0 => {
@@ -122,13 +122,13 @@ fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0
     );
     let root = program.root.index();
     let import = program.modules[root]
-        .engine_imports
+        .native_imports
         .iter()
         .position(|import| {
             import.binding == EngineNativeBinding::TraitDefault(NativeDefaultMethod::MinByKey)
         })
         .unwrap();
-    let ordinal = program.modules[root].engine_imports[import]
+    let ordinal = program.modules[root].native_imports[import]
         .witnesses
         .iter()
         .position(|witness| {
@@ -139,7 +139,7 @@ fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0
     let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
     for mutation in 0..9 {
         let mut forged = artifact.clone();
-        let contract = &mut forged.program.modules[root].engine_imports[import];
+        let contract = &mut forged.program.modules[root].native_imports[import];
         match mutation {
             0 => {
                 contract.witnesses.remove(ordinal);
@@ -223,7 +223,7 @@ impl<T> Iterator for Counter<T> {type Item=T;fn next(self)->Option<T>{if self.do
         let program = common::bytecode_ok(&format!("{declarations}\n{entry}"));
         let root = program.root.index();
         let import = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
             .unwrap();
@@ -231,7 +231,7 @@ impl<T> Iterator for Counter<T> {type Item=T;fn next(self)->Option<T>{if self.do
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..8 {
             let mut forged = artifact.clone();
-            let contract = &mut forged.program.modules[root].engine_imports[import];
+            let contract = &mut forged.program.modules[root].native_imports[import];
             match mutation {
                 0 => contract.witnesses.clear(),
                 1 => contract.witnesses[0].implementation = NativeWitnessImplementation::Primitive,
@@ -314,13 +314,13 @@ fn resumable_native_calls_reject_forged_callback_contracts_and_arity() {
     );
     let root = program.root.index();
     let import = program.modules[root]
-        .engine_imports
+        .native_imports
         .iter()
         .position(|import| {
             matches!(
                 import.resolve(),
                 Some(EngineNativeOperation::Resumable(
-                    EngineNativeBinding::Intrinsic(StandardIntrinsic::OptionUnwrapOrElse)
+                    EngineNativeBinding::Intrinsic(RuntimePrimitive::OptionUnwrapOrElse)
                 ))
             )
         })
@@ -330,7 +330,7 @@ fn resumable_native_calls_reject_forged_callback_contracts_and_arity() {
     for mutation in 0..6 {
         let mut forged = artifact.clone();
         let module = &mut forged.program.modules[root];
-        let contract = &mut module.engine_imports[import];
+        let contract = &mut module.native_imports[import];
         match mutation {
             0 => contract.binding_version += 1,
             1 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
@@ -348,7 +348,7 @@ fn resumable_native_calls_reject_forged_callback_contracts_and_arity() {
             }
             4 => contract.instance.arguments.clear(),
             _ => {
-                let instruction = module.functions.iter_mut().flat_map(|function| &mut function.instructions).find(|instruction| matches!(instruction, BytecodeInstruction::Call { callee: CallTarget::Native(NativeCall::Engine(id)), .. } if id.index() == import)).unwrap();
+                let instruction = module.functions.iter_mut().flat_map(|function| &mut function.instructions).find(|instruction| matches!(instruction, BytecodeInstruction::Call { callee: CallTarget::Native(id), .. } if id.index() == import)).unwrap();
                 let BytecodeInstruction::Call { args, .. } = instruction else {
                     unreachable!()
                 };
@@ -399,12 +399,12 @@ fn rejects_function_fallthrough_before_loading() {
 #[test]
 fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
     let module = common::bytecode_ok("fn main() -> bool { val a = [7]; a.get(a.len()).is_none() }");
-    let get = kagari_bytecode::EngineImportId::new(
+    let get = kagari_bytecode::NativeImportId::new(
         module.modules[module.root.index()]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| {
-                import.resolve() == Some(EngineNativeOperation::Direct(StandardIntrinsic::ArrayGet))
+                import.resolve() == Some(EngineNativeOperation::Direct(RuntimePrimitive::ArrayGet))
             })
             .unwrap(),
     );
@@ -416,7 +416,7 @@ fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
         .find_map(|instruction| {
             if let BytecodeInstruction::Call {
                 dst,
-                callee: CallTarget::Native(NativeCall::Engine(import)),
+                callee: CallTarget::Native(import),
                 ..
             } = instruction
             {
@@ -448,7 +448,7 @@ fn verifier_rejects_array_get_scalar_result_and_wrong_arity() {
     for instruction in &mut wrong_arity.modules[wrong_arity.root.index()].functions[0].instructions
     {
         if let BytecodeInstruction::Call {
-            callee: CallTarget::Native(NativeCall::Engine(import)),
+            callee: CallTarget::Native(import),
             args,
             ..
         } = instruction
@@ -591,13 +591,13 @@ fn main(value: String) -> usize {
             Some(callee)
         })
         .expect("expected standard intrinsic call");
-    *call = CallTarget::StandardIntrinsic(StandardIntrinsic::MathSqrt);
+    *call = CallTarget::RuntimePrimitive(RuntimePrimitive::MathSqrt);
 
     assert!(matches!(
         verify_program(&bytecode),
         Err(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                intrinsic: StandardIntrinsic::MathSqrt,
+            BytecodeVerificationError::RuntimePrimitiveSignatureMismatch {
+                intrinsic: RuntimePrimitive::MathSqrt,
                 reason: "invalid or unsupported native operand shape",
                 ..
             }
@@ -608,8 +608,8 @@ fn main(value: String) -> usize {
     assert!(matches!(
         artifact,
         Err(ArtifactValidationError::Bytecode(
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
-                intrinsic: StandardIntrinsic::MathSqrt,
+            BytecodeVerificationError::RuntimePrimitiveSignatureMismatch {
+                intrinsic: RuntimePrimitive::MathSqrt,
                 reason: "invalid or unsupported native operand shape",
                 ..
             }
@@ -893,7 +893,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
     }
     let root = module.root.index();
     let import = module.modules[root]
-        .engine_imports
+        .native_imports
         .iter()
         .position(|import| {
             import.binding == EngineNativeBinding::Protocol(NativeProtocolMethod::RangeStartBound)
@@ -901,7 +901,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         .unwrap();
     for mutation in 0..4 {
         let mut invalid = module.clone();
-        let contract = &mut invalid.modules[root].engine_imports[import];
+        let contract = &mut invalid.modules[root].native_imports[import];
         match mutation {
             0 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
             1 => {
@@ -923,7 +923,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
                     .flat_map(|function| &mut function.instructions)
                     .find(|instruction| {
                         matches!(instruction, BytecodeInstruction::Call {
-                        callee: CallTarget::Native(NativeCall::Engine(id)), ..
+                        callee: CallTarget::Native(id), ..
                     } if id.index() == import)
                     })
                     .unwrap();
@@ -998,16 +998,16 @@ fn string_iterator_rejects_forged_constructor_contracts() {
     verify_program(&module).unwrap();
     let root = module.root.index();
     let import = module.modules[root]
-        .engine_imports
+        .native_imports
         .iter()
         .position(|import| {
-            import.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::StringSplit)
+            import.binding == EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplit)
         })
         .unwrap();
     assert_eq!(
-        module.modules[root].engine_imports[import].resolve(),
+        module.modules[root].native_imports[import].resolve(),
         Some(EngineNativeOperation::Resumable(
-            EngineNativeBinding::Intrinsic(StandardIntrinsic::StringSplit)
+            EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplit)
         ))
     );
     let artifact = bytecode::KbcArtifact::from_program(module.clone(), Default::default()).unwrap();
@@ -1016,18 +1016,18 @@ fn string_iterator_rejects_forged_constructor_contracts() {
         let owner = &mut invalid.modules[root];
         match mutation {
             0 => {
-                owner.engine_imports[import].signature.params.pop();
+                owner.native_imports[import].signature.params.pop();
             }
             1 => {
-                owner.engine_imports[import].binding =
-                    EngineNativeBinding::Intrinsic(StandardIntrinsic::StringSplitN)
+                owner.native_imports[import].binding =
+                    EngineNativeBinding::Intrinsic(RuntimePrimitive::StringSplitN)
             }
             5 => {
-                owner.engine_imports[import].signature.result =
+                owner.native_imports[import].signature.result =
                     AbiType::Iter(Box::new(AbiType::Builtin(BuiltinType::U8)))
             }
             _ => {
-                let instruction=owner.functions.iter_mut().flat_map(|function|&mut function.instructions).find(|instruction|matches!(instruction,BytecodeInstruction::Call{callee:CallTarget::Native(NativeCall::Engine(id)),..} if id.index()==import)).unwrap();
+                let instruction=owner.functions.iter_mut().flat_map(|function|&mut function.instructions).find(|instruction|matches!(instruction,BytecodeInstruction::Call{callee:CallTarget::Native(id),..} if id.index()==import)).unwrap();
                 let BytecodeInstruction::Call { dst, args, .. } = instruction else {
                     unreachable!()
                 };

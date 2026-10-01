@@ -1,5 +1,3 @@
-//! Public namespaces of the installed standard package.
-
 pub use std::array;
 pub use std::map;
 pub use std::set;

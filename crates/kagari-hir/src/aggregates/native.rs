@@ -5,7 +5,6 @@ use crate::{
     typeck::{GenericBounds, match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::traits::StandardTrait;
 
 #[cfg(test)]
 mod tests;
@@ -72,14 +71,5 @@ impl ImplementationSignature {
     ) -> bool {
         let owner = self.for_type.instantiate(substitution);
         owner == *receiver
-            || (matches!(
-                StandardTrait::from_id(&self.trait_type.declaration),
-                Some(
-                    StandardTrait::List
-                        | StandardTrait::Map
-                        | StandardTrait::Set
-                        | StandardTrait::Iterable
-                )
-            ) && owner.can_weaken_to(receiver))
     }
 }

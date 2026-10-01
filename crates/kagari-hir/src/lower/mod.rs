@@ -1,5 +1,5 @@
 use ast::Attribute;
-use kagari_abi::callable::{EngineNativeBinding, MethodPolicy};
+use kagari_abi::{callable::MethodPolicy, provider::NativeContract};
 use kagari_common::{SourceFile, Span, cancellation::CancellationToken};
 use kagari_stdlib::ParsedStdlibPackage;
 use kagari_syntax::parse;
@@ -30,7 +30,7 @@ pub struct LoweredModule {
     pub attributes: Vec<AttributeFact>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
-    pub(crate) native_functions: HashMap<FunctionId, EngineNativeBinding>,
+    pub(crate) native_functions: HashMap<FunctionId, Arc<NativeContract>>,
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
     pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,

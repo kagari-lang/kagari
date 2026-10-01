@@ -12,8 +12,11 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
-use kagari_common::{Diagnostic, DiagnosticKind, identity};
+use kagari_abi::{
+    provider::NativeParameterAccess,
+    standard::traits::{self as standard_traits, StandardTrait},
+};
+use kagari_common::{Diagnostic, DiagnosticKind, collection::CollectionAccess, identity};
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn infer_expr_with_coercion(
@@ -232,13 +235,13 @@ impl<'a> BodyChecker<'a> {
             );
             return Some(TypeId::Error);
         }
-        let (function, mut substitution, target) =
+        let (mut function, mut substitution, target) =
             candidates.into_iter().next().expect("one method");
         if matches!(target, CallTarget::SourceFunction(_))
             && !function.generic_params.is_empty()
             && !matches!(
                 function.implementation,
-                FunctionImplementation::Native(NativeBinding::Engine(_))
+                FunctionImplementation::Native(NativeBinding::Provider(_))
             )
         {
             self.infer_call_args(args, env);
@@ -306,6 +309,15 @@ impl<'a> BodyChecker<'a> {
             env,
             callee,
         );
+        if receiver_ty.collection_access() == Some(CollectionAccess::ReadOnly)
+            && let FunctionImplementation::Native(NativeBinding::Provider(contract)) =
+                &function.implementation
+            && contract.parameter_access.first() == Some(&NativeParameterAccess::Read)
+            && let Some(parameter) = function.params.first_mut()
+            && let Some(view) = parameter.ty.read_only_view()
+        {
+            parameter.ty = view;
+        }
         let mut all_args = Vec::with_capacity(arg_tys.len() + 1);
         all_args.push((receiver, receiver_ty));
         all_args.extend(arg_tys);

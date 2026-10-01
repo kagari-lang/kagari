@@ -78,7 +78,7 @@ fn destinations_preserve_every_budget_cut() {
                 program
                     .modules
                     .iter()
-                    .flat_map(|module| &module.engine_imports)
+                    .flat_map(|module| &module.native_imports)
                     .any(|import| import.binding == binding),
                 "{name}"
             );

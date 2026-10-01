@@ -1,5 +1,5 @@
 use crate::{
-    BytecodeProgram, HostImportId, InterfaceMethodSlot, verifier::operation::verify_instruction,
+    BytecodeProgram, InterfaceMethodSlot, NativeImportId, verifier::operation::verify_instruction,
 };
 mod operation;
 use crate::{
@@ -8,14 +8,14 @@ use crate::{
     StructId, access, trait_bounds,
 };
 use kagari_abi::{
-    callable::{CallableImplementation, NativeBinding, NativeCall},
+    callable::{CallableImplementation, NativeBinding},
     contracts::{self, ContractError},
     host,
     ids::FunctionRef,
     layout::{self, StructFieldLayout},
     operations::BinaryOp as MirBinaryOp,
     representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
     types::{AbiType, InterfaceTableAbi, PublicAbiItem, verify},
 };
 use kagari_common::identity::DefinitionKind;
@@ -45,7 +45,7 @@ pub enum BytecodeVerificationError {
     #[error("invalid host import {import:?} in {function:?}")]
     InvalidHostImport {
         function: FunctionRef,
-        import: HostImportId,
+        import: NativeImportId,
     },
     #[error("invalid operation in {function:?}: {reason}")]
     InvalidOperation {
@@ -127,9 +127,9 @@ pub enum BytecodeVerificationError {
         found: usize,
     },
     #[error("standard intrinsic signature mismatch in {function:?} for {intrinsic:?}: {reason}")]
-    StandardIntrinsicSignatureMismatch {
+    RuntimePrimitiveSignatureMismatch {
         function: FunctionRef,
-        intrinsic: StandardIntrinsic,
+        intrinsic: RuntimePrimitive,
         reason: &'static str,
     },
 }
@@ -166,7 +166,7 @@ impl BytecodeVerificationError {
             Self::InvalidJumpTarget { .. } => "KG_BYTECODE_INVALID_JUMP_TARGET",
             Self::TypeMismatch { .. } => "KG_BYTECODE_TYPE_MISMATCH",
             Self::ArityMismatch { .. } => "KG_BYTECODE_ARITY_MISMATCH",
-            Self::StandardIntrinsicSignatureMismatch { .. } => {
+            Self::RuntimePrimitiveSignatureMismatch { .. } => {
                 "KG_BYTECODE_STANDARD_INTRINSIC_SIGNATURE_MISMATCH"
             }
         }
@@ -407,7 +407,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .filter(|method| {
                     !matches!(
                         method.implementation,
-                        CallableImplementation::Native(NativeBinding::Engine(_))
+                        CallableImplementation::Native(NativeBinding::Provider(_))
                     )
                 })
                 .any(|method| {
@@ -453,7 +453,7 @@ fn host_bridge_method_matches(
     }
     let BytecodeInstruction::Call {
         dst: Some(result),
-        callee: CallTarget::Native(NativeCall::Host(import)),
+        callee: CallTarget::Native(import),
         args,
     } = &function.instructions[params]
     else {
@@ -461,9 +461,9 @@ fn host_bridge_method_matches(
     };
     if args.len() != params
         || !module
-            .host_interface
-            .functions
+            .native_imports
             .get(import.index())
+            .and_then(|import| import.contract.host.as_ref())
             .is_some_and(|contract| contract.id == mapping.host_method)
     {
         return false;
@@ -646,7 +646,7 @@ fn contract_error(function: &BytecodeFunction, error: ContractError) -> Bytecode
             found,
         },
         ContractError::Intrinsic { intrinsic, reason } => {
-            BytecodeVerificationError::StandardIntrinsicSignatureMismatch {
+            BytecodeVerificationError::RuntimePrimitiveSignatureMismatch {
                 function: function.id,
                 intrinsic,
                 reason,
@@ -662,7 +662,7 @@ fn contract_error(function: &BytecodeFunction, error: ContractError) -> Bytecode
 fn verify_standard_intrinsic_call(
     function: &BytecodeFunction,
     dst: Option<Register>,
-    intrinsic: StandardIntrinsic,
+    intrinsic: RuntimePrimitive,
     args: &[Register],
 ) -> Result<(), BytecodeVerificationError> {
     let args = args

@@ -2,7 +2,6 @@ use crate::{
     standard::{intrinsic, traits::StandardTrait},
     types::{
         AbiType, InterfaceTableAbi,
-        native::engine_implementation_shape,
         proofs::{Budget, ProofCatalog},
         substitution::TypeTransformError,
     },
@@ -85,9 +84,6 @@ impl ProofCatalog<'_> {
         let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
             return Ok(true);
         };
-        if engine_implementation_shape(table) {
-            return Ok(true);
-        }
         if kind.iteration() && self.iteration_conflict(kind, &table.for_type, budget)? {
             return Ok(false);
         }
@@ -123,7 +119,7 @@ impl ProofCatalog<'_> {
             return Ok(true);
         }
         let (AbiType::Struct(nominal) | AbiType::Enum(nominal)) = &table.for_type else {
-            return Ok(false);
+            return Ok(interface.declaration.module == table.declaration.module);
         };
         if nominal.declaration.module != table.declaration.module {
             return Ok(false);

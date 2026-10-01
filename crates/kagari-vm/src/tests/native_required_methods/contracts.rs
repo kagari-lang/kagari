@@ -5,7 +5,7 @@ use kagari_abi::{
     callable::EngineNativeBinding,
     native_import::{EngineCoreOperation, EngineNativeOperation},
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod},
+    standard::{RuntimePrimitive, bindings::NativeProtocolMethod},
     types::AbiType,
 };
 use kagari_bytecode::{KbcArtifact, verify_program};
@@ -16,24 +16,24 @@ fn required_method_imports_reject_forged_signatures_and_providers() {
     let mut checked = 0;
     for (name, source) in cases::cases() {
         let binding = match name {
-            "list_len" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayLen),
-            "list_empty" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayIsEmpty),
-            "map_len" => EngineNativeBinding::Intrinsic(StandardIntrinsic::MapLen),
-            "map_empty" => EngineNativeBinding::Intrinsic(StandardIntrinsic::MapIsEmpty),
-            "set_len" => EngineNativeBinding::Intrinsic(StandardIntrinsic::SetLen),
-            "set_empty" => EngineNativeBinding::Intrinsic(StandardIntrinsic::SetIsEmpty),
-            "list_get" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayGet),
-            "list_pop" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayPop),
-            "list_remove" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayRemove),
-            "list_push" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayPush),
-            "list_insert" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayInsert),
-            "list_clear" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayClear),
+            "list_len" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayLen),
+            "list_empty" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayIsEmpty),
+            "map_len" => EngineNativeBinding::Intrinsic(RuntimePrimitive::MapLen),
+            "map_empty" => EngineNativeBinding::Intrinsic(RuntimePrimitive::MapIsEmpty),
+            "set_len" => EngineNativeBinding::Intrinsic(RuntimePrimitive::SetLen),
+            "set_empty" => EngineNativeBinding::Intrinsic(RuntimePrimitive::SetIsEmpty),
+            "list_get" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayGet),
+            "list_pop" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayPop),
+            "list_remove" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayRemove),
+            "list_push" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayPush),
+            "list_insert" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayInsert),
+            "list_clear" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayClear),
             "list_set" => EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionSet),
-            "list_swap" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArraySwap),
-            "list_reverse" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayReverse),
-            "list_truncate" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayTruncate),
-            "map_clear" => EngineNativeBinding::Intrinsic(StandardIntrinsic::MapClear),
-            "set_clear" => EngineNativeBinding::Intrinsic(StandardIntrinsic::SetClear),
+            "list_swap" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArraySwap),
+            "list_reverse" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayReverse),
+            "list_truncate" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayTruncate),
+            "map_clear" => EngineNativeBinding::Intrinsic(RuntimePrimitive::MapClear),
+            "set_clear" => EngineNativeBinding::Intrinsic(RuntimePrimitive::SetClear),
             "next_lazy" => EngineNativeBinding::Protocol(NativeProtocolMethod::IterNext),
             _ if name.starts_with("iter_") => {
                 EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionIter)
@@ -49,11 +49,11 @@ fn required_method_imports_reject_forged_signatures_and_providers() {
         let program = compile_test_bytecode(&source);
         let root = program.root.index();
         let index = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| import.binding == binding)
             .unwrap_or_else(|| panic!("{name}: missing checked import"));
-        let contract = &program.modules[root].engine_imports[index];
+        let contract = &program.modules[root].native_imports[index];
         match binding {
             EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionIter) => assert_eq!(
                 contract.resolve(),
@@ -72,7 +72,7 @@ fn required_method_imports_reject_forged_signatures_and_providers() {
                 );
                 assert!(
                     program.modules[root]
-                        .engine_imports
+                        .native_imports
                         .iter()
                         .any(|import| import.binding
                             == EngineNativeBinding::Protocol(NativeProtocolMethod::RangeEndBound)
@@ -86,7 +86,7 @@ fn required_method_imports_reject_forged_signatures_and_providers() {
         }
         for mutation in 0..5 {
             let mut forged = program.clone();
-            let import = &mut forged.modules[root].engine_imports[index];
+            let import = &mut forged.modules[root].native_imports[index];
             match mutation {
                 0 => import.signature.params[0] = AbiType::Builtin(BuiltinType::Bool),
                 1 => {
@@ -142,7 +142,7 @@ fn required_method_imports_reject_forged_signatures_and_providers() {
         }
         if matches!(name, "iter_array" | "iter_map" | "iter_set") {
             let mut readonly = program.clone();
-            let import = &mut readonly.modules[root].engine_imports[index];
+            let import = &mut readonly.modules[root].native_imports[index];
             import.signature.params[0] = import.signature.params[0].read_only_view().unwrap();
             // The public native declaration is shared by both outer storage
             // views. Its nested payload and result still match exactly.

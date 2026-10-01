@@ -161,7 +161,7 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
         vec![
             BytecodeInstruction::Call {
                 dst: Some(Register::new(0)),
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::LinkedHashMapNew),
+                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::LinkedHashMapNew),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
@@ -174,7 +174,7 @@ fn standard_intrinsics_reject_invalid_hash_keys_before_publication() {
             },
             BytecodeInstruction::Call {
                 dst: Some(Register::new(3)),
-                callee: CallTarget::StandardIntrinsic(StandardIntrinsic::MapInsert),
+                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::MapInsert),
                 args: vec![Register::new(0), Register::new(2), Register::new(1)],
             },
             BytecodeInstruction::Return(Some(Register::new(3))),

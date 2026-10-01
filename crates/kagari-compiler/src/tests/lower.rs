@@ -1,10 +1,9 @@
 use crate::{lower_to_mir, tests::common};
 use kagari_abi::native_import::EngineNativeOperation;
 use kagari_abi::{
-    callable::NativeCall,
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
 };
 use kagari_bytecode as bytecode;
 use kagari_common::integer::IntegerMethod;
@@ -39,14 +38,14 @@ fn main() -> i32 {
         })
         .collect::<Vec<_>>();
     for expected in [
-        StandardIntrinsic::Integer(
+        RuntimePrimitive::Integer(
             IntegerMethod::WrappingAdd,
             kagari_abi::scalar::BuiltinType::I32,
         ),
-        StandardIntrinsic::ParseRadix(kagari_abi::scalar::BuiltinType::I32),
-        StandardIntrinsic::MathClamp,
+        RuntimePrimitive::ParseRadix(kagari_abi::scalar::BuiltinType::I32),
+        RuntimePrimitive::MathClamp,
     ] {
-        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::Native(NativeCall::Engine(import)) if import.resolve() == Some(EngineNativeOperation::Direct(expected)))).count(), 1, "{expected:?}");
+        assert_eq!(calls.iter().filter(|callee| matches!(callee, CallTarget::Native(import) if import.resolve() == Some(EngineNativeOperation::Direct(expected)))).count(), 1, "{expected:?}");
     }
     assert!(
         !calls
@@ -881,9 +880,9 @@ fn main() -> usize {
     let function = &ir.functions[0];
 
     for expected in [
-        StandardIntrinsic::ArrayPush,
-        StandardIntrinsic::ArrayPop,
-        StandardIntrinsic::ArrayLen,
+        RuntimePrimitive::ArrayPush,
+        RuntimePrimitive::ArrayPop,
+        RuntimePrimitive::ArrayLen,
     ] {
         assert_eq!(
             function
@@ -891,7 +890,7 @@ fn main() -> usize {
                 .iter()
                 .flat_map(|block| &block.instructions)
                 .filter(|instruction| matches!(instruction,
-                    Instruction::Call { callee: CallTarget::Native(NativeCall::Engine(import)), .. }
+                    Instruction::Call { callee: CallTarget::Native(import), .. }
                         if import.resolve() == Some(EngineNativeOperation::Direct(expected))
                 ))
                 .count(),

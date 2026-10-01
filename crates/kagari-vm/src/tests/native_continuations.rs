@@ -5,7 +5,7 @@ use crate::{
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     native_import::EngineNativeOperation,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
 };
 use kagari_bytecode::{BytecodeInstruction, BytecodeProgram, CallTarget, KbcArtifact};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
@@ -81,16 +81,16 @@ fn option_fallback_preserves_lazy_effects_and_logical_charges() {
         let original = compile_test_bytecode(&source);
         let root = &original.modules[original.root.index()];
         let import = root
-            .engine_imports
+            .native_imports
             .iter()
             .position(|import| {
                 import.resolve()
                     == Some(EngineNativeOperation::Resumable(
-                        EngineNativeBinding::Intrinsic(StandardIntrinsic::OptionUnwrapOrElse),
+                        EngineNativeBinding::Intrinsic(RuntimePrimitive::OptionUnwrapOrElse),
                     ))
             })
             .expect("resumable native binding");
-        assert!(root.functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, BytecodeInstruction::Call { callee: CallTarget::Native(NativeCall::Engine(id)), .. } if id.index() == import)));
+        assert!(root.functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, BytecodeInstruction::Call { callee: CallTarget::Native(id), .. } if id.index() == import)));
         for encoded in [false, true] {
             let program = route(&original, encoded);
             let mut runtime = runtime(Default::default());
@@ -339,7 +339,7 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
             matches!(
                 instruction,
                 BytecodeInstruction::Call {
-                    callee: CallTarget::Native(NativeCall::Engine(_)),
+                    callee: CallTarget::Native(_),
                     ..
                 }
             )

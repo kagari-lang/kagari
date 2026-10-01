@@ -1,10 +1,10 @@
 mod intrinsics;
 
 use crate::{
-    native_import::{EngineNativeImport, EngineNativeOperation},
+    native_import::NativeImport,
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
 };
 use kagari_common::host_interface::HostFunctionDeclaration;
 
@@ -16,7 +16,7 @@ pub enum ContractError {
         found: ValueType,
     },
     Intrinsic {
-        intrinsic: StandardIntrinsic,
+        intrinsic: RuntimePrimitive,
         reason: &'static str,
     },
     InvalidOperation {
@@ -82,14 +82,16 @@ pub fn verify_runtime_helper_call(
 
 /// The signature sets call arity and operand representations. The closed engine
 /// guard independently checks its consumed storage and result shape.
-pub fn verify_engine_call(
+pub fn verify_native_call(
     dst: Option<ValueType>,
-    import: &EngineNativeImport,
+    import: &NativeImport,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
-    let operation = import.resolve().ok_or(ContractError::InvalidOperation {
-        reason: "invalid engine native import",
-    })?;
+    if !import.structurally_valid() {
+        return Err(ContractError::InvalidOperation {
+            reason: "invalid provider native import",
+        });
+    }
     if args.len() != import.signature.params.len() {
         return Err(ContractError::InvalidOperation {
             reason: "native call arity mismatch",
@@ -98,9 +100,7 @@ pub fn verify_engine_call(
     for (actual, expected) in args.iter().zip(&import.signature.params) {
         expect_type(*actual, expected.representation(), "native call argument")?;
     }
-    if let EngineNativeOperation::Direct(operation) = operation {
-        verify_intrinsic(dst, operation, args)?;
-    }
+
     verify_call_dst(dst, import.signature.result.representation())
 }
 
@@ -204,7 +204,7 @@ fn numeric(ty: ValueType) -> bool {
 /// Ordinary native calls additionally validate their carried semantic signature.
 pub fn verify_intrinsic(
     dst: Option<ValueType>,
-    intrinsic: StandardIntrinsic,
+    intrinsic: RuntimePrimitive,
     args: &[ValueType],
 ) -> Result<(), ContractError> {
     intrinsics::verify(dst, intrinsic, args)

@@ -1,0 +1,12 @@
+fn main() -> i32 {
+    val counter = [18];
+    val arrays = ArrayList::from_fn(2usize, |index| {
+        counter[0usize] = counter[0usize] + 2;
+        [counter[0usize]]
+    });
+    val result: ArrayList<i32> = ArrayList::new();
+    result.push(arrays[0usize][0usize]);
+    result.push(arrays[1usize][0usize]);
+    val view: [i32] = result;
+    if view.len() == 2usize { result[0usize] + result[1usize] } else { 0 }
+}

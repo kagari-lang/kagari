@@ -1,4 +1,4 @@
-use kagari_abi::callable::NativeCall;
+use kagari_abi::native_import::NativeImport;
 use kagari_common::{
     host_interface::{
         HostAssociatedTypeBinding, HostFunctionDeclaration, HostInterface, HostMethodDeclaration,
@@ -287,7 +287,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
 #[test]
 fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
     use kagari_abi::types::{AbiType, PublicAbiItem};
-    use kagari_bytecode::{BytecodeInstruction, CallTarget, HostImportId};
+    use kagari_bytecode::{BytecodeInstruction, CallTarget, NativeImportId};
     let (_, artifact, _, _) = fixture();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
@@ -344,7 +344,10 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                 alternative.name = "other".into();
                 host.methods.push(alternative.clone());
                 let contract = host.method_contract(&alternative.id).unwrap();
-                let import = HostImportId::new(module.host_interface.functions.len());
+                let import = NativeImportId::new(module.native_imports.len());
+                module
+                    .native_imports
+                    .push(NativeImport::from_host(&contract));
                 module.host_interface.functions.push(contract);
                 let index = module.interface_tables[0].methods[0].function.index();
                 let function = &mut module.functions[index];
@@ -353,7 +356,7 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                 else {
                     unreachable!()
                 };
-                *callee = CallTarget::Native(NativeCall::Host(import));
+                *callee = CallTarget::Native(import);
             }
             _ => unreachable!(),
         }

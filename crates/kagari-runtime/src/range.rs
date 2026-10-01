@@ -120,7 +120,7 @@ pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
     }
 }
 
-pub(crate) fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeError> {
+pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeError> {
     let Value::Enum(id) = value else {
         return Err(invalid());
     };

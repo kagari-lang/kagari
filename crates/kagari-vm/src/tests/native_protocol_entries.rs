@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -49,15 +49,15 @@ fn protocol_entries_preserve_every_budget_cut() {
             .unwrap();
         let program = compile_test_bytecode(&source);
         let operation = if name.starts_with("parse_") {
-            StandardIntrinsic::StringParse
+            RuntimePrimitive::StringParse
         } else {
-            StandardIntrinsic::DebugAssertEq
+            RuntimePrimitive::AssertEq
         };
         assert!(
             program
                 .modules
                 .iter()
-                .flat_map(|module| &module.engine_imports)
+                .flat_map(|module| &module.native_imports)
                 .any(|import| import.binding == EngineNativeBinding::Intrinsic(operation)),
             "{name}"
         );

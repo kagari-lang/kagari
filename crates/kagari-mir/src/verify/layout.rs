@@ -3,7 +3,6 @@ use crate::{
     verify::{Context, MirVerificationError, MirVerificationErrorKind as Error},
 };
 use kagari_abi::{
-    callable::NativeCall,
     host,
     layout::{self, LayoutValidationError, validate_layouts},
     types::verify as abi_verify,
@@ -24,11 +23,12 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             .check()
             .map_err(|_| context.error(Error::Cancelled))?;
         if let Instruction::Call {
-            callee: CallTarget::Native(NativeCall::Host(function)),
+            callee: CallTarget::Native(import),
             ..
         } = instruction
+            && let Some(function) = &import.contract.host
             && functions
-                .insert(function.id.clone(), function.as_ref().clone())
+                .insert(function.id.clone(), function.clone())
                 .is_some_and(|previous| !previous.matches_binding(function))
         {
             return Err(context.error(Error::InvalidHostInterface));

@@ -277,7 +277,7 @@ fn make() -> Test {
 
 #[test]
 fn forged_writes_and_access_upgrades_are_rejected_before_loading() {
-    use kagari_abi::{standard::StandardIntrinsic, types::AbiType};
+    use kagari_abi::{standard::RuntimePrimitive, types::AbiType};
     use kagari_bytecode::{BytecodeInstruction, CallTarget, verify_program};
     let engine = KagariEngine::default();
     let artifact = engine
@@ -317,7 +317,7 @@ fn main() { val values = ArrayList::from([1, 2]); inspect(values); }
         .unwrap();
     if let BytecodeInstruction::Call { dst, callee, args } = instruction {
         *dst = Some(args[0]);
-        *callee = CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayClear);
+        *callee = CallTarget::RuntimePrimitive(RuntimePrimitive::ArrayClear);
     }
     let error = verify_program(&forged).unwrap_err();
     assert!(

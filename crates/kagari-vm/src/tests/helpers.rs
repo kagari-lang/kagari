@@ -1,6 +1,6 @@
 use kagari_abi::{
     budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType,
-    standard::StandardIntrinsic,
+    standard::RuntimePrimitive,
 };
 use kagari_bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget, ConstantOperand,

@@ -8,7 +8,7 @@ use kagari_abi::{
     operations::{BinaryOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    standard::{RuntimePrimitive, traits::StandardTrait},
 };
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
 use kagari_hir::{
@@ -53,11 +53,7 @@ impl FunctionLowerer<'_, '_> {
                     lhs: value,
                     rhs: limit,
                 });
-                self.emit_intrinsic(
-                    StandardIntrinsic::DebugAssert,
-                    &[valid, message],
-                    ValueType::Unit,
-                );
+                self.emit_intrinsic(RuntimePrimitive::Assert, &[valid, message], ValueType::Unit);
             }
         }
     }
@@ -180,7 +176,7 @@ impl FunctionLowerer<'_, '_> {
             .planner
             .catalog
             .trait_method(method)
-            .and_then(|signature| match signature.default {
+            .and_then(|signature| match signature.default.clone() {
                 Some(MethodDefault::Native(binding)) => Some(binding),
                 _ => None,
             });
@@ -444,11 +440,11 @@ impl FunctionLowerer<'_, '_> {
                 return Ok(dst);
             }
             let intrinsic = match StandardTrait::from_id(&interface.declaration) {
-                Some(StandardTrait::PartialOrd) => StandardIntrinsic::ValuePartialCmp,
-                Some(StandardTrait::Ord) => StandardIntrinsic::ValueCmp,
+                Some(StandardTrait::PartialOrd) => RuntimePrimitive::ValuePartialCmp,
+                Some(StandardTrait::Ord) => RuntimePrimitive::ValueCmp,
                 _ => return Err(MirLoweringError::MissingBinding("builtin operator")),
             };
-            CallTarget::StandardIntrinsic(intrinsic)
+            CallTarget::RuntimePrimitive(intrinsic)
         };
         let dst = self.alloc_temp(result_ty);
         self.emit(Instruction::Call {

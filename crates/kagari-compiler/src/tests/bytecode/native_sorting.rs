@@ -5,7 +5,7 @@ use kagari_abi::{
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
     standard::{
-        StandardIntrinsic,
+        RuntimePrimitive,
         traits::{self, StandardTrait},
     },
     types::AbiType,
@@ -67,14 +67,14 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
 "#
                 ));
                 let binding = EngineNativeBinding::Intrinsic(match mode {
-                    "sort" => StandardIntrinsic::ArraySort,
-                    "sort_by" => StandardIntrinsic::ArraySortBy,
-                    "sort_by_key" => StandardIntrinsic::ArraySortByKey,
-                    _ => StandardIntrinsic::ArrayDedup,
+                    "sort" => RuntimePrimitive::ArraySort,
+                    "sort_by" => RuntimePrimitive::ArraySortBy,
+                    "sort_by_key" => RuntimePrimitive::ArraySortByKey,
+                    _ => RuntimePrimitive::ArrayDedup,
                 });
                 let root = program.root.index();
                 let import = program.modules[root]
-                    .engine_imports
+                    .native_imports
                     .iter()
                     .position(|i| i.binding == binding)
                     .unwrap();
@@ -82,7 +82,7 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
                 for mutation in 0..10 {
                     let mut forged = artifact.clone();
                     let module = &mut forged.program.modules[root];
-                    let contract = &mut module.engine_imports[import];
+                    let contract = &mut module.native_imports[import];
                     match mutation {
                         0 => contract.signature.params[0] = AbiType::Builtin(BuiltinType::Bool),
                         1 => contract.signature.result = AbiType::Builtin(BuiltinType::Bool),
@@ -106,9 +106,9 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
                             .push(AbiType::Builtin(BuiltinType::Bool)),
                         5 => {
                             contract.binding = EngineNativeBinding::Intrinsic(if mode == "dedup" {
-                                StandardIntrinsic::ArraySort
+                                RuntimePrimitive::ArraySort
                             } else {
-                                StandardIntrinsic::ArrayDedup
+                                RuntimePrimitive::ArrayDedup
                             })
                         }
                         6 => contract.binding_version -= 1,
@@ -119,14 +119,14 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
                                 for instruction in &mut function.instructions {
                                     if let BytecodeInstruction::Call { callee, args, .. } =
                                         instruction
-                                        && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
+                                        && matches!(callee,CallTarget::Native(id) if id.index()==import)
                                     {
                                         if mutation == 8 {
                                             let EngineNativeBinding::Intrinsic(operation) = binding
                                             else {
                                                 panic!()
                                             };
-                                            *callee = CallTarget::StandardIntrinsic(operation);
+                                            *callee = CallTarget::RuntimePrimitive(operation);
                                         } else {
                                             args.clear();
                                         }
@@ -146,7 +146,7 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
                 if mode == "sort_by" || mode == "sort_by_key" {
                     for mutation in 0..4 {
                         let mut forged = artifact.clone();
-                        let contract = &mut forged.program.modules[root].engine_imports[import];
+                        let contract = &mut forged.program.modules[root].native_imports[import];
                         let AbiType::Function { params, result } =
                             &mut contract.signature.params[1]
                         else {
@@ -167,7 +167,7 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
                 if mode != "sort_by" {
                     for mutation in 0..9 {
                         let mut forged = artifact.clone();
-                        let contract = &mut forged.program.modules[root].engine_imports[import];
+                        let contract = &mut forged.program.modules[root].native_imports[import];
                         assert_eq!(contract.witnesses.len(), 1);
                         let witness = &mut contract.witnesses[0];
                         match mutation {
@@ -243,18 +243,16 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];items.dedup();42}}
         ));
         let root = program.root.index();
         let import = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
-            .position(|i| {
-                i.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup)
-            })
+            .position(|i| i.binding == EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayDedup))
             .unwrap();
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for mutation in 0..5 {
             let mut forged = artifact.clone();
             let module = &mut forged.program.modules[root];
-            let declaration = module.engine_imports[import].instance.declaration.clone();
-            let witness = &mut module.engine_imports[import].witnesses[0];
+            let declaration = module.native_imports[import].instance.declaration.clone();
+            let witness = &mut module.native_imports[import].witnesses[0];
             assert_eq!(witness.implementation, NativeWitnessImplementation::Derived);
             match mutation {
                 0 => {

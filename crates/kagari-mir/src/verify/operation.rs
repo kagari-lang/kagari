@@ -5,7 +5,6 @@ use crate::{
 };
 use contracts::RuntimeHelperKind;
 use kagari_abi::{
-    callable::NativeCall,
     contracts::{self, ContractError},
     operations::{self, range_operands_valid},
     representation::ValueType,
@@ -190,24 +189,19 @@ pub(super) fn verify(
                     context.expect(receiver.ty, ValueType::HeapObject, "interface receiver")?;
                 }
             }
-            CallTarget::StandardIntrinsic(intrinsic) => contracts::verify_intrinsic(
+            CallTarget::RuntimePrimitive(intrinsic) => contracts::verify_intrinsic(
                 dst.map(|v| v.ty),
                 *intrinsic,
                 &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
             )
             .map_err(contract)?,
-            CallTarget::Native(NativeCall::Engine(import)) => contracts::verify_engine_call(
+            CallTarget::Native(import) => contracts::verify_native_call(
                 dst.map(|v| v.ty),
                 import,
                 &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
             )
             .map_err(contract)?,
-            CallTarget::Native(NativeCall::Host(declaration)) => contracts::verify_host_call(
-                dst.map(|v| v.ty),
-                declaration,
-                &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
-            )
-            .map_err(contract)?,
+
             CallTarget::Value(_) | CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
                 return Err(context.error(Error::UnsupportedCall));
             }

@@ -4,21 +4,21 @@ use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    standard::{RuntimePrimitive, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
 use kagari_common::collection::CollectionAccess;
-const OPERATIONS: &[StandardIntrinsic] = &[
-    StandardIntrinsic::MapGet,
-    StandardIntrinsic::MapContainsKey,
-    StandardIntrinsic::MapInsert,
-    StandardIntrinsic::MapRemove,
-    StandardIntrinsic::SetContains,
-    StandardIntrinsic::SetInsert,
-    StandardIntrinsic::SetRemove,
-    StandardIntrinsic::MapGetOrInsertWith,
-    StandardIntrinsic::MapUpdate,
+const OPERATIONS: &[RuntimePrimitive] = &[
+    RuntimePrimitive::MapGet,
+    RuntimePrimitive::MapContainsKey,
+    RuntimePrimitive::MapInsert,
+    RuntimePrimitive::MapRemove,
+    RuntimePrimitive::SetContains,
+    RuntimePrimitive::SetInsert,
+    RuntimePrimitive::SetRemove,
+    RuntimePrimitive::MapGetOrInsertWith,
+    RuntimePrimitive::MapUpdate,
 ];
 fn reject(artifact: &KbcArtifact, label: &str) {
     assert!(verify_program(&artifact.program).is_err(), "{label}");
@@ -33,7 +33,7 @@ fn reject(artifact: &KbcArtifact, label: &str) {
         "encoded {label}"
     );
 }
-fn source(operation: StandardIntrinsic, shape: &str) -> String {
+fn source(operation: RuntimePrimitive, shape: &str) -> String {
     let (item, value) = match shape {
         "scalar" => ("i32", "1"),
         "nominal" => ("Key<i32>", "Key{id:1}"),
@@ -43,9 +43,7 @@ fn source(operation: StandardIntrinsic, shape: &str) -> String {
     };
     let set = matches!(
         operation,
-        StandardIntrinsic::SetContains
-            | StandardIntrinsic::SetInsert
-            | StandardIntrinsic::SetRemove
+        RuntimePrimitive::SetContains | RuntimePrimitive::SetInsert | RuntimePrimitive::SetRemove
     );
     let storage = if set {
         format!("LinkedHashSet<{item}>")
@@ -58,15 +56,15 @@ fn source(operation: StandardIntrinsic, shape: &str) -> String {
         "LinkedHashMap::new()"
     };
     let action = match operation {
-        StandardIntrinsic::MapGet => "items.get(key);",
-        StandardIntrinsic::MapContainsKey => "items.contains_key(key);",
-        StandardIntrinsic::MapInsert => "items.insert(key,42);",
-        StandardIntrinsic::MapRemove => "items.remove(key);",
-        StandardIntrinsic::SetContains => "items.contains(key);",
-        StandardIntrinsic::SetInsert => "items.insert(key);",
-        StandardIntrinsic::SetRemove => "items.remove(key);",
-        StandardIntrinsic::MapGetOrInsertWith => "items.get_or_insert_with(key,||42);",
-        StandardIntrinsic::MapUpdate => "items.update(key,|previous|previous.unwrap_or(0)+42);",
+        RuntimePrimitive::MapGet => "items.get(key);",
+        RuntimePrimitive::MapContainsKey => "items.contains_key(key);",
+        RuntimePrimitive::MapInsert => "items.insert(key,42);",
+        RuntimePrimitive::MapRemove => "items.remove(key);",
+        RuntimePrimitive::SetContains => "items.contains(key);",
+        RuntimePrimitive::SetInsert => "items.insert(key);",
+        RuntimePrimitive::SetRemove => "items.remove(key);",
+        RuntimePrimitive::MapGetOrInsertWith => "items.get_or_insert_with(key,||42);",
+        RuntimePrimitive::MapUpdate => "items.update(key,|previous|previous.unwrap_or(0)+42);",
         _ => panic!(),
     };
     format!(
@@ -89,7 +87,7 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
             let root = program.root.index();
             let binding = EngineNativeBinding::Intrinsic(*operation);
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|contract| contract.binding == binding)
                 .unwrap();
@@ -97,7 +95,7 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
             for mutation in 0..10 {
                 let mut forged = artifact.clone();
                 let module = &mut forged.program.modules[root];
-                let contract = &mut module.engine_imports[import];
+                let contract = &mut module.native_imports[import];
                 match mutation {
                     0 => {
                         contract.signature.params[0] = AbiType::Array(
@@ -122,16 +120,16 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
                     7 => contract.binding_version -= 1,
                     8 => {
                         contract.binding =
-                            EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayDedup);
+                            EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayDedup);
                     }
                     9 => {
                         let mut changed = false;
                         for function in &mut module.functions {
                             for instruction in &mut function.instructions {
                                 if let BytecodeInstruction::Call { callee, .. } = instruction
-                                    && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
+                                    && matches!(callee,CallTarget::Native(id) if id.index()==import)
                                 {
-                                    *callee = CallTarget::StandardIntrinsic(*operation);
+                                    *callee = CallTarget::RuntimePrimitive(*operation);
                                     changed = true;
                                 }
                             }
@@ -150,7 +148,7 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
                 for protocol in [StandardTrait::PartialEq, StandardTrait::Hash] {
                     for mutation in 0..8 {
                         let mut forged = artifact.clone();
-                        let contract = &mut forged.program.modules[root].engine_imports[import];
+                        let contract = &mut forged.program.modules[root].native_imports[import];
                         let selected = contract
                             .witnesses
                             .iter()
@@ -196,11 +194,11 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
             }
             if matches!(
                 operation,
-                StandardIntrinsic::MapGetOrInsertWith | StandardIntrinsic::MapUpdate
+                RuntimePrimitive::MapGetOrInsertWith | RuntimePrimitive::MapUpdate
             ) {
                 for mutation in 0..4 {
                     let mut forged = artifact.clone();
-                    let contract = &mut forged.program.modules[root].engine_imports[import];
+                    let contract = &mut forged.program.modules[root].native_imports[import];
                     let AbiType::Function { params, result } = &mut contract.signature.params[2]
                     else {
                         panic!()
@@ -238,19 +236,19 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
 fn composed_key_imports_reject_bypassed_hash_equality_and_forged_helper_results() {
     let mut checked = 0;
     for shape in ["tuple", "option", "choice"] {
-        let program = common::bytecode_ok(&source(StandardIntrinsic::MapGet, shape));
+        let program = common::bytecode_ok(&source(RuntimePrimitive::MapGet, shape));
         let root = program.root.index();
         let import = program.modules[root]
-            .engine_imports
+            .native_imports
             .iter()
-            .position(|c| c.binding == EngineNativeBinding::Intrinsic(StandardIntrinsic::MapGet))
+            .position(|c| c.binding == EngineNativeBinding::Intrinsic(RuntimePrimitive::MapGet))
             .unwrap();
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
         for protocol in [StandardTrait::PartialEq, StandardTrait::Hash] {
             for mutation in 0..6 {
                 let mut forged = artifact.clone();
                 let module = &mut forged.program.modules[root];
-                let contract = &mut module.engine_imports[import];
+                let contract = &mut module.native_imports[import];
                 let witness = contract
                     .witnesses
                     .iter_mut()

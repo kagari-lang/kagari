@@ -16,11 +16,7 @@ fn invalid() -> RuntimeError {
 impl GcHeap {
     /// Empty collections have no stored key representation yet. Once populated,
     /// raw builtin lookup and compiled custom lookup must not be mixed.
-    pub(crate) fn ensure_key_mode(
-        &self,
-        collection: &Value,
-        custom: bool,
-    ) -> Result<(), RuntimeError> {
+    pub fn ensure_key_mode(&self, collection: &Value, custom: bool) -> Result<(), RuntimeError> {
         let mode = match collection {
             Value::Map(id) => self.with_map(*id, |entries| {
                 entries.first().map(|(key, _)| key.custom_parts().is_some())
@@ -83,7 +79,7 @@ impl GcHeap {
         }
     }
 
-    pub(crate) fn custom_candidates(
+    pub fn custom_candidates(
         &self,
         collection: &Value,
         hash: i64,
@@ -124,7 +120,7 @@ impl GcHeap {
         .ok_or_else(invalid)?
     }
 
-    pub(crate) fn custom_get(
+    pub fn custom_get(
         &self,
         collection: &Value,
         hash: i64,
@@ -142,7 +138,7 @@ impl GcHeap {
         .ok_or_else(invalid)
     }
 
-    pub(crate) fn custom_insert(
+    pub fn custom_insert(
         &self,
         collection: &Value,
         hash: i64,
@@ -204,7 +200,7 @@ impl GcHeap {
         Ok(())
     }
 
-    pub(crate) fn custom_remove(
+    pub fn custom_remove(
         &self,
         collection: &Value,
         hash: i64,

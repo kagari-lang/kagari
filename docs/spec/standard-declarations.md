@@ -5,6 +5,11 @@ sources. All source comments, documentation and examples are written in English.
 The declaration source owns public signatures, documentation, method views and
 source locations. Runtime code owns representation and execution contracts.
 
+The NR reset currently reinstalls ArrayList new/len/push/from_fn and List len/get.
+Other standard implementation APIs are temporarily removed; their specified
+semantics and tests remain NR04 restoration obligations. See the
+[active plan](../native-provider-refactor.md#reset-execution-checkpoint-2026-10-01).
+
 ## Declaration mode
 
 `parse_declarations` is an explicit, cancellable parser entry with ordinary parser
@@ -32,10 +37,9 @@ Non-returning operations use `-> !`, including `std::debug::panic`. Checked
 signatures and native execution contracts retain Never rather than Unit.
 
 Outer `///` comments belong to the immediately following declaration. They retain
-Markdown including fenced Kagari examples. The CST remains lossless. Existing
-`#[intrinsic(...)]` binds native execution. The installed numeric declarations
-use `#[numeric(...)]` to pair an integer operation with their concrete impl target;
-it does not grant user declarations intrinsic behavior. Instance methods are declared with
+Markdown including fenced Kagari examples. The CST remains lossless. `#[native(binding)]` resolves an installed provider descriptor. The old intrinsic,
+numeric, radix, protocol and default marker families are removed. User annotations
+cannot install handlers or acquire provider authority. Instance methods are declared with
 `self` inside an inherent or native trait `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in
@@ -86,18 +90,11 @@ All standard traits derive their public contracts from these sources, including
 supertraits, generic parameters, methods, associated types and associated bounds.
 Trait solving and native implementations remain engine code. Declaration identities
 and member locations refer to the bundled source text, not placeholder spans.
-Method-local generic parameters and their bounds retain method-owned identities
-through analysis and portable ABI validation. Engine-supplied iterator defaults are
-marked with intrinsic attributes; user implementations need only supply required
-methods and may provide ordinary explicit overrides of default methods. The fixed
-`List::join` and `Iterator::join` traversal operations are exceptions: their declared
-string-item constraints are checked at each call, and implementations cannot override
-them. Their checked call applications select native implementations and do not require
-virtual method bindings. List joining carries its selected List, Iterable and Iterator
-contracts; runtime-owned conversion and traversal consume those facts on shared frames.
-Concrete ArrayList sources retain the direct Rust storage helper. Runtime interface
-tables retain vacant slots for omitted engine operations so later declared
-method ordinals remain stable.
+Method-local generic parameters and enclosing impl binders are retained in ABI
+signature checks. Native read access comes from provider metadata. List retains its
+Index supertrait; its len entry is native and get is an ordinary script body.
+Selected default callable/witness metadata remains NR02 work, rather than the old
+method-specific traversal and conversion catalogs.
 
 Installed native defaults that forbid replacement explicitly carry
 `#[method_policy(Final)]` in their declaration. Unannotated defaults remain
@@ -106,14 +103,10 @@ portable callable declarations preserve it for interface validation. Installatio
 rejects a final required method; user-written policy attributes do not acquire
 installed declaration authority.
 
-`iter.kgr` explicitly declares `impl<T> Iterator for Iter<T>`, including
-`type Item = T` and `#[intrinsic(IterNext)] fn next(self) -> Option<T>;`.
-HIR validates this implementation against the sealed native stepping ABI.
-Its receiver, generic parameter, associated type and method metadata come from
-the declaration. Native iterator trait resolution reads that associated type
-mapping. `map`, `filter`, `collect` and other defaults remain on `Iterator`.
-The identity `Iterable` implementation remains derived from `Iterator`.
-This declaration does not grant user code access to intrinsic bindings.
+`iter.kgr` retains required iterator/aggregation declarations. The old Iter impl
+and native adapter defaults are removed. Restoring them requires provider-owned
+persistent traced state and checked stepping entries under NR03/NR04. Identity
+Iterable remains a language protocol rule, not native binding authority.
 
 Documentation examples for functions, types and traits execute both directly and
 after artifact serialization. Nested members document their role within the enclosing

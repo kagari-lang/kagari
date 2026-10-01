@@ -1,4 +1,3 @@
-use kagari_abi::callable::NativeCall;
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{
     ArtifactBuildOptions, BytecodeFunction, BytecodeInstruction, BytecodeModule, CallTarget,

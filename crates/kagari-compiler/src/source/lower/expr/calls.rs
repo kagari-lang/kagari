@@ -1,10 +1,10 @@
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
+use kagari_abi::native_import::NativeImport;
 use kagari_abi::{
-    callable::NativeCall,
     representation::ValueType,
-    standard::{StandardIntrinsic, traits::StandardTrait},
+    standard::{RuntimePrimitive, traits::StandardTrait},
 };
 use kagari_common::host_interface;
 use kagari_hir::{
@@ -280,19 +280,19 @@ impl FunctionLowerer<'_, '_> {
                 )
             {
                 let intrinsic = match protocol {
-                    StandardTrait::PartialOrd => StandardIntrinsic::ValuePartialCmp,
-                    StandardTrait::Ord => StandardIntrinsic::ValueCmp,
-                    StandardTrait::PartialEq => StandardIntrinsic::ValueEq,
-                    StandardTrait::Hash => StandardIntrinsic::ValueHash,
-                    StandardTrait::Debug => StandardIntrinsic::ValueDebug,
-                    StandardTrait::Display => StandardIntrinsic::ValueDisplay,
+                    StandardTrait::PartialOrd => RuntimePrimitive::ValuePartialCmp,
+                    StandardTrait::Ord => RuntimePrimitive::ValueCmp,
+                    StandardTrait::PartialEq => RuntimePrimitive::ValueEq,
+                    StandardTrait::Hash => RuntimePrimitive::ValueHash,
+                    StandardTrait::Debug => RuntimePrimitive::ValueDebug,
+                    StandardTrait::Display => RuntimePrimitive::ValueDisplay,
                     StandardTrait::Eq => unreachable!("marker trait has no methods"),
                     _ => unreachable!("operator protocol handled above"),
                 };
                 (
                     TypeckCallTarget::TraitMethod { method, interface },
                     Vec::new(),
-                    Some(CallTarget::StandardIntrinsic(intrinsic)),
+                    Some(CallTarget::RuntimePrimitive(intrinsic)),
                 )
             } else {
                 let (implementation, impl_arguments) = self
@@ -530,8 +530,9 @@ impl FunctionLowerer<'_, '_> {
                             }))
                         }
                         TypeckCallTarget::HostFunction(id) => {
-                            CallTarget::Native(NativeCall::Host(Box::new(
-                                self.analyzed
+                            CallTarget::Native(Box::new(NativeImport::from_host(
+                                &self
+                                    .analyzed
                                     .names
                                     .hosts
                                     .function(id)
@@ -587,7 +588,9 @@ impl FunctionLowerer<'_, '_> {
                 smallvec::smallvec![*base, *index, *value],
             ),
             (BuiltinFunction::Print, [message]) => (
-                CallTarget::Native(NativeCall::Host(Box::new(host_interface::standard_log()))),
+                CallTarget::Native(Box::new(NativeImport::from_host(
+                    &host_interface::standard_log(),
+                ))),
                 smallvec::smallvec![*message],
             ),
             _ => {

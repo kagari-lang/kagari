@@ -1,11 +1,6 @@
 use crate::source::{lower::support::lower_scalar, types::raise_type};
 mod aggregates;
 mod calls;
-mod native_defaults;
-mod native_destinations;
-mod native_lazy;
-mod native_results;
-mod native_sources;
 mod patterns;
 use crate::source::lower::{instances::CallableInstance, state::LoopScope};
 use hir::{BinaryOp as HirBinaryOp, Condition, ExprKind};
@@ -23,15 +18,12 @@ use kagari_hir::{
     types::abi::{lower_nominal_type, lower_type},
 };
 mod equality;
-mod iterators;
 mod native_calls;
 mod native_contracts;
-mod native_keys;
-mod native_sets;
 mod operators;
 mod standard;
 
-use kagari_abi::{representation::ValueType, standard::StandardIntrinsic};
+use kagari_abi::{representation::ValueType, standard::RuntimePrimitive};
 use kagari_hir::hir;
 use std::ops::ControlFlow;
 
@@ -510,7 +502,7 @@ impl FunctionLowerer<'_, '_> {
                 let dst = self.alloc_temp(ValueType::Str);
                 self.emit(Instruction::Call {
                     dst: Some(dst),
-                    callee: CallTarget::StandardIntrinsic(StandardIntrinsic::ArrayJoin),
+                    callee: CallTarget::RuntimePrimitive(RuntimePrimitive::StringPartsJoin),
                     args: smallvec::smallvec![array, separator],
                 });
                 Ok(dst)

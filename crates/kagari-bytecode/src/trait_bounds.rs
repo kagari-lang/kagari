@@ -8,7 +8,6 @@ use crate::{
     trait_bounds::associated::{associated_bounds_match, host_bounds_match},
 };
 use kagari_abi::{
-    native_import::NativeSignature,
     standard::traits::StandardTrait,
     types::{
         self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
@@ -187,7 +186,13 @@ fn linked_bounds_match(
     {
         return Ok(false);
     }
-    for import in &module.engine_imports {
+    for import in &module.native_imports {
+        if let Some(host) = &import.contract.host {
+            if !import.structurally_valid() || !module.host_interface.functions.contains(host) {
+                return Ok(false);
+            }
+            continue;
+        }
         let Some(owner) = closure
             .iter()
             .find(|owner| owner.identity == import.instance.declaration.module)
@@ -201,39 +206,7 @@ fn linked_bounds_match(
         else {
             return Ok(false);
         };
-        if !import.matches_declaration(
-            declaration,
-            &catalog,
-            |id| {
-                closure
-                    .iter()
-                    .find(|owner| owner.identity == id.module)?
-                    .public_items
-                    .iter()
-                    .find_map(|item| {
-                        if let PublicAbiItem::InterfaceTable(table) = item {
-                            (table.declaration == *id).then_some(table.as_ref())
-                        } else {
-                            None
-                        }
-                    })
-            },
-            |instance| {
-                let function = closure
-                    .iter()
-                    .find(|owner| owner.identity == instance.declaration.module)?
-                    .functions
-                    .iter()
-                    .find(|function| function.identity.as_ref() == Some(instance))?;
-                Some(NativeSignature {
-                    params: (0..function.metadata.params.len())
-                        .map(|slot| function.metadata.semantic.params.get(&slot).cloned())
-                        .collect::<Option<Vec<_>>>()?,
-                    result: function.metadata.semantic.result.clone()?,
-                })
-            },
-            &cancel,
-        )? {
+        if !import.matches_declaration(declaration, &catalog, &cancel)? {
             return Ok(false);
         }
     }

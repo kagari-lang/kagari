@@ -1,12 +1,9 @@
 //! Access-flow validation runs after physical operand and layout validation.
 
-mod storage;
-
 use kagari_abi::{
-    callable::NativeCall,
     operations::{IterOp, StandardEnumOp},
     scalar::BuiltinType as B,
-    standard::{StandardIntrinsic as S, surface::StandardEnum},
+    standard::{RuntimePrimitive as S, surface::StandardEnum},
     types::{self as abi, AbiType, NominalAbiType, PublicAbiItem, access, verify as abi_verify},
 };
 use kagari_common::{cancellation::CancellationToken, collection::CollectionAccess as Access};
@@ -695,199 +692,15 @@ pub(super) fn verify(
                     let facts = args.iter().map(|r| get(*r).unwrap()).collect::<Vec<_>>();
                     let mut result = Fact::default();
                     match callee {
-                        CallTarget::StandardIntrinsic(intrinsic) => {
-                            if let Some(storage_result) =
-                                storage::validate(*intrinsic, &facts).map_err(|_| invalid())?
-                            {
-                                result = storage_result;
-                            }
-                            if let S::ParseNumber(ty) = intrinsic {
-                                result = Fact::typed(AbiType::StandardEnum {
-                                    kind: StandardEnum::Result,
-                                    args: vec![
-                                        AbiType::Builtin(*ty),
-                                        AbiType::StandardEnum {
-                                            kind: kagari_abi::standard::surface::StandardEnum::ParseError,
-                                            args: vec![],
-                                        },
-                                    ],
-                                });
-                            }
-
-                            if matches!(
-                                intrinsic,
-                                S::MapKeys
-                                    | S::MapValues
-                                    | S::MapEntries
-                                    | S::ArrayCopyFrom
-                                    | S::ArrayExtend
-                                    | S::ArrayCopyWithin
-                                    | S::ArrayListFromFn
-                                    | S::ArrayListFrom
-                                    | S::LinkedHashMapFrom
-                                    | S::LinkedHashSetFrom
-                            ) {
-                                return Err(invalid());
-                            }
-                            if matches!(
-                                intrinsic,
-                                S::ArrayReplaceStorage
-                                    | S::CollectionRetainStorage
-                                    | S::CollectionMutationBegin
-                                    | S::ArrayReserve
-                                    | S::MapReserve
-                                    | S::SetReserve
-                                    | S::ArraySwap
-                                    | S::ArrayReverse
-                                    | S::ArrayTruncate
-                                    | S::ArrayExtendStorage
-                                    | S::ArraySwapRemove
-                                    | S::ArrayPush
-                                    | S::ArrayPop
-                                    | S::ArrayInsert
-                                    | S::ArrayRemove
-                                    | S::ArrayClear
-                                    | S::ArrayFill
-                                    | S::ArrayCopyFromStorage
-                                    | S::ArrayCopyWithinBounds
-                                    | S::MapInsert
-                                    | S::MapRemove
-                                    | S::MapClear
-                                    | S::SetInsert
-                                    | S::SetRemove
-                                    | S::SetClear
-                                    | S::KeyMapInsert
-                                    | S::KeyMapRemove
-                                    | S::KeySetInsert
-                                    | S::KeySetRemove
-                            ) && facts
-                                .first()
-                                .is_some_and(|f| f.access == Some(Access::ReadOnly))
-                            {
-                                return Err(invalid());
-                            }
-                            if matches!(
-                                intrinsic,
-                                S::MapKeysStorage | S::MapValuesStorage | S::MapEntriesStorage
-                            ) {
-                                result.access = Some(Access::Mutable);
-                                match &facts[0].ty {
-                                    Some(AbiType::Map { key, value, .. }) => {
-                                        let item = match intrinsic {
-                                            S::MapKeysStorage => (**key).clone(),
-                                            S::MapValuesStorage => (**value).clone(),
-                                            _ => AbiType::Tuple(vec![
-                                                (**key).clone(),
-                                                (**value).clone(),
-                                            ]),
-                                        };
-                                        result = Fact::typed(AbiType::Array(
-                                            Box::new(item),
-                                            Access::Mutable,
-                                        ));
-                                    }
-                                    Some(_) => return Err(invalid()),
-                                    None => {}
-                                }
-                            }
-                            if matches!(
-                                intrinsic,
-                                S::ArrayCopyFromStorage
-                                    | S::ArrayExtendStorage
-                                    | S::ArrayReplaceStorage
-                            ) {
-                                let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
-                                else {
-                                    return Err(invalid());
-                                };
-                                if !flows(
-                                    &facts[1],
-                                    &AbiType::Array(item.clone(), Access::ReadOnly),
-                                ) {
+                        CallTarget::RuntimePrimitive(intrinsic) => {
+                            if *intrinsic == S::StringPartsJoin {
+                                if facts[0].ty.as_ref().is_some_and(|ty| !matches!(ty,
+                                    AbiType::Array(item, _) if **item == AbiType::Builtin(B::String))) {
                                     return Err(invalid());
                                 }
-                            }
-                            if *intrinsic == S::IterResume
-                                && !matches!(
-                                    facts.first().and_then(|f| f.ty.as_ref()),
-                                    Some(AbiType::Iter(_))
-                                )
-                            {
-                                return Err(invalid());
-                            }
-                            if *intrinsic == S::ArrayRemoveRangePrepare {
-                                let Some(AbiType::Array(item, Access::Mutable)) = &facts[0].ty
-                                else {
-                                    return Err(invalid());
-                                };
-                                let bound = AbiType::StandardEnum {
-                                    kind: StandardEnum::Bound,
-                                    args: vec![AbiType::Builtin(B::USize)],
-                                };
-                                if !flows(&facts[1], &bound) || !flows(&facts[2], &bound) {
-                                    return Err(invalid());
-                                }
-                                let storage = AbiType::Array(item.clone(), Access::Mutable);
-                                result =
-                                    Fact::typed(AbiType::Tuple(vec![storage.clone(), storage]));
-                            }
-                            if *intrinsic == S::ArrayCopyWithinBounds {
-                                if !matches!(&facts[0].ty, Some(AbiType::Array(_, Access::Mutable)))
-                                {
-                                    return Err(invalid());
-                                }
-                                let bound = AbiType::StandardEnum {
-                                    kind: StandardEnum::Bound,
-                                    args: vec![AbiType::Builtin(B::USize)],
-                                };
-                                if !flows(&facts[1], &bound)
-                                    || !flows(&facts[2], &bound)
-                                    || !flows(&facts[3], &AbiType::Builtin(B::USize))
-                                {
-                                    return Err(invalid());
-                                }
-                                result = Fact::typed(AbiType::Builtin(B::Unit));
-                            }
-                            if matches!(intrinsic, S::KeyMapInsert | S::KeySetInsert) {
-                                match (&facts[0].ty, intrinsic) {
-                                    (Some(AbiType::Map { key, value, .. }), S::KeyMapInsert)
-                                        if !flows(&facts[3], key) || !flows(&facts[4], value) =>
-                                    {
-                                        return Err(invalid());
-                                    }
-                                    (Some(AbiType::Set(key, _)), S::KeySetInsert)
-                                        if !flows(&facts[3], key) =>
-                                    {
-                                        return Err(invalid());
-                                    }
-                                    _ => {}
-                                }
-                                result = facts[0].clone();
-                            }
-                            if matches!(intrinsic, S::KeyMapGet | S::KeyMapRemove)
-                                && let Some(AbiType::Map { value, .. }) = &facts[0].ty
-                            {
-                                result = Fact::typed(AbiType::StandardEnum {
-                                    kind: StandardEnum::Option,
-                                    args: vec![(**value).clone()],
-                                });
-                            }
-                            if *intrinsic == S::KeyCandidates {
-                                let key = match &facts[0].ty {
-                                    Some(AbiType::Map { key, .. }) | Some(AbiType::Set(key, _)) => {
-                                        Some((**key).clone())
-                                    }
-                                    _ => None,
-                                };
-                                if let Some(key) = key {
-                                    result = Fact::typed(AbiType::Array(
-                                        Box::new(AbiType::Tuple(vec![
-                                            AbiType::Builtin(B::I64),
-                                            key,
-                                        ])),
-                                        Access::Mutable,
-                                    ));
-                                }
+                                result = Fact::typed(AbiType::Builtin(B::String));
+                            } else if matches!(intrinsic, S::ValueDebug | S::ValueDisplay) {
+                                result = Fact::typed(AbiType::Builtin(B::String));
                             }
                         }
                         CallTarget::Function(target)
@@ -951,8 +764,8 @@ pub(super) fn verify(
                             }
                             result = Fact::typed(output);
                         }
-                        CallTarget::Native(NativeCall::Engine(target)) => {
-                            let target = &module.engine_imports[target.index()];
+                        CallTarget::Native(target) => {
+                            let target = &module.native_imports[target.index()];
                             for (value, parameter) in facts.iter().zip(&target.signature.params) {
                                 if !flows(value, parameter) {
                                     return Err(invalid());
@@ -960,15 +773,7 @@ pub(super) fn verify(
                             }
                             result = Fact::typed(target.signature.result.clone());
                         }
-                        CallTarget::Native(NativeCall::Host(target)) => {
-                            let target = &module.host_interface.functions[target.index()];
-                            for (value, parameter) in facts.iter().zip(&target.params) {
-                                if !flows(value, &AbiType::from_host_type(&parameter.ty)) {
-                                    return Err(invalid());
-                                }
-                            }
-                            result = Fact::typed(AbiType::from_host_type(&target.return_type));
-                        }
+
                         CallTarget::RuntimeHelper(
                             RuntimeHelper::ReflectGetField(name)
                             | RuntimeHelper::ReflectSetField(name),

@@ -35,11 +35,11 @@ fn main()->i32 {{{source}val out=source.{call};42}}
             ));
             let root = program.root.index();
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|import| import.binding == EngineNativeBinding::TraitDefault(binding))
                 .unwrap();
-            let list = program.modules[root].engine_imports[import]
+            let list = program.modules[root].native_imports[import]
                 .witnesses
                 .iter()
                 .position(|witness| {
@@ -51,7 +51,7 @@ fn main()->i32 {{{source}val out=source.{call};42}}
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
             for mutation in 0..12 {
                 let mut forged = artifact.clone();
-                let contract = &mut forged.program.modules[root].engine_imports[import];
+                let contract = &mut forged.program.modules[root].native_imports[import];
                 match mutation {
                     0 => {
                         contract.witnesses.remove(list);

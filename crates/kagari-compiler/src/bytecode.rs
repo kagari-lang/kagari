@@ -1,25 +1,23 @@
 use crate::bytecode::debug::collect_debug_metadata;
-use kagari_bytecode::{BytecodeProgram, verify_program};
 mod debug;
 use kagari_abi::{
-    callable::NativeCall,
     ids::FunctionRef,
     layout::{EnumLayout, StructLayout},
-    native_import::EngineNativeImport,
+    native_import::NativeImport,
     operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
     representation::ValueType,
     types::{AbiType, ConcreteFunctionIdentity, NominalAbiType, PublicAbiItem},
 };
 use kagari_bytecode::{
     BinaryOp, BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot,
-    BytecodeVerificationError, CallTarget, ConstantOperand, EngineImportId, EnumId, FieldRef,
-    FunctionMetadata, FunctionRecord, HostImportId, InterfaceMethodSlot, InterfaceTableRecord,
-    InterfaceTableRef, JumpTarget, LocalSlot, ModuleRef, ModuleSlot, PathId, PathRecord, Register,
-    RootSlotLayout, RuntimeHelper, StructId, UnaryOp, verify_module,
+    BytecodeProgram, BytecodeVerificationError, CallTarget, ConstantOperand, EnumId, FieldRef,
+    FunctionMetadata, FunctionRecord, InterfaceMethodSlot, InterfaceTableRecord, InterfaceTableRef,
+    JumpTarget, LocalSlot, ModuleRef, ModuleSlot, NativeImportId, PathId, PathRecord, Register,
+    RootSlotLayout, RuntimeHelper, StructId, UnaryOp, verify_module, verify_program,
 };
 use kagari_common::{
     Span,
-    host_interface::{HostFunctionDeclaration, HostInterface},
+    host_interface::HostInterface,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
 use kagari_mir::{
@@ -103,7 +101,7 @@ fn lower_linked_module(
     let mut module = BytecodeModule {
         dependencies,
         host_interface: context.host_interface,
-        engine_imports: context.engine_imports,
+        native_imports: context.native_imports,
         native_declarations: ir.abi.native_declarations.clone(),
         identity: ir.identity.clone(),
         source_name: ir.source_name.clone(),
@@ -255,7 +253,7 @@ struct BytecodeLoweringContext<'a> {
     ir: Option<&'a VerifiedMirModule>,
     interface_tables: HashMap<ModuleIdentity, Vec<InterfaceTableRecord>>,
     host_interface: HostInterface,
-    engine_imports: Vec<EngineNativeImport>,
+    native_imports: Vec<NativeImport>,
     paths: Vec<PathRecord>,
 }
 
@@ -301,32 +299,28 @@ impl BytecodeLoweringContext<'_> {
         (module, InterfaceTableRef::new(table))
     }
 
-    fn engine_import(&mut self, contract: &EngineNativeImport) -> EngineImportId {
+    fn native_import(&mut self, contract: &NativeImport) -> NativeImportId {
+        if let Some(host) = &contract.contract.host
+            && !self
+                .host_interface
+                .functions
+                .iter()
+                .any(|existing| existing.id == host.id)
+        {
+            self.host_interface.functions.push(host.clone());
+        }
         if let Some(index) = self
-            .engine_imports
+            .native_imports
             .iter()
             .position(|existing| existing == contract)
         {
-            return EngineImportId::new(index);
+            return NativeImportId::new(index);
         }
-        let id = EngineImportId::new(self.engine_imports.len());
-        self.engine_imports.push(contract.clone());
+        let id = NativeImportId::new(self.native_imports.len());
+        self.native_imports.push(contract.clone());
         id
     }
 
-    fn host_import(&mut self, declaration: &HostFunctionDeclaration) -> HostImportId {
-        if let Some(index) = self
-            .host_interface
-            .functions
-            .iter()
-            .position(|entry| entry.id == declaration.id)
-        {
-            return HostImportId::new(index);
-        }
-        let id = HostImportId::new(self.host_interface.functions.len());
-        self.host_interface.functions.push(declaration.clone());
-        id
-    }
     fn structure_id(&self, id: &NominalAbiType) -> StructId {
         StructId::new(
             self.structures
@@ -663,12 +657,10 @@ fn lower_instruction(
                     interface: contract.interface.clone(),
                     method_slot: contract.method_slot,
                 },
-                MirCallTarget::Native(NativeCall::Engine(contract)) => {
-                    CallTarget::Native(NativeCall::Engine(context.engine_import(contract)))
+                MirCallTarget::Native(contract) => {
+                    CallTarget::Native(context.native_import(contract))
                 }
-                MirCallTarget::Native(NativeCall::Host(declaration)) => {
-                    CallTarget::Native(NativeCall::Host(context.host_import(declaration)))
-                }
+
                 MirCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
                 MirCallTarget::Closure {
                     value,
@@ -679,8 +671,8 @@ fn lower_instruction(
                     params: params.clone(),
                     return_type: *return_type,
                 },
-                MirCallTarget::StandardIntrinsic(intrinsic) => {
-                    CallTarget::StandardIntrinsic(*intrinsic)
+                MirCallTarget::RuntimePrimitive(intrinsic) => {
+                    CallTarget::RuntimePrimitive(*intrinsic)
                 }
                 MirCallTarget::RuntimeHelper(helper) => {
                     CallTarget::RuntimeHelper(lower_runtime_helper(helper))

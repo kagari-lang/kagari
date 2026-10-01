@@ -258,7 +258,7 @@ pub(crate) fn read_integer(ty: BuiltinType, value: &Value) -> Result<i128, Runti
 mod boundary_tests {
     use super::*;
     use crate::builtin::invoke_standard;
-    use kagari_abi::standard::StandardIntrinsic;
+    use kagari_abi::standard::RuntimePrimitive;
 
     #[test]
     fn native_integer_results_and_error_context_preserve_the_declared_contract() {
@@ -324,7 +324,7 @@ mod boundary_tests {
             ),
         ] {
             let error =
-                invoke_standard(gc, StandardIntrinsic::Integer(method, receiver), &[]).unwrap_err();
+                invoke_standard(gc, RuntimePrimitive::Integer(method, receiver), &[]).unwrap_err();
             assert_eq!(
                 error.message(),
                 format!("{label}: integer method requires two arguments")

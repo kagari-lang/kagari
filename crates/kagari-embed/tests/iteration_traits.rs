@@ -431,7 +431,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
         .unwrap();
     let root = artifact.program.root.index();
     let import = artifact.program.modules[root]
-        .engine_imports
+        .native_imports
         .iter()
         .position(|import| {
             import.binding == EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionIter)
@@ -441,7 +441,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
         let mut program = artifact.program.clone();
         match corrupt {
             0 => {
-                program.modules[root].engine_imports[import]
+                program.modules[root].native_imports[import]
                     .signature
                     .params[0] = AbiType::Builtin(BuiltinType::I32)
             }
@@ -462,7 +462,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 args.clear();
             }
             _ => {
-                program.modules[root].engine_imports[import]
+                program.modules[root].native_imports[import]
                     .signature
                     .params[0] = AbiType::Array(
                     Box::new(AbiType::StandardEnum {

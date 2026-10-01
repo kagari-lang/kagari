@@ -4,7 +4,7 @@ use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{StandardIntrinsic, bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{RuntimePrimitive, bindings::NativeProtocolMethod, traits::StandardTrait},
     types::AbiType,
 };
 use kagari_bytecode::{BytecodeInstruction, CallTarget, KbcArtifact, verify_program};
@@ -44,13 +44,13 @@ fn main(){{{setup}{body}}}
             ));
             let root = program.root.index();
             let binding = match method {
-                "from" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayListFrom),
-                "copy" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayCopyFrom),
-                "extend" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayExtend),
+                "from" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayListFrom),
+                "copy" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayCopyFrom),
+                "extend" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayExtend),
                 _ => EngineNativeBinding::Protocol(NativeProtocolMethod::CollectionFromIterator),
             };
             let import = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|import| import.binding == binding)
                 .unwrap();
@@ -58,7 +58,7 @@ fn main(){{{setup}{body}}}
             for mutation in 0..14 {
                 let mut forged = artifact.clone();
                 let module = &mut forged.program.modules[root];
-                let contract = &mut module.engine_imports[import];
+                let contract = &mut module.native_imports[import];
                 let iterable = contract
                     .witnesses
                     .iter()
@@ -141,7 +141,7 @@ fn main(){{{setup}{body}}}
                         .push(AbiType::Builtin(BuiltinType::I32)),
                     11 => {
                         contract.binding =
-                            EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayListFromFn)
+                            EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayListFromFn)
                     }
                     12 => contract
                         .instance
@@ -152,10 +152,10 @@ fn main(){{{setup}{body}}}
                         for function in &mut module.functions {
                             for instruction in &mut function.instructions {
                                 if let BytecodeInstruction::Call { callee, .. } = instruction
-                                    && matches!(callee,CallTarget::Native(NativeCall::Engine(id)) if id.index()==import)
+                                    && matches!(callee,CallTarget::Native(id) if id.index()==import)
                                 {
-                                    *callee = CallTarget::StandardIntrinsic(
-                                        StandardIntrinsic::ArrayListFrom,
+                                    *callee = CallTarget::RuntimePrimitive(
+                                        RuntimePrimitive::ArrayListFrom,
                                     );
                                     replaced = true;
                                 }

@@ -5,6 +5,11 @@ Final ST06 acceptance and matched measurements remain open and carry into
 [native provider replacement](native-provider-refactor.md) final acceptance under
 the user's 2026-10-01 data-design-first direction. This checkpoint does not prove
 that generic infrastructure is independent of standard-method identities.
+The following paragraphs describe the ST predecessor checkpoint. Its old native
+implementations are removed by the NR reset; only the small array proof is currently
+reinstalled. The predecessor build/test claims below are not current results.
+Legacy behavior tests and fixtures remain restoration obligations in the NR ledger.
+
 Whole checked programs
 now retain their dependency closure through portable validation, artifact loading
 and engine/host integration. The workspace builds; compiler and VM library suites

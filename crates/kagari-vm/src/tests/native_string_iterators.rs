@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -50,19 +50,19 @@ fn string_iterators_preserve_every_budget_cut() {
             .max_by_key(|method| method.len())
             .unwrap();
         let operation = match *method {
-            "bytes" => StandardIntrinsic::StringBytes,
-            "char_indices" => StandardIntrinsic::StringCharIndices,
-            "split" => StandardIntrinsic::StringSplit,
-            "splitn" => StandardIntrinsic::StringSplitN,
-            "split_whitespace" => StandardIntrinsic::StringSplitWhitespace,
-            _ => StandardIntrinsic::StringLines,
+            "bytes" => RuntimePrimitive::StringBytes,
+            "char_indices" => RuntimePrimitive::StringCharIndices,
+            "split" => RuntimePrimitive::StringSplit,
+            "splitn" => RuntimePrimitive::StringSplitN,
+            "split_whitespace" => RuntimePrimitive::StringSplitWhitespace,
+            _ => RuntimePrimitive::StringLines,
         };
         let binding = EngineNativeBinding::Intrinsic(operation);
         assert!(
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

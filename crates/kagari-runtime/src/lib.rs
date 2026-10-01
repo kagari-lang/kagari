@@ -1,3 +1,4 @@
+use crate::native::array as array_provider;
 mod authority;
 mod loading;
 mod objects;
@@ -40,7 +41,6 @@ pub mod metadata;
 pub mod module;
 mod native;
 pub mod numeric;
-mod parsing;
 pub mod range;
 pub mod reflection;
 pub mod reload;
@@ -50,7 +50,7 @@ pub mod session;
 pub mod value;
 pub mod value_semantics;
 
-use kagari_abi::standard::StandardIntrinsic;
+use kagari_abi::standard::RuntimePrimitive;
 
 pub use backend::BackendInvocationError;
 pub use backend::native::{InstalledNativeFunction, NativeInvocationFailure};
@@ -65,7 +65,10 @@ pub use module::{
     LoadedModule, ModuleEpochRetention, ModuleEpochRetentionCounts, ModuleId, ModuleInstance,
     ModuleKey, ModuleStore, VerifiedProgram,
 };
-pub use native::{NativeCallback, NativeProgress};
+pub use native::{
+    NativeAction, NativeCallback, NativeContext, NativeEntry, NativeInvocationState,
+    NativeProgress, NativeRegistration, NativeRegistry,
+};
 pub use reload::ReloadValidationError;
 pub use resource::{ResourceCounters, ResourcePolicy, ResourceState};
 pub use session::{
@@ -151,6 +154,7 @@ pub struct Runtime {
     gc: Rc<GcHeap>,
     types: TypeRegistry,
     host: HostRegistry,
+    providers: native::NativeRegistry,
     host_borrows: HostBorrowTable,
     security: SecurityContext,
     host_exposure: Rc<HostExposurePolicy>,
@@ -205,6 +209,11 @@ impl Runtime {
             gc: Rc::new(GcHeap::new(config.gc, resources.clone())),
             types: TypeRegistry::default(),
             host: HostRegistry::default(),
+            providers: {
+                let mut registry = NativeRegistry::default();
+                array_provider::install(&mut registry);
+                registry
+            },
             host_borrows: HostBorrowTable::with_resources(&resources),
             security: config.security,
             host_exposure: Rc::new(config.host_exposure),
@@ -840,7 +849,7 @@ impl Runtime {
 
     pub fn invoke_standard_builtin(
         &self,
-        intrinsic: StandardIntrinsic,
+        intrinsic: RuntimePrimitive,
         args: &[value::Value],
     ) -> Result<value::Value, BuiltinError> {
         self.resources.ensure_execution_allowed()?;

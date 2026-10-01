@@ -1,4 +1,3 @@
-use kagari_abi::callable::NativeCall;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,

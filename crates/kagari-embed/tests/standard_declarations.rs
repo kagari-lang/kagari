@@ -1,4 +1,4 @@
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_common::{
     SourceFile, host_interface::standard_log, identity::DefinitionKind,
     source_database::SourceDatabase,
@@ -39,10 +39,10 @@ fn inherent_native_declarations_enforce_receiver_shapes_and_remove_old_exports()
         .unwrap();
     let declarations = signatures.declaration_snapshot();
     for intrinsic in [
-        StandardIntrinsic::ArrayGet,
-        StandardIntrinsic::ArrayPush,
-        StandardIntrinsic::ArrayJoin,
-        StandardIntrinsic::ResultMap,
+        RuntimePrimitive::ArrayGet,
+        RuntimePrimitive::ArrayPush,
+        RuntimePrimitive::StringPartsJoin,
+        RuntimePrimitive::ResultMap,
     ] {
         let mut found = 0;
         for source in declarations.files() {

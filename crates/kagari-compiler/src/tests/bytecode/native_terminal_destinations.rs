@@ -65,14 +65,14 @@ fn main(){{val items:ArrayList<{item}> =[{values}];val source=Cursor{{items,inde
             ));
             let root = program.root.index();
             let index = program.modules[root]
-                .engine_imports
+                .native_imports
                 .iter()
                 .position(|import| import.binding == EngineNativeBinding::TraitDefault(operation))
                 .unwrap();
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
             for mutation in 0..23 {
                 let mut forged = artifact.clone();
-                let import = &mut forged.program.modules[root].engine_imports[index];
+                let import = &mut forged.program.modules[root].native_imports[index];
                 let boolean = AbiType::Builtin(BuiltinType::Bool);
                 let factory = import
                     .witnesses
@@ -184,7 +184,7 @@ fn main(){{val items:ArrayList<{item}> =[{values}];val source=Cursor{{items,inde
                 rejected(&forged, &format!("{operation:?} {destination} {mutation}"));
                 checked += 1;
             }
-            let factory = artifact.program.modules[root].engine_imports[index]
+            let factory = artifact.program.modules[root].native_imports[index]
                 .witnesses
                 .iter()
                 .find(|witness| {
@@ -194,7 +194,7 @@ fn main(){{val items:ArrayList<{item}> =[{values}];val source=Cursor{{items,inde
                 });
             if let Some(factory) = factory {
                 let mut forged = artifact.clone();
-                let import = &mut forged.program.modules[root].engine_imports[index];
+                let import = &mut forged.program.modules[root].native_imports[index];
                 let source = if !matches!(
                     factory.methods[0].arguments.last(),
                     Some(AbiType::Array(..))

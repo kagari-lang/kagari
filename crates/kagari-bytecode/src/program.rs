@@ -5,7 +5,7 @@ use crate::{
 use kagari_abi::{
     host, layout,
     standard::traits::StandardTrait,
-    types::{AbiType, PublicAbiItem, TypeAbiKind, native::engine_implementation_shape, verify},
+    types::{AbiType, PublicAbiItem, TypeAbiKind, verify},
 };
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
@@ -184,7 +184,7 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             if let Some(kind) = StandardTrait::from_id(&instance.declaration)
                 && (!kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
                     || !table.native_bridge
-                        && !engine_implementation_shape(table)
+                        && instance.declaration.module != table.declaration.module
                         && !kind.conversion()
                         && !matches!(
                             table.for_type,

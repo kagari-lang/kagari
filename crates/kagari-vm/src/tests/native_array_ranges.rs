@@ -1,5 +1,5 @@
 use crate::{Vm, VmError, tests::common::compile_test_bytecode};
-use kagari_abi::{callable::EngineNativeBinding, standard::StandardIntrinsic};
+use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
 use kagari_bytecode::KbcArtifact;
 use kagari_common::host_interface::standard_log;
 use kagari_runtime::{
@@ -45,15 +45,15 @@ fn array_ranges_preserve_every_budget_cut() {
         let baseline = baseline::all().find(|case| case.name == name).unwrap();
         let program = compile_test_bytecode(&source);
         let binding = match name.split('_').next().unwrap() {
-            "copy" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayCopyWithin),
-            "remove" => EngineNativeBinding::Intrinsic(StandardIntrinsic::ArrayRemoveRange),
+            "copy" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayCopyWithin),
+            "remove" => EngineNativeBinding::Intrinsic(RuntimePrimitive::ArrayRemoveRange),
             _ => panic!("{name}"),
         };
         assert!(
             program
                 .modules
                 .iter()
-                .flat_map(|m| &m.engine_imports)
+                .flat_map(|m| &m.native_imports)
                 .any(|i| i.binding == binding),
             "{name}"
         );

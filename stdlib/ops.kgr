@@ -1,534 +1,79 @@
-//! Standard ops protocols.
-
-/// The binary `+` operation.
-///
-/// Operands are evaluated once, from left to right. Output may differ from the operand
-/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
-/// operations retain checked overflow and division rules.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     val value = 8 + 2;
-///     std::debug::assert(value == 10, "operator");
-/// }
-/// ```
 pub trait Add<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn add(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `-` operation.
-///
-/// Operands are evaluated once, from left to right. Output may differ from the operand
-/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
-/// operations retain checked overflow and division rules.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     val value = 8 - 2;
-///     std::debug::assert(value == 6, "operator");
-/// }
-/// ```
 pub trait Sub<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn sub(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `*` operation.
-///
-/// Operands are evaluated once, from left to right. Output may differ from the operand
-/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
-/// operations retain checked overflow and division rules.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     val value = 8 * 2;
-///     std::debug::assert(value == 16, "operator");
-/// }
-/// ```
 pub trait Mul<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn mul(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `/` operation.
-///
-/// Operands are evaluated once, from left to right. Output may differ from the operand
-/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
-/// operations retain checked overflow and division rules.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     val value = 8 / 2;
-///     std::debug::assert(value == 4, "operator");
-/// }
-/// ```
 pub trait Div<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn div(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `%` operation.
-///
-/// Operands are evaluated once, from left to right. Output may differ from the operand
-/// types. Custom implementations use ordinary static calls and may trap. Builtin integer
-/// operations retain checked overflow and division rules.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     val value = 8 % 2;
-///     std::debug::assert(value == 0, "operator");
-/// }
-/// ```
 pub trait Rem<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn rem(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The unary `-` operation.
-///
-/// The operand is evaluated once. Output may differ from the input type. This does not
-/// override short-circuit operators, assignment or identity comparison.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     std::debug::assert(-7 == 0 - 7, "unary");
-/// }
-/// ```
 pub trait Neg {
-    /// The result type.
     type Output;
-    /// Apply the unary operation.
     fn neg(self) -> Self::Output;
 }
-
-/// The unary `!` operation.
-///
-/// The operand is evaluated once. Output may differ from the input type. This does not
-/// override short-circuit operators, assignment or identity comparison.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     std::debug::assert(!false, "unary");
-/// }
-/// ```
-/// Integer implementations complement every bit of the declared operand width.
 pub trait Not {
-    /// The result type.
     type Output;
-    /// Apply the unary operation.
     fn not(self) -> Self::Output;
 }
-
-/// Read access through `container[index]`.
-///
-/// Receiver and index are evaluated once, in that order. The result is an ordinary value;
-/// object results retain their identity. This protocol does not define writable indexing or
-/// container writeback. Bounds failures in native array indexing trap.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn main() {
-///     val values = [7];
-///     std::debug::assert(values[0] == 7, "index");
-/// }
-/// ```
 pub trait Index<Rhs> {
-    /// The returned element type.
     type Output;
-    /// Read the element addressed by the index.
     fn index(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `&` operation.
-/// Integer operands use the left operand's fixed width. Operands evaluate once.
-/// Builtin integer operands must have the same type.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert((0xf0u8 & 0x3cu8) == 0x30u8, "BitAnd");
-/// ```
 pub trait BitAnd<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn bitand(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `|` operation.
-/// Integer operands use the left operand's fixed width. Operands evaluate once.
-/// Builtin integer operands must have the same type.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert((0xf0u8 | 0x0fu8) == 0xffu8, "BitOr");
-/// ```
 pub trait BitOr<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn bitor(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `^` operation.
-/// Integer operands use the left operand's fixed width. Operands evaluate once.
-/// Builtin integer operands must have the same type.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert((0xffu8 ^ 0x0fu8) == 0xf0u8, "BitXor");
-/// ```
 pub trait BitXor<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn bitxor(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `<<` operation.
-/// Integer operands use the left operand's fixed width. Operands evaluate once.
-/// Shift counts must be nonnegative and smaller than the left operand width; otherwise execution traps.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert((128u8 << 1u16) == 0u8, "Shl");
-/// ```
 pub trait Shl<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn shl(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The binary `>>` operation.
-/// Integer operands use the left operand's fixed width. Operands evaluate once.
-/// Shift counts must be nonnegative and smaller than the left operand width; otherwise execution traps.
-///
-/// # Examples
-///
-/// ```kgr
-/// std::debug::assert((-128i8 >> 7u8) == -1i8, "Shr");
-/// ```
 pub trait Shr<Rhs> {
-    /// The result type.
     type Output;
-    /// Apply the operation to these operands.
     fn shr(self, rhs: Rhs) -> Self::Output;
 }
-
-/// The half-open interval `start..end`.
-///
-/// Bounds are immutable values and construction does not allocate an element array.
-/// Present endpoints evaluate once and use the same builtin integer type.
-/// All range forms implement `RangeBounds`; array copy bounds use `usize`.
-/// Each `iter()` call creates a fresh lazy iterator. Copying a range never shares
-/// cursor state. Collect explicitly when an array is needed.
-/// Reversed bounds iterate zero times. A closed range ending at the integer maximum
-/// completes without overflowing.
-///
-/// # Examples
-///
-/// ```kgr
-/// val range: Range<u8> = 1u8..4u8;
-/// val values = range.iter().collect::<ArrayList<u8>>();
-/// std::debug::assert(values.len() == 3usize && values[2] == 3u8, "exclusive end");
-/// ```
 #[builtin_type(Range)]
 pub type Range<T>;
-
-/// The closed interval `start..=end`.
-///
-/// Bounds are immutable values and construction does not allocate an element array.
-/// Present endpoints evaluate once and use the same builtin integer type.
-/// All range forms implement `RangeBounds`; array copy bounds use `usize`.
-/// Each `iter()` call creates a fresh lazy iterator. Copying a range never shares
-/// cursor state. Collect explicitly when an array is needed.
-/// Reversed bounds iterate zero times. A closed range ending at the integer maximum
-/// completes without overflowing.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = (254u8..=255u8).iter().collect::<ArrayList<u8>>();
-/// std::debug::assert(values.len() == 2usize && values[1] == 255u8, "inclusive maximum");
-/// ```
 #[builtin_type(RangeInclusive)]
 pub type RangeInclusive<T>;
-
-/// The interval `start..` with no upper bound.
-///
-/// Bounds are immutable values and construction does not allocate an element array.
-/// Present endpoints evaluate once and use the same builtin integer type.
-/// All range forms implement `RangeBounds`; array copy bounds use `usize`.
-/// Each `iter()` call creates a fresh lazy iterator. Copying a range never shares
-/// cursor state. Collect explicitly when an array is needed.
-///
-/// # Panics
-///
-/// Iteration traps when producing the next value would overflow the endpoint type.
-/// Use `take`, `break` or another termination condition for open-ended ranges.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = (10u16..).iter().take(3usize).collect::<ArrayList<u16>>();
-/// std::debug::assert(values[2] == 12u16, "bounded consumption");
-/// ```
 #[builtin_type(RangeFrom)]
 pub type RangeFrom<T>;
-
-/// The interval `..end` with no lower bound and an exclusive upper bound.
-///
-/// Bounds are immutable values and construction does not allocate an element array.
-/// Present endpoints evaluate once and use the same builtin integer type.
-/// All range forms implement `RangeBounds`; array copy bounds use `usize`.
-/// This form describes bounds only and does not implement `Iterable`.
-/// An array consumer supplies a missing start or end from its current length.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = [1, 2, 3, 4];
-/// values.copy_within(..2, 2);
-/// std::debug::assert(values[2] == 1 && values[3] == 2, "prefix copy");
-/// ```
 #[builtin_type(RangeTo)]
 pub type RangeTo<T>;
-
-/// The interval `..=end` with no lower bound and an inclusive upper bound.
-///
-/// Bounds are immutable values and construction does not allocate an element array.
-/// Present endpoints evaluate once and use the same builtin integer type.
-/// All range forms implement `RangeBounds`; array copy bounds use `usize`.
-/// This form describes bounds only and does not implement `Iterable`.
-/// An array consumer supplies a missing start or end from its current length.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = [1, 2, 3, 4];
-/// values.copy_within(..=1, 2);
-/// std::debug::assert(values[2] == 1 && values[3] == 2, "inclusive prefix");
-/// ```
 #[builtin_type(RangeToInclusive)]
 pub type RangeToInclusive<T>;
-
-/// The unbounded interval `..`.
-///
-/// Bounds are immutable values and construction does not allocate an element array.
-/// There is no endpoint type parameter; this type implements `RangeBounds<T>` for any `T`.
-/// All range forms implement `RangeBounds`; array copy bounds use `usize`.
-/// This form describes bounds only and does not implement `Iterable`.
-/// An array consumer supplies a missing start or end from its current length.
-///
-/// # Examples
-///
-/// ```kgr
-/// val values = [1, 2, 3];
-/// values.copy_within(.., 0);
-/// std::debug::assert(values[2] == 3, "full self copy");
-/// ```
 #[builtin_type(RangeFull)]
 pub type RangeFull;
-
-
-/// An included, excluded or unbounded endpoint returned by `RangeBounds`.
-///
-/// `Included(x)` belongs to the interval; `Excluded(x)` does not. `Unbounded`
-/// leaves that side to the consumer. For array copying, an unbounded start is
-/// zero and an unbounded end is the array's length at validation time.
-///
-/// # Examples
-///
-/// ```kgr
-/// val range = 1u8..4u8;
-/// std::debug::assert(range.start_bound() == Bound::Included(1u8), "lower bound");
-/// std::debug::assert(range.end_bound() == Bound::Excluded(4u8), "upper bound");
-/// ```
 #[builtin_enum(Bound)]
 pub enum Bound<T> {
-    /// The endpoint belongs to the interval.
     Included(T),
-    /// The endpoint does not belong to the interval.
     Excluded(T),
-    /// No endpoint restricts this side.
     Unbounded,
 }
-
-/// Describe interval endpoints independently of the container consuming them.
-///
-/// Returned bounds use value semantics; Kagari does not expose borrowed endpoints.
-/// The consumer determines whether bounds are valid for its domain. Implementing
-/// this trait does not itself validate ordering or container length.
-/// `ArrayList.copy_within` evaluates all arguments first, calls `start_bound`
-/// then `end_bound` once each, and checks both results against the current array.
-///
-/// # Examples
-///
-/// ```kgr
-/// struct Window { val offset: usize, val limit: usize }
-/// impl RangeBounds<usize> for Window {
-///     fn start_bound(self) -> Bound<usize> { Bound::Included(self.offset) }
-///     fn end_bound(self) -> Bound<usize> { Bound::Excluded(self.limit) }
-/// }
-/// fn main() {
-///     val values = [1, 2, 3, 4];
-///     values.copy_within(Window { offset: 0, limit: 2 }, 2);
-///     std::debug::assert(values[2] == 1 && values[3] == 2, "custom bounds");
-/// }
-/// ```
 pub trait RangeBounds<T> {
-    /// Return the lower endpoint.
     fn start_bound(self) -> Bound<T>;
-    /// Return the upper endpoint.
     fn end_bound(self) -> Bound<T>;
 }
 
-/// Iterate the integer bounds lazily with a fresh cursor.
-impl<T> Iterable for Range<T> {
-    /// The integer yielded at each step.
-    type Item = T;
-    /// A fresh cursor retaining these bounds.
-    type Iter = Iter<T>;
-    /// Create a fresh iterator without materializing the sequence.
-    #[intrinsic(CollectionIter)]
-    fn iter(self) -> Iter<T>;
-}
-
-/// Iterate the integer bounds lazily with a fresh cursor.
-impl<T> Iterable for RangeInclusive<T> {
-    /// The integer yielded at each step.
-    type Item = T;
-    /// A fresh cursor retaining these bounds.
-    type Iter = Iter<T>;
-    /// Create a fresh iterator without materializing the sequence.
-    #[intrinsic(CollectionIter)]
-    fn iter(self) -> Iter<T>;
-}
-
-/// Iterate the integer bounds lazily with a fresh cursor.
-impl<T> Iterable for RangeFrom<T> {
-    /// The integer yielded at each step.
-    type Item = T;
-    /// A fresh cursor retaining these bounds.
-    type Iter = Iter<T>;
-    /// Create a fresh iterator without materializing the sequence.
-    #[intrinsic(CollectionIter)]
-    fn iter(self) -> Iter<T>;
-}
-
-/// Expose the included, excluded or unbounded endpoints.
-impl<T> RangeBounds<T> for Range<T> {
-    /// Return the lower bound without advancing an iterator.
-    #[intrinsic(RangeStartBound)]
-    fn start_bound(self) -> Bound<T>;
-    /// Return the upper bound without advancing an iterator.
-    #[intrinsic(RangeEndBound)]
-    fn end_bound(self) -> Bound<T>;
-}
-
-/// Expose the included, excluded or unbounded endpoints.
-impl<T> RangeBounds<T> for RangeInclusive<T> {
-    /// Return the lower bound without advancing an iterator.
-    #[intrinsic(RangeStartBound)]
-    fn start_bound(self) -> Bound<T>;
-    /// Return the upper bound without advancing an iterator.
-    #[intrinsic(RangeEndBound)]
-    fn end_bound(self) -> Bound<T>;
-}
-
-/// Expose the included, excluded or unbounded endpoints.
-impl<T> RangeBounds<T> for RangeFrom<T> {
-    /// Return the lower bound without advancing an iterator.
-    #[intrinsic(RangeStartBound)]
-    fn start_bound(self) -> Bound<T>;
-    /// Return the upper bound without advancing an iterator.
-    #[intrinsic(RangeEndBound)]
-    fn end_bound(self) -> Bound<T>;
-}
-
-/// Expose the included, excluded or unbounded endpoints.
-impl<T> RangeBounds<T> for RangeTo<T> {
-    /// Return the lower bound without advancing an iterator.
-    #[intrinsic(RangeStartBound)]
-    fn start_bound(self) -> Bound<T>;
-    /// Return the upper bound without advancing an iterator.
-    #[intrinsic(RangeEndBound)]
-    fn end_bound(self) -> Bound<T>;
-}
-
-/// Expose the included, excluded or unbounded endpoints.
-impl<T> RangeBounds<T> for RangeToInclusive<T> {
-    /// Return the lower bound without advancing an iterator.
-    #[intrinsic(RangeStartBound)]
-    fn start_bound(self) -> Bound<T>;
-    /// Return the upper bound without advancing an iterator.
-    #[intrinsic(RangeEndBound)]
-    fn end_bound(self) -> Bound<T>;
-}
-
-/// Expose the included, excluded or unbounded endpoints.
-impl<T> RangeBounds<T> for RangeFull {
-    /// Return the lower bound without advancing an iterator.
-    #[intrinsic(RangeStartBound)]
-    fn start_bound(self) -> Bound<T>;
-    /// Return the upper bound without advancing an iterator.
-    #[intrinsic(RangeEndBound)]
-    fn end_bound(self) -> Bound<T>;
-}
-
-/// A callable value with positional arguments and an associated result.
-///
-/// Values of type `fn(...) -> R`, including closures, implement this protocol
-/// automatically. User types may
-/// implement `Fn<(A, B)>` with `type Output = R` and `call(self, args: (A, B))`.
-/// `F: Fn(A, B) -> R` is the corresponding bound shorthand. An omitted result
-/// means unit. Calls evaluate the receiver and arguments once, left to right.
-///
-/// Implementations may mutate shared state and may trap. This protocol promises
-/// neither purity, reentrancy, thread safety, nor a limited number of invocations.
-/// Kagari has no separate `FnMut` or `FnOnce` protocols.
-///
-/// # Examples
-///
-/// ```kgr
-/// fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }
-/// fn main() {
-///     std::debug::assert(apply(|x| x + 1, 41) == 42, "callable bound");
-/// }
-/// ```
 pub trait Fn<Args> {
-    /// The value returned by a successful call.
     type Output;
-    /// Invoke this value. Zero arguments use `()`, one uses `(value,)`.
     fn call(self, args: Args) -> Self::Output;
 }
