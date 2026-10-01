@@ -85,6 +85,7 @@ pub(crate) fn import(
             source_map,
             attributes: vec![],
             registered_native_api: true,
+            registered_declarations: definition.native_declarations(),
             native_types: importer.native_types,
             native_enums: HashMap::new(),
             native_functions: importer.native_functions,

@@ -1,6 +1,7 @@
 //! Recheck associated outputs and host trait bounds against the dependency closure.
 mod applications;
 mod associated;
+mod callables;
 mod methods;
 
 use crate::{
@@ -189,6 +190,14 @@ fn linked_bounds_match(
     {
         return Ok(false);
     }
+    if module
+        .native_declarations
+        .iter()
+        .flat_map(|declaration| &declaration.callable_requirements)
+        .any(|required| !catalog.callable_requirement_valid(required))
+    {
+        return Ok(false);
+    }
     for import in &module.native_imports {
         if let Some(host) = &import.host {
             if !import.structurally_valid() || !module.host_interface.functions.contains(host) {
@@ -210,6 +219,13 @@ fn linked_bounds_match(
             return Ok(false);
         };
         if !import.matches_declaration(declaration, &catalog, &cancel)? {
+            return Ok(false);
+        }
+        if import
+            .callables
+            .iter()
+            .any(|call| !callables::target_valid(call, closure))
+        {
             return Ok(false);
         }
     }

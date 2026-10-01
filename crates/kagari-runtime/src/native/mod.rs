@@ -16,10 +16,14 @@ use crate::{
 };
 
 use kagari_abi::{
-    native_import::NativeSignature,
+    callable::CallableImplementation,
+    native_import::{NativeSignature, callables::NativeCallableApplication},
     types::{AbiType, NominalAbiType},
 };
-use kagari_bytecode::instruction::{NativeImportId, Register};
+use kagari_bytecode::{
+    instruction::{NativeImportId, Register},
+    module::CallableTarget,
+};
 use std::{iter, rc::Rc};
 
 pub struct NativeCallback {
@@ -31,6 +35,10 @@ pub struct NativeCallback {
 pub(crate) enum NativeCallbackTarget {
     Closure(ClosureValueSnapshot),
     Interface(Box<RootedInterfaceMethod>),
+    Selected {
+        implementation: LoadedModule,
+        target: CallableTarget,
+    },
 }
 pub enum NativeProgress {
     Continue,
@@ -64,6 +72,7 @@ pub struct NativeContext<'a> {
     runtime: &'a Runtime,
     owner: &'a LoadedModule,
     signature: &'a NativeSignature,
+    callables: &'a [NativeCallableApplication],
     roots: &'a RootSet,
     arguments: usize,
 }
@@ -146,6 +155,67 @@ impl NativeContext<'_> {
         self.runtime
             .matches_interface_method_abi(value, ty, self.owner)
     }
+    /// Invoke one compiler-selected dependency with its full checked argument list.
+    /// Selection and generic specialization have already happened before linking.
+    pub fn selected_callback(
+        &self,
+        slot: usize,
+        arguments: Vec<Value>,
+    ) -> Result<NativeCallback, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("selected native callable contract");
+        let selected = self.callables.get(slot).ok_or_else(invalid)?;
+        let implementation = self
+            .owner
+            .members()
+            .find(|owner| owner.bytecode.identity == selected.instance.declaration.module)
+            .ok_or_else(invalid)?;
+        self.runtime.validate_loaded_module(&implementation)?;
+        if arguments.len() != selected.signature.params.len()
+            || arguments
+                .iter()
+                .zip(&selected.signature.params)
+                .any(|(value, ty)| {
+                    !self
+                        .runtime
+                        .matches_interface_method_abi(value, ty, &implementation)
+                })
+        {
+            return Err(invalid());
+        }
+        let target = match &selected.implementation {
+            CallableImplementation::Script => implementation
+                .bytecode
+                .functions
+                .iter()
+                .find(|function| function.identity.as_ref() == Some(&selected.instance))
+                .map(|function| CallableTarget::Script(function.id)),
+            CallableImplementation::Native(binding) => implementation
+                .bytecode
+                .native_imports
+                .iter()
+                .position(|import| {
+                    import.instance == selected.instance
+                        && &import.binding == binding
+                        && import.signature == selected.signature
+                })
+                .map(|index| CallableTarget::Native(NativeImportId::new(index))),
+            CallableImplementation::Required => None,
+        }
+        .ok_or_else(invalid)?;
+        let roots = self
+            .heap()
+            .root_execution_values(arguments.clone())
+            .ok_or_else(invalid)?;
+        Ok(NativeCallback {
+            target: NativeCallbackTarget::Selected {
+                implementation,
+                target,
+            },
+            arguments,
+            result: selected.signature.result.clone(),
+            _roots: roots,
+        })
+    }
 }
 
 pub(crate) struct NativeInvocation {
@@ -189,6 +259,7 @@ impl NativeInvocation {
             runtime,
             owner: &implementation,
             signature,
+            callables: &implementation.bytecode.native_imports[import.index()].callables,
             roots: &roots,
             arguments: arguments.len(),
         };
@@ -248,6 +319,7 @@ impl NativeInvocation {
             runtime,
             owner: &self.implementation,
             signature,
+            callables: &self.implementation.bytecode.native_imports[self.import.index()].callables,
             roots: &self.roots,
             arguments: signature.params.len(),
         };
@@ -279,6 +351,7 @@ impl NativeInvocation {
             runtime,
             owner: &self.implementation,
             signature,
+            callables: &self.implementation.bytecode.native_imports[self.import.index()].callables,
             roots: &self.roots,
             arguments: signature.params.len(),
         };

@@ -1,5 +1,5 @@
 use crate::source::lower::{self, MirLoweringError, instances::MirLoweringOptions};
-use kagari_abi::types::ConcreteFunctionIdentity;
+use kagari_abi::{callable::CallableImplementation, types::ConcreteFunctionIdentity};
 use kagari_common::{diagnostic::DiagnosticKind, identity::ModuleIdentity};
 use kagari_hir::program::CheckedProgram;
 use kagari_hir::{resolver::resolved::ResolvedName, typeck::FunctionImplementation};
@@ -8,7 +8,10 @@ use kagari_mir::{
     instruction::{CallTarget, Instruction},
     program::{ProgramError, ProgramErrorKind, VerifiedMirProgram, verify_program},
 };
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    iter,
+};
 #[derive(Debug)]
 pub enum SourceProgramError {
     Lowering {
@@ -245,7 +248,14 @@ fn execution_dependencies(module: &MirModule) -> impl Iterator<Item = ModuleIden
             } if contract.host.is_none() => Some(contract),
             _ => None,
         })
-        .map(|contract| contract.instance.declaration.module.clone());
+        .flat_map(|contract| {
+            iter::once(contract.instance.declaration.module.clone()).chain(
+                contract
+                    .callables
+                    .iter()
+                    .map(|callable| callable.instance.declaration.module.clone()),
+            )
+        });
     callables.chain(native)
 }
 
@@ -263,6 +273,15 @@ fn callable_demands(module: &MirModule) -> impl Iterator<Item = ConcreteFunction
                 declaration: contract.declaration.clone(),
                 arguments: contract.arguments.clone(),
             }],
+            Instruction::Call {
+                callee: CallTarget::Native(import),
+                ..
+            } => import
+                .callables
+                .iter()
+                .filter(|call| call.implementation == CallableImplementation::Script)
+                .map(|call| call.instance.clone())
+                .collect(),
             _ => vec![],
         })
 }

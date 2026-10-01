@@ -1,4 +1,5 @@
 use crate::source::lower::MirLoweringError;
+mod callables;
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, traits::MethodDefault},

@@ -15,12 +15,25 @@ pub(super) fn validate(
     validator.declarations(&module.public_items, &module.trait_contracts)?;
     for declaration in &module.native_declarations {
         validator.function(&declaration.function)?;
+        for required in &declaration.callable_requirements {
+            validator.validate_type(&required.receiver)?;
+            validator.trait_application(&required.interface)?;
+            validator.types(&required.arguments)?;
+        }
     }
     for import in &module.native_imports {
         validator.types(&import.instance.arguments)?;
         validator.types(&import.signature.params)?;
         validator.validate_type(&import.signature.result)?;
         validator.bounds(&import.requirements)?;
+        for call in &import.callables {
+            validator.types(&call.instance.arguments)?;
+            validator.validate_type(&call.requirement.receiver)?;
+            validator.trait_application(&call.requirement.interface)?;
+            validator.types(&call.requirement.arguments)?;
+            validator.types(&call.signature.params)?;
+            validator.validate_type(&call.signature.result)?;
+        }
     }
     validator.layouts(&module.structures, &module.enumerations)?;
     for table in &module.interface_tables {

@@ -6,7 +6,7 @@ use kagari_syntax::{
     parser::parse,
 };
 
-use kagari_abi::callable::MethodPolicy;
+use kagari_abi::{callable::MethodPolicy, types::NativeDeclaration};
 use kagari_common::{
     cancellation::CancellationToken, identity::DefinitionId, source::SourceFile, span::Span,
 };
@@ -39,12 +39,19 @@ pub struct LoweredModule {
     pub source_map: SourceMap,
     pub attributes: Vec<AttributeFact>,
     pub(crate) registered_native_api: bool,
+    pub(crate) registered_declarations: Vec<NativeDeclaration>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
     pub(crate) native_functions: HashMap<FunctionId, DefinitionId>,
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
     pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,
+}
+
+impl LoweredModule {
+    pub fn registered_native_declarations(&self) -> &[NativeDeclaration] {
+        &self.registered_declarations
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,6 +139,7 @@ pub(crate) fn lower_module_controlled(
         source_map,
         attributes,
         registered_native_api: false,
+        registered_declarations: vec![],
         native_types: HashMap::new(),
         native_enums: HashMap::new(),
         native_functions: HashMap::new(),

@@ -9,6 +9,7 @@ use crate::{
 };
 use kagari_abi::{
     callable::CallableImplementation,
+    native_import::callables::NativeCallableRequirement,
     types::{
         AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
         GenericParameterAbi, PublicAbiItem,
@@ -39,6 +40,12 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 .is_none_or(|host| add(host.params.len()))
             || !add(import.requirements.len())
             || !add_abi_bounds(&import.requirements, &mut add)
+            || !add(import.callables.len())
+            || !import.callables.iter().all(|call| {
+                add(call.instance.arguments.len())
+                    && add(call.signature.params.len())
+                    && add_callable_requirement(&call.requirement, &mut add)
+            })
         {
             return false;
         }
@@ -50,6 +57,11 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             || !add_abi_bounds(&function.bounds, &mut add)
             || !add(function.params.len())
             || !add_function_contract(function, &mut add)
+            || !add(declaration.callable_requirements.len())
+            || !declaration
+                .callable_requirements
+                .iter()
+                .all(|required| add_callable_requirement(required, &mut add))
         {
             return false;
         }
@@ -211,6 +223,15 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     true
 }
 
+fn add_callable_requirement(
+    required: &NativeCallableRequirement,
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
+    add(required.arguments.len())
+        && add(required.interface.arguments.len())
+        && add(required.interface.associated_types.len())
+}
+
 fn add_function_contract(function: &FunctionAbi, add: &mut impl FnMut(usize) -> bool) -> bool {
     match &function.implementation {
         CallableImplementation::Native(id) => add(id.module.path.len()) && add(id.path.len()),
@@ -278,6 +299,12 @@ pub(super) fn module_abi_type_limit(module: &BytecodeModule) -> bool {
                 && function_abi_identity_limit(function)
                 && function.params.iter().all(|param| valid(&param.ty))
                 && valid(&function.return_type)
+                && declaration.callable_requirements.iter().all(|required| {
+                    required.member.within_path_limit()
+                        && valid(&required.receiver)
+                        && valid(&AbiType::Trait(required.interface.clone()))
+                        && required.arguments.iter().all(&valid)
+                })
         })
         && module.interface_tables.iter().all(|table| {
             table.declaration.within_path_limit()

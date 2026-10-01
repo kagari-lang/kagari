@@ -403,16 +403,7 @@ impl CallTarget {
                 EffectSet::call()
             }
             Self::InterfaceMethod(_) => EffectSet::runtime_call(),
-            Self::Native(_) => EffectSet {
-                reads_module: true,
-                writes_module: true,
-                reads_path: true,
-                writes_path: true,
-                reads_aggregate: true,
-                writes_aggregate: true,
-                allocates: true,
-                ..EffectSet::runtime_call()
-            },
+            Self::Native(_) => EffectSet::native_call(),
             Self::RuntimePrimitive(intrinsic) => runtime_primitive_effects(*intrinsic),
             Self::RuntimeHelper(helper) => helper.effects(),
         }

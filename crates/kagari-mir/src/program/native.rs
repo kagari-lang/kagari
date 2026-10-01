@@ -4,7 +4,10 @@ use crate::{
     instruction::{CallTarget, Instruction},
     verify::VerifiedMirModule,
 };
-use kagari_abi::types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError};
+use kagari_abi::{
+    callable::CallableImplementation,
+    types::{PublicAbiItem, proofs::ProofCatalog, substitution::TypeTransformError},
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
@@ -64,6 +67,15 @@ pub(super) fn validate(
     if !catalog.overrides_valid(cancel)? {
         return Ok(false);
     }
+    if caller
+        .abi
+        .native_declarations
+        .iter()
+        .flat_map(|declaration| &declaration.callable_requirements)
+        .any(|required| !catalog.callable_requirement_valid(required))
+    {
+        return Ok(false);
+    }
     for import in caller
         .functions
         .iter()
@@ -103,6 +115,34 @@ pub(super) fn validate(
         };
         if !import.matches_declaration(declaration, &catalog, cancel)? {
             return Ok(false);
+        }
+        for callable in &import.callables {
+            if callable.implementation == CallableImplementation::Script {
+                let Some(target) = closure
+                    .iter()
+                    .find(|owner| owner.identity == callable.instance.declaration.module)
+                    .and_then(|owner| {
+                        owner
+                            .functions
+                            .iter()
+                            .find(|function| function.instance == callable.instance)
+                    })
+                else {
+                    return Ok(false);
+                };
+                if target.params.len() != callable.signature.params.len()
+                    || target.semantic.params.len() != callable.signature.params.len()
+                    || callable
+                        .signature
+                        .params
+                        .iter()
+                        .enumerate()
+                        .any(|(index, ty)| target.semantic.params.get(&index) != Some(ty))
+                    || target.semantic.result.as_ref() != Some(&callable.signature.result)
+                {
+                    return Ok(false);
+                }
+            }
         }
     }
     Ok(true)

@@ -143,6 +143,14 @@ use the same bounded continuation/callback driver as direct native imports.
 They do not require a fabricated script body. The frame pins the implementation
 generation until return and consumes call-depth and logical-step budgets.
 
+Native imports may carry ordered, statically selected trait-member dependencies.
+The declaration owns each receiver/interface/member requirement; its concrete
+application records target identity, type arguments, implementation kind and full
+signature. Program verification reproduces the selection from checked portable
+implementation facts and requires a matching executable target in the dependency
+closure. Native code requests a slot with the complete argument list. The shared
+driver checks arguments and results and pins the selected implementation version.
+
 Public struct templates are checked against each executable instance after generic
 substitution: field count/order, names, permissions and concrete types must agree.
 Program verification also checks imported instances against the declaring module,

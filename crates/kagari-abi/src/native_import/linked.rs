@@ -51,5 +51,20 @@ pub(super) fn matches_declaration(
             return Ok(false);
         }
     }
+    if declaration.callable_requirements.len() != import.callables.len() {
+        return Ok(false);
+    }
+    for (required, selected) in declaration
+        .callable_requirements
+        .iter()
+        .zip(&import.callables)
+    {
+        let required = required
+            .apply(&substitution, cancel)?
+            .normalized(catalog, cancel)?;
+        if catalog.select_callable(&required, cancel)?.as_ref() != Some(selected) {
+            return Ok(false);
+        }
+    }
     Ok(true)
 }

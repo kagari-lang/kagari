@@ -39,7 +39,10 @@ native import references within their implementation module. Both enter retained
 callable frames and share callback return validation, budgets and cleanup. Native
 interface methods require no synthetic script body; diagnostic frames identify
 the actual native target without inventing a source location. ABI validation has
-no syntax, HIR or source catalog dependencies.
+no syntax, HIR or source catalog dependencies. Native declarations may own ordered
+trait-member requirements. Checked applications carry concrete selected targets
+and signatures; offline verification proves the selection and runtime callbacks
+use the owner's retained dependency generation without resolving trait syntax.
 
 Trait method signatures carry declaration override policy independently of their
 default implementation. Portable callable declarations retain that policy so

@@ -2,7 +2,7 @@
 use kagari_abi::{
     callable::CallableImplementation,
     native_api::NativeModule,
-    native_import::binding_id,
+    native_import::{binding_id, callables::NativeCallableRequirement},
     scalar::BuiltinType,
     types::{
         AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
@@ -180,7 +180,7 @@ pub fn module() -> NativeModule {
         Box::new(AbiType::Builtin(BuiltinType::I32)),
         CollectionAccess::Mutable,
     );
-    let mut interface = source;
+    let mut interface = source.clone();
     interface
         .associated_types
         .insert(item.clone(), array.clone());
@@ -197,6 +197,94 @@ pub fn module() -> NativeModule {
         }],
         return_type: array,
     });
+    let owner = module.definition(DefinitionKind::Function, "selected_head");
+    let generic = GenericParameterAbi {
+        owner: owner.clone(),
+        position: 0,
+    };
+    module.functions.push(FunctionAbi {
+        name: "selected_head".into(),
+        method_policy: Default::default(),
+        implementation: CallableImplementation::Native(binding_id(
+            &module.identity,
+            "selected_head",
+        )),
+        generic_params: vec![generic.clone()],
+        bounds: vec![GenericBoundAbi {
+            ty: generic.as_type(),
+            constraints: vec![ConstraintAbi::Trait(source.clone())],
+        }],
+        params: vec![ParameterAbi {
+            name: "source".into(),
+            ty: generic.as_type(),
+            mutable: false,
+        }],
+        return_type: AbiType::Projection {
+            receiver: Box::new(generic.as_type()),
+            interface: Box::new(source.clone()),
+            member: item.clone(),
+            arguments: vec![],
+        },
+    });
+    module.callable_requirements.insert(
+        owner,
+        vec![NativeCallableRequirement {
+            receiver: generic.as_type(),
+            interface: source.clone(),
+            member: NativeModule::method_id(&source.declaration, "head"),
+            arguments: vec![],
+        }],
+    );
+    let owner = module.definition(DefinitionKind::Function, "nested_head");
+    let generic = GenericParameterAbi {
+        owner: owner.clone(),
+        position: 0,
+    };
+    let output = AbiType::Projection {
+        receiver: Box::new(generic.as_type()),
+        interface: Box::new(source.clone()),
+        member: item.clone(),
+        arguments: vec![],
+    };
+    module.functions.push(FunctionAbi {
+        name: "nested_head".into(),
+        method_policy: Default::default(),
+        implementation: CallableImplementation::Native(binding_id(&module.identity, "nested_head")),
+        generic_params: vec![generic.clone()],
+        bounds: vec![
+            GenericBoundAbi {
+                ty: output.clone(),
+                constraints: vec![ConstraintAbi::Trait(source.clone())],
+            },
+            GenericBoundAbi {
+                ty: generic.as_type(),
+                constraints: vec![ConstraintAbi::Trait(source.clone())],
+            },
+        ],
+        params: vec![ParameterAbi {
+            name: "source".into(),
+            ty: generic.as_type(),
+            mutable: false,
+        }],
+        return_type: AbiType::Projection {
+            receiver: Box::new(output.clone()),
+            interface: Box::new(source.clone()),
+            member: item.clone(),
+            arguments: vec![],
+        },
+    });
+    module.callable_requirements.insert(
+        owner,
+        [generic.as_type(), output]
+            .into_iter()
+            .map(|receiver| NativeCallableRequirement {
+                receiver,
+                interface: source.clone(),
+                member: NativeModule::method_id(&source.declaration, "head"),
+                arguments: vec![],
+            })
+            .collect(),
+    );
     module
         .documentation
         .insert(item, "The value produced by this source.".into());
@@ -282,6 +370,49 @@ impl NativeInvocationState for Forward {
         Ok(NativeAction::Complete(context.retained(0).unwrap()))
     }
 }
+struct Selected;
+impl NativeInvocationState for Selected {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        context
+            .selected_callback(0, vec![context.argument(0).unwrap()])
+            .map(NativeAction::Callback)
+    }
+    fn receive(
+        &mut self,
+        context: &mut NativeContext<'_>,
+        value: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        context.heap().alloc_array(vec![])?;
+        context.retain(0, value)?;
+        Ok(NativeAction::Complete(context.retained(0).unwrap()))
+    }
+}
+struct Nested {
+    first: bool,
+}
+impl NativeInvocationState for Nested {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        context
+            .selected_callback(0, vec![context.argument(0).unwrap()])
+            .map(NativeAction::Callback)
+    }
+    fn receive(
+        &mut self,
+        context: &mut NativeContext<'_>,
+        value: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        context.heap().alloc_array(vec![])?;
+        context.retain(0, value)?;
+        if self.first {
+            self.first = false;
+            context
+                .selected_callback(1, vec![context.retained(0).unwrap()])
+                .map(NativeAction::Callback)
+        } else {
+            Ok(NativeAction::Complete(context.retained(0).unwrap()))
+        }
+    }
+}
 pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
     let mut handlers = vec![];
     for name in ["head", "echo"] {
@@ -306,6 +437,16 @@ pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
         binding_id(&module.identity, "forward"),
         1,
         |_| Ok(Box::new(Forward)),
+    ));
+    handlers.push(NativeHandler::new(
+        binding_id(&module.identity, "selected_head"),
+        1,
+        |_| Ok(Box::new(Selected)),
+    ));
+    handlers.push(NativeHandler::new(
+        binding_id(&module.identity, "nested_head"),
+        1,
+        |_| Ok(Box::new(Nested { first: true })),
     ));
     NativeApi::new(vec![module], handlers).unwrap()
 }

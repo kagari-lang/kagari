@@ -3,6 +3,7 @@
 #[path = "fixtures/native_associated_api.rs"]
 mod fixture_api;
 use kagari_abi::{
+    callable::CallableImplementation,
     native_import::binding_id,
     scalar::BuiltinType,
     types::{AbiType, GenericParameterAbi},
@@ -17,7 +18,16 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::{Runtime, RuntimeConfig, native::packages::standard_library, value::Value};
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeError,
+    native::{
+        NativeAction, NativeContext, NativeInvocationState,
+        api::{NativeApi, NativeHandler},
+        packages::standard_library,
+    },
+    value::Value,
+};
 use kagari_vm::vm::Vm;
 use std::{cell::Cell, rc::Rc};
 
@@ -286,6 +296,243 @@ fn native_callbacks_select_script_or_native_interface_targets_with_heap_results(
 }
 
 #[test]
+fn selected_trait_callbacks_use_concrete_native_or_private_script_targets() {
+    let calls = Rc::new(Cell::new(0));
+    let engine = configured_engine(calls.clone(), false);
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(), Default::default())
+        .unwrap();
+    for name in ["selected_native_main", "selected_script_main"] {
+        assert_eq!(
+            runtime
+                .execute(&loaded, name, &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    }
+    assert_eq!(calls.get(), 1);
+    let error = runtime
+        .execute(&loaded, "selected_native_empty", &[], &context)
+        .unwrap_err();
+    assert_eq!(error.error_trace().unwrap().frames[0].function_name, "head");
+    assert_eq!(calls.get(), 2);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+}
+
+struct InvalidSelected(u8);
+impl NativeInvocationState for InvalidSelected {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        let (slot, arguments) = match self.0 {
+            0 => (1, vec![context.argument(0).unwrap()]),
+            1 => (0, vec![]),
+            2 => (0, vec![Value::Bool(true)]),
+            _ => unreachable!(),
+        };
+        context
+            .selected_callback(slot, arguments)
+            .map(NativeAction::Callback)
+    }
+}
+
+#[test]
+fn selected_callbacks_reject_invalid_slots_and_arguments_before_target_entry() {
+    for case in 0..3 {
+        let target_calls = Rc::new(Cell::new(0));
+        let module = fixture_api::module();
+        let handlers = ["head", "echo", "forward", "selected_head", "nested_head"]
+            .into_iter()
+            .map(|name| {
+                let target_calls = target_calls.clone();
+                NativeHandler::new(binding_id(&module.identity, name), 0, move |_| {
+                    if name == "head" {
+                        target_calls.set(target_calls.get() + 1);
+                    }
+                    Ok(Box::new(InvalidSelected(case)))
+                })
+            })
+            .collect();
+        let engine = KagariEngine::builder()
+            .install_standard_library(false)
+            .install(NativeApi::new(vec![module], handlers))
+            .install(fixture_api::typed::native_api())
+            .build()
+            .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded = runtime
+            .load_program(&prepared(), Default::default())
+            .unwrap();
+        let error = runtime
+            .execute(&loaded, "selected_native_main", &[], &context)
+            .unwrap_err();
+        assert_eq!(error.code(), "KG_BYTECODE_VERIFICATION_FAILED");
+        assert_eq!(
+            error.error_trace().unwrap().frames[0].function_name,
+            "selected_native_main"
+        );
+        assert_eq!(target_calls.get(), 0);
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    }
+}
+
+#[test]
+fn forged_selected_trait_dependencies_are_rejected_offline() {
+    for case in 0..9 {
+        let mut program = KbcArtifact::from_bytes(ARTIFACT).unwrap().program;
+        let import = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.native_imports)
+            .find(|import| !import.callables.is_empty())
+            .unwrap();
+        match case {
+            0 => import.callables.clear(),
+            1 => import.callables[0].signature.result = AbiType::Builtin(BuiltinType::Bool),
+            2 => import.callables[0].requirement.receiver = AbiType::Builtin(BuiltinType::Bool),
+            3 => import.callables[0].instance.arguments.clear(),
+            4 => import.callables[0].effects.writes_aggregate = false,
+            5 => {
+                import.callables[0]
+                    .instance
+                    .declaration
+                    .path
+                    .last_mut()
+                    .unwrap()
+                    .name = "missing".into()
+            }
+            6 => import.callables.push(import.callables[0].clone()),
+            7 => import.callables[0].implementation = CallableImplementation::Script,
+            8 => {
+                import.callables[0]
+                    .requirement
+                    .member
+                    .path
+                    .last_mut()
+                    .unwrap()
+                    .name = "missing".into()
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            KbcArtifact::from_program(program, Default::default()).is_err(),
+            "forged selection {case}"
+        );
+    }
+}
+
+#[test]
+fn installed_native_templates_must_match_the_declared_callable_dependencies() {
+    let calls = Rc::new(Cell::new(0));
+    let mut module = fixture_api::module();
+    module.callable_requirements.clear();
+    let engine = KagariEngine::builder()
+        .install(Ok(fixture_api::api(module, calls.clone())))
+        .install(fixture_api::typed::native_api())
+        .build()
+        .unwrap();
+    let mut runtime = engine.runtime(Default::default());
+    assert!(
+        runtime
+            .load_program(&prepared(), Default::default())
+            .is_err()
+    );
+    assert_eq!(calls.get(), 0);
+}
+
+#[test]
+fn native_callable_requirements_validate_members_binders_and_declared_bounds() {
+    for case in 0..5 {
+        let mut module = fixture_api::module();
+        let owner = module.definition(DefinitionKind::Function, "selected_head");
+        let requirement = module
+            .callable_requirements
+            .get_mut(&owner)
+            .unwrap()
+            .first_mut()
+            .unwrap();
+        match case {
+            0 => requirement.member.path.last_mut().unwrap().name = "missing".into(),
+            1 => {
+                requirement.receiver = AbiType::Parameter {
+                    owner: requirement.member.clone(),
+                    position: 0,
+                }
+            }
+            2 => requirement
+                .arguments
+                .push(AbiType::Builtin(BuiltinType::I32)),
+            3 => {
+                requirement
+                    .interface
+                    .declaration
+                    .path
+                    .last_mut()
+                    .unwrap()
+                    .name = "missing".into()
+            }
+            4 => module
+                .functions
+                .iter_mut()
+                .find(|function| function.name == "selected_head")
+                .unwrap()
+                .bounds
+                .clear(),
+            _ => unreachable!(),
+        }
+        assert!(
+            module.validate().is_err(),
+            "invalid declared callable {case}"
+        );
+    }
+}
+
+#[test]
+fn associated_output_receivers_select_their_own_native_member_instances() {
+    let calls = Rc::new(Cell::new(0));
+    let engine = configured_engine(calls.clone(), false);
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(), Default::default())
+        .unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "selected_nested_main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+    assert_eq!(calls.get(), 2);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+}
+
+#[test]
 fn native_interface_frames_charge_continuations_and_clean_up_exhausted_budgets() {
     let calls = Rc::new(Cell::new(0));
     let engine = configured_engine(calls.clone(), false);
@@ -295,34 +542,42 @@ fn native_interface_frames_charge_continuations_and_clean_up_exhausted_budgets()
         .load_program(&prepared(), Default::default())
         .unwrap();
     let mut entered_before_exhaustion = false;
-    let mut finished = false;
-    for limit in 0..40 {
-        let mut limited = context.clone();
-        limited.resources.max_instruction_steps = Some(limit);
-        let before = calls.get();
-        match runtime.execute(&loaded, "callback_native_main", &[], &limited) {
-            Ok(report) => {
-                assert_eq!(report.return_value, Value::I32(42));
-                finished = true;
+    for entry in [
+        "callback_native_main",
+        "selected_native_main",
+        "selected_script_main",
+        "selected_nested_main",
+    ] {
+        let mut finished = false;
+        for limit in 0..100 {
+            let mut limited = context.clone();
+            limited.resources.max_instruction_steps = Some(limit);
+            let before = calls.get();
+            match runtime.execute(&loaded, entry, &[], &limited) {
+                Ok(report) => {
+                    assert_eq!(report.return_value, Value::I32(42));
+                    finished = true;
+                }
+                Err(error) => {
+                    assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
+                    entered_before_exhaustion |= calls.get() > before;
+                }
             }
-            Err(error) => {
-                assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
-                entered_before_exhaustion |= calls.get() > before;
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                runtime.runtime().resources().counters().current_call_depth,
+                0
+            );
+            assert!(!runtime.runtime().is_quarantined());
+            runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+            if finished {
+                break;
             }
         }
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
-        assert_eq!(
-            runtime.runtime().resources().counters().current_call_depth,
-            0
-        );
-        assert!(!runtime.runtime().is_quarantined());
-        runtime.runtime().collect_garbage().unwrap();
-        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
-        if finished {
-            break;
-        }
+        assert!(finished, "budget sweep must reach completion for {entry}");
     }
-    assert!(finished && entered_before_exhaustion);
+    assert!(entered_before_exhaustion);
     let before = calls.get();
     let mut shallow = context;
     shallow.resources.max_call_depth = Some(1);
@@ -557,6 +812,50 @@ mod source {
             )
             .unwrap();
         assert_eq!(artifact.to_bytes().unwrap(), ARTIFACT);
+    }
+
+    #[test]
+    fn selected_private_script_targets_remain_pinned_after_reload() {
+        let engine = engine(Rc::new(Cell::new(0)));
+        let source = include_str!("fixtures/native_associated.kgr").replace(
+            "fn head(self) -> ArrayList<i32> { self.values }",
+            "fn head(self) -> ArrayList<i32> { [self.values[0usize] + 1] }",
+        );
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("memory://native-associated.kgr", source),
+                Default::default(),
+                Default::default(),
+            )
+            .unwrap();
+        let candidate =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let old = runtime
+            .load_program(&prepared(), Default::default())
+            .unwrap();
+        let current = runtime
+            .reload_program(&old, &candidate, Default::default())
+            .unwrap();
+        runtime.runtime().collect_garbage().unwrap();
+        for (program, expected) in [(&old, 42), (&current, 43)] {
+            assert_eq!(
+                runtime
+                    .execute(program, "selected_script_main", &[], &context)
+                    .unwrap()
+                    .return_value,
+                Value::I32(expected)
+            );
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+            assert_eq!(
+                runtime.runtime().resources().counters().current_call_depth,
+                0
+            );
+            runtime.runtime().collect_garbage().unwrap();
+            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        }
     }
 
     #[test]

@@ -17,6 +17,11 @@ pub(super) fn validate<'a>(
     validator.declarations(&module.abi.public_items, &module.abi.trait_contracts)?;
     for declaration in &module.abi.native_declarations {
         validator.function(&declaration.function)?;
+        for required in &declaration.callable_requirements {
+            validator.validate_type(&required.receiver)?;
+            validator.trait_application(&required.interface)?;
+            validator.types(&required.arguments)?;
+        }
     }
     validator.layouts(&module.structures, &module.enumerations)?;
     for instance in &module.interface_instances {
@@ -58,6 +63,14 @@ pub(super) fn validate<'a>(
                     validator.types(&import.signature.params)?;
                     validator.validate_type(&import.signature.result)?;
                     validator.bounds(&import.requirements)?;
+                    for call in &import.callables {
+                        validator.types(&call.instance.arguments)?;
+                        validator.validate_type(&call.requirement.receiver)?;
+                        validator.trait_application(&call.requirement.interface)?;
+                        validator.types(&call.requirement.arguments)?;
+                        validator.types(&call.signature.params)?;
+                        validator.validate_type(&call.signature.result)?;
+                    }
                 }
                 Instruction::Call {
                     callee: CallTarget::SourceFunction(contract),

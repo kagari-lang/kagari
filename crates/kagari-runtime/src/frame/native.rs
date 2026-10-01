@@ -167,6 +167,13 @@ impl ExecutionStack {
             NativeCallbackTarget::Interface(method) => {
                 self.push_interface_method(runtime, *method, &request.arguments, None)?
             }
+            NativeCallbackTarget::Selected {
+                implementation,
+                target,
+            } => {
+                runtime.validate_loaded_module(&implementation)?;
+                self.push_resolved(implementation, target, &request.arguments, None, None)?;
+            }
         }
         self.current_mut()?.return_to = ReturnDestination::Native;
         Ok(())

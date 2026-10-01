@@ -95,7 +95,8 @@ impl FunctionLowerer<'_, '_> {
             &self.instance.substitution,
             span,
         )?;
-        let import = NativeImport {
+        let mut import = NativeImport {
+            callables: vec![],
             instance: ConcreteFunctionIdentity {
                 declaration,
                 arguments,
@@ -108,6 +109,7 @@ impl FunctionLowerer<'_, '_> {
             },
             requirements,
         };
+        import.callables = self.planner.native_callables(&import, span)?;
         if !import.structurally_valid() {
             return Err(invalid());
         }
@@ -180,6 +182,7 @@ impl FunctionLowerer<'_, '_> {
         }
         self.emit_native_application(
             NativeImport {
+                callables: vec![],
                 instance: ConcreteFunctionIdentity {
                     declaration: declaration.clone(),
                     arguments: arguments.iter().map(lower_type).collect(),
@@ -245,6 +248,7 @@ impl FunctionLowerer<'_, '_> {
         let result = instantiate(&signature.return_type);
         self.emit_native_application(
             NativeImport {
+                callables: vec![],
                 instance: ConcreteFunctionIdentity {
                     declaration: method.clone(),
                     arguments: arguments.iter().map(lower_type).collect(),

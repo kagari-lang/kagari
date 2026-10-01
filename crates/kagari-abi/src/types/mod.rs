@@ -10,6 +10,7 @@ mod wire;
 
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
+    native_import::callables::NativeCallableRequirement,
     representation::ValueType,
     scalar::BuiltinType,
     standard::{
@@ -111,6 +112,8 @@ pub struct FunctionAbi {
 pub struct NativeDeclaration {
     pub declaration: DefinitionId,
     pub function: FunctionAbi,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub callable_requirements: Vec<NativeCallableRequirement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

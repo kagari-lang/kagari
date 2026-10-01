@@ -28,14 +28,19 @@ Artifacts may be used by:
 
 ## Current executable contract
 
-Current products use KBC format v114, `kagari-runtime-abi-v137`, `KMIR` v11
+Current products use KBC format v115, `kagari-runtime-abi-v138`, `KMIR` v12
 and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
 the provider descriptor and its separate per-contract version are removed. Older
 products are rejected before execution without a migration reader.
 
 One native import table carries source identity, concrete type arguments, binding
-ID, applied signature and declaration bounds. Generic verification checks carried
-source declarations and instantiation. Native effects use a common conservative
+ID, applied signature, declaration bounds and ordered selected callable applications.
+Each application carries the required receiver/interface/member, concrete target
+identity and type arguments, implementation kind, full signature and conservative
+effects. Offline verification reselects against carried checked implementation
+facts and rejects a mismatched or missing executable target. The runtime invokes
+the sealed selection through its retained dependency generation. Generic verification
+checks carried source declarations and instantiation. Native effects use a common conservative
 classification, independent of artifact claims. Runtime resolves the installed ID,
 checks the application against its trusted registered declaration and pins the
 entry owner. No per-function effect/access table or duplicate signature template is
@@ -65,7 +70,7 @@ live heap state/Rust references. Generic persistent traced state remains NR03 wo
 The reset native_provider.kbc fixture covers array direct/interface/callback calls
 with serialized and source-free execution. The old feature_artifact.kbc remains
 tracked for NR04 restoration: its bytes/API are superseded and do not load under
-v114. This does not reduce the required final feature matrix.
+v115. This does not reduce the required final feature matrix.
 
 ## SDK Feature Boundary
 

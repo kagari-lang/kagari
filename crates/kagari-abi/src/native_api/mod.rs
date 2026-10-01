@@ -1,6 +1,7 @@
 //! Authoritative native API declarations shared by compilation, installation and tooling.
 use crate::{
     callable::CallableImplementation,
+    native_import::callables::NativeCallableRequirement,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericParameterAbi, NativeDeclaration,
         NominalAbiType, PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
@@ -51,6 +52,9 @@ pub struct NativeModule {
     pub implementations: Vec<NativeImplementation>,
     pub functions: Vec<FunctionAbi>,
     pub documentation: BTreeMap<DefinitionId, String>,
+    /// Ordered callback slots owned by each native declaration. The compiler
+    /// specializes these requirements; generated source does not select targets.
+    pub callable_requirements: BTreeMap<DefinitionId, Vec<NativeCallableRequirement>>,
 }
 
 impl NativeModule {
@@ -62,6 +66,7 @@ impl NativeModule {
             implementations: vec![],
             functions: vec![],
             documentation: BTreeMap::new(),
+            callable_requirements: BTreeMap::new(),
         }
     }
 
@@ -183,21 +188,28 @@ impl NativeModule {
             .functions
             .iter()
             .map(|function| NativeDeclaration {
+                callable_requirements: self
+                    .callable_requirements
+                    .get(&self.definition(DefinitionKind::Function, &function.name))
+                    .cloned()
+                    .unwrap_or_default(),
                 declaration: self.definition(DefinitionKind::Function, &function.name),
                 function: function.clone(),
             })
             .collect::<Vec<_>>();
         for (index, implementation) in self.implementations.iter().enumerate() {
             let owner = self.implementation_id(index);
-            result.extend(
-                implementation
-                    .methods
-                    .iter()
-                    .map(|function| NativeDeclaration {
-                        declaration: Self::method_id(&owner, &function.name),
-                        function: function.clone(),
-                    }),
-            );
+            result.extend(implementation.methods.iter().map(|function| {
+                NativeDeclaration {
+                    callable_requirements: self
+                        .callable_requirements
+                        .get(&Self::method_id(&owner, &function.name))
+                        .cloned()
+                        .unwrap_or_default(),
+                    declaration: Self::method_id(&owner, &function.name),
+                    function: function.clone(),
+                }
+            }));
         }
         result
     }
@@ -282,6 +294,32 @@ impl NativeModule {
             }
         }
         let declarations = self.native_declarations();
+        for required in declarations
+            .iter()
+            .flat_map(|declaration| &declaration.callable_requirements)
+        {
+            if required.interface.declaration.module == self.identity
+                && !self.traits.iter().any(|contract| {
+                    self.definition(DefinitionKind::Trait, &contract.name)
+                        == required.interface.declaration
+                        && contract.methods.iter().any(|method| {
+                            Self::method_id(&required.interface.declaration, &method.name)
+                                == required.member
+                                && method.generic_params.len() == required.arguments.len()
+                        })
+                })
+            {
+                return Err(fail());
+            }
+        }
+        if self.callable_requirements.len() > 4096
+            || self
+                .callable_requirements
+                .keys()
+                .any(|id| !declarations.iter().any(|decl| &decl.declaration == id))
+        {
+            return Err(fail());
+        }
         if declarations.iter().any(|item| {
             !matches!(
                 item.function.implementation,

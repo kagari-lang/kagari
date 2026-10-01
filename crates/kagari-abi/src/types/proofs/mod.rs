@@ -2,6 +2,7 @@
 //! This catalog borrows executable contracts; it does not reconstruct source
 //! signatures or infer types. Declaration validity remains the module verifier's
 //! responsibility, while this layer checks dependency-dependent obligations.
+mod callables;
 mod composition;
 mod normalize;
 mod ownership;

@@ -1,5 +1,7 @@
 //! Checked native applications. Declarations own signatures; IDs select installed entries.
 use crate::{
+    callable::CallableImplementation,
+    effects::EffectSet,
     native_import::linked::matches_declaration,
     types::{
         AbiType, ConcreteFunctionIdentity, GenericBoundAbi, NativeDeclaration,
@@ -12,6 +14,7 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
 };
 use serde::{Deserialize, Serialize};
+pub mod callables;
 mod linked;
 
 /// An installed declaration names an entry within its module's binding namespace.
@@ -41,6 +44,8 @@ pub struct NativeImport {
     pub signature: NativeSignature,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub requirements: Vec<GenericBoundAbi>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    pub callables: Vec<callables::NativeCallableApplication>,
     /// Existing host borrow/schema/authority facts belong to the host adapter.
     pub host: Option<HostFunctionDeclaration>,
 }
@@ -62,6 +67,7 @@ impl NativeImport {
                 result: AbiType::from_host_type(&declaration.return_type),
             },
             requirements: vec![],
+            callables: vec![],
             host: Some(declaration.clone()),
         }
     }
@@ -84,6 +90,26 @@ impl NativeImport {
             && self.instance.arguments.len() <= 4096
             && self.signature.params.len() <= 4096
             && self.requirements.len() <= 4096
+            && self.callables.len() <= 4096
+            && self.callables.iter().all(|call| {
+                call.effects == EffectSet::native_call()
+                    && call.instance.declaration.within_path_limit()
+                    && call.instance.arguments.len() <= 4096
+                    && call.instance.arguments.iter().all(valid)
+                    && call.requirement.member.within_path_limit()
+                    && call.requirement.arguments.len() <= 4096
+                    && call.requirement.arguments.iter().all(valid)
+                    && valid(&call.requirement.receiver)
+                    && valid(&AbiType::Trait(call.requirement.interface.clone()))
+                    && call.signature.params.len() <= 4096
+                    && call.signature.params.iter().all(valid)
+                    && valid(&call.signature.result)
+                    && match &call.implementation {
+                        CallableImplementation::Script => true,
+                        CallableImplementation::Native(binding) => binding.within_path_limit(),
+                        CallableImplementation::Required => false,
+                    }
+            })
             && self.instance.arguments.iter().all(valid)
             && self.signature.params.iter().all(valid)
             && valid(&self.signature.result)

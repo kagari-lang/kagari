@@ -1,4 +1,4 @@
-use game::associated::{Source, echo, forward};
+use game::associated::{Source, echo, forward, selected_head, nested_head};
 use game::typed_associated::{TypedSource, Transform};
 fn read<S: Source>(source: S) -> S::Item { source.head() }
 fn dynamic_main() -> i32 {
@@ -18,6 +18,13 @@ impl Source for ScriptSource {
 }
 fn callback_native_main() -> i32 { forward([[42]])[0usize] }
 fn callback_script_main() -> i32 { forward(ScriptSource { values: [42] })[0usize] }
+fn selected_native_main() -> i32 { selected_head([[42]])[0usize] }
+fn selected_script_main() -> i32 { selected_head(ScriptSource { values: [42] })[0usize] }
+fn selected_native_empty() -> i32 {
+    val empty: ArrayList<ArrayList<i32>> = [];
+    selected_head(empty)[0usize]
+}
+fn selected_nested_main() -> i32 { nested_head([[42]]) }
 fn callback_native_empty() -> i32 {
     val empty: ArrayList<ArrayList<i32>> = [];
     forward(empty)[0usize]

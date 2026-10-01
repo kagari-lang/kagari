@@ -444,6 +444,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleAbi {
                 })
                 .collect();
             Some(NativeDeclaration {
+                callable_requirements: module
+                    .lowered
+                    .registered_native_declarations()
+                    .iter()
+                    .find(|item| &item.declaration == declaration)
+                    .map(|item| item.callable_requirements.clone())
+                    .unwrap_or_default(),
                 declaration: declaration.clone(),
                 function: abi,
             })

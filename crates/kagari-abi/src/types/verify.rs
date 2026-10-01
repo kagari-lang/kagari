@@ -275,8 +275,42 @@ pub fn validate_native_declarations(
             .then_some(&receiver);
         if !bounds_valid_in(&function.bounds, &params, self_owner, cancel)
             || !signature_valid(function, &params, self_owner, cancel)
+            || declaration.callable_requirements.len() > 4096
         {
             return Err(LayoutValidationError::Invalid);
+        }
+        for required in &declaration.callable_requirements {
+            let mut owner = required.member.clone();
+            let member = owner.path.pop();
+            if owner != required.interface.declaration
+                || !member.is_some_and(|part| {
+                    part.kind == DefinitionKind::Method
+                        && part.occurrence == 0
+                        && !part.name.is_empty()
+                })
+                || !required.member.within_path_limit()
+                || required.arguments.len() > 4096
+                || !type_valid(&required.receiver, &params, self_owner, cancel)
+                || !type_valid(
+                    &AbiType::Trait(required.interface.clone()),
+                    &params,
+                    self_owner,
+                    cancel,
+                )
+                || required
+                    .arguments
+                    .iter()
+                    .any(|ty| !type_valid(ty, &params, self_owner, cancel))
+                || (!required.receiver.is_concrete()
+                    && !function.bounds.iter().any(|bound| {
+                        bound.ty == required.receiver
+                            && bound
+                                .constraints
+                                .contains(&ConstraintAbi::Trait(required.interface.clone()))
+                    }))
+            {
+                return Err(LayoutValidationError::Invalid);
+            }
         }
     }
     Ok(())

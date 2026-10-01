@@ -171,6 +171,7 @@ fn native_application(
         return Err(invalid());
     };
     let import = NativeImport {
+        callables: vec![],
         instance: ConcreteFunctionIdentity {
             declaration: declaration.clone(),
             arguments: arguments.to_vec(),

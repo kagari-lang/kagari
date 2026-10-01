@@ -9,7 +9,7 @@ migration checkpoint with final combined acceptance and matched measurements ope
 Those obligations carry into NR final acceptance; they are not claimed complete.
 The [roadmap](implementation-roadmap.md) records the revised ordering. The first
 checkpoint replaced method override policy. Declaration identities, common imports and a
-direct/trait/callback array proof now execute; required-callable metadata, persistent
+direct/trait/callback array proof now execute; method/default callable metadata, persistent
 state, arbitrary external source catalogs and full-library restoration remain open.
 
 ## Current design decision (2026-10-01)
@@ -128,7 +128,7 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; checked interface callbacks select script/native targets | Carry statically selected trait-member requirements for native generic calls and complete remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; dynamic interfaces and registered free-function requirements select script/native targets | Complete method/default requirement authoring and remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
 | Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
@@ -246,7 +246,8 @@ an execution owner without rebuilding a central method catalog in production.
 - [x] 1: math package, composition proof, inventory and entry baseline.
 - [ ] 2: common selected calls, callback packs and traceable returned state.
   - [x] Typed outer argument packs and checked resumed results; external repeated/nested proof.
-  - [ ] Checked bounds/associated outputs and selected callable/default requirements.
+  - [x] Named free-function bounds, associated outputs and checked selected trait-member callback proof.
+  - [ ] Native method/default requirements and typed authoring, Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
@@ -2044,4 +2045,64 @@ reported as accepted or disabled.
 Next: carry checked selected trait-member dependencies through native declarations,
 applications and linking, exposing them to the shared callback driver. Restore
 Ord/Ordering and sort_by/sort after that proof, followed by managed iterator state.
+Goal mode remains active.
+
+
+### NR02 checkpoint: checked selected trait-member callbacks (2026-10-01)
+
+Checkpoint 2 advances the static selected-call path for registered generic free
+functions. It does not accept checkpoint 2 or any complete NR phase. Native
+method/default requirement materialization, typed requirement authoring,
+Ord/sorting, managed returned state and full restoration remain open.
+
+- Add ordered NativeCallableRequirement records to native declarations. Each slot
+  identifies a receiver, applied interface, member and member type arguments.
+  Validate declaration ownership, generic binders, member arity and the declared
+  receiver bound; preserve the records through direct HIR import. Generated text
+  remains a tooling view and never determines callback target selection.
+- Specialize requirements through the checked source catalog, normalize associated
+  receivers/outputs and carry NativeCallableApplication records in native imports.
+  Applications contain exact concrete target identity/arguments, implementation
+  kind, parameter/result signature and common conservative effects. Demand private
+  script bodies and native interface instances in the dependency closure.
+- Reproduce selections with the source-independent ABI proof catalog. MIR/bytecode
+  verification checks requirements against carried implementation facts and actual
+  script/native targets; runtime linking still matches the complete trusted
+  installed declaration. Bound checks alone do not authorize an arbitrary target.
+  Selected effects use the shared native-call classification rather than claims.
+- Add NativeContext.selected_callback(slot, arguments). The shared callback driver
+  validates the complete argument list and result, roots values through receive,
+  and retains the selected dependency generation. Selection creates no interface
+  object or fabricated script body and performs no runtime trait inference.
+- Prove application-owned selected_head<S: Source> against native Array receivers
+  and a caller-private script implementation. nested_head additionally selects
+  distinct S and S::Item receivers and invokes both native instances under GC
+  threshold one. Source-free execution works with default installation disabled.
+  Every logical budget cut reaches clean termination; callback traps and wrong
+  slots/argument counts/types release frames/roots before target entry. Reloaded
+  private script methods return 43 while old loaded programs retain 42.
+- Reject forged/missing requirements, receivers, targets, type arguments, signatures,
+  implementation kinds and effects; reject installed templates with removed slots.
+  Bound ordering in the raw fixture follows the existing canonical ABI ordering.
+- Bump runtime ABI to v138, KBC to v115 and KMIR to v12 for declaration/application
+  schema changes. Helper ABI v6 remains. Regenerate native_provider, native_bounds
+  and native_associated products; exact source emission and portable MIR/native
+  preparation agree. Superseded full-library products remain NR04-owned work.
+
+Validation actually performed: 74 SDK tests pass across native_associated (22),
+native_bounds (8), native_values (4), native_callbacks (2), native_math (4),
+native_registration (13), native_provider_artifact (3), native_provider_reset (10)
+and host_interfaces (8). All four independent native-proof feature consumers,
+eight production crate boundaries and the source-free ABI build graph pass.
+Workspace library and focused SDK Clippy pass with -D warnings. Format, structure
+(822 Rust files, zero findings/exceptions) and diff checks pass. Manual review
+covers explicit owner imports, the empty re-export whitelist, requirement/target
+ownership, decoding bounds, callback roots and retained generations. Full workspace
+and all-target legacy fixture failures remain NR04-owned, were not rerun unchanged,
+and are not reported as accepted or disabled. Old fixture builders must use the
+new declaration/application fields when they migrate.
+
+Next: materialize requirements for native methods and dynamic slots through checked
+MIR facts, add typed requirement authoring, then restore Ord/Ordering and
+sort_by/sort. Prove managed iterator state before bulk dependent restoration.
 Goal mode remains active.

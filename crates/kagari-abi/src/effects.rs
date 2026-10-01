@@ -17,6 +17,18 @@ pub struct EffectSet {
 }
 
 impl EffectSet {
+    pub fn native_call() -> Self {
+        Self {
+            reads_module: true,
+            writes_module: true,
+            reads_path: true,
+            writes_path: true,
+            reads_aggregate: true,
+            writes_aggregate: true,
+            allocates: true,
+            ..Self::runtime_call()
+        }
+    }
     pub fn union(self, other: Self) -> Self {
         Self {
             reads_local: self.reads_local || other.reads_local,
