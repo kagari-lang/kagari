@@ -83,8 +83,10 @@ associated contracts and implied base obligations, with exact registered templat
 carried through artifact emission and linking. The registered cmp package now owns
 comparison protocols, Ordering and actual scalar implementation facts, including
 all integer widths and partial floating-point ordering. Installed namespace aliases
-and real representation providers work with default packages disabled. Sorting,
-managed returned state, remaining
+and real representation providers work with default packages disabled. Prepared
+sort_by/sort now use supplied or selected comparators through the common driver;
+application sorting and a distinct reverse algorithm share rooted preparation.
+Managed returned state, remaining
 library restoration and final acceptance remain open.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
@@ -96,7 +98,8 @@ registration, retire kagari-stdlib and rebuild fixtures before full NR05/ST06
 acceptance. The first math package checkpoint restores checked floor/ceil/sqrt, validates
 array/application package composition and records entry workloads. Common typed
 callback packs and resumed results now support external zero/binary/unit and
-repeated nested calls. Selected trait targets and managed returned state are next; full-library and whole-workspace acceptance remain open.
+repeated nested calls. Selected trait targets and prepared sorting are exercised;
+managed returned state is next. Full-library and whole-workspace acceptance remain open.
 Typed values additionally cover nested tuples, Ordering and a rooted script
 Result handle that preserves Err provenance across native calls. These common
 conversions do not complete the selected-trait or returned-state checkpoints.

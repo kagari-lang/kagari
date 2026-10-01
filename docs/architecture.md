@@ -79,7 +79,8 @@ is synthesized. Native-module authoring adds owned default members from actual R
 function templates with explicit binder correspondences. Templates retain private
 registered identities; only the generated trait members are public. External
 default/template closure and ordinary projected requirements are exercised;
-method-generic selected authoring and sorting remain open under NR02.
+method-generic selected authoring remains open under NR02. ArrayList sort_by/sort
+now use common typed supplied/selected callbacks and rooted prepared replacement.
 Portable Native implementations carry a binding DefinitionId; registered Rust
 factories supply execution. Source-free runtimes receive the same checked native
 records directly from installed packages. Host adapters retain passing styles,
@@ -97,6 +98,16 @@ and signatures. MIR also carries body-free native target contracts for interface
 slots and selected native dependencies; backend lowering consumes those records.
 Offline verification proves the selection and runtime callbacks
 use the owner's retained dependency generation without resolving trait syntax.
+
+`NativeArray::prepare_reorder` owns GC working buffers, target roots and mutation
+guards. Application algorithms use that storage capability without selecting a
+standard method identity. Stable sorting performs bounded merge steps and calls
+the supplied or selected comparator through the common native driver. Commit
+validates independent structural guards, budgets and allocation before replacing
+slots once. Callback failure preserves original ordering and completed payload
+effects; a budget cut after commit preserves the completed replacement. Per-call
+conversion scopes release temporary roots after callback handoff, retaining the
+original checked target and dependency generations.
 
 Trait method signatures carry declaration override policy independently of their
 default implementation. Portable callable declarations retain that policy so

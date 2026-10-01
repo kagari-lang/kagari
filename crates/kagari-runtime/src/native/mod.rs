@@ -1,7 +1,7 @@
 //! A frame-owned invocation drives native entry state without identifying library methods.
 pub mod api;
 pub(crate) mod array;
-mod array_api;
+pub mod array_api;
 pub mod catalog;
 pub mod cmp_api;
 pub mod factory;
@@ -10,6 +10,7 @@ pub mod ops_api;
 pub mod option_api;
 pub mod packages;
 pub mod registration;
+pub mod sorting;
 pub mod string_api;
 use crate::{
     RootedInterfaceMethod, Runtime,
@@ -23,6 +24,7 @@ use crate::{
 use kagari_abi::{
     callable::CallableImplementation,
     native_import::{NativeSignature, callables::NativeCallableApplication},
+    operations::IterOp,
     types::{AbiType, NominalAbiType},
 };
 use kagari_bytecode::{
@@ -82,6 +84,15 @@ pub struct NativeContext<'a> {
     arguments: usize,
 }
 impl NativeContext<'_> {
+    pub(crate) fn iterator_operation(
+        &self,
+        owner: &LoadedModule,
+        value: &Value,
+        ty: &AbiType,
+        operation: IterOp,
+    ) -> Result<Value, RuntimeError> {
+        self.runtime.iter_operation(owner, value, ty, operation)
+    }
     pub(crate) fn heap_owner(&self) -> Rc<GcHeap> {
         self.runtime.gc.clone()
     }

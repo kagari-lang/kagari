@@ -1,0 +1,78 @@
+use std::array::{ArrayList, List};
+use std::cmp::{PartialEq, Eq, PartialOrd, Ord, Ordering};
+use std::option::Option;
+use std::option::Option::Some;
+use game::order::{arrange, arrange_by, reverse};
+use game::input::{values as input_values, record, probe};
+
+struct Rank { val key: i32, val tag: i32, var visits: i32 }
+impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
+impl Eq for Rank {}
+impl PartialOrd for Rank { fn partial_cmp(self, other: Self) -> Option<Ordering> { Some(self.cmp(other)) } }
+impl Ord for Rank {
+    fn cmp(self, other: Self) -> Ordering {
+        probe();
+        self.visits += 1;
+        if self.key < other.key { Ordering::Less }
+        else if self.key == other.key { Ordering::Equal }
+        else { Ordering::Greater }
+    }
+}
+struct Count { var calls: i32 }
+fn ordered<T: Ord>(values: ArrayList<T>) { values.sort(); }
+fn selected_main() -> bool {
+    val values = [3, 1, 2, 1, 5];
+    ordered(values);
+    values[0usize] == 1 && values[1usize] == 1 && values[2usize] == 2 && values[3usize] == 3 && values[4usize] == 5
+}
+fn supplied_main() -> bool {
+    val values = [3, 1, 2, 1, 5];
+    values.sort_by(|left, right| right.cmp(left));
+    values[0usize] == 5 && values[1usize] == 3 && values[2usize] == 2 && values[3usize] == 1 && values[4usize] == 1
+}
+fn script_main() -> bool {
+    val first = Rank { key: 2, tag: 0, visits: 0 };
+    val values = [first, Rank { key: 1, tag: 1, visits: 0 }, Rank { key: 2, tag: 2, visits: 0 }];
+    val view: List<Rank> = values;
+    values.sort();
+    view[0usize].tag == 1 && view[1usize].tag == 0 && view[2usize].tag == 2 && first.visits > 0
+}
+fn application_main() -> bool {
+    val values = [3, 1, 2]; arrange(values);
+    values[0usize] == 1 && values[1usize] == 2 && values[2usize] == 3
+}
+fn application_supplied_main() -> bool {
+    val values = [3, 1, 2]; arrange_by(values, |left, right| right.cmp(left));
+    values[0usize] == 3 && values[1usize] == 2 && values[2usize] == 1
+}
+fn application_reverse_main() -> bool {
+    val values = [1, 2, 3]; val view: List<i32> = values; reverse(values);
+    view[0usize] == 3 && view[1usize] == 2 && view[2usize] == 1
+}
+fn edge_main() -> bool {
+    val calls = Count { calls: 0 };
+    val empty: ArrayList<i32> = []; empty.sort(); empty.sort_by(|left, right| { calls.calls += 1; left.cmp(right) });
+    val single = [7]; single.sort(); single.sort_by(|left, right| { calls.calls += 1; left.cmp(right) });
+    val empty_view: List<i32> = empty;
+    val single_view: List<i32> = single;
+    calls.calls == 0 && empty.is_empty() && empty_view.is_empty() && !single.is_empty() && !single_view.is_empty() && single[0usize] == 7
+}
+fn many_main() -> bool {
+    val values = ArrayList::from_fn(64usize, |i| (64usize - i) as i32);
+    values.sort();
+    var i = 0usize;
+    while i < values.len() { if values[i] != (i + 1usize) as i32 { return false; } i += 1usize; }
+    true
+}
+fn sort_argument() { val values = input_values(); values.sort(); }
+fn supplied_argument() { val values = input_values(); values.sort_by(|left, right| { probe(); right.cmp(left) }); }
+fn guarded_argument() { val values = input_values(); values.sort_by(|left, right| { values[0usize] = 99; left.cmp(right) }); }
+fn recursive_argument() { val values = input_values(); values.sort_by(|left, right| { values.sort(); left.cmp(right) }); }
+fn trap_argument() { val values = input_values(); val count = Count { calls: 0 }; values.sort_by(|left, right| { count.calls += 1; record(count.calls); val divisor = right - right; (left / divisor).cmp(right) }); }
+fn many_rank_main() -> bool {
+    val values = ArrayList::from_fn(64usize, |i| Rank { key: (64usize - i) as i32, tag: i as i32, visits: 0 });
+    values.sort();
+    var i = 0usize;
+    while i < values.len() { if values[i].key != (i + 1usize) as i32 { return false; } i += 1usize; }
+    true
+}

@@ -77,6 +77,40 @@ authoring supports generic receiver parameters and local or explicitly cataloged
 registered traits. Projected receivers and member-local generics remain queued.
 Required Rust trait signatures do not inject implementation handles.
 
+ArrayList sorting provides a concrete implementation of both callback forms:
+
+```rust
+#[native]
+pub fn sort_by(&self, compare: NativeFn<(T, T), Ordering>)
+    -> NativeResult<NativeContinuation<()>> {
+    sorting::stable_sort(&self.0, compare)
+}
+
+#[native]
+pub fn sort(
+    &self,
+    #[selected(T: std::cmp::Ord::cmp)] compare: NativeSelected<(T, T), Ordering>,
+) -> NativeResult<NativeContinuation<()>> {
+    sorting::stable_sort(&self.0, compare)
+}
+```
+
+These methods are defined in the actual Rust array registration. Its catalog
+contains the owning ops and cmp declarations. The injected parameter adds the
+checked `T: Ord` bound and comparator application; the script call is simply
+`values.sort()`. `sort_by` requires no Ord bound. Compilation, portable verification
+and runtime linking consume those records without recognizing a sorting name.
+
+`NativeArray::prepare_reorder` returns owned `NativeReorder<T>` preparation.
+Its original reads and working-buffer writes validate the item representation.
+Buffers are GC objects with bounded live storage, and dropping preparation releases
+roots and guards. Algorithms advance bounded work through the common continuation
+driver; they do not assign scratch slots. Commit consumes preparation and checks
+structural guards, budget and allocation before one replacement. Comparator traps,
+cancellation and pre-commit exhaustion preserve original slots; completed payload
+effects and successful commits survive later failures. A retained target keeps its
+original generation while each conversion scope releases handoff temporaries.
+
 Owned trait defaults are attached to executable Rust free functions. The Rust
 trait declares only its required members; no duplicate Rust method signature or
 placeholder default body is needed. For a trait `Source<P>` with associated

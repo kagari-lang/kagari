@@ -73,6 +73,10 @@ name = "regenerate_native_cmp_artifact"
 required-features = ["source"]
 
 [[example]]
+name = "regenerate_native_sorting_artifact"
+required-features = ["source"]
+
+[[example]]
 name = "native_mutable_list"
 required-features = ["source"]
 

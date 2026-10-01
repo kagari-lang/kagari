@@ -6,6 +6,7 @@ mod conversions;
 #[doc(hidden)]
 pub mod declaration;
 pub mod range;
+pub mod reorder;
 pub mod representation;
 pub mod result;
 pub mod selected;
@@ -93,6 +94,13 @@ impl NativeCall {
         } else {
             Err(invalid())
         }
+    }
+    // Keep the pinned signature/owner, but release conversion roots after a
+    // request hands its arguments to the independently rooted callback.
+    pub(super) fn conversion_scope(&self) -> Self {
+        let mut scope = self.clone();
+        scope.temporaries = Rc::new(RefCell::new(vec![]));
+        scope
     }
 }
 

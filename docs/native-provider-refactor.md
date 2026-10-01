@@ -232,7 +232,7 @@ an execution owner without rebuilding a central method catalog in production.
 | 175 numeric methods and thirteen FromStr impls | 3 | Pending |
 | String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | Pending |
 | Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | Pending |
-| ArrayList plus List/MutableList methods and impls | 2 and 4 | Bounded registration proof retained; sort witness proof and remaining surface pending |
+| ArrayList plus List/MutableList methods and impls | 2 and 4 | Prepared supplied/selected stable sorting and rooted application preparation proved; remaining surface pending |
 | Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Pending managed-state and associated-output prerequisites from 2-3 |
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
 | collect/partition, destination impls, Sum/Product and conversion blankets | 7 | Pending selected destinations and complete composition |
@@ -257,7 +257,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Complete concrete default obligations against actual registered implementation facts.
   - [x] Ordinary projected selected receivers, implied base bounds and exact registered template retention.
   - [x] Ord/Ordering and actual checked scalar comparison implementations.
-  - [ ] Prepared sort_by/sort through supplied and selected comparators.
+  - [x] Prepared sort_by/sort through supplied and selected comparators, with rooted application preparation and source/offline boundary proof.
+  - [ ] Complete predecessor sorting-family budget/effect baselines with remaining key/dedup methods; retain all frozen assertions for step 4/final acceptance.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
   - [x] Register the complete ops declaration surface and checked range/Bound representations; restore the array package's actual Index parent provider.
@@ -2982,3 +2983,115 @@ Ord handles, reusing actual collection mutation/commit guards and bounded rooted
 working storage. Then complete the application-managed returned-state proof,
 remaining families, namespace/prelude and legacy retirement, and full NR05/ST06
 checks and matched measurements. No remaining scope is removed from the goal.
+
+### NR02 checkpoint: prepared supplied and selected stable sorting (2026-10-02)
+
+Restoration step 2 now implements ArrayList sort_by/sort with the common typed
+callback driver and an application-usable prepared storage capability. Traceable
+returned state remains the next prerequisite. Full sorting-family budget/effect
+baselines, remaining families, legacy retirement and NR05/ST06 acceptance stay
+open. The original unbounded restoration goal remains active; no entire NR phase
+is accepted by this checkpoint.
+
+- Real Rust array methods derive the supplied comparator signature and the
+  injected selected Ord::cmp requirement. sort_by has no Ord obligation; sort
+  carries the actual registered cmp contract. Default package composition builds
+  the array catalog from real ops and cmp declarations. Publish the owning array
+  registration module for optional manual installation. Its newly public Rust
+  len APIs exposed Clippy's missing is_empty diagnostics: restore actual required
+  List.is_empty, ArrayList.is_empty and the native List impl, with empty/nonempty
+  dynamic-view behavior assertions, rather than suppressing the checks.
+- NativeArray.prepare_reorder owns NativeReorder working storage and target guards.
+  Original reads, input/output buffers and item writes use checked conversions;
+  all buffers are rooted GC arrays. Only current input/output passes remain live.
+  Consuming commit releases the preparation's own mutation guard, then uses the
+  existing checked bulk replacement primitive. Independent structural guards,
+  allocation limits and logical budget preparation are still enforced before
+  changing slots. Dropping preparation releases roots and guards on every exit.
+  The API exposes storage operations, not a standard method ID or caller-assigned
+  scratch-slot scheme.
+- The shared stable_sort helper implements bottom-up stable merging with explicit
+  bounded phases, adapting the predecessor's unkeyed merge control sequence.
+  Both NativeFn and NativeSelected request actual checked callbacks through the
+  existing frame driver. Scalar comparison uses its actual native implementation;
+  there is no primitive-comparator bypass or sorting branch in generic compiler,
+  verifier or VM policy. Equal items retain their original order. A real script
+  comparator observes shared payload identity and readonly aliases.
+- Selected request/result conversion scopes keep the original checked signature
+  and pinned owner but release temporary roots after handoff. Preparation reads
+  and writes use the same scoped conversion lifetime. A host probe registered
+  through the ordinary API measures active roots during real script comparisons:
+  sorting 64 objects performs over forty times the three-object comparison count
+  with exactly the same peak root count. Forced collection and post-call collection
+  leave no retained preparation objects or execution roots.
+- An independent game::order package compiles with default installation disabled.
+  arrange/arrange_by use selected/supplied sorting; a distinct incremental reverse
+  implementation uses public NativeReorder operations directly. Real game::input
+  handlers supply an explicitly rooted host array, record completed script effects
+  and trigger cancellation during a comparator. These use complete declarations
+  and actual captured Rust handlers. The SDK's current zero-argument execution
+  entry policy is retained; no fixture bypass or successful stub provides inputs.
+- Every instruction cut for ascending selected and descending supplied sorting
+  proves unchanged original slots before commit, one complete replacement after
+  commit, and a monotonic transition. Resource exhaustion after successful commit
+  preserves the completed replacement. All cuts release mutation/iteration guards,
+  frame depth and preparation roots. Allocation limits, comparator trap provenance
+  and completed effects, cancellation, alias writes, recursive sorting and an
+  independent iteration guard exercise failure/cleanup boundaries. Reuse after
+  failure succeeds. Missing Ord and readonly targets fail static checking; a forged
+  selected comparator signature rejects portable verification. Retained script
+  comparator generations survive reload. Generated method navigation and tracked
+  array.kgr text come from the actual registration records.
+
+Validation and integration evidence:
+
+- `uv run python scripts/check_features.py --native-proof` passes all seventeen
+  targets in four standalone consumers: 89 artifact-only, 147 source, 89 native
+  and 148 source+native tests. Eight production dependency boundaries and the
+  source-independent ABI build graph pass. The new sorting proof contributes nine
+  offline and four source tests. These are bounded consumer proofs; they do not
+  establish complete backend/library acceptance.
+- Exact source emission initially exposed stale array declaration snapshots in
+  associated, bounds, projected, provider and selected products. Independently
+  regenerate each with its existing example and keep every exact-byte assertion.
+  Decoded deltas retain module counts and change array public/native declarations.
+  The provider product additionally materializes one actual List.is_empty import
+  and checked call adapter, with corresponding interface/public/function metadata;
+  every previously imported contract and user function remains unchanged. All
+  regenerated products link and execute in the standalone offline consumers.
+- Workspace library Clippy and focused sorting test/example Clippy pass with
+  warnings denied. Formatting, the whole-repository structure check (871 Rust
+  files, zero violations/exceptions) and diff checks pass. Manual review covers
+  explicit owner imports, the empty re-export whitelist, real declaration/catalog
+  authority, bounded phase transitions, scoped conversion roots, atomic prepared
+  replacement, callback trap origins, cleanup and pinned generations. Runtime
+  ABI v139, KBC v116, KMIR v14 and helper ABI v6 remain unchanged.
+- The predecessor VM sorting baseline files and their exact instruction/effect
+  assertions remain intact. Full replay needs the still-missing key/dedup and other
+  library dependencies, plus NR04's old test-consumer migration. Preserving merge
+  control steps and passing every current budget cut does not prove those frozen
+  whole-program totals: actual registered scalar comparator calls now traverse
+  ordinary native callable frames. Resolve the matched accounting comparison in
+  step 4/NR05 before accepting the phase; do not alter the frozen baselines or
+  introduce fabricated zero-cost success to claim a match.
+- Full all-target/workspace checks still have the inherited NR04-owned old-model
+  consumers. The preceding fourteen ABI lib-test errors on removed binding and
+  primitive models remain carried; this checkpoint changes no affected ABI test
+  contract and does not repeat that unchanged failing build. Reproduction and
+  representative diagnostics remain in the earlier ledger and
+  target/native-facts-abi-lib-build.log. Final acceptance requires their resolution.
+
+Outputs are under target/native-sorting-tests.log,
+target/native-sorting-feature-matrix.log, target/architecture-features/native-proof/,
+target/native-sorting-source-probe.log, target/native-sorting-generation.log,
+target/native-sorting-regenerate-*.log, target/native-sorting-fixture-delta.log,
+target/native-sorting-clippy.log, target/native-sorting-focused-clippy.log and
+target/native-sorting-structure.log. The probe log retains resolved intermediate
+snapshot failures; the final feature matrix records the passing integration.
+
+Next, implement the application-owned traceable returned iterator state described
+in step 2. It must trace idle captures as GC edges, pin real callback/selected
+targets across calls and reload, share alias progress and release execution-scoped
+guards on early exit. Then restore direct families and the full collection/state
+surface, retire the legacy source crate, repair all carried consumers and complete
+NR05/ST06 behavior checks and matched measurements. No goal scope is removed.

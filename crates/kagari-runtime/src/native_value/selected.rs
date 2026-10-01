@@ -49,14 +49,16 @@ impl<A: NativeArguments, R: NativeValue> NativeSelected<A, R> {
     ) -> NativeResult<NativeCallback> {
         let call = NativeCall::new(context)?;
         call.compatible(&self.call)?;
-        let arguments = arguments.into_values(&self.call, &self.selected.signature.params)?;
+        let scope = self.call.conversion_scope();
+        let arguments = arguments.into_values(&scope, &self.selected.signature.params)?;
         context.selected_application(&self.call.owner, &self.selected, arguments)
     }
 
     pub fn result(&self, context: &NativeContext<'_>, value: Value) -> NativeResult<R> {
         let call = NativeCall::new(context)?;
         call.compatible(&self.call)?;
-        self.call.check(&value, &self.selected.signature.result)?;
-        R::read(&self.call, value, &self.selected.signature.result)
+        let scope = self.call.conversion_scope();
+        scope.check(&value, &self.selected.signature.result)?;
+        R::read(&scope, value, &self.selected.signature.result)
     }
 }

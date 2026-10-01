@@ -7,6 +7,8 @@ pub type ArrayList<T0>;
 pub trait List<T0>: std::ops::Index<usize, Output = T0> {
     /// Return the current slot count.
     fn len(self) -> usize;
+    /// Return whether there are no slots.
+    fn is_empty(self) -> bool;
     /// Return the addressed value, or None when index is outside the array.
     fn get(self, index: usize) -> Option<T0>;
 }
@@ -22,15 +24,23 @@ impl<T0> ArrayList<T0> {
     pub fn new() -> ArrayList<T0>;
     /// Return the current slot count.
     pub fn len(self) -> usize;
+    /// Return whether there are no slots.
+    pub fn is_empty(self) -> bool;
     /// Append a value. Allocation and iteration guards are checked before mutation.
     pub fn push(self, value: T0);
     /// Build slots by calling make once per index in ascending order.
     pub fn from_fn(count: usize, make: fn(usize) -> T0) -> ArrayList<T0>;
+    /// Stable ordering; comparison failure leaves the original slots unchanged.
+    pub fn sort_by(self, compare: fn(T0, T0) -> Ordering);
+    /// Stable ordering through the caller's checked Ord implementation.
+    pub fn sort(self) where T0: std::cmp::Ord;
 }
 
 impl<T0> List<T0> for ArrayList<T0> {
     /// Return the current slot count.
     pub fn len(self) -> usize;
+    /// Return whether there are no slots.
+    pub fn is_empty(self) -> bool;
     /// Return the addressed value, or None when index is outside the array.
     pub fn get(self, index: usize) -> Option<T0>;
 }

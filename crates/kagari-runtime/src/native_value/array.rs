@@ -5,7 +5,7 @@ use crate::{
     gc::{HeapObjectId, RootSet},
     native::ops_api::ops::Index,
     native_module::types::TypeExpression,
-    native_value::representation::NativeRepresentation,
+    native_value::{reorder::NativeReorder, representation::NativeRepresentation},
     value::Value,
 };
 use kagari_abi::types::{AbiType, native::NativeTypeConstructor};
@@ -67,6 +67,11 @@ impl<T: NativeValue> NativeArray<T> {
         self.call
             .heap
             .array_push(self.id, value.write(&self.call, &self.item)?)
+    }
+    /// Prepare a rooted replacement while blocking target writes through aliases.
+    pub fn prepare_reorder(&self) -> NativeResult<NativeReorder<T>> {
+        self.check_mutable()?;
+        NativeReorder::new(self.call.clone(), self.id, self.item.clone())
     }
 }
 impl<T: NativeValue> NativeValue for NativeArray<T> {
