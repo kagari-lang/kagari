@@ -1,0 +1,12 @@
+struct Payload { val value: i32 }
+enum Envelope { Item(Payload), Empty }
+fn main() -> bool {
+    val first = Payload { value: 7 };
+    val alias = first;
+    val second = Payload { value: 7 };
+    first == alias && first != second &&
+        (first, 42) == (alias, 42) && (first, 42) != (second, 42) &&
+        Envelope::Item(first) == Envelope::Item(alias) &&
+        Envelope::Item(first) != Envelope::Item(second) &&
+        Envelope::Empty == Envelope::Empty
+}

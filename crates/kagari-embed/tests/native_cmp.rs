@@ -21,7 +21,7 @@ use kagari_runtime::{
 use std::collections::BTreeSet;
 
 const ARTIFACT: &[u8] = include_bytes!("fixtures/native_cmp.kbc");
-const ENTRIES: [&str; 7] = [
+const ENTRIES: [&str; 8] = [
     "signed_main",
     "unsigned_main",
     "other_main",
@@ -29,7 +29,42 @@ const ENTRIES: [&str; 7] = [
     "partial_main",
     "roundtrip_main",
     "incomparable_main",
+    "composed_main",
 ];
+
+#[test]
+fn implicit_equality_product_has_no_native_imports_and_executes_without_packages() {
+    let bytes = include_bytes!("fixtures/implicit_equality.kbc");
+    let artifact = KbcArtifact::from_bytes(bytes).unwrap();
+    assert!(
+        artifact
+            .program
+            .modules
+            .iter()
+            .all(|module| module.native_imports.is_empty())
+    );
+    let engine = KagariEngine::builder()
+        .install_standard_library(false)
+        .build()
+        .unwrap();
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(bytes), Default::default())
+        .unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::Bool(true)
+    );
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+}
 
 #[cfg(feature = "source")]
 #[kagari_native_macros::native_module("game::text")]
@@ -257,6 +292,42 @@ mod source {
 
     const SOURCE: &str = include_str!("fixtures/native_cmp.kgr");
     #[test]
+    fn implicit_identity_and_composition_need_no_installed_protocol_declarations() {
+        for engine in [
+            KagariEngine::builder()
+                .install_standard_library(false)
+                .build()
+                .unwrap(),
+            engine(),
+        ] {
+            let artifact = engine
+                .compile_to_artifact(
+                    SourceFile::new(
+                        "memory://implicit-equality.kgr",
+                        include_str!("fixtures/implicit_equality.kgr"),
+                    ),
+                    Default::default(),
+                    Default::default(),
+                )
+                .unwrap();
+            assert!(
+                artifact.to_bytes().unwrap() == include_bytes!("fixtures/implicit_equality.kbc")
+            );
+            let context = ExecutionContext::default();
+            let mut runtime = engine.runtime(context.clone());
+            let loaded = runtime
+                .load_program(&prepared(&artifact.to_bytes().unwrap()), Default::default())
+                .unwrap();
+            assert_eq!(
+                runtime
+                    .execute(&loaded, "main", &[], &context)
+                    .unwrap()
+                    .return_value,
+                Value::Bool(true)
+            );
+        }
+    }
+    #[test]
     fn manual_optional_packages_emit_the_exact_comparison_product() {
         let artifact = engine()
             .compile_to_artifact(
@@ -265,7 +336,7 @@ mod source {
                 Default::default(),
             )
             .unwrap();
-        assert_eq!(artifact.to_bytes().unwrap(), ARTIFACT);
+        assert!(artifact.to_bytes().unwrap() == ARTIFACT);
     }
     #[test]
     fn comparison_protocol_and_variant_navigation_use_registered_coordinates() {

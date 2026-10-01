@@ -112,6 +112,11 @@ retain object-identity equality and hashing. Other interfaces, host handles/path
 and function values remain outside general equality and hashing;
 this extension does not open host equality implementations.
 
+Implicit `==` and `!=` semantics remain available when no native packages are
+installed. A default identity or member comparison does not require an imported
+comparison trait declaration. Explicit overrides retain their checked trait and
+method contracts, and compose through tuples and enum payloads.
+
 ### Explicit Struct and enum implementations
 
 Struct and user enum declarations permit the same explicit implementations.

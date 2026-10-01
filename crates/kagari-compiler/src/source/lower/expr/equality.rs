@@ -6,6 +6,7 @@ use kagari_abi::{
     standard::{RuntimePrimitive, surface::StandardEnum, traits::StandardTrait},
 };
 use kagari_hir::{
+    aggregates::implementations::ImplementationSearchError,
     builtin::traits::StandardTraitSemantics,
     types::{
         TypeId,
@@ -22,22 +23,39 @@ impl FunctionLowerer<'_, '_> {
         let mut pending = vec![ty.clone()];
         let mut seen = HashSet::new();
         while let Some(ty) = pending.pop() {
+            self.planner.check()?;
             if !seen.insert(ty.clone()) {
                 continue;
             }
             if seen.len() > self.planner.options.max_type_nodes {
-                return Ok(true);
+                return Err(MirLoweringError::UnsupportedExpr(
+                    "protocol composition exceeds type node limit",
+                ));
             }
             match &ty {
                 TypeId::Struct(_) | TypeId::Enum(_) => {
+                    // Implicit identity/member equality does not import a
+                    // protocol declaration. Only an actual checked override
+                    // requires its method contract during call lowering.
                     if self
                         .planner
                         .catalog
-                        .implementation_method(
-                            &self.protocol_method(StandardTrait::PartialEq, 0)?,
+                        .concrete_interface_implementation(
                             &StandardTrait::PartialEq.nominal(),
                             &ty,
+                            &Default::default(),
+                            self.planner.options.max_type_nodes,
+                            self.planner.options.max_type_depth,
+                            &self.planner.options.cancel,
                         )
+                        .map_err(|error| match error {
+                            ImplementationSearchError::Cancelled => MirLoweringError::Cancelled,
+                            ImplementationSearchError::LimitExceeded => {
+                                MirLoweringError::UnsupportedExpr(
+                                    "protocol implementation search exceeds type limits",
+                                )
+                            }
+                        })?
                         .is_some()
                     {
                         return Ok(true);

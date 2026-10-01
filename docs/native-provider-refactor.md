@@ -267,6 +267,7 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Restore all 27 direct String helpers with shared checked text construction, UTF-8 behavior and application/source-free proofs.
   - [x] Restore all six direct Option/Result queries with rooted payloads and preserved error provenance.
   - [x] Restore print/assert/panic with guarded host invocation and an uninhabited native result.
+  - [x] Preserve implicit Struct/Tuple/enum equality without installed protocol declarations; retain checked custom composition.
 - [ ] 4: complete ArrayList/List/MutableList behavior.
 - [ ] 5: Iterator and String/range traversal/state.
 - [ ] 6: Map/Set and custom keys/snapshots/grouping.
@@ -3613,3 +3614,66 @@ Next restore remaining hash/fmt/convert/iter declarations and primitive facts,
 including the missing implicit user-struct equality binding, then continue complete
 Array/List, state/traversal, Map/Set and composition restoration. Keep source-crate
 retirement and complete NR05/ST06 acceptance/measurements in the original goal.
+
+### NR04 checkpoint: implicit equality without installed contracts (2026-10-02)
+
+Task: resolve the carried implicit user-struct equality lowering error before
+restoring the remaining protocol declarations. No NR phase is accepted.
+
+- Reproduce the failure with all native packages disabled: a valid script using
+  Struct identity equality and Tuple/enum member equality passed static checking
+  but failed MIR lowering with MissingBinding("checked protocol method"). The
+  override detector eagerly requested a PartialEq method even when no explicit
+  implementation existed in the checked dependency closure.
+- Detect actual overrides through the checked catalog's bounded concrete
+  implementation query. Default identity/member semantics require no imported
+  method contract. An explicit override still lowers through its actual checked
+  method; do not synthesize trait IDs, add a compiler library fallback or force
+  an optional comparison package into every source dependency closure.
+- Propagate cancellation and implementation-search/type-node exhaustion as
+  errors instead of fabricating an override. Preserve the existing generic
+  equality instruction and runtime identity/member behavior. Runtime ABI 139,
+  KBC 116, KMIR 14 and helper ABI 6 remain unchanged.
+- Add a portable script-only equality fixture with zero native imports. It
+  checks aliases versus distinct same-field Struct objects, Tuple members and
+  user-enum variants/payloads, and runs with no packages installed. Source emission
+  is byte-identical with the comparison application installed or absent.
+- Extend the actual comparison product with generic script PartialEq and nested
+  Tuple/enum composition of distinct equal and unequal user objects. Existing
+  source-free and every-budget-cut checks now cover that entry, including
+  frame/root release and forced collection. Regenerate both products through the
+  existing comparison generator; the generated comparison declaration is unchanged.
+- Clarify the implicit equality boundary in the value-semantics specification and
+  update step 3's ledger. This resolves the missing implicit equality error; it
+  does not complete the remaining protocol/collection/state restoration.
+
+Validation:
+
+- The focused reproduction initially failed with the recorded missing binding.
+  Final comparison tests pass 7 artifact-only, 14 source, 7 native and 14
+  source+native tests. Exact artifact comparisons remain equality checks; avoid
+  dumping complete encoded byte vectors on failure.
+- uv run --locked scripts/check_features.py --native-proof passes all twenty-two
+  standalone targets in artifact-only/source/native/source+native modes with
+  131/204/134/208 tests. All eight production crate boundaries and the independent
+  ABI build graph pass; execution-only products remain independent of source
+  analysis and the retained source package.
+- Workspace library Clippy and focused comparison tests/generator Clippy pass
+  with warnings denied. Structure checks pass for 897 Rust files with zero
+  violations/exceptions. Format and git diff --check pass. Manual review confirms
+  explicit owner imports, no re-exports and unchanged checked override ownership.
+
+Logs: target/implicit-equality-repro.log, target/implicit-equality-tests.log,
+target/implicit-equality-artifact-tests.log, target/implicit-equality-source-tests.log,
+target/implicit-equality-native-tests.log, target/implicit-equality-generate.log,
+target/implicit-equality-clippy.log, target/implicit-equality-workspace-clippy.log,
+target/implicit-equality-structure.log and target/implicit-equality-feature-matrix.log.
+
+Carried errors remain the fourteen ABI/seventeen HIR removed-model lib-test errors
+and three legacy source-preparation/documentation failures. Full legacy consumers,
+remaining library behavior, frozen algorithm budgets, source-crate retirement and
+combined NR05/ST06 acceptance/measurements retain their existing owners. Do not
+claim full workspace/all-target acceptance from the focused comparison proof.
+
+Next restore actual hash/fmt/convert/iter contracts and retained primitive facts,
+then continue full Array/List, state/traversal, Map/Set and composition restoration.

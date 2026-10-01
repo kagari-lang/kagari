@@ -4,6 +4,7 @@ use std::option::Option;
 use std::option::Option::Some;
 use std::option::Option::None;
 struct Rank { val key: i32 }
+enum Ranked { Item(Rank), Empty }
 impl PartialEq for Rank { fn eq(self, other: Self) -> bool { self.key == other.key } }
 impl Eq for Rank {}
 impl PartialOrd for Rank {
@@ -26,3 +27,14 @@ fn script_main() -> bool { less(compare(Rank { key: 1 }, Rank { key: 2 })) }
 fn partial_main() -> bool { match 1.0f32.partial_cmp(2.0f32) { Some(Ordering::Less) => true, _ => false } }
 fn roundtrip_main() -> bool { echo_u8(255u8) == 255u8 && echo_u16(65535u16) == 65535u16 && echo_u32(4294967295u32) == 4294967295u32 }
 fn incomparable_main() -> bool { val value = nan(); match value.partial_cmp(1.0f64) { None => !value.eq(value), _ => false } }
+fn same<T: PartialEq>(left: T, right: T) -> bool { left == right }
+fn composed_main() -> bool {
+    val first = Rank { key: 7 };
+    val second = Rank { key: 7 };
+    val third = Rank { key: 8 };
+    same(first, second) && !same(first, third) &&
+        (first, 42) == (second, 42) && (first, 42) != (third, 42) &&
+        Ranked::Item(first) == Ranked::Item(second) &&
+        Ranked::Item(first) != Ranked::Item(third) &&
+        Ranked::Empty == Ranked::Empty
+}

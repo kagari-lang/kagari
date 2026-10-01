@@ -37,4 +37,23 @@ fn main() {
         comparison.text,
     )
     .unwrap();
+    let empty = KagariEngine::builder()
+        .install_standard_library(false)
+        .build()
+        .unwrap();
+    let artifact = empty
+        .compile_to_artifact(
+            SourceFile::new(
+                "memory://implicit-equality.kgr",
+                fs::read_to_string(fixtures.join("implicit_equality.kgr")).unwrap(),
+            ),
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+    fs::write(
+        fixtures.join("implicit_equality.kbc"),
+        artifact.to_bytes().unwrap(),
+    )
+    .unwrap();
 }
