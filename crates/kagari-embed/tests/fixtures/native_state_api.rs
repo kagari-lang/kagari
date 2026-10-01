@@ -3,7 +3,7 @@ use self::inputs::Inputs;
 use kagari_native_macros::native_module;
 use kagari_runtime::{
     error::RuntimeError,
-    native::{api::NativeApi, option_api::option, packages::standard_library, string_api::string},
+    native::{api::NativeApi, packages::standard_library},
 };
 
 pub fn api() -> Result<NativeApi, RuntimeError> {
@@ -12,8 +12,6 @@ pub fn api() -> Result<NativeApi, RuntimeError> {
 pub fn api_with_inputs(inputs: &Inputs) -> Result<NativeApi, RuntimeError> {
     NativeApi::combine(vec![
         standard_library(),
-        option::native_api()?,
-        string::native_api()?,
         stream::native_api()?,
         inputs::api(inputs)?,
     ])

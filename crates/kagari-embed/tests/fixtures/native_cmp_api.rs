@@ -2,7 +2,9 @@
 use kagari_native_macros::native_module;
 use kagari_runtime::{
     error::RuntimeError,
-    native::{api::NativeApi, cmp_api::cmp, option_api::option, string_api::string},
+    native::{
+        api::NativeApi, cmp_api::cmp, option_api::option, result_api::result, string_api::string,
+    },
 };
 
 pub fn api() -> Result<NativeApi, RuntimeError> {
@@ -12,6 +14,7 @@ pub fn api() -> Result<NativeApi, RuntimeError> {
         cmp,
         rank,
         option::native_api()?,
+        result::native_api()?,
         string::native_api()?,
     ])
 }

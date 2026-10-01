@@ -308,6 +308,20 @@ impl Expansion<'_> {
     }
 }
 
+fn exports_variants(marker: &Attribute) -> SyntaxResult<bool> {
+    let mut variants = false;
+    if matches!(marker.meta, Meta::List(_)) {
+        marker.parse_nested_meta(|meta| {
+            if !meta.path.is_ident("export_variants") || variants {
+                return Err(meta.error("expected one export_variants flag"));
+            }
+            variants = true;
+            Ok(())
+        })?;
+    }
+    Ok(variants)
+}
+
 pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<TokenStream> {
     let runtime = &args.runtime;
     let path: Vec<_> = args.module.value().split("::").map(str::to_owned).collect();
@@ -340,7 +354,9 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     .iter()
                     .any(|attr| attr.path().is_ident("native_type")) =>
             {
-                signature::marker(&mut ty.attrs, "native_type");
+                let marker =
+                    signature::marker(&mut ty.attrs, "native_type").expect("native type marker");
+                let variants = exports_variants(&marker)?;
                 let names = signature::generics(&ty.generics)?;
                 let Fields::Unnamed(fields) = &ty.fields else {
                     return Err(SyntaxError::new_spanned(
@@ -357,6 +373,9 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                 let field = &fields.unnamed[0].ty;
                 let ident = &ty.ident;
                 let name = ident.to_string();
+                if variants {
+                    declarations.push(quote!(__builder.export_variants(#name);));
+                }
                 let doc = signature::documentation(&ty.attrs);
                 let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
                 let concrete = signature::concrete(field, &names, runtime, None);
@@ -384,9 +403,14 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     .iter()
                     .any(|attr| attr.path().is_ident("native_type")) =>
             {
-                signature::marker(&mut ty.attrs, "native_type");
+                let marker =
+                    signature::marker(&mut ty.attrs, "native_type").expect("native type marker");
+                let variants = exports_variants(&marker)?;
                 let names = signature::generics(&ty.generics)?;
                 let name = ty.ident.to_string();
+                if variants {
+                    declarations.push(quote!(__builder.export_variants(#name);));
+                }
                 let doc = signature::documentation(&ty.attrs);
                 let generic_names: Vec<_> = names.iter().map(ToString::to_string).collect();
                 let concrete = signature::concrete(&ty.ty, &names, runtime, None);
@@ -446,6 +470,17 @@ pub(crate) fn expand(args: Arguments, mut module: ItemMod) -> SyntaxResult<Token
                     signature::method(&sig, &method.attrs, &names, runtime, None, None, quote!(::std::option::Option::None))
                 }).collect::<SyntaxResult<Vec<_>>>()?;
                 declarations.push(quote!(__builder.required_trait(#name, &[#(#generic_names),*], #doc, ::std::vec![#(#parents),*], ::std::vec![#(#associated),*], ::std::vec![#(#methods),*])?;));
+                // Context injection belongs to the Rust call, not its script contract.
+                // Remove the authoring marker after deriving that contract, as for impls.
+                for item in &mut ty.items {
+                    if let TraitItem::Fn(method) = item {
+                        for argument in &mut method.sig.inputs {
+                            if let FnArg::Typed(argument) = argument {
+                                signature::marker(&mut argument.attrs, "context");
+                            }
+                        }
+                    }
+                }
             }
             Item::Impl(implementation)
                 if implementation

@@ -8,6 +8,8 @@ use std::{fs, path::Path};
 
 fn main() {
     let engine = KagariEngine::builder()
+        .install_standard_library(false)
+        .install(fixture_api::dependencies())
         .install(fixture_api::api())
         .build()
         .unwrap();

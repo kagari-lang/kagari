@@ -8,6 +8,8 @@ use std::{cell::Cell, fs, path::Path, rc::Rc};
 
 fn main() {
     let engine = KagariEngine::builder()
+        .install_standard_library(false)
+        .install(fixture_api::dependencies())
         .install(Ok(fixture_api::api(
             fixture_api::module(),
             Rc::new(Cell::new(0)),

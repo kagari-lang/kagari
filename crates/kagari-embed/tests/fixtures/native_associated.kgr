@@ -1,5 +1,7 @@
 use game::associated::{Source, Hook, echo, forward, selected_head, nested_head};
 use game::typed_associated::{TypedSource, Transform};
+use std::array::ArrayList;
+use std::option::{Option, Some, None};
 impl Hook for i32 {
     fn check(self) {
         val scratch = [0];

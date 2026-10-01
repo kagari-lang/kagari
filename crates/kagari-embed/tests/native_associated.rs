@@ -24,7 +24,6 @@ use kagari_runtime::{
     native::{
         NativeAction, NativeContext, NativeInvocationState,
         api::{NativeApi, NativeHandler},
-        cmp_api::cmp,
         packages::standard_library,
     },
     value::Value,
@@ -44,9 +43,9 @@ fn configured_engine(calls: Rc<Cell<usize>>, defaults: bool) -> KagariEngine {
         .install_standard_library(defaults)
         .install(Ok(fixture_api::api(fixture_api::module(), calls)))
         .install(fixture_api::typed::native_api());
-    // This product was emitted with the default prelude's cmp dependency.
+    // The independent product installs its actual type/protocol providers explicitly.
     if !defaults {
-        builder = builder.install(cmp::native_api());
+        builder = builder.install(fixture_api::dependencies());
     }
     builder.build().unwrap()
 }
@@ -378,7 +377,7 @@ fn selected_callbacks_reject_invalid_slots_and_arguments_before_target_entry() {
         .collect();
         let engine = KagariEngine::builder()
             .install_standard_library(false)
-            .install(cmp::native_api())
+            .install(fixture_api::dependencies())
             .install(NativeApi::new(vec![module], handlers, Default::default()))
             .install(fixture_api::typed::native_api())
             .build()
@@ -921,7 +920,7 @@ mod source {
 
     #[test]
     fn source_emission_matches_the_associated_fixture() {
-        let engine = engine(Rc::new(Cell::new(0)));
+        let engine = configured_engine(Rc::new(Cell::new(0)), false);
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new(
@@ -937,7 +936,7 @@ mod source {
 
     #[test]
     fn selected_private_script_targets_remain_pinned_after_reload() {
-        let engine = engine(Rc::new(Cell::new(0)));
+        let engine = configured_engine(Rc::new(Cell::new(0)), false);
         let source = include_str!("fixtures/native_associated.kgr").replace(
             "fn head(self) -> ArrayList<i32> { self.values }",
             "fn head(self) -> ArrayList<i32> { [self.values[0usize] + 1] }",

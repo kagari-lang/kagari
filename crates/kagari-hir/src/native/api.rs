@@ -185,6 +185,12 @@ impl Importer<'_> {
                     self.lowerer
                         .source_map
                         .insert_variant(variant_id, site.name_span);
+                    if definition.variant_exports.contains(&ty.name) {
+                        self.lowerer.module.exports.push(Export {
+                            name: variant.name.clone(),
+                            item: ExportItem::Variant(variant_id),
+                        });
+                    }
                     let payload = variant
                         .payload
                         .iter()

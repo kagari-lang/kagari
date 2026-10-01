@@ -22,6 +22,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
+use std::collections::BTreeSet;
 
 struct Answer;
 impl NativeInvocationState for Answer {
@@ -104,7 +105,24 @@ fn authoring_resolves_rust_aliases_and_generic_value_contracts() {
     assert!(text.contains("fn identity<T0>(value: T0) -> T0;"));
     assert!(text.contains("fn positive(value: i32) -> bool;"));
     let engine = KagariEngine::builder().install(Ok(api)).build().unwrap();
-    assert_eq!(engine.native_declaration_sources().len(), 5);
+    assert_eq!(
+        engine
+            .native_declaration_sources()
+            .iter()
+            .map(|source| source.uri.as_str())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([
+            "kagari://native/game/aliases.kgr",
+            "kagari://native/kagari-std/array.kgr",
+            "kagari://native/kagari-std/cmp.kgr",
+            "kagari://native/kagari-std/math.kgr",
+            "kagari://native/kagari-std/numeric.kgr",
+            "kagari://native/kagari-std/ops.kgr",
+            "kagari://native/kagari-std/option.kgr",
+            "kagari://native/kagari-std/result.kgr",
+            "kagari://native/kagari-std/string.kgr",
+        ])
+    );
     assert!(
         KagariEngine::builder()
             .install(math::native_api())

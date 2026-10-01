@@ -81,6 +81,10 @@ name = "regenerate_native_state_artifact"
 required-features = ["source"]
 
 [[example]]
+name = "regenerate_native_numeric_artifact"
+required-features = ["source"]
+
+[[example]]
 name = "native_mutable_list"
 required-features = ["source"]
 

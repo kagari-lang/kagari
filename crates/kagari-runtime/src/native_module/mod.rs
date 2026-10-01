@@ -100,6 +100,12 @@ impl NativeModuleBuilder {
         })
     }
 
+    /// Publish an enum's checked variants at module scope. Validation checks the
+    /// owner, representation and collisions once the registration is complete.
+    pub fn export_variants(&mut self, name: &str) {
+        self.module.variant_exports.insert(name.into());
+    }
+
     pub fn representation_type(
         &mut self,
         name: &str,

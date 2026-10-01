@@ -5,6 +5,7 @@ use crate::{
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
         NativeDeclaration, NominalAbiType, PublicAbiItem, TraitAbi, TypeAbi, TypeAbiKind,
+        native::NativeTypeConstructor,
         substitution::{TypeSubstitution, resolve_associated_outputs},
         verify::{native_bounds_valid, validate, validate_native_declarations},
     },
@@ -56,6 +57,8 @@ pub struct NativeModule {
     /// derives these edges from actual traits, templates and implementation facts.
     pub dependencies: BTreeSet<ModuleIdentity>,
     pub types: Vec<TypeAbi>,
+    /// Enum owners whose variants are also explicitly exported at module scope.
+    pub variant_exports: BTreeSet<String>,
     pub traits: Vec<TraitAbi>,
     pub implementations: Vec<NativeImplementation>,
     pub functions: Vec<FunctionAbi>,
@@ -74,6 +77,7 @@ impl NativeModule {
             identity,
             dependencies: BTreeSet::new(),
             types: vec![],
+            variant_exports: BTreeSet::new(),
             traits: vec![],
             implementations: vec![],
             functions: vec![],
@@ -337,6 +341,19 @@ impl NativeModule {
                 return Err(fail());
             }
             items.push(PublicAbiItem::Function(function.clone()));
+        }
+        for owner in &self.variant_exports {
+            let Some(ty) = self.types.iter().find(|ty| ty.name == *owner) else {
+                return Err(fail());
+            };
+            if !matches!(ty.kind, TypeAbiKind::Native(NativeTypeConstructor::Enum(_))) {
+                return Err(fail());
+            }
+            for variant in &ty.variants {
+                if !names.insert(&variant.name) {
+                    return Err(fail());
+                }
+            }
         }
         if self.private_functions.len() > self.functions.len()
             || self.private_functions.iter().any(|id| {

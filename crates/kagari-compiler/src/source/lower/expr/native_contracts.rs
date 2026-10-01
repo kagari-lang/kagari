@@ -185,7 +185,12 @@ impl FunctionLowerer<'_, '_> {
                     .normalize_type(&p.ty.instantiate(&substitution))
             })
             .collect::<Vec<_>>();
-        if let Some(first) = params.first_mut() {
+        if function
+            .params
+            .first()
+            .is_some_and(|param| param.name == "self")
+            && let Some(first) = params.first_mut()
+        {
             *first = receiver.clone();
         }
         let mut bindings = TypeSubstitution::default();

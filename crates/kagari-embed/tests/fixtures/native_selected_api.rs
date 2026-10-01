@@ -1,6 +1,27 @@
 //! Independent typed authoring for selected trait dependencies and heap results.
 use kagari_native_macros::native_module;
-use kagari_runtime::{error::RuntimeError, native::api::NativeApi};
+use kagari_runtime::{
+    error::RuntimeError,
+    native::{
+        api::NativeApi, array_api::array, catalog::NativeCatalog, cmp_api::cmp, ops_api::ops,
+        option_api::option, result_api::result, string_api::string,
+    },
+};
+
+/// Actual providers used by the fixture's explicit array/optional declarations.
+pub fn dependencies() -> Result<NativeApi, RuntimeError> {
+    let cmp = cmp::native_api()?;
+    let ops = ops::native_api()?;
+    let array = array::native_api(&NativeCatalog::from_apis(&[&ops, &cmp])?)?;
+    NativeApi::combine(vec![
+        cmp,
+        ops,
+        array,
+        option::native_api()?,
+        result::native_api()?,
+        string::native_api()?,
+    ])
+}
 
 pub fn api() -> Result<NativeApi, RuntimeError> {
     let provider = selected::native_api()?;

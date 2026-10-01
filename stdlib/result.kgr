@@ -1,6 +1,18 @@
+// Generated from native registration definitions. Do not edit.
+
+/// A checked business Result, distinct from a native execution failure.
+pub enum Result<T0, T1> {
+    Ok(T0),
+    Err(T1),
+}
+
 pub use self::Result::{Ok, Err};
-#[builtin_enum(Result)]
-pub enum Result<T, E> {
-    Ok(T),
-    Err(E),
+
+impl<T0, T1> Result<T0, T1> {
+    /// Return whether this value contains a success payload.
+    pub fn is_ok(self) -> bool;
+    /// Return whether this value contains an error payload.
+    pub fn is_err(self) -> bool;
+    /// Return the success payload or the already evaluated fallback.
+    pub fn unwrap_or(self, fallback: T0) -> T0;
 }

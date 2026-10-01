@@ -6,6 +6,8 @@ mod conversions;
 #[doc(hidden)]
 pub mod declaration;
 pub mod iterator;
+pub mod option;
+pub mod parse;
 pub mod range;
 pub mod reorder;
 pub mod representation;
@@ -75,6 +77,11 @@ impl NativeCall {
     }
     pub fn result_type(&self) -> &AbiType {
         &self.signature.result
+    }
+    /// Charge bounded synchronous native work before performing it.
+    /// Length-dependent algorithms must account for their logical input work.
+    pub fn charge_work(&self, steps: u64) -> NativeResult<()> {
+        self.heap.charge_native_work(steps)
     }
     pub(super) fn check(&self, value: &Value, expected: &AbiType) -> NativeResult<()> {
         if self.heap.matches_abi(value, expected, &self.owner) {

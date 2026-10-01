@@ -15,7 +15,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::{native::cmp_api::cmp, value::Value};
+use kagari_runtime::value::Value;
 use std::{cell::Cell, rc::Rc};
 
 #[cfg(feature = "source")]
@@ -27,6 +27,8 @@ fn engine(calls: Rc<Cell<usize>>) -> KagariEngine {
     config.default_runtime.gc.collection_threshold = Some(1);
     KagariEngine::builder()
         .config(config)
+        .install_standard_library(false)
+        .install(fixture_api::dependencies())
         .install(Ok(fixture_api::api(fixture_api::module(), calls)))
         .build()
         .unwrap()
@@ -112,7 +114,7 @@ fn offline_bound_execution_does_not_require_default_native_installation() {
     let calls = Rc::new(Cell::new(0));
     let engine = KagariEngine::builder()
         .install_standard_library(false)
-        .install(cmp::native_api())
+        .install(fixture_api::dependencies())
         .install(Ok(fixture_api::api(fixture_api::module(), calls.clone())))
         .build()
         .unwrap();

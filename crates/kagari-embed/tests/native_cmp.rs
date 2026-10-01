@@ -233,6 +233,10 @@ fn a_declaration_catalog_cannot_replace_the_actual_comparison_provider() {
 fn conflicting_package_aliases_reject_composition_before_namespace_publication() {
     let api = string::native_api().unwrap();
     let mut module = api.modules()[0].as_ref().clone();
+    // Relocate only the representations; trait members retain their own identity.
+    module.traits.clear();
+    module.implementations.clear();
+    module.documentation.clear();
     module.identity = ModuleIdentity {
         package: PackageId("another".into()),
         path: vec!["text".into()],

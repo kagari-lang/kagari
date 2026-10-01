@@ -285,6 +285,10 @@ impl GcHeap {
     pub(crate) fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()
     }
+    pub(crate) fn charge_native_work(&self, steps: u64) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.resources.consume_instruction_steps(steps)
+    }
     pub fn new(config: GcHeapConfig, resources: Rc<ResourceState>) -> Self {
         static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
         let owner = NEXT_OWNER

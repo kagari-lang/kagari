@@ -1,6 +1,18 @@
-pub use self::Option::{Some, None};
-#[builtin_enum(Option)]
-pub enum Option<T> {
-    Some(T),
+// Generated from native registration definitions. Do not edit.
+
+/// A checked optional script value with the ordinary Some/None tags.
+pub enum Option<T0> {
+    Some(T0),
     None,
+}
+
+pub use self::Option::{Some, None};
+
+impl<T0> Option<T0> {
+    /// Return whether this value contains a payload.
+    pub fn is_some(self) -> bool;
+    /// Return whether this value has no payload.
+    pub fn is_none(self) -> bool;
+    /// Return the payload or the already evaluated fallback.
+    pub fn unwrap_or(self, fallback: T0) -> T0;
 }

@@ -14,10 +14,32 @@ use kagari_runtime::{
     native::{
         NativeAction, NativeContext, NativeInvocationState,
         api::{NativeApi, NativeHandler},
+        array_api::array,
+        catalog::NativeCatalog,
+        cmp_api::cmp,
+        ops_api::ops,
+        option_api::option,
+        result_api::result,
+        string_api::string,
     },
     value::Value,
 };
 use std::{cell::Cell, rc::Rc};
+
+/// Install only the actual providers needed by the fixture's checked declarations.
+pub fn dependencies() -> Result<NativeApi, RuntimeError> {
+    let cmp = cmp::native_api()?;
+    let ops = ops::native_api()?;
+    let array = array::native_api(&NativeCatalog::from_apis(&[&ops, &cmp])?)?;
+    NativeApi::combine(vec![
+        cmp,
+        ops,
+        array,
+        option::native_api()?,
+        result::native_api()?,
+        string::native_api()?,
+    ])
+}
 
 pub fn module() -> NativeModule {
     let mut module = NativeModule::new(ModuleIdentity {

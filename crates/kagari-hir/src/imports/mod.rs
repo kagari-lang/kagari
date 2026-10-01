@@ -937,6 +937,14 @@ impl<'a> SourceCatalog<'a> {
                 cancel.check()?;
                 add(&item.name, ExportItem::Trait(item.id), item.visibility);
             }
+            // Direct registration exports have no source import node. Respect
+            // their explicit module aliases alongside qualified enum members.
+            for export in &module.module.exports {
+                if let ExportItem::Variant(_) = export.item {
+                    cancel.check()?;
+                    add(&export.name, export.item, Visibility::Public);
+                }
+            }
             for implementation in &module.module.impls {
                 cancel.check()?;
                 if implementation.trait_ref.is_some() {

@@ -36,14 +36,10 @@ pub fn bundled_sources() -> &'static [BundledSource] {
         source!("prelude"),
         source!("map"),
         source!("set"),
-        source!("string"),
-        source!("option"),
-        source!("result"),
         source!("iter"),
         source!("debug"),
         source!("hash"),
         source!("fmt"),
         source!("convert"),
-        source!("numeric"),
     ]
 }

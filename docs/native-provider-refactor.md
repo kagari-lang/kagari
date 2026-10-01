@@ -229,9 +229,9 @@ an execution owner without rebuilding a central method catalog in production.
 | Inventory group | Owning checkpoint | Current state |
 | --- | --- | --- |
 | math's eleven helpers | 1 and 3 | floor/ceil/sqrt restored in checkpoint 1; remaining eight pending |
-| 175 numeric methods and thirteen FromStr impls | 3 | Pending |
+| 175 numeric methods and thirteen FromStr impls | 3 | Registered and exercised across all widths; dedicated portable numeric fixture and budget-cut coverage added |
 | String ordinary helpers / parse / lazy traversal | 3 / 7 / 5 | Pending |
-| Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | Pending |
+| Option/Result ordinary queries / combinators and FromIterator | 3 / 7 | is_some/is_none/is_ok/is_err/unwrap_or restored; remaining direct queries and composition pending |
 | ArrayList plus List/MutableList methods and impls | 2 and 4 | Prepared supplied/selected stable sorting and rooted application preparation proved; remaining surface pending |
 | Iterator lazy/default traversal, collection/String/range Iterable and Iter.next | 5 | Application returned-state proof complete in 2; remaining declarations/primitive prerequisites in 3 and full traversal in 5 |
 | LinkedHashMap/LinkedHashSet, Map/Set capabilities, snapshots, relations, group_by | 6 | Pending common calls and traversal |
@@ -3213,3 +3213,112 @@ target/native-state-clippy.log, target/native-state-focused-clippy.log,
 target/native-state-inference-test.log, target/native-state-structure.log and
 target/native-state-fmt.log. HIR/ABI old-model lib-test build errors remain carried;
 whole-workspace/all-target acceptance is not reported as passing.
+
+### NR04 checkpoint: registered integer methods and primitive parsing (2026-10-02)
+
+Scope: advance step 3 with all 175 integer methods, thirteen primitive FromStr
+implementations, ParseError and six rooted Option/Result queries. Step 3 remains
+open for the remaining math/String/debug families, protocol declarations and
+implicit primitive ownership. Library composition, complete collection/state
+restoration, retirement and NR05/ST06 acceptance remain in the full active goal.
+
+Changes and evidence:
+
+- Actual Rust scalar wrappers register sixteen arithmetic/rotation methods at
+  each of ten script widths, five unsigned wrapping_add_signed methods and ten
+  from_str_radix methods. NativeValue derives scalar metadata and validates the
+  exact width/storage on both conversions. Script isize/usize use i64/u64 Rust
+  carriers on every host. No per-method compiler or VM dispatch catalog is added.
+- The real FromStr Rust trait declares its associated Err and injected NativeCall.
+  Ten integer, two float and one bool implementations reuse Rust's complete-input
+  parsers. Radices outside 2..=36 return InvalidRadix without entering Rust's
+  panicking radix API. The checked five-variant ParseError adapter maps recoverable
+  errors into rooted script Results with normal origin capture.
+- NativeCall.charge_work forwards through the owning heap to the execution
+  resource state. Primitive parsing charges input bytes before parser work, polls
+  cancellation, and fails through ordinary native cleanup. Increasing a valid
+  input by 64 leading zeros increases its logical instruction cost by exactly 64.
+  Every success/error instruction and allocation cut releases roots/frames;
+  cancellation and later reuse are covered.
+- NativeOptionValue and NativeResultValue support borrowed receiver methods
+  without cloning open Rust payloads. is_some/is_none/is_ok/is_err inspect only
+  the validated tag, and unwrap_or reads only the selected success payload.
+  Fallback expressions execute once even when unused. Direct returned heap
+  handles prove retained payload identity at GC threshold one; Err query/return
+  preserves its creation trace. No Rust Result cloning erases provenance.
+- Native enum module exports are explicit registration data, authored with
+  #[native_type(export_variants)]. Owner existence, enum representation and name
+  collisions are checked before publication. HIR exports and generated constructor
+  re-exports derive from that same data; no Option/Result-name switch or handwritten
+  source authority is added. Required Rust trait context markers are removed after
+  contract derivation. Native static protocol lowering substitutes a receiver
+  parameter only when the real parameter is self, preserving FromStr's String input.
+- numeric/option/result/string are ordinary default native packages. Their generated
+  views replace legacy declarations and those four modules leave the source-crate
+  manifest. native_numeric.kbc is generated with automatic default installation
+  disabled and the chosen native API installed explicitly. The source imports its
+  actual numeric module, type providers and constructor exports; direct method,
+  static parser and variant navigation reaches registered generated coordinates.
+- Tests cover every arithmetic method at every width, narrow/wide extrema, signed
+  MIN division/remainder, unsigned carries/borrows, all rotation-count boundaries,
+  signed offsets, all integer parser bounds, all error variants, whitespace/sign/
+  radix rules, bool syntax, float special spellings and preserved signed zero.
+  Positive source emission and wrong-width/shape rejection accompany bytecode-only
+  execution. Four existing Rust macro tests pass.
+- Eight affected existing products are independently regenerated. bounds,
+  associated and selected fixtures now explicitly import their type providers and
+  install their actual native dependencies with defaults disabled, rather than
+  inheriting default prelude dependencies. Their exact-emission and reload checks
+  use the same provider selection. The derived portable-default consumer installs
+  that same dependency closure. Old safety/forgery/budget/reload assertions remain.
+  Registration's old five-source count now checks the exact nine registered URIs.
+
+Validation and carried work:
+
+- Whole library Clippy and compilation pass. Focused numeric/affected-consumer/
+  generator Clippy, formatting, structure (884 Rust files, zero violations and
+  zero exceptions) and diff checks pass before final consolidation below.
+- The initial feature attempts exposed the old optional loaders' implicit prelude
+  closure and the fixed source count. These consumers were migrated to the actual
+  installation model rather than ignoring missing handlers or weakening validation.
+  The final nineteen-target feature matrix is recorded below after completion.
+- A minimal-install probe using implicit user-struct equality in the query fixture
+  reaches MirLowering MissingBinding("checked protocol method"). The alias proof
+  now compares returned heap handles directly, independent of a user equality
+  protocol. Restore the missing implicit struct/operator fact under step 3's
+  primitive-ownership row; do not add a named-library lowering fallback. A source
+  reproduction is a struct Payload with val value: i32 and p == p, compiled with
+  default installation disabled and the actual standard native packages installed.
+- The existing fourteen ABI and seventeen HIR removed-model lib-test errors remain
+  NR04-owned. They are not rerun unchanged or counted as passing; all-target and
+  complete workspace acceptance remain open. Full math constraints, String.parse,
+  enum combinators, iterator/destination protocols, frozen sorting-family charges,
+  all remaining library members and ST06 measurements are still required.
+
+Logs: target/native-numeric-generation.log, target/native-numeric-tests.log,
+target/native-numeric-budget.log, target/native-numeric-tooling.log,
+target/native-numeric-migrated-tests.log, target/native-numeric-regenerate-*.log,
+target/native-numeric-macros-tests.log, target/native-numeric-clippy.log,
+target/native-numeric-focused-clippy.log, target/native-numeric-structure.log,
+target/native-numeric-fmt.log and target/native-numeric-feature-matrix.log.
+
+Consolidated validation:
+
+- uv run --locked scripts/check_features.py --native-proof passes all nineteen
+  standalone targets in artifact-only/source/native/source+native builds:
+  106/170/107/172 tests. Production dependency graph checks pass. The final run
+  includes the fully explicit numeric product, native variant/method navigation,
+  every parser budget cut and the migrated optional/default consumers.
+- cargo clippy --workspace --lib -- -D warnings and focused affected embed
+  tests/generators Clippy pass. cargo fmt --all -- --check, structure (884 Rust
+  files, zero violations/exceptions) and git diff --check pass.
+- Manual review confirms owner imports, the empty Rust re-export whitelist,
+  explicit enum constructor publication, bounded width conversions, real Rust
+  trait/static-call signatures and rooted open payloads. Macro token trees use
+  explicit captured types and hygienic generated paths. No algorithm ID dispatch,
+  compatibility facade, fake declaration body or blanket structure exception is added.
+
+Next continue step 3's remaining direct families and shared primitive ownership,
+then the full collection/state/composition surface and retirement. Full NR05/ST06,
+carried old-model consumers and matched measurements remain required; the goal
+is active and no acceptance scope is removed.

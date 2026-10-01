@@ -1,4 +1,5 @@
 use game::bounds::{echo, Container, Marker};
+use std::array::ArrayList;
 struct Token { val values: ArrayList<i32> }
 impl Container<usize> for Token {}
 impl Marker for Token {}

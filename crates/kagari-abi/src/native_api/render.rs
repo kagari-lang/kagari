@@ -92,6 +92,17 @@ impl NativeModule {
                 output.text.push_str(";\n\n");
             }
             output.site(id, start, name_span, generics, vec![]);
+            if self.variant_exports.contains(&ty.name) {
+                output.text.push_str(&format!(
+                    "pub use self::{}::{{{}}};\n\n",
+                    ty.name,
+                    ty.variants
+                        .iter()
+                        .map(|variant| variant.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
         }
         for item in &self.traits {
             let id = self.definition(DefinitionKind::Trait, &item.name);

@@ -16,7 +16,7 @@ Rust functions, checked representation aliases/wrappers, traits and impls. `Nati
 metadata and conversions, so aliases use their resolved Rust types. Rust checks
 function bodies and trait method signatures; shared support supplies identities
 and generic binders. Open script generics use rooted checked value proxies.
-The bundled ops, array, cmp and math modules compose the default, optional library using
+The bundled ops, array, cmp, math, numeric, Option, Result and String modules compose the default, optional library using
 the same NativeApi installation path as application packages. Generic compilation and execution do
 not distinguish standard functions from application native functions.
 
@@ -62,7 +62,7 @@ VM dispatch. Full library state adapters and broader capture schemas remain open
 HIR imports registered declaration records directly, using ordinary declaration
 checking and selected implementations. Generated `.kgr` files are tooling views
 with syntax, documentation and navigation coordinates; they are never lowered to
-establish registered semantics. The ops, array, cmp and math packages do not consume binary
+establish registered semantics. Registered packages do not consume binary
 source-derived declaration payloads. Remaining library declarations temporarily
 use `kagari-stdlib` source preparation until their NR04 restoration.
 
@@ -74,8 +74,13 @@ canonical identities; native representation references resolve from actual
 installed declarations, preserving their own public names and ordinary import
 dependencies. Generated text supplies no type-provider authority. Comparison
 protocols and scalar implementation facts now come from the actual Rust cmp
-package. Option and String representation-only packages support independent
-installation; their default declaration and prelude migration remains NR04 work.
+package. Numeric methods, primitive FromStr/ParseError and rooted Option/Result
+queries also derive from actual Rust implementations. Script pointer-sized integers
+use fixed 64-bit carriers independent of the host. Parsers charge input work before
+running Rust parsing and return business Result errors, distinct from native traps.
+Explicit native enum variant exports are validated for owners and collisions, then
+projected into ordinary HIR exports and generated views. Full String/enum composition
+and remaining namespace/prelude migration remain NR04 work.
 
 Required, Script and Native implementations share checked callable facts.
 NativeDefault is symbolic declaration metadata: an explicit application of an

@@ -5,7 +5,7 @@ use kagari_runtime::{
     error::RuntimeError,
     native::{
         api::NativeApi, array_api::array, catalog::NativeCatalog, cmp_api::cmp, ops_api::ops,
-        option_api::option, string_api::string,
+        option_api::option, result_api::result, string_api::string,
     },
 };
 
@@ -24,6 +24,7 @@ pub fn api_with_inputs(inputs: &Inputs) -> Result<NativeApi, RuntimeError> {
         array,
         order,
         option::native_api()?,
+        result::native_api()?,
         string::native_api()?,
         inputs::api(inputs)?,
     ])

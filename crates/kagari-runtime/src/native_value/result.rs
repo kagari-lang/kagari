@@ -3,22 +3,51 @@ use super::{NativeCall, NativeResult, NativeValue, invalid};
 use crate::{
     gc::RootSet,
     native_module::types::TypeExpression,
+    native_value::representation::NativeRepresentation,
     value::{EnumTag, Value},
 };
-use kagari_abi::{standard::surface::StandardEnum, types::AbiType};
+use kagari_abi::{
+    standard::surface::StandardEnum,
+    types::{AbiType, native::NativeTypeConstructor},
+};
 use std::marker::PhantomData;
 
 /// A script Result value, distinct from NativeResult's native execution failure.
 /// Reading and returning this handle preserve Err provenance; creating a fresh
 /// Err captures the current execution origin through the normal heap allocator.
-pub struct NativeResultValue<T: NativeValue, E: NativeValue> {
+pub struct NativeResultValue<T: ?Sized, E> {
     call: NativeCall,
     root: RootSet,
     ty: AbiType,
-    _types: PhantomData<(T, E)>,
+    _types: PhantomData<fn(&T, E)>,
 }
 
 impl<T: NativeValue, E: NativeValue> NativeResultValue<T, E> {
+    pub fn is_ok(&self) -> NativeResult<bool> {
+        let Value::Enum(id) = self.root.get(0).ok_or_else(invalid)? else {
+            return Err(invalid());
+        };
+        match self.call.heap.enum_snapshot(id).ok_or_else(invalid)?.tag {
+            EnumTag::ResultOk => Ok(true),
+            EnumTag::ResultErr => Ok(false),
+            _ => Err(invalid()),
+        }
+    }
+    /// Read only the selected success payload; an Err keeps its original object.
+    pub fn unwrap_or(&self, fallback: T) -> NativeResult<T> {
+        let [ok, _] = arguments(&self.ty)? else {
+            return Err(invalid());
+        };
+        let Value::Enum(id) = self.root.get(0).ok_or_else(invalid)? else {
+            return Err(invalid());
+        };
+        let snapshot = self.call.heap.enum_snapshot(id).ok_or_else(invalid)?;
+        match (snapshot.tag, snapshot.fields.as_slice()) {
+            (EnumTag::ResultOk, [value]) => T::read(&self.call, value.clone(), ok),
+            (EnumTag::ResultErr, [_]) => Ok(fallback),
+            _ => Err(invalid()),
+        }
+    }
     pub fn from_result(call: &NativeCall, value: Result<T, E>) -> NativeResult<Self> {
         let expected = call.result_type();
         let [ok, error] = arguments(expected)? else {
@@ -53,6 +82,11 @@ impl<T: NativeValue, E: NativeValue> NativeResultValue<T, E> {
             _ => Err(invalid()),
         }
     }
+}
+
+impl<T: NativeValue, E: NativeValue> NativeRepresentation for NativeResultValue<T, E> {
+    const CONSTRUCTOR: NativeTypeConstructor = NativeTypeConstructor::Enum(StandardEnum::Result);
+    const VARIANT_NAMES: &'static [&'static str] = &["Ok", "Err"];
 }
 
 impl<T: NativeValue, E: NativeValue> NativeValue for NativeResultValue<T, E> {

@@ -17,7 +17,7 @@ use kagari_embed::{
 use kagari_native_macros::native_module;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    native::{api::NativeApi, catalog::NativeCatalog, cmp_api::cmp},
+    native::{api::NativeApi, catalog::NativeCatalog},
     value::Value,
 };
 use std::collections::BTreeMap;
@@ -134,9 +134,9 @@ fn engine(defaults: bool) -> KagariEngine {
         .config(config)
         .install_standard_library(defaults)
         .install(fixture_api::api());
-    // The encoded product retains the compiler's default prelude dependency.
+    // The independent product installs its actual type/protocol providers explicitly.
     if !defaults {
-        builder = builder.install(cmp::native_api());
+        builder = builder.install(fixture_api::dependencies());
     }
     builder.build().unwrap()
 }
@@ -323,7 +323,7 @@ mod source {
 
     #[test]
     fn source_emission_matches_typed_selected_fixture() {
-        let artifact = engine(true)
+        let artifact = engine(false)
             .compile_to_artifact(
                 SourceFile::new("memory://native-selected.kgr", SOURCE),
                 Default::default(),
@@ -335,7 +335,7 @@ mod source {
 
     #[test]
     fn typed_selected_private_targets_keep_their_generation_after_reload() {
-        let engine = engine(true);
+        let engine = engine(false);
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new(

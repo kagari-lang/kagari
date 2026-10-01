@@ -18,3 +18,4 @@ fn external_dynamic_main() -> i32 {
     val echo: Echo<Output = i32> = true;
     echo.echo()
 }
+use std::array::ArrayList;

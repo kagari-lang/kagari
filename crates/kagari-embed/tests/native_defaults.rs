@@ -23,7 +23,7 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::{native::cmp_api::cmp, value::Value};
+use kagari_runtime::value::Value;
 use std::collections::BTreeMap;
 
 const ARTIFACT: &[u8] = include_bytes!("fixtures/native_selected.kbc");
@@ -189,7 +189,7 @@ fn engine() -> KagariEngine {
     KagariEngine::builder()
         .config(config)
         .install_standard_library(false)
-        .install(cmp::native_api())
+        .install(fixture_api::dependencies())
         .install(fixture_api::api())
         .build()
         .unwrap()

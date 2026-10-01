@@ -12,6 +12,8 @@ use syn::{Error as SyntaxError, ItemMod, parse_macro_input};
 /// Signatures come from `NativeValue`/`NativeReturn`, including Rust type aliases.
 /// `#[native_type]` aliases and tuple wrappers derive their closed representation
 /// from the resolved Rust adapter's `NativeRepresentation` implementation.
+/// `#[native_type(export_variants)]` also publishes an enum's checked variants
+/// at module scope; owner validation rejects missing enums and name collisions.
 /// The `catalog` option generates `native_api(&NativeCatalog)` for external trait
 /// dependencies. A trait impl may declare an explicit `contract = "pkg::mod::Trait"`
 /// mapping while preserving its actual Rust trait path and conformance checks.

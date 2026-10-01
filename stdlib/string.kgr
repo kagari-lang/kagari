@@ -1,15 +1,83 @@
-#[builtin_type(String)]
+// Generated from native registration definitions. Do not edit.
+
+/// An immutable, checked UTF-8 script string.
 pub type String;
 
-pub trait FromStr {
-    type Err;
-    fn from_str(text: String) -> Result<Self, Self::Err>;
-}
-#[builtin_enum(ParseError)]
+/// Recoverable parser failures; these are values rather than VM traps.
 pub enum ParseError {
     Empty,
     InvalidDigit,
     OutOfRange,
     InvalidRadix,
     InvalidSyntax,
+}
+
+pub trait FromStr {
+    type Err;
+    fn from_str(text: String) -> Result<Self, <Self as FromStr>::Err>;
+}
+
+impl FromStr for i8 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<i8, ParseError>;
+}
+
+impl FromStr for i16 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<i16, ParseError>;
+}
+
+impl FromStr for i32 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<i32, ParseError>;
+}
+
+impl FromStr for i64 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<i64, ParseError>;
+}
+
+impl FromStr for isize {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<isize, ParseError>;
+}
+
+impl FromStr for u8 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<u8, ParseError>;
+}
+
+impl FromStr for u16 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<u16, ParseError>;
+}
+
+impl FromStr for u32 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<u32, ParseError>;
+}
+
+impl FromStr for u64 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<u64, ParseError>;
+}
+
+impl FromStr for usize {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<usize, ParseError>;
+}
+
+impl FromStr for f32 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<f32, ParseError>;
+}
+
+impl FromStr for f64 {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<f64, ParseError>;
+}
+
+impl FromStr for bool {
+    type Err = ParseError;
+    pub fn from_str(text: String) -> Result<bool, ParseError>;
 }
