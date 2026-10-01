@@ -1,8 +1,6 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 
-use kagari_abi::{
-    ids::FunctionRef, standard::surface::StandardEnum as StandardEnumKind, types::AbiType,
-};
+use kagari_abi::{standard::surface::StandardEnum as StandardEnumKind, types::AbiType};
 
 use crate::{
     Runtime,
@@ -15,7 +13,7 @@ use crate::{
     value_semantics,
 };
 
-use kagari_bytecode::artifact::ArtifactFingerprint;
+use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget};
 use kagari_common::span::Span;
 use std::{
     fmt::{self, Display, Formatter},
@@ -29,7 +27,7 @@ const MAX_LABEL_BYTES: usize = 4096;
 pub struct ErrorFrame {
     pub epoch: u64,
     pub code_fingerprint: ArtifactFingerprint,
-    pub function: FunctionRef,
+    pub target: CallableTarget,
     pub function_name: String,
     pub source_uri: String,
     pub instruction_offset: usize,
@@ -77,7 +75,37 @@ impl ErrorTrace {
             return Arc::new(trace);
         }
         for frame in frames.iter().rev().take(count) {
-            let function = frame.function();
+            let Some(function) = frame.function() else {
+                let CallableTarget::Native(import) = frame.target() else {
+                    unreachable!("native frame target");
+                };
+                let contract = &frame.loaded().bytecode.native_imports[import.index()];
+                let name = contract
+                    .instance
+                    .declaration
+                    .path
+                    .last()
+                    .map(|part| part.name.as_str())
+                    .unwrap_or("<native>");
+                let Some(function_name) = label(name, &mut trace.incomplete) else {
+                    break;
+                };
+                let Some(source_uri) = label(&frame.loaded().name, &mut trace.incomplete) else {
+                    break;
+                };
+                trace.frames.push(ErrorFrame {
+                    epoch: frame.loaded().epoch.0,
+                    code_fingerprint: frame.loaded().program_fingerprint(),
+                    target: frame.target(),
+                    function_name,
+                    source_uri,
+                    instruction_offset: 0,
+                    source_span: None,
+                    line: None,
+                    column: None,
+                });
+                continue;
+            };
             let offset = frame.instruction_offset();
             let debug = &function.metadata.debug;
             let line = debug
@@ -107,7 +135,7 @@ impl ErrorTrace {
             trace.frames.push(ErrorFrame {
                 epoch: loaded.epoch.0,
                 code_fingerprint: loaded.program_fingerprint(),
-                function: function.id,
+                target: frame.target(),
                 function_name,
                 source_uri,
                 instruction_offset: offset,

@@ -1,16 +1,57 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, ReturnDestination},
+    frame::{ExecutionStack, NativeEntryState, ReturnDestination},
     native::{
         NativeAction, NativeCallback, NativeCallbackTarget, NativeInvocation, NativeProgress,
     },
     value::Value,
 };
-use kagari_bytecode::instruction::{NativeImportId, Register};
+use kagari_bytecode::{
+    instruction::{NativeImportId, Register},
+    module::CallableTarget,
+};
 use std::rc::Rc;
 
 impl ExecutionStack {
+    /// Start a native callable frame after the driver charges its entry operation.
+    /// No frame borrow crosses the trusted factory or its first state transition.
+    pub fn start_native_entry(&self, runtime: &Runtime) -> Result<NativeProgress, RuntimeError> {
+        self.validate_native_runtime(runtime)?;
+        let (loaded, import, arguments) = {
+            let mut frame = self.current_mut()?;
+            let CallableTarget::Native(import) = frame.target else {
+                return Err(RuntimeError::module_validation(
+                    "expected native callable frame",
+                ));
+            };
+            if !matches!(frame.native_entry, NativeEntryState::Pending) {
+                return Err(RuntimeError::module_validation(
+                    "native callable entry already started",
+                ));
+            }
+            let count = frame.loaded.bytecode.native_imports[import.index()]
+                .signature
+                .params
+                .len();
+            let arguments = (1..=count)
+                .map(|slot| frame.slots.get(slot))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| RuntimeError::module_validation("native frame argument roots"))?;
+            frame.native_entry = NativeEntryState::Running;
+            (frame.loaded.clone(), import, arguments)
+        };
+        let mut invocation = NativeInvocation::start(runtime, loaded, import, &arguments, None)?;
+        let action = invocation.take_entry();
+        let mut frame = self.current_mut()?;
+        frame
+            .native
+            .try_reserve(1)
+            .map_err(|_| self.session.resources.limit("native continuation capacity"))?;
+        frame.native.push(invocation);
+        drop(frame);
+        self.process_native_action(runtime, action)
+    }
     fn validate_native_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
         self.validate_top()?;
         if !Rc::ptr_eq(&runtime.resources, &self.session.resources) {
@@ -82,6 +123,14 @@ impl ExecutionStack {
                     })?;
                     let destination = completed.destination;
                     if self.current()?.native.is_empty() {
+                        if matches!(self.current()?.native_entry, NativeEntryState::Running) {
+                            let mut frame = self.current_mut()?;
+                            frame.slots.set(&self.heap, 0, value).ok_or_else(|| {
+                                RuntimeError::module_validation("native frame result root")
+                            })?;
+                            frame.native_entry = NativeEntryState::Complete;
+                            return Ok(NativeProgress::Finished);
+                        }
                         if let Some(destination) = destination {
                             self.current_mut()?.write_register(destination, value)?;
                         }
@@ -114,6 +163,9 @@ impl ExecutionStack {
         match request.target {
             NativeCallbackTarget::Closure(closure) => {
                 self.push_closure(runtime, closure, &request.arguments, None)?
+            }
+            NativeCallbackTarget::Interface(method) => {
+                self.push_interface_method(runtime, *method, &request.arguments, None)?
             }
         }
         self.current_mut()?.return_to = ReturnDestination::Native;

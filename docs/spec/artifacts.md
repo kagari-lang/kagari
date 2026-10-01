@@ -28,7 +28,7 @@ Artifacts may be used by:
 
 ## Current executable contract
 
-Current products use KBC format v113, `kagari-runtime-abi-v136`, `KMIR` v11
+Current products use KBC format v114, `kagari-runtime-abi-v137`, `KMIR` v11
 and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
 the provider descriptor and its separate per-contract version are removed. Older
 products are rejected before execution without a migration reader.
@@ -52,6 +52,11 @@ program. Executable contracts have no source-analysis dependency.
 Callable method policy remains independent of binding identity. Final methods
 cannot be replaced; required and non-trait declarations cannot be final.
 
+Interface method slots distinguish checked script function references from native
+import references. The native import must match the exact implementation member
+and applied trait signature. Both callable targets retain their implementation
+generation and share frame, callback-return and cleanup validation.
+
 Invocation state owns Rust data and explicit roots. Checked callbacks run on shared
 frames; return values stay rooted while receive() runs. Work uses logical budget
 safepoints and unit mutations retain separate publication. Artifacts contain no
@@ -60,7 +65,7 @@ live heap state/Rust references. Generic persistent traced state remains NR03 wo
 The reset native_provider.kbc fixture covers array direct/interface/callback calls
 with serialized and source-free execution. The old feature_artifact.kbc remains
 tracked for NR04 restoration: its bytes/API are superseded and do not load under
-v113. This does not reduce the required final feature matrix.
+v114. This does not reduce the required final feature matrix.
 
 ## SDK Feature Boundary
 

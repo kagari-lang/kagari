@@ -176,6 +176,10 @@ Stepping is defined over safe debug points and source spans.
 `run to cursor` installs a temporary source breakpoint and continues.
 
 Host calls are stepped as opaque calls unless the host exposes a debugger integration for that API.
+Registered native interface methods are opaque callable frames. Stepping continues
+to the next debuggable script callback or caller safe point. Stack/error snapshots
+identify their native import target and implementation generation, with no invented
+source span or script local bindings.
 
 ## Call Stack Inspection
 

@@ -9,10 +9,10 @@ use crate::{
     session::ExecutionSession,
     value::Value,
 };
-use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef};
+use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, LocalSlot, Register},
-    module::BytecodeFunction,
+    module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
 use std::{
@@ -134,7 +134,13 @@ impl ExecutionStack {
                 .member(module)
                 .ok_or_else(|| self.session.resources.quarantine("invalid frame module"))?
         };
-        self.push_resolved(loaded, function, args, return_dst, None)
+        self.push_resolved(
+            loaded,
+            CallableTarget::Script(function),
+            args,
+            return_dst,
+            None,
+        )
     }
 
     /// Enters a method selected from a rooted interface value, preserving its
@@ -150,8 +156,8 @@ impl ExecutionStack {
         runtime.validate_loaded_module(method.implementation())?;
         runtime.validate_interface_method_arguments(&method, args)?;
         let loaded = method.implementation().clone();
-        let function = method.function();
-        self.push_resolved(loaded, function, args, return_dst, Some(method))
+        let target = method.target();
+        self.push_resolved(loaded, target, args, return_dst, Some(method))
     }
 
     pub fn push_closure(
@@ -187,7 +193,7 @@ impl ExecutionStack {
         }
         self.push_resolved(
             closure.implementation,
-            closure.function,
+            CallableTarget::Script(closure.function),
             &all,
             return_dst,
             None,
@@ -197,7 +203,7 @@ impl ExecutionStack {
     fn push_resolved(
         &self,
         loaded: LoadedModule,
-        function: FunctionRef,
+        target: CallableTarget,
         args: &[Value],
         return_dst: Option<Register>,
         interface_method: Option<RootedInterfaceMethod>,
@@ -224,7 +230,7 @@ impl ExecutionStack {
             self.heap.clone(),
             self.session.resources.clone(),
             loaded,
-            function,
+            target,
             args,
             return_dst,
             interface_method,
@@ -294,9 +300,18 @@ enum ReturnDestination {
     Native,
 }
 
+#[derive(Debug)]
+enum NativeEntryState {
+    Script,
+    Pending,
+    Running,
+    Complete,
+}
+
 pub struct ExecutionFrame {
     loaded: LoadedModule,
-    function: FunctionRef,
+    target: CallableTarget,
+    native_entry: NativeEntryState,
     ip: usize,
     executing: Option<usize>,
     heap: Rc<GcHeap>,
@@ -315,7 +330,7 @@ impl Debug for ExecutionFrame {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionFrame")
             .field("module", &self.loaded.key())
-            .field("function", &self.function)
+            .field("target", &self.target)
             .field("ip", &self.ip)
             .finish_non_exhaustive()
     }
@@ -326,31 +341,51 @@ impl ExecutionFrame {
         heap: Rc<GcHeap>,
         resources: Rc<ResourceState>,
         loaded: LoadedModule,
-        function: FunctionRef,
+        target: CallableTarget,
         args: &[Value],
         return_dst: Option<Register>,
         interface_method: Option<RootedInterfaceMethod>,
     ) -> Result<Self, RuntimeError> {
-        let metadata = loaded
-            .bytecode
-            .functions
-            .get(function.index())
-            .ok_or_else(|| resources.quarantine("invalid frame function"))?;
-        let expected = usize::from(metadata.parameter_count);
-        if args.len() != expected {
-            return Err(RuntimeError::module_validation(
-                "frame argument count does not match the linked function",
-            ));
-        }
-        let register_count = usize::from(metadata.register_count);
-        let mut slots = vec![Value::Unit; register_count + usize::from(metadata.local_count)];
-        for (slot, value) in args.iter().enumerate() {
-            slots[register_count + slot] = value.clone();
-        }
+        let (register_count, slots, native_entry) = match target {
+            CallableTarget::Script(function) => {
+                let metadata = loaded
+                    .bytecode
+                    .functions
+                    .get(function.index())
+                    .ok_or_else(|| resources.quarantine("invalid frame function"))?;
+                if args.len() != usize::from(metadata.parameter_count) {
+                    return Err(RuntimeError::module_validation(
+                        "frame argument count does not match the linked function",
+                    ));
+                }
+                let register_count = usize::from(metadata.register_count);
+                let mut slots =
+                    vec![Value::Unit; register_count + usize::from(metadata.local_count)];
+                for (slot, value) in args.iter().enumerate() {
+                    slots[register_count + slot] = value.clone();
+                }
+                (register_count, slots, NativeEntryState::Script)
+            }
+            CallableTarget::Native(import) => {
+                let signature = &loaded
+                    .bytecode
+                    .native_imports
+                    .get(import.index())
+                    .ok_or_else(|| resources.quarantine("invalid native frame import"))?
+                    .signature;
+                if args.len() != signature.params.len() {
+                    return Err(RuntimeError::module_validation("native frame arguments"));
+                }
+                let mut slots = vec![Value::Unit];
+                slots.extend_from_slice(args);
+                (0, slots, NativeEntryState::Pending)
+            }
+        };
 
         Ok(Self {
             loaded,
-            function,
+            target,
+            native_entry,
             ip: 0,
             executing: None,
             heap: heap.clone(),
@@ -424,8 +459,8 @@ impl ExecutionFrame {
     }
 
     pub fn next_instruction(&mut self) -> Option<(BytecodeInstruction, LogicalBudgetCharge)> {
-        let instruction = self.function().instructions.get(self.ip).cloned().zip(
-            self.function()
+        let instruction = self.function()?.instructions.get(self.ip).cloned().zip(
+            self.function()?
                 .metadata
                 .instruction_budgets
                 .get(self.ip)
@@ -438,8 +473,30 @@ impl ExecutionFrame {
         instruction
     }
 
-    pub fn function(&self) -> &BytecodeFunction {
-        &self.loaded.bytecode.functions[self.function.index()]
+    pub fn target(&self) -> CallableTarget {
+        self.target
+    }
+    pub fn function(&self) -> Option<&BytecodeFunction> {
+        match self.target {
+            CallableTarget::Script(function) => {
+                self.loaded.bytecode.functions.get(function.index())
+            }
+            CallableTarget::Native(_) => None,
+        }
+    }
+    pub fn native_return(&self) -> Option<Value> {
+        matches!(self.native_entry, NativeEntryState::Complete)
+            .then(|| self.slots.get(0))
+            .flatten()
+    }
+    pub fn has_pending_native_entry(&self) -> bool {
+        matches!(self.native_entry, NativeEntryState::Pending)
+    }
+    pub fn register_type(&self, register: Register) -> Result<ValueType, RuntimeError> {
+        self.function()
+            .and_then(|function| function.metadata.registers.get(register.index()))
+            .copied()
+            .ok_or_else(|| self.resources.quarantine("invalid frame register type"))
     }
     pub fn module(&self) -> ModuleRef {
         self.loaded.slot()
@@ -453,7 +510,10 @@ impl ExecutionFrame {
     }
 
     pub(crate) fn set_native_instruction(&mut self, offset: usize) -> Result<(), RuntimeError> {
-        if offset >= self.function().instructions.len() {
+        if self
+            .function()
+            .is_none_or(|function| offset >= function.instructions.len())
+        {
             return Err(self
                 .resources
                 .quarantine("invalid native instruction offset"));
@@ -472,7 +532,10 @@ impl ExecutionFrame {
 
     pub fn jump_to(&mut self, offset: usize) -> Result<(), RuntimeError> {
         self.resources.ensure_execution_allowed()?;
-        if offset >= self.function().instructions.len() {
+        if self
+            .function()
+            .is_none_or(|function| offset >= function.instructions.len())
+        {
             return Err(self.resources.quarantine("invalid frame jump target"));
         }
         self.ip = offset;
@@ -534,6 +597,10 @@ impl Runtime {
         frame.set_native_instruction(offset)?;
         frame
             .function()
+            .ok_or_else(|| {
+                self.resources
+                    .quarantine("native frame has no script instruction charge")
+            })?
             .metadata
             .instruction_budgets
             .get(offset)

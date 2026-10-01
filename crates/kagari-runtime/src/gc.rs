@@ -1,3 +1,4 @@
+use kagari_bytecode::module::CallableTarget;
 mod arrays;
 mod maps_sets;
 use crate::{
@@ -40,7 +41,7 @@ mod string_iter;
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceMethodBinding {
     pub(crate) method: DefinitionId,
-    pub(crate) function: FunctionRef,
+    pub(crate) target: CallableTarget,
     pub(crate) parameter_types: Vec<AbiType>,
     pub(crate) return_type: AbiType,
 }

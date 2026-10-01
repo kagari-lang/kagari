@@ -1,5 +1,5 @@
 use kagari_abi::native_import::NativeImport;
-use kagari_bytecode::program::verify_program;
+use kagari_bytecode::{module::CallableTarget, program::verify_program};
 use {
     kagari_common::host_interface::type_declaration::PathAccess, kagari_embed::context::JitPolicy,
     kagari_vm::reentry::reenter,
@@ -344,7 +344,11 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                 table.host_bridge = false;
             }
             4 => {
-                let index = module.interface_tables[0].methods[0].function.index();
+                let CallableTarget::Script(function) = module.interface_tables[0].methods[0].target
+                else {
+                    panic!("host script shim")
+                };
+                let index = function.index();
                 let function = &mut module.functions[index];
                 let BytecodeInstruction::Call { args, .. } =
                     &function.instructions[function.metadata.params.len()]
@@ -366,7 +370,11 @@ fn invalid_host_associated_schemas_and_bridge_code_are_rejected() {
                     .native_imports
                     .push(NativeImport::from_host(&contract));
                 module.host_interface.functions.push(contract);
-                let index = module.interface_tables[0].methods[0].function.index();
+                let CallableTarget::Script(function) = module.interface_tables[0].methods[0].target
+                else {
+                    panic!("host script shim")
+                };
+                let index = function.index();
                 let function = &mut module.functions[index];
                 let BytecodeInstruction::Call { callee, .. } =
                     &mut function.instructions[function.metadata.params.len()]

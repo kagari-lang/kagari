@@ -3,7 +3,10 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, PublicAbiItem},
 };
-use kagari_bytecode::artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact};
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
+    module::CallableTarget,
+};
 use kagari_common::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
@@ -46,8 +49,11 @@ fn main() {
         .expect("selected implementation table");
     assert_eq!(executable.declaration, table.declaration);
     assert_eq!(executable.methods.len(), 1);
+    let CallableTarget::Script(function) = executable.methods[0].target else {
+        panic!("script implementation")
+    };
     assert_eq!(
-        bytecode.functions[executable.methods[0].function.index()]
+        bytecode.functions[function.index()]
             .identity
             .as_ref()
             .unwrap()

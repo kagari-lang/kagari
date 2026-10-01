@@ -61,6 +61,28 @@ impl<'a> Executor<'a> {
     }
     fn run_inner(&mut self) -> Result<Value, VmError> {
         loop {
+            let native_return = self.current_frame()?.native_return();
+            if let Some(value) = native_return {
+                let result = self.stack.finish_return(self.runtime, value);
+                if let Some(value) = self.report_operation(result.map_err(VmError::RuntimeError))? {
+                    return Ok(value);
+                }
+                continue;
+            }
+            if self.current_frame()?.has_pending_native_entry() {
+                self.runtime.gc_safepoint()?;
+                self.runtime
+                    .observe_execution(ExecutionEvent::BeforeInstruction)?;
+                self.runtime
+                    .consume_logical_charge(LogicalBudgetCharge::Step)?;
+                let result = self
+                    .stack
+                    .start_native_entry(self.runtime)
+                    .map_err(VmError::RuntimeError)
+                    .and_then(|progress| self.dispatch_native_progress(progress));
+                self.report_operation(result)?;
+                continue;
+            }
             if self.stack.has_native_continuation()? {
                 self.runtime.gc_safepoint()?;
                 self.runtime

@@ -1,7 +1,7 @@
 use kagari_abi::ids::{DebugPointId, FunctionRef};
 use kagari_bytecode::{
     instruction::LocalSlot,
-    module::{BytecodeFunction, SafeDebugPoint},
+    module::{BytecodeFunction, CallableTarget, SafeDebugPoint},
 };
 use kagari_common::span::Span;
 use kagari_runtime::{
@@ -123,10 +123,10 @@ pub struct DebugFrame {
     pub id: DebugFrameId,
     pub module_id: ModuleId,
     pub epoch: u64,
-    pub function: FunctionRef,
+    pub target: CallableTarget,
     pub function_name: String,
     pub instruction_offset: usize,
-    pub source_span: Span,
+    pub source_span: Option<Span>,
     pub source_uri: String,
     pub bindings: Vec<DebugBinding>,
 }
@@ -318,7 +318,10 @@ impl DebugSession {
         let epoch = member.epoch.0;
         let module_name = &member.name;
         let offset = frame.instruction_offset();
-        let Some(_point) = safe_debug_point(frame.function(), offset) else {
+        let Some(function) = frame.function() else {
+            return Ok(());
+        };
+        let Some(_point) = safe_debug_point(function, offset) else {
             return Ok(());
         };
 
@@ -328,7 +331,7 @@ impl DebugSession {
             .find(|resolved| {
                 resolved.module_id == module_id
                     && resolved.epoch == epoch
-                    && resolved.function == frame.function().id
+                    && resolved.function == function.id
                     && resolved.instruction_offset == offset
             })
             .map(|resolved| resolved.breakpoint_id);
@@ -429,13 +432,13 @@ impl DebugSession {
         let id = DebugFrameId(self.next_frame_id);
         self.next_frame_id += 1;
         let instruction_offset = frame.instruction_offset();
-        let source_span = source_span_for(frame.function(), instruction_offset);
+        let source_span = frame
+            .function()
+            .map(|function| source_span_for(function, instruction_offset));
         let member = frame.loaded();
         let origin = frame
             .function()
-            .metadata
-            .debug
-            .source_module
+            .and_then(|function| function.metadata.debug.source_module)
             .and_then(|slot| member.member(slot));
         let source_uri = origin
             .as_ref()
@@ -446,10 +449,8 @@ impl DebugSession {
             .map_err(VmError::RuntimeError)?;
         let bindings = frame
             .function()
-            .metadata
-            .debug
-            .local_live_ranges
-            .iter()
+            .into_iter()
+            .flat_map(|function| &function.metadata.debug.local_live_ranges)
             .filter(|range| range.start <= instruction_offset && instruction_offset < range.end)
             .map(|range| {
                 let value = frame.read_local(range.local)?;
@@ -475,8 +476,23 @@ impl DebugSession {
             id,
             module_id,
             epoch,
-            function: frame.function().id,
-            function_name: frame.function().name.clone(),
+            target: frame.target(),
+            function_name: match frame.function() {
+                Some(function) => function.name.clone(),
+                None => {
+                    let CallableTarget::Native(import) = frame.target() else {
+                        unreachable!("native frame target");
+                    };
+                    member.bytecode.native_imports[import.index()]
+                        .instance
+                        .declaration
+                        .path
+                        .last()
+                        .expect("verified native identity")
+                        .name
+                        .clone()
+                }
+            },
             instruction_offset,
             source_span,
             source_uri,

@@ -3,7 +3,7 @@ use kagari_bytecode::{
     self as bytecode,
     artifact::KbcArtifact,
     instruction::{ConstantOperand, NativeImportId},
-    module::{FunctionRecord, RootSlotLayout},
+    module::{CallableTarget, FunctionRecord, RootSlotLayout},
     program::verify_program,
 };
 
@@ -91,7 +91,9 @@ impl<T> Product<T> for Bucket<T> {fn product<I:Iterable<Item=T>>(source:I)->Self
                     function.identity = None;
                     module.function_table[id.index()].identity = None;
                     for table in &mut module.interface_tables {
-                        table.methods.retain(|method| method.function != id);
+                        table
+                            .methods
+                            .retain(|method| method.target != CallableTarget::Script(id));
                     }
                 }
                 _ => witness.methods[0].arguments[0] = AbiType::Builtin(BuiltinType::U32),
@@ -192,7 +194,9 @@ fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0
                 function.identity = None;
                 module.function_table[id.index()].identity = None;
                 for table in &mut module.interface_tables {
-                    table.methods.retain(|method| method.function != id);
+                    table
+                        .methods
+                        .retain(|method| method.target != CallableTarget::Script(id));
                 }
             }
             _ => contract.requirements.clear(),
@@ -291,7 +295,9 @@ impl<T> Iterator for Counter<T> {type Item=T;fn next(self)->Option<T>{if self.do
                     function.identity = None;
                     module.function_table[id.index()].identity = None;
                     for table in &mut module.interface_tables {
-                        table.methods.retain(|method| method.function != id);
+                        table
+                            .methods
+                            .retain(|method| method.target != CallableTarget::Script(id));
                     }
                 }
             }

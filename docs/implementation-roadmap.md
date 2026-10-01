@@ -18,7 +18,7 @@ native standard algorithm through shared Rust helpers or rooted continuations,
 including lazy adapters, prepared mutations, custom keys and selected script calls.
 Core language primitives keep generic typed instructions. The plan's final ownership
 map covers the complete ST00 inventory. These are predecessor results; the NR reset removed its old algorithms.
-Current products use runtime ABI v136, KBC v113, KMIR v11, registration-owned minimal native declarations
+Current products use runtime ABI v137, KBC v114, KMIR v11, registration-owned minimal native declarations
 and helper ABI v6; older products require rebuilds.
 
 ST06 covers all SDK feature routes, updated artifact consumers/fixtures and current

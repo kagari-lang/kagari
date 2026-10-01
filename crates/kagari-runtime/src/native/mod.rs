@@ -7,7 +7,7 @@ mod math_api;
 pub mod packages;
 pub mod registration;
 use crate::{
-    Runtime,
+    RootedInterfaceMethod, Runtime,
     error::RuntimeError,
     gc::{ClosureValueSnapshot, GcHeap, RootSet},
     module::LoadedModule,
@@ -15,7 +15,10 @@ use crate::{
     value::Value,
 };
 
-use kagari_abi::{native_import::NativeSignature, types::AbiType};
+use kagari_abi::{
+    native_import::NativeSignature,
+    types::{AbiType, NominalAbiType},
+};
 use kagari_bytecode::instruction::{NativeImportId, Register};
 use std::{iter, rc::Rc};
 
@@ -27,6 +30,7 @@ pub struct NativeCallback {
 }
 pub(crate) enum NativeCallbackTarget {
     Closure(ClosureValueSnapshot),
+    Interface(Box<RootedInterfaceMethod>),
 }
 pub enum NativeProgress {
     Continue,
@@ -108,6 +112,35 @@ impl NativeContext<'_> {
         arguments: Vec<Value>,
     ) -> Result<NativeCallback, RuntimeError> {
         callback(self.runtime, value, signature, arguments)
+    }
+    /// Select a method from a checked, rooted interface value. The request keeps
+    /// its implementation generation and concrete output signature until return.
+    pub fn interface_callback(
+        &self,
+        value: &Value,
+        interface: &NominalAbiType,
+        slot: usize,
+        arguments: Vec<Value>,
+    ) -> Result<NativeCallback, RuntimeError> {
+        let method = self
+            .runtime
+            .resolve_interface_method_slot(value, interface, slot)?;
+        let arguments = iter::once(method.receiver().clone())
+            .chain(arguments)
+            .collect::<Vec<_>>();
+        self.runtime
+            .validate_interface_method_arguments(&method, &arguments)?;
+        let roots = self
+            .runtime
+            .gc()
+            .root_execution_values(arguments.clone())
+            .ok_or_else(|| RuntimeError::module_validation("interface callback roots"))?;
+        Ok(NativeCallback {
+            result: method.return_type().clone(),
+            target: NativeCallbackTarget::Interface(Box::new(method)),
+            arguments,
+            _roots: roots,
+        })
     }
     pub fn matches(&self, value: &Value, ty: &AbiType) -> bool {
         self.runtime
@@ -226,7 +259,7 @@ impl NativeInvocation {
         runtime: &Runtime,
         value: Value,
     ) -> Result<NativeAction, RuntimeError> {
-        // The returning script frame has been popped. Keep its result reachable
+        // The returning callable frame has been popped. Keep its result reachable
         // while the native entry receives it, including allocations before retain().
         let _result_root = runtime
             .gc()

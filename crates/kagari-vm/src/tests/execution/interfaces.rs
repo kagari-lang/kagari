@@ -11,7 +11,7 @@ fn concrete_interface_object_resolves_a_linked_method_slot() {
     let resolved = runtime.resolve_interface_method(&boxed, &method).unwrap();
     assert_eq!(resolved.receiver(), &Value::I32(7));
     assert_eq!(resolved.implementation().key(), loaded.key());
-    assert_eq!(resolved.function(), table.methods[0].function);
+    assert_eq!(resolved.target(), table.methods[0].target);
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().validate_value(&boxed));
     assert!(
@@ -71,20 +71,20 @@ fn interface_method_slots_follow_trait_order_even_when_impl_order_differs() {
             .clone()
     };
     assert_eq!(
-        first.function(),
+        first.target(),
         runtime
             .resolve_interface_method(&boxed, &method("first"))
             .unwrap()
-            .function()
+            .target()
     );
     assert_eq!(
-        second.function(),
+        second.target(),
         runtime
             .resolve_interface_method(&boxed, &method("second"))
             .unwrap()
-            .function()
+            .target()
     );
-    assert_ne!(first.function(), second.function());
+    assert_ne!(first.target(), second.target());
     assert!(
         runtime
             .resolve_interface_method_slot(&boxed, interface, 2)

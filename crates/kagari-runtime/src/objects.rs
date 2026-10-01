@@ -5,7 +5,7 @@ use crate::{
     module::{self, LoadedModule},
     value::{self, EnumTag, Value},
 };
-use kagari_bytecode::trait_bounds::interface_ancestors;
+use kagari_bytecode::{module::CallableTarget, trait_bounds::interface_ancestors};
 
 use kagari_abi::{
     ids::FunctionRef,
@@ -150,12 +150,19 @@ impl Runtime {
             };
             let mut candidates = linked.methods.iter().filter(|slot| {
                 slot.method == method_id
-                    && implementation
-                        .bytecode
-                        .functions
-                        .get(slot.function.index())
-                        .and_then(|function| function.identity.as_ref())
-                        .is_some_and(|identity| identity.arguments == linked.arguments)
+                    && match slot.target {
+                        CallableTarget::Script(function) => implementation
+                            .bytecode
+                            .functions
+                            .get(function.index())
+                            .and_then(|function| function.identity.as_ref()),
+                        CallableTarget::Native(import) => implementation
+                            .bytecode
+                            .native_imports
+                            .get(import.index())
+                            .map(|import| &import.instance),
+                    }
+                    .is_some_and(|identity| identity.arguments == linked.arguments)
             });
             let Some(slot) = candidates.next() else {
                 return Err(invalid());
@@ -165,7 +172,7 @@ impl Runtime {
             }
             methods.push(Some(gc::InterfaceMethodBinding {
                 method: method_id,
-                function: slot.function,
+                target: slot.target,
                 parameter_types: method.params.iter().map(|param| param.ty.clone()).collect(),
                 return_type: method.return_type.clone(),
             }));
@@ -463,7 +470,7 @@ impl Runtime {
             concrete_type: snapshot.concrete_type,
             interface_type: snapshot.interface_type,
             implementation: snapshot.implementation,
-            function: binding.function,
+            target: binding.target,
             parameter_types: binding.parameter_types,
             return_type: binding.return_type,
         })

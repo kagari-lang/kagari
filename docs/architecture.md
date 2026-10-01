@@ -34,7 +34,12 @@ records directly from installed packages. Host adapters retain passing styles,
 capabilities and scoped borrow checks while sharing imports and invocation.
 Compiler lowering consumes checked substitutions, associated outputs and witnesses.
 Portable MIR and bytecode carry complete dependency closures and executable
-contracts. ABI validation has no syntax, HIR or source catalog dependencies.
+contracts. Executable interface slots distinguish script function references and
+native import references within their implementation module. Both enter retained
+callable frames and share callback return validation, budgets and cleanup. Native
+interface methods require no synthetic script body; diagnostic frames identify
+the actual native target without inventing a source location. ABI validation has
+no syntax, HIR or source catalog dependencies.
 
 Trait method signatures carry declaration override policy independently of their
 default implementation. Portable callable declarations retain that policy so

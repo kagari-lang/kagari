@@ -4,7 +4,10 @@ use crate::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, JumpTarget,
         LocalSlot, ModuleSlot, NativeImportId, PathId, Register, StructId,
     },
-    module::{BytecodeFunction, BytecodeModule, InterfaceMethodSlot, PathRecord, RootSlotLayout},
+    module::{
+        BytecodeFunction, BytecodeModule, CallableTarget, InterfaceMethodSlot, PathRecord,
+        RootSlotLayout,
+    },
     program::BytecodeProgram,
     trait_bounds,
     verifier::operation::verify_instruction,
@@ -368,7 +371,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 || slot.method.module != trait_type.declaration.module
                 || slot.method.path.len() != trait_type.declaration.path.len() + 1
                 || slot.method.path[..slot.method.path.len() - 1] != trait_type.declaration.path
-                || !used.insert(slot.function)
+                || !used.insert(slot.target)
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
@@ -379,14 +382,40 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
             else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            let Some(function) = module.functions.get(slot.function.index()) else {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
-            };
-            if abi.host_bridge && !host_bridge_method_matches(abi, slot, function, module) {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
-            }
-            let Some(identity) = &function.identity else {
-                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            let identity = match slot.target {
+                CallableTarget::Script(target) => {
+                    let function = module
+                        .functions
+                        .get(target.index())
+                        .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
+                    if matches!(method.implementation, CallableImplementation::Native(_))
+                        && !abi.native_bridge
+                    {
+                        return Err(BytecodeVerificationError::InvalidInterfaceTable);
+                    }
+                    if abi.host_bridge && !host_bridge_method_matches(abi, slot, function, module) {
+                        return Err(BytecodeVerificationError::InvalidInterfaceTable);
+                    }
+                    function
+                        .identity
+                        .as_ref()
+                        .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?
+                }
+                CallableTarget::Native(target) => {
+                    let import = module
+                        .native_imports
+                        .get(target.index())
+                        .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
+                    if abi.host_bridge
+                        || abi.native_bridge
+                        || import.host.is_some()
+                        || method.implementation
+                            != CallableImplementation::Native(import.binding.clone())
+                    {
+                        return Err(BytecodeVerificationError::InvalidInterfaceTable);
+                    }
+                    &import.instance
+                }
             };
             if identity.declaration.module != abi.declaration.module
                 || identity.declaration.path.len() != abi.declaration.path.len() + 1
@@ -408,9 +437,6 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                 .methods
                 .iter()
                 .filter(|method| method.generic_params.is_empty())
-                .filter(|method| {
-                    !matches!(method.implementation, CallableImplementation::Native(_))
-                })
                 .any(|method| {
                     table
                         .methods

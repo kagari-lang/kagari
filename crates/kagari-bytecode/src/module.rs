@@ -1,5 +1,8 @@
 use crate::{
-    instruction::{BytecodeInstruction, ConstantOperand, JumpTarget, LocalSlot, PathId, Register},
+    instruction::{
+        BytecodeInstruction, ConstantOperand, JumpTarget, LocalSlot, NativeImportId, PathId,
+        Register,
+    },
     program::ModuleRef,
 };
 use kagari_abi::{
@@ -157,7 +160,14 @@ pub struct InterfaceTableRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceMethodSlot {
     pub method: DefinitionId,
-    pub function: FunctionRef,
+    pub target: CallableTarget,
+}
+
+/// A checked executable entry owned by the module carrying this target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CallableTarget {
+    Script(FunctionRef),
+    Native(NativeImportId),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -135,6 +135,13 @@ ordinal. IR and bytecode verification check the trait signature, physical
 argument/result types and dependency reachability. The runtime checks the
 object's exact interface identity and full nominal method ABI, then enters the
 implementation's retained version on the same explicit frame stack.
+Executable method slots carry `CallableTarget::Script(FunctionRef)` or
+`CallableTarget::Native(NativeImportId)`, scoped to the implementation module.
+Verification checks the exact implementation identity, concrete arguments, binding
+and normalized method signature. Native targets enter a rooted callable frame and
+use the same bounded continuation/callback driver as direct native imports.
+They do not require a fabricated script body. The frame pins the implementation
+generation until return and consumes call-depth and logical-step budgets.
 
 Public struct templates are checked against each executable instance after generic
 substitution: field count/order, names, permissions and concrete types must agree.

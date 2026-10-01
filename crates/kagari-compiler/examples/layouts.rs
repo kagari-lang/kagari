@@ -1,30 +1,55 @@
 //! Inspect verified struct layouts and interface identities without a runtime.
 
 use kagari_abi::{
+    native_api::NativeModule,
     scalar::BuiltinType,
-    types::{AbiType, PublicAbiItem},
+    types::{
+        AbiType, GenericParameterAbi, PublicAbiItem, TypeAbi, TypeAbiKind,
+        native::NativeTypeConstructor,
+    },
 };
-use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::DefinitionKind,
+    identity::{DefinitionKind, ModuleIdentity, PackageId},
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::verify::{MirVerificationErrorKind, verify_mir};
+use std::sync::Arc;
 
 fn main() {
     let source = SourceFile::new(
         "layouts.kgr",
-        "pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: ArrayList<i32> } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
+        "use demo::storage::Samples; pub struct Deferred<T> { val payload: T } pub struct Pair { var number: i32, val enabled: bool, val samples: Samples<i32> } pub trait Number { fn get(self) -> i32; } impl Number for Pair { fn get(self) -> i32 { self.number } } impl<T> Number for Deferred<T> { fn get(self) -> i32 { 7 } } fn read<T: Number>(value: T) -> i32 { value.get() } fn main() -> i32 { read(Deferred { payload: 1 }); val p = Pair { enabled: true, number: 41, samples: [1, 2] }; if p.enabled { p.number += 1; }; p.number }",
     );
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = AnalysisDatabase::default()
+    // This compiler-only consumer receives an application storage declaration.
+    // The array constructor is an engine representation; no runtime handler runs.
+    let mut storage = NativeModule::new(ModuleIdentity {
+        package: PackageId("demo".into()),
+        path: vec!["storage".into()],
+    });
+    storage.types.push(TypeAbi {
+        name: "Samples".into(),
+        kind: TypeAbiKind::Native(NativeTypeConstructor::Array),
+        generic_params: vec![GenericParameterAbi {
+            owner: storage.definition(DefinitionKind::AssociatedType, "Samples"),
+            position: 0,
+        }],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
+    storage.validate().unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![Arc::new(storage)], false);
+    let snapshot = analysis
         .snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
@@ -81,8 +106,11 @@ fn main() {
     assert_eq!(executable_table.methods.len(), 1);
     let method = &executable_table.methods[0];
     assert_eq!(method.method.path.last().unwrap().name, "get");
+    let CallableTarget::Script(function) = method.target else {
+        panic!("script implementation")
+    };
     assert_eq!(
-        bytecode.functions[method.function.index()]
+        bytecode.functions[function.index()]
             .identity
             .as_ref()
             .unwrap()
@@ -99,8 +127,11 @@ fn main() {
         .find(|table| table.declaration != interface.declaration)
         .expect("specialized generic interface table");
     assert_eq!(generic_table.methods.len(), 1);
+    let CallableTarget::Script(function) = generic_table.methods[0].target else {
+        panic!("script implementation")
+    };
     assert_eq!(
-        bytecode.functions[generic_table.methods[0].function.index()]
+        bytecode.functions[function.index()]
             .identity
             .as_ref()
             .unwrap()

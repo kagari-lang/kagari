@@ -1,5 +1,5 @@
 //! Compare executable method signatures after canonical substitution and projection resolution.
-use crate::module::BytecodeModule;
+use crate::module::{BytecodeModule, CallableTarget};
 use kagari_abi::types::{
     AbiType, PublicAbiItem,
     proofs::ProofCatalog,
@@ -20,10 +20,17 @@ pub(super) fn valid(
             return Ok(false);
         };
         for slot in &table.methods {
-            let Some(function) = module.functions.get(slot.function.index()) else {
-                return Ok(false);
+            let identity = match slot.target {
+                CallableTarget::Script(target) => module
+                    .functions
+                    .get(target.index())
+                    .and_then(|function| function.identity.as_ref()),
+                CallableTarget::Native(target) => module
+                    .native_imports
+                    .get(target.index())
+                    .map(|import| &import.instance),
             };
-            let Some(identity) = &function.identity else {
+            let Some(identity) = identity else {
                 return Ok(false);
             };
             let Some(name) = slot.method.path.last().map(|part| &part.name) else {
@@ -52,19 +59,29 @@ pub(super) fn valid(
                 .map(|param| normalize(&param.ty))
                 .collect::<Result<Vec<_>, _>>()?;
             let result = normalize(&method.return_type)?;
-            if params
-                .iter()
-                .map(AbiType::representation)
-                .collect::<Vec<_>>()
-                != function.metadata.params
-                || result.representation() != function.metadata.return_type
-                || params
-                    .iter()
-                    .enumerate()
-                    .any(|(index, ty)| function.metadata.semantic.params.get(&index) != Some(ty))
-                || function.metadata.semantic.result.as_ref() != Some(&result)
-            {
-                return Ok(false);
+            match slot.target {
+                CallableTarget::Script(target) => {
+                    let function = &module.functions[target.index()];
+                    if params
+                        .iter()
+                        .map(AbiType::representation)
+                        .collect::<Vec<_>>()
+                        != function.metadata.params
+                        || result.representation() != function.metadata.return_type
+                        || params.iter().enumerate().any(|(index, ty)| {
+                            function.metadata.semantic.params.get(&index) != Some(ty)
+                        })
+                        || function.metadata.semantic.result.as_ref() != Some(&result)
+                    {
+                        return Ok(false);
+                    }
+                }
+                CallableTarget::Native(target) => {
+                    let signature = &module.native_imports[target.index()].signature;
+                    if signature.params != params || signature.result != result {
+                        return Ok(false);
+                    }
+                }
             }
         }
     }

@@ -285,7 +285,7 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?.write_register(dst, closure)?;
             }
             BytecodeInstruction::MakeCell { dst, value } => {
-                let ty = self.current_frame()?.function().metadata.registers[value.index()];
+                let ty = self.current_frame()?.register_type(value)?;
                 let value = self.current_frame()?.read_register(value)?;
                 let cell = self
                     .runtime
@@ -294,7 +294,7 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?.write_register(dst, cell)?;
             }
             BytecodeInstruction::ReadCell { dst, cell } => {
-                let ty = self.current_frame()?.function().metadata.registers[dst.index()];
+                let ty = self.current_frame()?.register_type(dst)?;
                 let cell = self.current_frame()?.read_register(cell)?;
                 let value = self
                     .runtime
@@ -303,7 +303,7 @@ impl<'a> Executor<'a> {
                 self.current_frame_mut()?.write_register(dst, value)?;
             }
             BytecodeInstruction::WriteCell { cell, value } => {
-                let ty = self.current_frame()?.function().metadata.registers[value.index()];
+                let ty = self.current_frame()?.register_type(value)?;
                 let cell = self.current_frame()?.read_register(cell)?;
                 let value = self.current_frame()?.read_register(value)?;
                 self.runtime

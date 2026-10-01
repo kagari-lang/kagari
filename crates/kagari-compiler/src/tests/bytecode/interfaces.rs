@@ -6,10 +6,16 @@ use {
     kagari_mir::instruction::{CallTarget, Instruction},
 };
 
-use kagari_abi::types as abi;
-use kagari_bytecode::{self as bytecode, program::verify_program};
-
+use kagari_abi::{ids::FunctionRef, types as abi};
+use kagari_bytecode::{self as bytecode, module::CallableTarget, program::verify_program};
 use kagari_mir::program as mir_program;
+
+fn script_target(target: CallableTarget) -> FunctionRef {
+    let CallableTarget::Script(function) = target else {
+        panic!("expected script slot")
+    };
+    function
+}
 
 #[test]
 fn applied_trait_bounds_change_public_abi_fingerprint() {
@@ -150,7 +156,7 @@ fn generic_interface_implementation_specializes_reachable_method() {
         .methods
         .iter()
         .map(|slot| {
-            module.modules[module.root.index()].functions[slot.function.index()]
+            module.modules[module.root.index()].functions[script_target(slot.target).index()]
                 .identity
                 .as_ref()
                 .unwrap()
@@ -165,9 +171,9 @@ fn generic_interface_implementation_specializes_reachable_method() {
         kagari_abi::scalar::BuiltinType::String
     )]));
     let mut wrong_arity = module.clone();
-    let method = wrong_arity.modules[wrong_arity.root.index()].interface_tables[0].methods[0]
-        .function
-        .index();
+    let method =
+        wrong_arity.modules[wrong_arity.root.index()].interface_tables[0].methods[0].target;
+    let method = script_target(method).index();
     wrong_arity.modules[wrong_arity.root.index()].functions[method]
         .identity
         .as_mut()
@@ -197,9 +203,9 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
     );
     verify_program(&module).unwrap();
     let mut wrong_instance = module;
-    let method = wrong_instance.modules[wrong_instance.root.index()].interface_tables[0].methods[0]
-        .function
-        .index();
+    let method =
+        wrong_instance.modules[wrong_instance.root.index()].interface_tables[0].methods[0].target;
+    let method = script_target(method).index();
     wrong_instance.modules[wrong_instance.root.index()].functions[method]
         .identity
         .as_mut()
@@ -228,7 +234,8 @@ fn concrete_interface_methods_have_verified_executable_slots() {
     assert_eq!(table.methods.len(), 1);
     let slot = &table.methods[0];
     assert_eq!(slot.method.path.last().unwrap().name, "get");
-    let function = &module.modules[module.root.index()].functions[slot.function.index()];
+    let function =
+        &module.modules[module.root.index()].functions[script_target(slot.target).index()];
     let identity = function.identity.as_ref().unwrap();
     assert_eq!(identity.declaration.path.last().unwrap().name, "get");
     assert_eq!(
@@ -245,9 +252,8 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         .validate_for_loader(&ArtifactCompatibility::default())
         .unwrap();
     assert_eq!(
-        decoded.program.modules[decoded.program.root.index()].interface_tables[0].methods[0]
-            .function,
-        slot.function
+        decoded.program.modules[decoded.program.root.index()].interface_tables[0].methods[0].target,
+        slot.target
     );
 
     let mut missing = module.clone();
@@ -259,13 +265,15 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_target = module.clone();
-    wrong_target.modules[wrong_target.root.index()].interface_tables[0].methods[0].function =
-        wrong_target.modules[wrong_target.root.index()]
-            .functions
-            .iter()
-            .find(|function| function.name == "main")
-            .unwrap()
-            .id;
+    wrong_target.modules[wrong_target.root.index()].interface_tables[0].methods[0].target =
+        CallableTarget::Script(
+            wrong_target.modules[wrong_target.root.index()]
+                .functions
+                .iter()
+                .find(|function| function.name == "main")
+                .unwrap()
+                .id,
+        );
     assert!(matches!(
         verify_program(&wrong_target),
         Err(BytecodeVerificationError::InvalidInterfaceTable)

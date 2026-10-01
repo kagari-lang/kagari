@@ -1,12 +1,16 @@
-use crate::bytecode::debug::collect_debug_metadata;
 mod debug;
+mod interfaces;
+use crate::bytecode::{
+    debug::collect_debug_metadata,
+    interfaces::{collect_interface_tables, interface_instances},
+};
 use kagari_abi::{
     ids::FunctionRef,
     layout::{EnumLayout, StructLayout},
     native_import::NativeImport,
     operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
     representation::ValueType,
-    types::{AbiType, ConcreteFunctionIdentity, NominalAbiType, PublicAbiItem},
+    types::{AbiType, ConcreteFunctionIdentity, NominalAbiType},
 };
 use kagari_bytecode::{
     instruction::{
@@ -16,14 +20,14 @@ use kagari_bytecode::{
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
-        InterfaceMethodSlot, InterfaceTableRecord, PathRecord, RootSlotLayout,
+        PathRecord, RootSlotLayout,
     },
     program::{BytecodeProgram, ModuleRef, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
     host_interface::HostInterface,
-    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity},
+    identity::{DefinitionId, ModuleIdentity},
     span::Span,
 };
 use kagari_mir::{
@@ -37,13 +41,14 @@ use kagari_mir::{
     program::VerifiedMirProgram,
     verify::VerifiedMirModule,
 };
-use std::{collections::HashMap, slice};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum BytecodeLoweringError {
     UnlinkedSourceModules,
     InvalidBranchTarget(BlockId),
     Verification(BytecodeVerificationError),
+    InvalidNativeInterface,
 }
 
 pub fn lower_to_bytecode(ir: &VerifiedMirModule) -> Result<BytecodeModule, BytecodeLoweringError> {
@@ -104,6 +109,7 @@ fn lower_linked_module(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let interface_tables = collect_interface_tables(ir, program, &mut context.native_imports)?;
     let mut module = BytecodeModule {
         dependencies,
         host_interface: context.host_interface,
@@ -124,10 +130,7 @@ fn lower_linked_module(
         types: Vec::new(),
         structures: ir.structures.clone(),
         enumerations: ir.enumerations.clone(),
-        interface_tables: context
-            .interface_tables
-            .remove(&ir.identity)
-            .unwrap_or_else(|| collect_interface_tables(ir, program)),
+        interface_tables,
         paths: context.paths,
         function_table: Vec::new(),
         public_items: ir.abi.public_items.clone(),
@@ -141,115 +144,6 @@ fn lower_linked_module(
     Ok(module)
 }
 
-fn collect_interface_tables(
-    ir: &VerifiedMirModule,
-    program: Option<&VerifiedMirProgram>,
-) -> Vec<InterfaceTableRecord> {
-    let mut tables: Vec<_> = ir
-        .abi
-        .public_items
-        .iter()
-        .filter_map(|item| {
-            let PublicAbiItem::InterfaceTable(table) = item else {
-                return None;
-            };
-            let AbiType::Trait(trait_type) = &table.trait_type else {
-                unreachable!("verified interface trait type")
-            };
-            let mut methods = Vec::new();
-            for declared in &table.methods {
-                let segment = DefinitionPathSegment {
-                    kind: DefinitionKind::Method,
-                    name: declared.name.clone(),
-                    occurrence: 0,
-                };
-                let mut impl_path = table.declaration.path.clone();
-                impl_path.push(segment.clone());
-                let implementation = DefinitionId {
-                    module: ir.identity.clone(),
-                    path: impl_path,
-                };
-                let mut trait_path = trait_type.declaration.path.clone();
-                trait_path.push(segment);
-                let method = DefinitionId {
-                    module: trait_type.declaration.module.clone(),
-                    path: trait_path,
-                };
-                for function in &ir.functions {
-                    if function.instance.declaration == implementation {
-                        methods.push(InterfaceMethodSlot {
-                            method: method.clone(),
-                            function: FunctionRef::new(function.id.index()),
-                        });
-                    }
-                }
-            }
-            Some(InterfaceTableRecord {
-                arguments: Vec::new(),
-                declaration: table.declaration.clone(),
-                methods,
-            })
-        })
-        .collect();
-    let owners = program
-        .map(|program| program.modules())
-        .unwrap_or(slice::from_ref(ir));
-    let allocations = owners
-        .iter()
-        .flat_map(|owner| &owner.functions)
-        .flat_map(|function| &function.blocks)
-        .flat_map(|block| &block.instructions)
-        .filter_map(|instruction| match instruction {
-            Instruction::MakeInterface {
-                implementation,
-                arguments,
-                ..
-            } => Some(ConcreteFunctionIdentity {
-                declaration: implementation.clone(),
-                arguments: arguments.clone(),
-            }),
-            _ => None,
-        });
-    let demands = owners
-        .iter()
-        .flat_map(|owner| owner.interface_instances.iter().cloned());
-    for instance in allocations.chain(demands) {
-        let implementation = &instance.declaration;
-        let arguments = instance.arguments.clone();
-        if implementation.module != ir.identity
-            || arguments.is_empty()
-            || tables
-                .iter()
-                .any(|table| table.declaration == *implementation && table.arguments == arguments)
-        {
-            continue;
-        }
-        let base = tables
-            .iter()
-            .find(|table| table.declaration == *implementation && table.arguments.is_empty())
-            .expect("verified impl template");
-        let methods = base
-            .methods
-            .iter()
-            .filter(|method| {
-                ir.functions[method.function.index()]
-                    .instance
-                    .arguments
-                    .iter()
-                    .cloned()
-                    .eq(arguments.iter().cloned())
-            })
-            .cloned()
-            .collect();
-        tables.push(InterfaceTableRecord {
-            declaration: implementation.clone(),
-            arguments: arguments.clone(),
-            methods,
-        });
-    }
-    tables
-}
-
 #[derive(Debug, Default)]
 struct BytecodeLoweringContext<'a> {
     program: Option<&'a VerifiedMirProgram>,
@@ -257,7 +151,7 @@ struct BytecodeLoweringContext<'a> {
     enumerations: &'a [EnumLayout],
     identity: Option<&'a ModuleIdentity>,
     ir: Option<&'a VerifiedMirModule>,
-    interface_tables: HashMap<ModuleIdentity, Vec<InterfaceTableRecord>>,
+    interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>>,
     host_interface: HostInterface,
     native_imports: Vec<NativeImport>,
     paths: Vec<PathRecord>,
@@ -297,7 +191,7 @@ impl BytecodeLoweringContext<'_> {
         let tables = self
             .interface_tables
             .entry(owner.identity.clone())
-            .or_insert_with(|| collect_interface_tables(owner, self.program));
+            .or_insert_with(|| interface_instances(owner, self.program));
         let table = tables
             .iter()
             .position(|table| table.declaration == *implementation && table.arguments == arguments)

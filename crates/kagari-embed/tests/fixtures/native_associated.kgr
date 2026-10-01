@@ -1,6 +1,27 @@
-use game::associated::{Source, echo};
+use game::associated::{Source, echo, forward};
 use game::typed_associated::{TypedSource, Transform};
 fn read<S: Source>(source: S) -> S::Item { source.head() }
+fn dynamic_main() -> i32 {
+    val source: Source<Item = ArrayList<i32>> = [[42]];
+    source.head()[0usize]
+}
+fn dynamic_boxed() -> Source<Item = ArrayList<i32>> { [[42]] }
+fn dynamic_empty() -> i32 {
+    val empty: ArrayList<i32> = [];
+    val source: Source<Item = i32> = empty;
+    source.head()
+}
+struct ScriptSource { val values: ArrayList<i32> }
+impl Source for ScriptSource {
+    type Item = ArrayList<i32>;
+    fn head(self) -> ArrayList<i32> { self.values }
+}
+fn callback_native_main() -> i32 { forward([[42]])[0usize] }
+fn callback_script_main() -> i32 { forward(ScriptSource { values: [42] })[0usize] }
+fn callback_native_empty() -> i32 {
+    val empty: ArrayList<ArrayList<i32>> = [];
+    forward(empty)[0usize]
+}
 fn main() -> i32 {
     val bag = [[21]];
     val first = read(bag);

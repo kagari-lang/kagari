@@ -8,7 +8,7 @@ use kagari_abi::{
     standard::RuntimePrimitive,
     types::{AbiType, NominalAbiType},
 };
-use kagari_bytecode::instruction::BinaryOp;
+use kagari_bytecode::{instruction::BinaryOp, module::CallableTarget};
 use kagari_common::host_interface::path::HostPathDeclaration;
 use reflection::ReflectionError;
 use session::SessionState;
@@ -138,7 +138,7 @@ pub struct RootedInterfaceMethod {
     concrete_type: AbiType,
     interface_type: NominalAbiType,
     implementation: LoadedModule,
-    function: FunctionRef,
+    target: CallableTarget,
     parameter_types: Vec<AbiType>,
     return_type: AbiType,
 }
@@ -156,8 +156,8 @@ impl RootedInterfaceMethod {
     pub fn implementation(&self) -> &LoadedModule {
         &self.implementation
     }
-    pub fn function(&self) -> FunctionRef {
-        self.function
+    pub fn target(&self) -> CallableTarget {
+        self.target
     }
     pub fn parameter_types(&self) -> &[AbiType] {
         &self.parameter_types

@@ -3,6 +3,7 @@ use kagari_abi::{
     callable::CallableImplementation,
     native_api::NativeModule,
     native_import::binding_id,
+    scalar::BuiltinType,
     types::{
         AbiType, AssociatedTypeAbi, ConstraintAbi, FunctionAbi, GenericBoundAbi,
         GenericParameterAbi, NominalAbiType, ParameterAbi, TraitAbi, TypeAbi, TypeAbiKind,
@@ -159,7 +160,7 @@ pub fn module() -> NativeModule {
         generic_params: vec![generic.clone()],
         bounds: vec![GenericBoundAbi {
             ty: generic.as_type(),
-            constraints: vec![ConstraintAbi::Trait(source)],
+            constraints: vec![ConstraintAbi::Trait(source.clone())],
         }],
         params: vec![
             ParameterAbi {
@@ -174,6 +175,27 @@ pub fn module() -> NativeModule {
             },
         ],
         return_type: projection,
+    });
+    let array = AbiType::Array(
+        Box::new(AbiType::Builtin(BuiltinType::I32)),
+        CollectionAccess::Mutable,
+    );
+    let mut interface = source;
+    interface
+        .associated_types
+        .insert(item.clone(), array.clone());
+    module.functions.push(FunctionAbi {
+        name: "forward".into(),
+        method_policy: Default::default(),
+        implementation: CallableImplementation::Native(binding_id(&module.identity, "forward")),
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![ParameterAbi {
+            name: "source".into(),
+            ty: AbiType::Trait(interface),
+            mutable: false,
+        }],
+        return_type: array,
     });
     module
         .documentation
@@ -217,6 +239,49 @@ impl NativeInvocationState for Complete {
         Ok(NativeAction::Complete(self.0.clone()))
     }
 }
+struct Head {
+    pending: bool,
+}
+impl NativeInvocationState for Head {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        if self.pending {
+            self.pending = false;
+            return Ok(NativeAction::Continue);
+        }
+        let Some(Value::Array(id)) = context.argument(0) else {
+            return Err(RuntimeError::module_validation("associated array"));
+        };
+        context
+            .heap()
+            .array_get(id, 0)
+            .map(NativeAction::Complete)
+            .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "empty source"))
+    }
+}
+struct Forward;
+impl NativeInvocationState for Forward {
+    fn advance(&mut self, context: &mut NativeContext<'_>) -> Result<NativeAction, RuntimeError> {
+        let value = context.argument(0).unwrap();
+        let AbiType::Trait(interface) = &context.signature().params[0] else {
+            return Err(RuntimeError::module_validation(
+                "forward interface contract",
+            ));
+        };
+        context
+            .interface_callback(&value, interface, 0, vec![])
+            .map(NativeAction::Callback)
+    }
+    fn receive(
+        &mut self,
+        context: &mut NativeContext<'_>,
+        value: Value,
+    ) -> Result<NativeAction, RuntimeError> {
+        // The shared driver roots a callback's heap-backed result before receive.
+        context.heap().alloc_array(vec![])?;
+        context.retain(0, value)?;
+        Ok(NativeAction::Complete(context.retained(0).unwrap()))
+    }
+}
 pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
     let mut handlers = vec![];
     for name in ["head", "echo"] {
@@ -229,19 +294,18 @@ pub fn api(module: NativeModule, calls: Rc<Cell<usize>>) -> NativeApi {
                 let input = context
                     .argument(0)
                     .ok_or_else(|| RuntimeError::module_validation("associated input"))?;
-                let value = if name == "head" {
-                    let Value::Array(id) = input else {
-                        return Err(RuntimeError::module_validation("associated array"));
-                    };
-                    context.heap().array_get(id, 0).ok_or_else(|| {
-                        RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "empty source")
-                    })?
+                if name == "head" {
+                    Ok(Box::new(Head { pending: true }))
                 } else {
-                    input
-                };
-                Ok(Box::new(Complete(value)))
+                    Ok(Box::new(Complete(input)))
+                }
             },
         ));
     }
+    handlers.push(NativeHandler::new(
+        binding_id(&module.identity, "forward"),
+        1,
+        |_| Ok(Box::new(Forward)),
+    ));
     NativeApi::new(vec![module], handlers).unwrap()
 }

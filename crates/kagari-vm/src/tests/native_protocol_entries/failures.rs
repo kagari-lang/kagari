@@ -41,11 +41,7 @@ fn direct()->Result<Failure,String>{Failure::from_str("bad")}
             let root = vm.runtime().gc().root_value(value.clone()).unwrap();
             vm.runtime().collect_garbage().unwrap();
             assert_eq!(vm.runtime().result_failure(&value).unwrap(), failure);
-            origins.push((
-                origin.function,
-                origin.instruction_offset,
-                origin.source_span,
-            ));
+            origins.push((origin.target, origin.instruction_offset, origin.source_span));
             drop(root);
             clean(&vm);
         }

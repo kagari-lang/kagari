@@ -128,8 +128,9 @@ of adding Rust functions: current typed adapters cover a bounded array proof.
 | Registration and installation | NativeApi pairs declarations with handlers; Engine builder supports default opt-out and application packages | Keep duplicate/missing binding rejection and exact contract matching as packages grow |
 | Static checking and tooling | Minimal array records, free-function named trait bounds and ordinary associated declarations/projections go directly to HIR; generated views carry matching coordinates | Extend records to remaining types, enums, other declaration bounds, associated families, method generics, defaults and namespace/prelude bindings |
 | Typed values | Scalars, String, unit, Option, one-to-eight member tuples, Ordering, rooted NativeResultValue, checked generic proxies and NativeArray work | Remaining existing enum/storage conversions; Result values must remain distinct from NativeResult execution failures |
-| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver | Complete checked selected trait-call targets and remaining value representations |
+| Typed callbacks | Explicit zero-to-eight argument packs, typed resumed results and repeated/nested callbacks use the common driver; checked interface callbacks select script/native targets | Carry statically selected trait-member requirements for native generic calls and complete remaining value representations |
 | Type authoring | native_type accepts only a single NativeArray field; generic authoring accepts T: NativeValue | Extend only the existing Map/Set/Iter representations and checked script constraints required by restoration; retain Rust signature/trait conformance |
+| Dynamic interfaces | Ordinary application-native slots carry checked native import targets; real callable frames preserve output contracts, budgets, roots and implementation generations | Keep offline rejection, shared callbacks and retained versions as remaining declarations migrate |
 | Returned state | Per-invocation continuations and roots are exercised | Traceable managed iterator state across invocations, alias guards, cleanup and generation retention |
 | Integration | Minimal source, encoded, source-free and external consumer proofs pass at 2b212880 | Migrate old ABI/HIR/compiler/runtime/VM/SDK fixtures and restore their missing library dependencies; full workspace acceptance is still open |
 
@@ -1977,3 +1978,70 @@ Next: replace script-only interface method slots with a common checked callable
 target, then carry selected trait-member requirements into native imports and the
 shared callback driver. Preserve malformed-product checks and generation-pinned
 calls; restore sorting and the managed iterator proof after these capabilities.
+
+
+## 2026-10-01 common native-interface checkpoint
+
+Checkpoint 2 advances NR02's ordinary dynamic interfaces and shared callbacks.
+Selected static trait-member requirements, default-entry authoring, sorting and
+managed returned state remain open; no aggregate phase is accepted.
+
+- Replace script-only InterfaceMethodSlot.function with the module-owned enum
+  CallableTarget::Script(FunctionRef)/Native(NativeImportId). Lower ordinary
+  native method applications from checked interface ABI records, deduplicate their
+  imports locally and preserve deterministic declaration/argument table keys across
+  dependency modules. Keep legacy host/native bridge handling while their owning
+  routes are migrated; application methods do not acquire those exceptions.
+- Verify each target kind, exact implementation/member identity, concrete arguments,
+  binding and normalized trait signature. Require all nongeneric method slots on
+  concrete tables, including native implementations. Reject missing/duplicate slots,
+  absent imports, forged results and native-as-script targets before linking or
+  factory entry. Generic templates still require concrete executable applications.
+- Add real rooted native callable frames with pending/running/complete entry state.
+  Charge entry/continuation steps at shared safepoints, account call depth and retain
+  the implementation and interface receiver through return. Run trusted factories
+  and transitions outside execution-frame borrows. Root callback returns during
+  receive, validate outputs and use the existing shared completion/cleanup driver.
+- NativeContext.interface_callback selects a method from an already checked rooted
+  interface value. It retains the selected method generation and concrete result
+  contract and drives script/native callbacks through the same stack. This proves
+  dynamic selection; it does not yet carry a statically selected generic trait
+  dependency in a native import. That remains the next NR02 responsibility.
+- Error/debug frames expose CallableTarget instead of a fabricated FunctionRef.
+  Native frames have their real declaration name/generation and no source span or
+  script locals. Stepping remains over script safe points; traps and script
+  callbacks can include retained native frames in stack snapshots. Migrate affected
+  script-slot assertions/examples and host-bridge tamper builders to the explicit
+  target model without weakening their behavioral checks. The compiler-only
+  layouts example now explicitly installs an application-native array storage
+  declaration instead of assuming that a plain AnalysisDatabase knows ArrayList.
+- Extend the independent associated fixture with native/script dynamic interfaces,
+  native-to-interface callbacks and a delayed native head continuation. Encoded
+  execution works without default installation under GC threshold one. Allocation
+  before retaining a callback's array output preserves it; success/trap/budget
+  exhaustion releases frames/roots, and a too-shallow call budget enters no native
+  factory. External direct invocation works and an old rooted interface continues
+  to resolve its old implementation after reload while a new value selects the new
+  generation. Native errors retain the head origin and script caller.
+- Bump runtime ABI to v137 and KBC to v114 for the executable slot schema change.
+  Rebuild native_provider/native_bounds/native_associated golden fixtures; exact
+  source emission agrees. KMIR v11 and runtime-helper ABI v6 remain unchanged.
+  Superseded full-library feature products remain NR04-owned rebuild work.
+
+Validation actually performed: 67 SDK tests pass across native_associated,
+native_bounds, native_values, native_callbacks, native_math, native_registration,
+native_provider_artifact, native_provider_reset and host_interfaces. Workspace
+library and affected SDK Clippy pass with -D warnings. The production library
+check passes. Structural review covers module ownership, explicit owner imports,
+empty re-export whitelist, bounded state transitions, callback return roots and
+version retention. Format, structure (818 Rust files, zero findings/exceptions)
+and diff checks pass. All four independent native-proof feature consumers, eight
+production boundaries and the source-free ABI graph pass. Both compiler examples
+applied_traits/layouts run successfully; their Clippy validation passes with
+-D warnings. Full-workspace legacy fixture debt remains NR04-owned and is not
+reported as accepted or disabled.
+
+Next: carry checked selected trait-member dependencies through native declarations,
+applications and linking, exposing them to the shared callback driver. Restore
+Ord/Ordering and sort_by/sort after that proof, followed by managed iterator state.
+Goal mode remains active.

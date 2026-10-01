@@ -7,9 +7,9 @@ use kagari_abi::{
     scalar::BuiltinType,
     types::{AbiType, GenericParameterAbi},
 };
-use kagari_bytecode::artifact::KbcArtifact;
+use kagari_bytecode::{artifact::KbcArtifact, instruction::NativeImportId, module::CallableTarget};
 use kagari_common::{
-    identity::{DefinitionKind, associated_type_id},
+    identity::{DefinitionKind, DefinitionPathSegment, associated_type_id},
     span::Span,
 };
 use kagari_embed::{
@@ -17,7 +17,8 @@ use kagari_embed::{
     engine::{EngineConfig, KagariEngine},
     program::PreparedProgram,
 };
-use kagari_runtime::value::Value;
+use kagari_runtime::{Runtime, RuntimeConfig, native::packages::standard_library, value::Value};
+use kagari_vm::vm::Vm;
 use std::{cell::Cell, rc::Rc};
 
 const ARTIFACT: &[u8] = include_bytes!("fixtures/native_associated.kbc");
@@ -208,6 +209,253 @@ fn associated_native_packages_execute_offline_without_default_installation() {
     }
     assert_eq!(calls.get(), 3);
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn dynamic_native_slots_execute_and_release_frames_on_success_and_failure() {
+    let calls = Rc::new(Cell::new(0));
+    let engine = configured_engine(calls.clone(), false);
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(), Default::default())
+        .unwrap();
+    assert_eq!(
+        runtime
+            .execute(&loaded, "dynamic_main", &[], &context)
+            .unwrap()
+            .return_value,
+        Value::I32(42)
+    );
+    assert_eq!(calls.get(), 1);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    let error = runtime
+        .execute(&loaded, "dynamic_empty", &[], &context)
+        .unwrap_err();
+    let trace = error.error_trace().unwrap();
+    assert_eq!(trace.frames[0].function_name, "head");
+    assert!(matches!(trace.frames[0].target, CallableTarget::Native(_)));
+    assert!(trace.frames[0].source_span.is_none());
+    assert_eq!(trace.frames[1].function_name, "dynamic_empty");
+    assert_eq!(calls.get(), 2);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+    runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+}
+
+#[test]
+fn native_callbacks_select_script_or_native_interface_targets_with_heap_results() {
+    let calls = Rc::new(Cell::new(0));
+    let engine = configured_engine(calls.clone(), false);
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(), Default::default())
+        .unwrap();
+    for name in ["callback_native_main", "callback_script_main"] {
+        assert_eq!(
+            runtime
+                .execute(&loaded, name, &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+    }
+    assert_eq!(calls.get(), 1);
+    let error = runtime
+        .execute(&loaded, "callback_native_empty", &[], &context)
+        .unwrap_err();
+    assert_eq!(error.error_trace().unwrap().frames[0].function_name, "head");
+    assert_eq!(calls.get(), 2);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+}
+
+#[test]
+fn native_interface_frames_charge_continuations_and_clean_up_exhausted_budgets() {
+    let calls = Rc::new(Cell::new(0));
+    let engine = configured_engine(calls.clone(), false);
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let loaded = runtime
+        .load_program(&prepared(), Default::default())
+        .unwrap();
+    let mut entered_before_exhaustion = false;
+    let mut finished = false;
+    for limit in 0..40 {
+        let mut limited = context.clone();
+        limited.resources.max_instruction_steps = Some(limit);
+        let before = calls.get();
+        match runtime.execute(&loaded, "callback_native_main", &[], &limited) {
+            Ok(report) => {
+                assert_eq!(report.return_value, Value::I32(42));
+                finished = true;
+            }
+            Err(error) => {
+                assert_eq!(error.code(), "KG_RUNTIME_RESOURCE_LIMIT_EXCEEDED");
+                entered_before_exhaustion |= calls.get() > before;
+            }
+        }
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
+        assert!(!runtime.runtime().is_quarantined());
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
+        if finished {
+            break;
+        }
+    }
+    assert!(finished && entered_before_exhaustion);
+    let before = calls.get();
+    let mut shallow = context;
+    shallow.resources.max_call_depth = Some(1);
+    assert!(
+        runtime
+            .execute(&loaded, "dynamic_main", &[], &shallow)
+            .is_err()
+    );
+    assert_eq!(calls.get(), before);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
+}
+
+#[test]
+fn external_native_interface_entry_retains_its_generation_across_reload() {
+    let calls = Rc::new(Cell::new(0));
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = Runtime::new(config);
+    standard_library().install(&mut runtime).unwrap();
+    fixture_api::api(fixture_api::module(), calls.clone())
+        .install(&mut runtime)
+        .unwrap();
+    fixture_api::typed::native_api()
+        .unwrap()
+        .install(&mut runtime)
+        .unwrap();
+    let artifact = KbcArtifact::from_bytes(ARTIFACT).unwrap();
+    let old = runtime
+        .load_program("associated-reload", artifact.program.clone())
+        .unwrap();
+    let mut vm = Vm::new(runtime);
+    let value = vm.execute(&old, "dynamic_boxed").unwrap().return_value;
+    let root = vm.runtime().root_value(value.clone()).unwrap();
+    let mut method = fixture_api::module().definition(DefinitionKind::Trait, "Source");
+    method.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: "head".into(),
+        occurrence: 0,
+    });
+    let resolved = vm
+        .runtime()
+        .resolve_interface_method(&value, &method)
+        .unwrap();
+    let old_key = resolved.implementation().key();
+    assert!(matches!(resolved.target(), CallableTarget::Native(_)));
+    let new = vm
+        .reload_artifact(&old, "associated-reload", artifact, &Default::default())
+        .unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    let result = vm.invoke_interface_method(&value, &method, &[]).unwrap();
+    let Value::Array(id) = result else {
+        panic!("associated array result")
+    };
+    assert_eq!(vm.runtime().gc().array_get(id, 0), Some(Value::I32(42)));
+    assert_eq!(
+        vm.runtime()
+            .resolve_interface_method(&value, &method)
+            .unwrap()
+            .implementation()
+            .key(),
+        old_key
+    );
+    let fresh = vm.execute(&new, "dynamic_boxed").unwrap().return_value;
+    let fresh_method = vm
+        .runtime()
+        .resolve_interface_method(&fresh, &method)
+        .unwrap();
+    assert_ne!(fresh_method.implementation().key(), old_key);
+    assert!(
+        vm.invoke_interface_method(&value, &method, &[Value::Bool(true)])
+            .is_err()
+    );
+    assert_eq!(calls.get(), 1);
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    drop(fresh_method);
+    drop(resolved);
+    drop(root);
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().gc().allocated_objects(), 0);
+}
+
+#[test]
+fn forged_native_interface_slots_are_rejected_before_linking_or_factory_entry() {
+    for case in 0..5 {
+        let mut program = KbcArtifact::from_bytes(ARTIFACT).unwrap().program;
+        let module = program
+            .modules
+            .iter_mut()
+            .find(|module| {
+                module.interface_tables.iter().any(|table| {
+                    table
+                        .methods
+                        .iter()
+                        .any(|slot| matches!(slot.target, CallableTarget::Native(_)))
+                })
+            })
+            .unwrap();
+        let table = module
+            .interface_tables
+            .iter_mut()
+            .find(|table| {
+                table
+                    .methods
+                    .iter()
+                    .any(|slot| matches!(slot.target, CallableTarget::Native(_)))
+            })
+            .unwrap();
+        match case {
+            0 => table.methods.clear(),
+            1 => {
+                table.methods[0].target =
+                    CallableTarget::Native(NativeImportId::new(u32::MAX as usize))
+            }
+            2 => {
+                let CallableTarget::Native(import) = table.methods[0].target else {
+                    unreachable!()
+                };
+                module.native_imports[import.index()].signature.result =
+                    AbiType::Builtin(BuiltinType::Bool);
+            }
+            3 => table.methods.push(table.methods[0].clone()),
+            4 => table.methods[0].target = CallableTarget::Script(Default::default()),
+            _ => unreachable!(),
+        }
+        assert!(
+            KbcArtifact::from_program(program, Default::default()).is_err(),
+            "forged native slot {case}"
+        );
+    }
 }
 
 #[test]
