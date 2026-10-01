@@ -39,12 +39,9 @@ impl InstancePlanner<'_> {
         span: Span,
     ) -> Result<bool, MirLoweringError> {
         let Some(declared) = self.registered_native_declaration(declaration).cloned() else {
-            return Ok(false);
+            return self.prepare_default_target(declaration, arguments, span);
         };
         let invalid = || MirLoweringError::MissingBinding("checked native method instance");
-        if declaration.module != *self.module.lowered.source.module_identity() {
-            return Err(invalid());
-        }
         // Method-local generics require their own concrete call application.
         if declared.function.generic_params.len() != arguments.len() {
             return Ok(false);
@@ -73,9 +70,38 @@ impl InstancePlanner<'_> {
         if !arguments.is_empty() {
             self.charge_layout_instance(span)?;
         }
+        let mut import = self.native_target_import(declaration, arguments, span)?;
+        import.callables = self.native_callables(&import, span)?;
+        if !import.structurally_valid() {
+            return Err(invalid());
+        }
+        self.native_targets.push(import);
+        Ok(true)
+    }
+
+    pub(super) fn native_target_import(
+        &self,
+        declaration: &DefinitionId,
+        arguments: &[TypeId],
+        span: Span,
+    ) -> Result<NativeImport, MirLoweringError> {
+        let declared = self.registered_native_declaration(declaration).ok_or(
+            MirLoweringError::MissingBinding("registered native template"),
+        )?;
+        if declared.function.generic_params.len() != arguments.len() {
+            return Err(MirLoweringError::MissingBinding(
+                "native template arguments",
+            ));
+        }
+        let invalid = || MirLoweringError::MissingBinding("checked native template application");
         let CallableImplementation::Native(binding) = &declared.function.implementation else {
             return Err(invalid());
         };
+        let instance = InstanceKey {
+            declaration: declaration.clone(),
+            arguments: arguments.to_vec(),
+        }
+        .lower(self.options, span)?;
         let mut substitution = TypeSubstitution::default();
         for (param, argument) in declared
             .function
@@ -91,7 +117,7 @@ impl InstancePlanner<'_> {
                 .map_err(|_| invalid())?;
             Ok(lower_type(&self.catalog.normalize_type(&raise_type(&ty))))
         };
-        let mut import = NativeImport {
+        let import = NativeImport {
             signature: NativeSignature {
                 params: declared
                     .function
@@ -109,11 +135,6 @@ impl InstancePlanner<'_> {
             host: None,
             callables: vec![],
         };
-        import.callables = self.native_callables(&import, span)?;
-        if !import.structurally_valid() {
-            return Err(invalid());
-        }
-        self.native_targets.push(import);
-        Ok(true)
+        Ok(import)
     }
 }

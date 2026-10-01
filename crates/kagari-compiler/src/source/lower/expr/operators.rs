@@ -6,6 +6,7 @@ use kagari_hir::{
     aggregates::traits::MethodDefault,
     builtin::traits,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::ExprId},
+    native::NativeBinding,
     typeck::table::CallTarget as HirCallTarget,
     types::{
         NominalType, TypeId, TypeSubstitution,
@@ -184,7 +185,8 @@ impl FunctionLowerer<'_, '_> {
                 _ => None,
             });
         if let TypeId::Trait(child) = &ty
-            && native_default.is_none()
+            && (native_default.is_none()
+                || matches!(native_default, Some(NativeBinding::Default(_))))
             && self
                 .planner
                 .catalog

@@ -11,6 +11,7 @@ use kagari_abi::{
     native_import::NativeImport,
     types::{
         NativeDeclaration, PublicAbiItem,
+        proofs::ProofCatalog,
         verify::{concrete_type_valid, validate_native_declarations},
     },
 };
@@ -67,6 +68,37 @@ pub struct NativeRegistry {
     traits: NativeCatalog,
 }
 impl NativeRegistry {
+    pub(crate) fn validate_defaults(&self) -> Result<(), RuntimeError> {
+        if !self
+            .traits
+            .traits
+            .values()
+            .flat_map(|contract| &contract.methods)
+            .any(|method| {
+                matches!(
+                    method.implementation,
+                    CallableImplementation::NativeDefault(_)
+                )
+            })
+        {
+            return Ok(());
+        }
+        ProofCatalog::new(
+            vec![],
+            vec![],
+            [],
+            self.traits
+                .traits
+                .iter()
+                .map(|(id, contract)| (id.clone(), contract)),
+            self.entries.values().flat_map(|entry| &entry.declarations),
+            &CancellationToken::default(),
+        )
+        .map_err(|_| {
+            RuntimeError::metadata_conflict("native default differs from its registered template")
+        })?;
+        Ok(())
+    }
     pub(crate) fn check_implementations<'a>(
         &self,
         modules: impl IntoIterator<Item = &'a NativeModule>,

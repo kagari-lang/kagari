@@ -130,7 +130,17 @@ pub fn lower_program_to_mir(
                     .functions
                     .iter()
                     .map(|function| &function.instance)
-                    .chain(module.native_targets.iter().map(|target| &target.instance))
+                    .chain(
+                        module
+                            .native_targets
+                            .iter()
+                            .filter(|target| {
+                                // A foreign target retained for a local interface slot
+                                // does not publish the callback target in its owner.
+                                target.instance.declaration.module == module.identity
+                            })
+                            .map(|target| &target.instance),
+                    )
             })
             .collect();
         for instance in modules.iter().flat_map(callable_demands) {

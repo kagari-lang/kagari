@@ -248,7 +248,7 @@ pub(crate) fn check_signatures(
             break;
         }
         let implementation = match lowered.native_functions.get(&function.id) {
-            Some(binding) => FunctionImplementation::Native(NativeBinding::Entry(binding.clone())),
+            Some(binding) => FunctionImplementation::Native(binding.clone()),
             None if function.body.is_some() => FunctionImplementation::Script,
             None => FunctionImplementation::Required,
         };

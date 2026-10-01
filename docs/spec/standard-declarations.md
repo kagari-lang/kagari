@@ -236,8 +236,9 @@ ordinary bridges; native bindings carry no receiver Read/Write flags. The regist
 get through registered native entries. MutableList extends List and adds set.
 Portable native default applications name an ordinary registered template and
 explicit generic arguments. Their checked signatures and bounds replace
-method-specific traversal and conversion catalogs. Rust/source authoring and
-materialization of these applications remain NR02 work.
+method-specific traversal and conversion catalogs. Registered records enter HIR
+and produce ordinary native calls and interface slots. Rust attribute authoring
+and complete external default-template dependencies remain NR02 work.
 
 Installed native defaults that forbid replacement explicitly carry
 `#[method_policy(Final)]` in their declaration. Unannotated defaults remain
@@ -276,8 +277,13 @@ an unrelated native binding or script body is invalid. Dynamic slots authenticat
 the same applied signature and target against the complete dependency closure,
 even when the template belongs to another module or multiple members share it.
 Unresolved default applications cannot enter selected callbacks or runtime linking.
-The current acceptance covers portable proof and encoded execution; registered
-Rust/default authoring, source materialization and associated families remain open.
+The current acceptance covers portable proof, raw registration and source-to-encoded
+execution for direct, generic, dynamic and selected calls, including native and
+script receivers. Source implementations may omit inherited defaults; final
+methods reject overrides. Native template callback targets are materialized in
+their actual owning module and retain script generations across reload. Typed Rust
+default authoring, complete external template catalogs and associated families
+remain open.
 
 Portable verification validates each native application against its carried source
 declaration. Runtime linking resolves its ID and checks the applied signature against

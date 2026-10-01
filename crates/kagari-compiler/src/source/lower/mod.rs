@@ -7,7 +7,7 @@ use kagari_abi::{
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     CheckedAnalysis,
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, traits::MethodDefault},
     hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
@@ -117,6 +117,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         planner.record_interface(&implementation.id, &[], Default::default())?;
         for target in module.aggregates.implementation_methods(implementation) {
             if let Some((_, method)) = module.aggregates.default_method(&target)
+                && method.default == Some(MethodDefault::Script)
                 && module
                     .aggregates
                     .trait_(&method.owner)

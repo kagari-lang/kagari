@@ -9,6 +9,7 @@ use crate::{
     },
     declarations::Declarations,
     lower::LoweredModule,
+    native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
         GenericBounds, ModuleSignatures, associated,
@@ -558,7 +559,7 @@ impl AggregateCatalog {
     }
 
     /// An omitted method has the same impl-owned identity as an explicit method;
-    /// its checked body and name resolution remain owned by the trait module.
+    /// its script body or symbolic native application remains owned by the trait module.
     pub fn default_method(
         &self,
         target: &DefinitionId,
@@ -571,8 +572,10 @@ impl AggregateCatalog {
             .methods
             .iter()
             .find(|method| method.id.path.last() == Some(&name))?;
-        (method.default == Some(MethodDefault::Script)
-            && !implementation.methods.contains_key(&method.id))
+        (matches!(
+            method.default,
+            Some(MethodDefault::Script | MethodDefault::Native(NativeBinding::Default(_)))
+        ) && !implementation.methods.contains_key(&method.id))
         .then_some((implementation, method))
     }
 
@@ -585,7 +588,14 @@ impl AggregateCatalog {
             .flat_map(|contract| &contract.methods)
             .filter_map(|method| {
                 implementation.methods.get(&method.id).cloned().or_else(|| {
-                    (method.default == Some(MethodDefault::Script)).then(|| {
+                    (matches!(
+                        method.default,
+                        Some(
+                            MethodDefault::Script
+                                | MethodDefault::Native(NativeBinding::Default(_))
+                        )
+                    ))
+                    .then(|| {
                         let mut target = implementation.id.clone();
                         target
                             .path

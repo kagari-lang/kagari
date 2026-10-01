@@ -43,6 +43,9 @@ impl FunctionLowerer<'_, '_> {
             FunctionImplementation::Native(NativeBinding::Host(_)) => Err(
                 MirLoweringError::MissingBinding("source callable has a host binding"),
             ),
+            FunctionImplementation::Native(NativeBinding::Default(_)) => Err(
+                MirLoweringError::MissingBinding("default requires a checked trait application"),
+            ),
         }
     }
 

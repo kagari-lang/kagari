@@ -251,7 +251,8 @@ an execution owner without rebuilding a central method catalog in production.
   - [x] Typed local-trait selected handles, generated bounds and registration signature checks for free/inherent entries.
   - [x] External typed trait catalogs and foreign native implementation signatures, with actual provider installation and portable contract matching.
   - [x] Portable native default template applications, inherited obligations and encoded dynamic execution.
-  - [ ] Rust/source native default authoring and checked-source materialization.
+  - [x] Registered native default import and checked-source call/slot materialization.
+  - [ ] Typed Rust default authoring and complete external template dependencies.
   - [ ] Projected receivers and Ord/sort_by/sort.
   - [ ] Traceable returned iterator state and generation/alias/cleanup proof.
 - [ ] 3: remaining declarations, primitive facts and direct families.
@@ -2352,3 +2353,58 @@ implementation-owned fake bodies. Then complete projected requirements and
 Ord/sorting, prove managed iterator state, restore dependent families, retire
 legacy callers and run NR05/ST06 combined behavior and measurement acceptance.
 Goal mode remains active.
+
+
+### NR02 checkpoint: registered source default materialization (2026-10-01)
+
+Checkpoint 2 now imports raw registered defaults into HIR and compiles their direct,
+generic, dynamic and selected calls. Typed Rust attribute authoring, complete
+external default-template dependencies, projected requirements, Ord/sorting and
+managed returned state remain open. No NR phase is accepted.
+
+- Retain explicit NativeDefault applications and MethodPolicy in imported records.
+  Do not lower generated declaration text to determine whether a method has a
+  default. Apply checked Self/trait/associated-output substitutions to ordinary
+  native templates and retain full signature and selected-dependency validation.
+- Native implementations bind only required members and explicit overrides.
+  Omitted inherited defaults keep their canonical template application; final
+  bindings and script overrides reject. HIR implementation identities can select
+  that template without inventing an implementation-owned script body.
+- Materialize actual template imports and native selected targets in their owning
+  modules. A foreign target retained for a local interface slot does not satisfy
+  the owner's executable callback demand. Portable bytecode uses the shared
+  source-free proof catalog to normalize the carried mapping, then copies the
+  corresponding already checked MIR native target; it does not resolve syntax.
+- Validate registered default templates before API publication, composition and
+  staged installation. The current raw proof covers symbolic obligations under
+  declared contracts. Literal concrete bound obligations need implementation
+  evidence, and standalone external default catalogs need native-template closure;
+  these are follow-ups in typed authoring, not waived validation or accepted APIs.
+- Prove source-to-encoded direct/generic/dynamic/selected calls for script and
+  native bool receivers, explicit overridable script methods and final rejection.
+  Generic interfaces return script-owned GC Payload objects through nested native
+  default callbacks under threshold one. Every logical budget cut cleans roots,
+  frames and heap objects; retained old/new script generations return 42/43 after
+  reload. Missing templates and malformed parameter mutability reject at registration.
+- Keep runtime ABI v139, KBC v116, KMIR v14 and helper ABI v6 unchanged. The four
+  existing focused products still match exact source emission. This changes HIR's
+  NativeBinding shape and raw NativeModule implementation binding behavior.
+
+Validation actually performed: 91 SDK tests across twelve focused targets pass,
+followed by the five-test source-default target including the added reload proof
+(92 unique tests). Workspace library and focused source-default Clippy pass with
+warnings denied. Format, structure (836 Rust files, zero findings/exceptions) and
+diff checks pass. All four standalone native-proof consumers, eight production
+crate boundaries and the source-free ABI build graph pass; source-enabled consumers
+include the new five-test target. Manual review covers actual owner imports, empty re-export whitelist, bounded
+substitution/proofs, final policy import, once-only evaluation, native target owner
+materialization, encoded signature validation, callback roots and generations.
+Full-workspace/all-target obsolete fixture failures remain NR04-owned as documented
+in the preceding checkpoint; they were neither rerun nor disabled. Final NR05/ST06
+acceptance stays open.
+
+Next: derive default members and explicit template mappings from real Rust function
+signatures, complete external declaration/template closure and projected
+requirements, then restore Ord/Ordering and sort_by/sort. Managed iterator state,
+full library restoration, legacy retirement and combined acceptance remain in the
+active goal.

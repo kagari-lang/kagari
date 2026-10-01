@@ -1,4 +1,5 @@
 mod debug;
+mod defaults;
 mod interfaces;
 use crate::bytecode::{
     debug::collect_debug_metadata,

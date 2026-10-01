@@ -1,17 +1,21 @@
 //! HIR representation hooks supplied only by an installed native declaration.
 use crate::{host::HostFunctionId, types::TypeId};
-use kagari_abi::{scalar::BuiltinType, standard::surface::StandardEnum};
+use kagari_abi::{
+    callable::NativeDefaultApplication, scalar::BuiltinType, standard::surface::StandardEnum,
+};
 use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
 
 pub(crate) mod api;
 pub(crate) mod stdlib;
 
-/// Opaque entry identity or an index into the checked host declaration catalog.
-/// Both lower to a declaration ID; neither is a runtime function pointer.
+/// Installed entry identity, checked host catalog index or symbolic default mapping.
+/// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeBinding {
     Entry(DefinitionId),
     Host(HostFunctionId),
+    /// Symbolic registered template application; selection resolves an Entry.
+    Default(NativeDefaultApplication),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

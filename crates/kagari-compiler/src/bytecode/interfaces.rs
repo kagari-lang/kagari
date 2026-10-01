@@ -1,6 +1,6 @@
 //! Executable interface slots use checked declaration applications, without bodies
 //! or per-library method selection for registered native entries.
-use crate::bytecode::BytecodeLoweringError;
+use crate::bytecode::{BytecodeLoweringError, defaults};
 use kagari_abi::{
     callable::CallableImplementation,
     ids::FunctionRef,
@@ -11,7 +11,10 @@ use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
 };
-use kagari_common::identity::{DefinitionId, DefinitionKind, DefinitionPathSegment};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
+};
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
 };
@@ -70,6 +73,32 @@ pub(super) fn collect_interface_tables(
     program: Option<&VerifiedMirProgram>,
     imports: &mut Vec<NativeImport>,
 ) -> Result<Vec<InterfaceTableRecord>, BytecodeLoweringError> {
+    let closure = program
+        .map(VerifiedMirProgram::modules)
+        .unwrap_or(slice::from_ref(ir));
+    let cancel = CancellationToken::default();
+    let has_defaults = closure
+        .iter()
+        .flat_map(|module| &module.abi.public_items)
+        .filter_map(|item| match item {
+            PublicAbiItem::InterfaceTable(table) => Some(table),
+            _ => None,
+        })
+        .flat_map(|table| &table.methods)
+        .any(|method| {
+            matches!(
+                method.implementation,
+                CallableImplementation::NativeDefault(_)
+            )
+        });
+    let catalog = if has_defaults {
+        Some(defaults::catalog(
+            &closure.iter().collect::<Vec<_>>(),
+            &cancel,
+        )?)
+    } else {
+        None
+    };
     interface_instances(ir, program)
         .into_iter()
         .map(|instance| {
@@ -98,21 +127,50 @@ pub(super) fn collect_interface_tables(
                 };
                 let declaration = child(&abi.declaration, segment.clone());
                 let member = child(&interface.declaration, segment);
-                if matches!(method.implementation, CallableImplementation::Native(_))
-                    && !abi.native_bridge
+                if matches!(
+                    method.implementation,
+                    CallableImplementation::Native(_) | CallableImplementation::NativeDefault(_)
+                ) && !abi.native_bridge
                 {
                     if !method.generic_params.is_empty()
                         || (instance.arguments.is_empty() && !abi.generic_params.is_empty())
                     {
                         continue;
                     }
+                    let target = if matches!(
+                        method.implementation,
+                        CallableImplementation::NativeDefault(_)
+                    ) {
+                        let applied = abi
+                            .instantiate(&instance.arguments)
+                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
+                        let applied = applied
+                            .methods
+                            .iter()
+                            .find(|candidate| candidate.name == method.name)
+                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
+                        let CallableImplementation::NativeDefault(application) =
+                            &applied.implementation
+                        else {
+                            unreachable!("applied default");
+                        };
+                        catalog
+                            .as_ref()
+                            .expect("default catalog")
+                            .resolve_native_default(application, &cancel)
+                            .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
+                            .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
+                            .instance
+                    } else {
+                        ConcreteFunctionIdentity {
+                            declaration,
+                            arguments: instance.arguments.clone(),
+                        }
+                    };
                     let contract = ir
                         .native_targets
                         .iter()
-                        .find(|target| {
-                            target.instance.declaration == declaration
-                                && target.instance.arguments == instance.arguments
-                        })
+                        .find(|contract| contract.instance == target)
                         .cloned()
                         .ok_or(BytecodeLoweringError::InvalidNativeInterface)?;
                     let index = imports

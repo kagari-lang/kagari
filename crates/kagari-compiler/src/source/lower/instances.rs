@@ -1,5 +1,6 @@
 use crate::source::lower::MirLoweringError;
 mod callables;
+mod defaults;
 mod native;
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
@@ -308,6 +309,11 @@ impl<'a> InstancePlanner<'a> {
                 .ok_or(MirLoweringError::MissingBinding(
                     "default method declaration",
                 ))?;
+        if method.default != Some(MethodDefault::Script) {
+            return Err(MirLoweringError::MissingBinding(
+                "native default requires template selection",
+            ));
+        }
         let contract = self
             .catalog
             .trait_(&method.owner)

@@ -46,7 +46,8 @@ pub struct NativeImplementation {
 /// The initial API supports native storage, traits, generic impls and free functions;
 /// Free functions retain ordinary checked trait bounds and associated projections.
 /// Impl and inherent-method bounds use the same checked declaration model.
-/// Associated type families, method generics and native defaults remain later steps.
+/// Registered default applications retain their explicit native template mappings.
+/// Associated type families and method generics remain later steps.
 #[derive(Debug, Clone)]
 pub struct NativeModule {
     pub identity: ModuleIdentity,
@@ -124,7 +125,6 @@ impl NativeModule {
         )
         .map_err(|_| NativeApiError("invalid native trait contract".into()))?;
         if trait_type.arguments.len() != contract.generic_params.len()
-            || bindings.len() != contract.methods.len()
             || trait_type.associated_types.len() != contract.associated_types.len()
             || contract.associated_types.iter().any(|member| {
                 !trait_type
@@ -140,6 +140,12 @@ impl NativeModule {
         if bindings.iter().any(|(name, _)| !names.insert(*name)) {
             return Err(NativeApiError("duplicate method binding".into()));
         }
+        if bindings
+            .iter()
+            .any(|(name, _)| !contract.methods.iter().any(|method| method.name == *name))
+        {
+            return Err(NativeApiError("unknown trait method binding".into()));
+        }
         let mut substitution =
             TypeSubstitution::for_owner(&trait_type.declaration, &trait_type.arguments);
         substitution.bind_receiver(&trait_type.declaration, &for_type);
@@ -153,10 +159,22 @@ impl NativeModule {
         };
         let mut methods = vec![];
         for method in &contract.methods {
-            let binding = bindings
-                .iter()
-                .find(|(name, _)| *name == method.name)
-                .ok_or_else(|| NativeApiError(format!("missing method {}", method.name)))?;
+            let binding = bindings.iter().find(|(name, _)| *name == method.name);
+            let Some(binding) = binding else {
+                if matches!(
+                    method.implementation,
+                    CallableImplementation::NativeDefault(_)
+                ) {
+                    continue;
+                }
+                return Err(NativeApiError(format!("missing method {}", method.name)));
+            };
+            if !method.method_policy.override_allowed {
+                return Err(NativeApiError(format!(
+                    "method {} forbids overriding",
+                    method.name
+                )));
+            }
             let mut method = method.clone();
             method.implementation = CallableImplementation::Native(binding.1.clone());
             method.generic_params = generic_params.clone();
@@ -283,7 +301,11 @@ impl NativeModule {
                     !identifier(&method.name)
                         || !method.bounds.is_empty()
                         || !method.generic_params.is_empty()
-                        || method.implementation != CallableImplementation::Required
+                        || !matches!(
+                            method.implementation,
+                            CallableImplementation::Required
+                                | CallableImplementation::NativeDefault(_)
+                        )
                 })
             {
                 return Err(fail());

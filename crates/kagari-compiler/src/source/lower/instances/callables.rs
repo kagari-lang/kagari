@@ -103,10 +103,36 @@ impl InstancePlanner<'_> {
                 .catalog
                 .trait_(&interface.declaration)
                 .ok_or_else(invalid)?;
+            let default = if !contract.methods.contains_key(&required.member)
+                && matches!(
+                    signature.default,
+                    Some(MethodDefault::Native(NativeBinding::Default(_)))
+                ) {
+                Some(
+                    self.native_default_import(
+                        &receiver,
+                        &interface,
+                        &required.member,
+                        &required
+                            .arguments
+                            .iter()
+                            .map(raise_type)
+                            .collect::<Vec<_>>(),
+                        span,
+                    )?,
+                )
+            } else {
+                None
+            };
             let target = contract
                 .methods
                 .get(&required.member)
                 .cloned()
+                .or_else(|| {
+                    default
+                        .as_ref()
+                        .map(|import| import.instance.declaration.clone())
+                })
                 .or_else(|| {
                     (signature.default == Some(MethodDefault::Script)).then(|| {
                         let mut target = implementation.clone();
@@ -159,11 +185,23 @@ impl InstancePlanner<'_> {
             } else {
                 CallableImplementation::Script
             };
-            let instance_arguments = arguments
-                .iter()
-                .cloned()
-                .chain(required.arguments.iter().map(raise_type))
-                .collect::<Vec<_>>();
+            let instance_arguments = if let Some(import) = &default {
+                if import.signature != applied {
+                    return Err(invalid());
+                }
+                import
+                    .instance
+                    .arguments
+                    .iter()
+                    .map(raise_type)
+                    .collect::<Vec<_>>()
+            } else {
+                arguments
+                    .iter()
+                    .cloned()
+                    .chain(required.arguments.iter().map(raise_type))
+                    .collect::<Vec<_>>()
+            };
             self.record_interface(&implementation, &arguments, span)?;
             self.record_layout_root(&receiver, &Default::default(), span)?;
             if kind == CallableImplementation::Script

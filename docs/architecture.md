@@ -45,9 +45,12 @@ implementation substitution and resolves a concrete ordinary Native target.
 Dynamic slots may retain a template from another module with different generic
 arguments from the implementing table. Final methods must preserve the declared
 application; distinct methods can share a checked native target. Runtime execution
-uses the existing native driver and retained dependency generation. Rust/source
-authoring and checked-source materialization of these default records remain open
-under NR02; the current proof uses portable declarations and encoded products.
+uses the existing native driver and retained dependency generation. Registration
+validates default templates before publication. HIR imports their records directly;
+source lowering applies checked substitutions and materializes ordinary native
+calls, selected callbacks and interface slots. No implementation-owned script body
+is synthesized. Rust attribute authoring and complete external template catalogs
+remain open under NR02; raw registered defaults pass source and encoded execution.
 Portable Native implementations carry a binding DefinitionId; registered Rust
 factories supply execution. Source-free runtimes receive the same checked native
 records directly from installed packages. Host adapters retain passing styles,

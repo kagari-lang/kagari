@@ -66,9 +66,12 @@ accepted yet.
 
 The portable native-default checkpoint maps trait binders explicitly to ordinary
 registered templates, validates inherited obligations and associated outputs, and
-resolves concrete native slots on the shared execution driver. Rust/source default
-authoring and materialization remain the next NR02 prerequisite; encoded-product
-acceptance does not imply that source compilation can yet emit these records.
+resolves concrete native slots on the shared execution driver. Registered records
+now enter HIR directly and source compilation materializes direct, generic, dynamic
+and selected calls without synthetic script bodies. Final override checks, returned
+GC objects, budget cleanup and generation-pinned callbacks pass source-to-encoded
+proofs. Typed Rust default authoring and complete external template catalogs remain
+NR02 prerequisites.
 
 The [active restoration sequence](native-provider-refactor.md#full-library-restoration-sequence-2026-10-01)
 refines NR00-NR05 and was activated in goal mode on 2026-10-01. Start with an ordinary math package and inventory;

@@ -108,6 +108,8 @@ impl NativeApi {
             return Err(invalid());
         }
         let declared_traits = NativeCatalog::declared(&modules)?;
+        registry.install_traits(declared_traits.clone())?;
+        registry.validate_defaults()?;
         for registration in &mut registrations {
             registration.required_traits = declared_traits.clone();
         }
@@ -167,6 +169,8 @@ impl NativeApi {
                 "missing or changed native trait dependency",
             ));
         }
+        registry.install_traits(declared.clone())?;
+        registry.validate_defaults()?;
         Ok(Self {
             modules,
             registrations,
@@ -197,6 +201,7 @@ impl NativeApi {
         for registration in &self.registrations {
             staged.install(registration.clone())?;
         }
+        staged.validate_defaults()?;
         *registry = staged;
         Ok(())
     }

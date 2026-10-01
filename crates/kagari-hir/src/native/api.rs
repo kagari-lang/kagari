@@ -17,10 +17,10 @@ use crate::{
         writeability::Writeability,
     },
     lower::{LoweredModule, context::Lowerer},
-    native::NativeTypeKind,
+    native::{NativeBinding, NativeTypeKind},
 };
 use kagari_abi::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, MethodPolicy},
     native_api::{
         NativeApiError, NativeModule,
         render::{NativeApiSource, NativeBoundSite},
@@ -77,6 +77,7 @@ pub(crate) fn import(
         lowerer: Lowerer::new(cancel.clone()),
         native_types: HashMap::new(),
         native_functions: HashMap::new(),
+        method_policies: HashMap::new(),
         external_imports: HashSet::new(),
     };
     importer.import_types()?;
@@ -96,7 +97,7 @@ pub(crate) fn import(
             native_types: importer.native_types,
             native_enums: HashMap::new(),
             native_functions: importer.native_functions,
-            method_policies: HashMap::new(),
+            method_policies: importer.method_policies,
             native_attributes: HashSet::new(),
             installed_stdlib: None,
         }),
@@ -108,7 +109,8 @@ struct Importer<'a> {
     generated: &'a NativeApiSource,
     lowerer: Lowerer,
     native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
-    native_functions: HashMap<FunctionId, DefinitionId>,
+    native_functions: HashMap<FunctionId, NativeBinding>,
+    method_policies: HashMap<FunctionId, MethodPolicy>,
     external_imports: HashSet<String>,
 }
 
@@ -219,7 +221,10 @@ impl Importer<'_> {
                     name: method.name.clone(),
                     receiver: ReceiverKind::Value,
                     function,
-                    has_default: false,
+                    has_default: matches!(
+                        method.implementation,
+                        CallableImplementation::NativeDefault(_)
+                    ),
                 });
             }
             self.lowerer.module.traits.push(TraitDef {
@@ -387,9 +392,18 @@ impl Importer<'_> {
         let return_type = Some(self.ty(&function.return_type, site.name_span)?);
         let bounds = self.bounds(&function.bounds, &site.bounds)?;
         self.lowerer.source_map.set_owner(old);
-        if let CallableImplementation::Native(binding) = &function.implementation {
-            self.native_functions.insert(id, binding.clone());
+        match &function.implementation {
+            CallableImplementation::Native(binding) => {
+                self.native_functions
+                    .insert(id, NativeBinding::Entry(binding.clone()));
+            }
+            CallableImplementation::NativeDefault(application) => {
+                self.native_functions
+                    .insert(id, NativeBinding::Default(application.clone()));
+            }
+            _ => {}
         }
+        self.method_policies.insert(id, function.method_policy);
         self.lowerer.module.functions.push(Function {
             id,
             kind,

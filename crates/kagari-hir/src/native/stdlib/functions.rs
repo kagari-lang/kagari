@@ -1,4 +1,8 @@
-use crate::{hir::item::function::FunctionKind, lower::LoweredModule, native::stdlib::invalid};
+use crate::{
+    hir::item::function::FunctionKind,
+    lower::LoweredModule,
+    native::{NativeBinding, stdlib::invalid},
+};
 use kagari_abi::native_import::binding_id;
 use kagari_common::cancellation::CancellationToken;
 use kagari_stdlib::{
@@ -37,7 +41,9 @@ pub(super) fn install(
                 ));
             }
             let binding = binding_id(file.source().module_identity(), &marker.binding);
-            lowered.native_functions.insert(function.id, binding);
+            lowered
+                .native_functions
+                .insert(function.id, NativeBinding::Entry(binding));
             lowered
                 .native_attributes
                 .insert((marker.span.start, marker.span.end));

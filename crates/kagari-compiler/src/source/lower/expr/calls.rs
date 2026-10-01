@@ -2,9 +2,11 @@ use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
 use kagari_hir::{
+    aggregates::traits::MethodDefault,
     builtin::{BuiltinFunction, traits},
     declarations::DeclarationId,
     hir::{expr::ExprKind, ids::ExprId},
+    native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{scalar::ScalarValue, table::CallTarget as TypeckCallTarget},
     types::{
@@ -95,6 +97,47 @@ impl FunctionLowerer<'_, '_> {
             );
         }
 
+        if let TypeckCallTarget::TraitMethod {
+            ref method,
+            ref interface,
+        } = call.target
+            && self
+                .planner
+                .catalog
+                .trait_method(method)
+                .is_some_and(|signature| {
+                    matches!(
+                        signature.default,
+                        Some(MethodDefault::Native(NativeBinding::Default(_)))
+                    )
+                })
+        {
+            let receiver = call
+                .receiver
+                .ok_or(MirLoweringError::MissingBinding("default receiver"))?;
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(receiver)
+                .ok_or(MirLoweringError::MissingExprType(receiver))?;
+            let value = self.lower_expr(receiver)?;
+            if self.current_block_terminated() {
+                return Ok(value);
+            }
+            let mut values = vec![value];
+            match self.lower_values(args)? {
+                ControlFlow::Continue(args) => values.extend(args),
+                ControlFlow::Break(value) => return Ok(value),
+            }
+            return self.lower_applied_method(
+                interface.clone(),
+                ty,
+                method,
+                &call.type_arguments,
+                &values,
+            );
+        }
         if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
             && StandardTrait::from_id(&interface.declaration).is_some_and(|kind| {
                 kind.operator()

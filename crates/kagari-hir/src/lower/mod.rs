@@ -7,9 +7,7 @@ use kagari_syntax::{
 };
 
 use kagari_abi::{callable::MethodPolicy, types::NativeDeclaration};
-use kagari_common::{
-    cancellation::CancellationToken, identity::DefinitionId, source::SourceFile, span::Span,
-};
+use kagari_common::{cancellation::CancellationToken, source::SourceFile, span::Span};
 use kagari_stdlib::package::ParsedStdlibPackage;
 
 use std::{
@@ -28,7 +26,7 @@ use crate::{
         item::Module,
     },
     lower::context::Lowerer,
-    native::NativeTypeKind,
+    native::{NativeBinding, NativeTypeKind},
     source_map::SourceMap,
 };
 
@@ -42,7 +40,7 @@ pub struct LoweredModule {
     pub(crate) registered_declarations: Vec<NativeDeclaration>,
     pub(crate) native_types: HashMap<OpaqueTypeId, NativeTypeKind>,
     pub(crate) native_enums: HashMap<EnumId, NativeTypeKind>,
-    pub(crate) native_functions: HashMap<FunctionId, DefinitionId>,
+    pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
     pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,

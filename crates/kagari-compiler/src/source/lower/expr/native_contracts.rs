@@ -1,5 +1,8 @@
 //! Encode a selected callable application without reconstructing its declaration.
-use crate::source::lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer};
+use crate::source::{
+    lower::{MirLoweringError, abi::checked_bounds, state::FunctionLowerer},
+    types::raise_type,
+};
 use kagari_abi::{
     native_import::{NativeImport, NativeSignature},
     types::{ConcreteFunctionIdentity, substitution::TypeSubstitution},
@@ -230,6 +233,23 @@ impl FunctionLowerer<'_, '_> {
                 "selected native entry default",
             ))?
             .clone();
+        if matches!(
+            signature.default,
+            Some(MethodDefault::Native(NativeBinding::Default(_)))
+        ) {
+            let import = self.planner.native_default_import(
+                receiver,
+                interface,
+                method,
+                arguments,
+                self.function.debug.source_span,
+            )?;
+            let result = self
+                .planner
+                .catalog
+                .normalize_type(&raise_type(&import.signature.result));
+            return self.emit_native_application(import, &result, values);
+        }
         let Some(MethodDefault::Native(NativeBinding::Entry(binding))) = &signature.default else {
             return Err(MirLoweringError::MissingBinding(
                 "native entry default implementation",
