@@ -39,7 +39,7 @@ it does not grant user declarations intrinsic behavior. Instance methods are dec
 `self` inside an inherent or native trait `impl`; there is no method-alias attribute.
 
 The implementation sequence and acceptance status are tracked in
-[the implementation roadmap](../implementation-roadmap.md#standard-library-and-hir-integration-active).
+[the implementation roadmap](../implementation-roadmap.md#standard-library-and-hir-integration-interim-checkpoint).
 
 
 ## Public functions and method views

@@ -1,9 +1,11 @@
 # Kagari Implementation Roadmap
 
-## Standard library and HIR integration (active)
+## Standard library and HIR integration (interim checkpoint)
 
-The [standard-library integration plan](stdlib-hir-refactor.md) owns the completed
-ST00–ST05 migration scope and the ongoing ST06 final integration checks.
+The [standard-library integration plan](stdlib-hir-refactor.md) records completed
+ST00–ST05 migration scope and open ST06 final acceptance and matched measurements.
+The user's 2026-10-01 direction carries those obligations into NR final acceptance
+and starts with HIR/MIR data design and a minimal standard-library replacement.
 `kagari-stdlib` prepares installed sources; ordinary HIR declarations, signature
 checking and snapshot queries replace the ABI generator and source descriptors.
 Required, Script and Native implementations share checked callable facts; Engine
@@ -24,17 +26,22 @@ measurements. Generated host declaration documents, Rust registration macros, LS
 transport and further backend expansion remain later work. This migration does not
 reopen completed historical phase ledgers.
 
-## Native provider and contract unification (queued)
+## Native provider and contract unification (design active)
 
-The [native provider refactor plan](native-provider-refactor.md) follows completion
-of ST06 and its final acceptance; it is not part of the active ST00-ST06 work.
+The [native provider refactor plan](native-provider-refactor.md) starts from the
+ST interim checkpoint under the revised 2026-10-01 data-first direction. Its
+HIR/MIR design separates declarations, checked applications, concrete callable
+tables and provider imports. A small `std::array` slice plus an external callback
+consumer must prove the boundary before restoring the remaining implementations.
 NR00-NR05 replace remaining per-standard-method infrastructure policy with common
 native contracts, provider registration and a shared callback/resumption lifecycle
 usable by both built-in and host implementations. Adding a native function using
 existing capabilities must require only its declaration, implementation, provider
 registration and tests, without changes to generic HIR/compiler/verifier/VM logic.
 Provider authority, storage primitives and observable execution semantics remain
-explicit. NR00 re-audits the completed ST06 result before implementation begins.
+explicit. NR00 audits the current checkpoint and retained primitive inventory;
+NR05 restores full coverage and closes carried ST06 acceptance and measurements.
+No NR implementation phase has been accepted yet.
 
 ## Permissions and execution protection refactor queued
 

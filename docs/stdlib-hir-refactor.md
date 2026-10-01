@@ -1,6 +1,11 @@
 # Standard Library and HIR Integration Plan
 
-Status: active; ST00-ST05 implementation scope complete. Whole checked programs
+Status: interim migration checkpoint; ST00-ST05 implementation scope complete.
+Final ST06 acceptance and matched measurements remain open and carry into
+[native provider replacement](native-provider-refactor.md) final acceptance under
+the user's 2026-10-01 data-design-first direction. This checkpoint does not prove
+that generic infrastructure is independent of standard-method identities.
+Whole checked programs
 now retain their dependency closure through portable validation, artifact loading
 and engine/host integration. The workspace builds; compiler and VM library suites
 and selected embedding integration suites pass. Runtime-owned native continuations
@@ -53,10 +58,12 @@ the [implementation roadmap](implementation-roadmap.md). Current behavior remain
 defined by the language specifications until the corresponding migration phase
 updates the implementation and documentation together.
 
-The queued [native provider and contract refactor](native-provider-refactor.md)
-follows ST06 final acceptance. It addresses remaining per-method infrastructure
-coupling and public host access to the shared native callback/resumption mechanism.
-That follow-up does not expand or interrupt this plan's current phase scope.
+The [native provider and contract refactor](native-provider-refactor.md) now owns
+the next data-contract design and implementation replacement. It addresses
+remaining per-method infrastructure coupling, compiler witness construction and
+public host access to shared native callback/resumption. ST06's open obligations
+are retained for combined final acceptance; historical ST implementation outcomes
+and validation records below are not rewritten as generic-provider acceptance.
 
 ## Objective
 
@@ -601,6 +608,10 @@ Core language primitives are documented separately from public library behavior.
 
 ### ST06 — Integration, documentation and final acceptance
 
+Under the 2026-10-01 revised direction, the open acceptance and measurement items
+below carry into NR05. NR data design can begin from this interim checkpoint;
+the unchecked items remain obligations rather than being marked complete.
+
 - [ ] Complete the feature/behavior matrix and all acceptance commands below.
 - [x] Update dependency audits, feature consumers and encoded artifact fixtures.
 - [x] Update current architecture, syntax/stdlib docs, standard declaration and
@@ -935,6 +946,16 @@ and ABI build edges, in addition to removal of textual source-catalog references
 
 ## Progress ledger
 
+- Data-first replacement direction (2026-10-01, from `b42c35a`): the user requested
+  a HIR/MIR data design, replacement of old standard implementations and a small
+  reconnected library slice. ST00-ST05 retain their historical migration evidence;
+  final ST06 acceptance/measurements remain open and carry into NR05. The current
+  compiler `expr/native_*` modules still choose callable requirements by binding
+  identity, HIR derives override policy from method lists, and ABI/runtime use
+  closed signature/entry/continuation switches. Algorithm relocation is complete
+  under the ST inventory; method-independent provider infrastructure is not.
+  NR owns these replacements and full behavior restoration. This checkpoint edits
+  planning documents only; no implementation was deleted or disabled.
 - Focused test-cost optimization (2026-10-01, after `adb5baae`), requested by
   the user while final migration acceptance remains deferred. Worker-thread samples
   locate repeated source preparation, `TypeCatalog::bindings`, bytecode trait-bound

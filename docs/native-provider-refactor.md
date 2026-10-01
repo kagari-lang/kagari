@@ -1,11 +1,14 @@
 # Native Provider and Contract Refactor Plan
 
-Status: queued; planning only. Implementation starts after
-[standard-library and HIR integration](stdlib-hir-refactor.md) completes ST06,
-including its behavior matrix, carried-error resolution and final checks.
-This plan does not change the active ST00-ST06 scope or authorize starting this
-migration during that work. The [roadmap](implementation-roadmap.md) records the
-ordering. Re-audit the completed predecessor before selecting implementation work.
+Status: data-contract design active; no NR implementation phase is accepted.
+The 2026-10-01 user direction changes the previous ST06 prerequisite: design the
+HIR/MIR native boundary first, replace the old standard implementation paths and
+prove a small standard-library slice before restoring the remaining algorithms.
+[Standard-library and HIR integration](stdlib-hir-refactor.md) remains an interim
+migration checkpoint with final combined acceptance and matched measurements open.
+Those obligations carry into NR final acceptance; they are not claimed complete.
+The [roadmap](implementation-roadmap.md) records the revised ordering. This design
+checkpoint removes no implementations and changes no executable semantics.
 
 ## Objective and acceptance boundary
 
@@ -48,13 +51,14 @@ as a description of implemented behavior.
 ## Audit inputs
 
 The following evidence was inspected at revision `136ec596`. It is a starting
-inventory, not a promise that these paths survive ST06. NR00 must classify the
-post-ST06 code and record the final replacement owner for each remaining case.
+inventory, not a promise that these paths survive the current checkpoint. NR00
+must classify the replacement inputs and record an owner for each remaining case.
 
 | Area | Observed coupling | Intended replacement |
 | --- | --- | --- |
 | [HIR method defaults](../crates/kagari-hir/src/aggregates/traits.rs) | `NativeDefaultMethod` lists decide override eligibility | Checked declaration policy, applied uniformly |
 | [Installed bindings](../crates/kagari-hir/src/native/stdlib/functions.rs) | Marker installation selects intrinsic/default/protocol enums | Provider-qualified binding lookup against an offline contract set |
+| [Compiler native applications](../crates/kagari-compiler/src/source/lower/expr/native_contracts.rs) and [defaults](../crates/kagari-compiler/src/source/lower/expr/native_defaults.rs) | Method-specific branches choose source/destination, key, lazy and trait witness applications | Contract-owned callable requirements, checked HIR selections and generic bounded materialization |
 | [Callable identities](../crates/kagari-abi/src/callable.rs) | Public native methods use central engine operation families | Provider-owned binding identities, separate from language primitives |
 | [Native contract checks](../crates/kagari-abi/src/native_import/contract.rs) and [callback checks](../crates/kagari-abi/src/native_import/contract/callbacks.rs) | Per-method signature, callback and constraint branches | Generic instantiation and trusted registration-contract comparison |
 | [Effects](../crates/kagari-abi/src/effects.rs) and [import resolution](../crates/kagari-abi/src/native_import.rs) | Central method lists classify mutation, allocation and resumability | Trusted descriptor facts and linked entry capabilities |
@@ -220,7 +224,7 @@ and verifier logic may not branch on individual registered keys.
 
 ### Primitives and behavior preservation
 
-Classify remaining raw intrinsic targets after ST06. Public library functions must
+Classify remaining raw intrinsic targets at the replacement checkpoint. Public library functions must
 use the common native call path. Genuine checked arithmetic, field access, storage
 or GC primitives may remain dedicated operations, with a bounded documented
 inventory and their own validation. Do not retain a second public standard-call
@@ -246,14 +250,214 @@ implementations and the public resumable API's managed transitions.
 
 ## Ordered execution phases
 
-### NR00 — Post-ST06 inventory and baseline
+### Data-first replacement design (2026-10-01)
 
-- [ ] Confirm ST06 final acceptance and record its commit and feature matrix.
+Rust sketches below describe responsibilities, not committed public type names or
+a compiling API. Reuse existing identities, HIR/ABI types, substitutions and proofs.
+Keep the expression tree, type system, CFG and storage representation while
+replacing the callable boundary.
+
+#### HIR declarations and applications
+
+Source and offline host declarations produce the same checked signature. Keep
+declaration metadata separate from per-call applications. Existing owners retain
+documentation, visibility, provenance and parameter bindings.
+
+```rust
+struct CheckedCallableDecl {
+    definition: DefinitionId,
+    signature: ResolvedSignature,
+    implementation: Implementation,
+}
+
+enum Implementation {
+    Required,
+    Script(BodyId),
+    Native(InstalledContractId),
+}
+
+struct MethodPolicy {
+    override_allowed: bool,
+}
+
+struct CheckedCall {
+    target: CheckedCallTarget,
+    substitution: TypeSubstitution,
+    signature: AppliedCallSignature,
+    required_callables: Vec<CheckedCallableRequirement>,
+    coercions: Vec<ArgumentCoercion>,
+}
+
+struct CheckedCallableRequirement {
+    requirement: RequirementId,
+    receiver: TypeId,
+    interface: NominalType,
+    member: DefinitionId,
+    application: AppliedCallSignature,
+    type_arguments: Vec<TypeId>,
+    selection: MethodSelection,
+}
+```
+
+`InstalledContractId` references trusted immutable snapshot input; it is not a
+runtime slot or serialized authority token. Its contract owns the durable binding
+key. No standard function/default/protocol enum belongs in this implementation
+model. Direct versus resumable execution does not change ordinary call typing.
+
+Trait defaults use the declaration's implementation and explicit method policy:
+Required awaits selection; Script and Native can supply defaults. Override policy
+must not be inferred from a binding key. Local rebinding writeability, collection
+access and host passing styles remain distinct.
+
+`CheckedCallTarget` distinguishes a declaration application, a selected trait member
+and a callable value. Receiver/callee and arguments retain existing once-only
+evaluation order. Callback parameters use ordinary function types and existing
+checked callable adapters. Coercions retain the declared parameter contract rather
+than substituting the argument expression's type for it.
+
+`MethodSelection` records a checked impl application, a dynamic interface member,
+or an obligation from enclosing generic bounds. Generic bodies can retain symbolic
+obligations until monomorphization. Compiler discharges them using bounded generic
+selection over checked declarations, without inspecting syntax or matching standard
+binding identities to decide which methods are needed.
+
+Provider contracts declare callable requirements using type relationships, applied
+trait/member identities, member generic arguments and existing associated projections.
+For example, `T: Ord` proves applicability; `Ord::cmp(T, T) -> Ordering` identifies
+an implementation dependency. Lowering cannot infer the second from a standard
+function name. Requirements contain no arbitrary resolver code or selectors such
+as `SortWitness` and `CollectDestination`.
+
+#### ABI and provider contracts
+
+ABI owns reusable portable contract vocabulary and verification interfaces. A
+source-free engine contract owner supplies built-in descriptors and depends on ABI;
+ABI and generic verifiers do not depend on that concrete owner. Offline validation
+and runtime registration consume the same descriptors. This owner imports neither
+syntax/HIR nor runtime handlers. Decide its physical module/crate in NR00 using
+the actual dependency graph; do not put a public method catalog back into ABI.
+
+Contracts carry provider-qualified durable binding keys, explicit versions,
+supported signature/representation relationships, callable requirements,
+conservative effects, authority and passing/resource rules. Reuse ABI templates
+and substitution. `.kgr` remains the public semantic signature source; descriptors
+constrain native implementation support and are checked against that signature.
+Do not generate or hand-maintain another public standard API catalog.
+
+Requirement IDs name dependencies inside a versioned contract; they are not
+method-family IDs or authority proofs. Verify the complete requirement set,
+member identities, concrete signatures and substitutions. Reject missing,
+duplicate or substituted requirements. Hashes only accelerate contract comparison.
+
+#### Concrete MIR callables and imports
+
+Store callable metadata in module tables instead of embedding separate Engine/Host
+contracts in each instruction. Static script/native targets share one callable
+table; dynamic calls remain explicit.
+
+```rust
+struct ConcreteCallable {
+    identity: ConcreteFunctionIdentity,
+    signature: SignatureId,
+    entry: CallableEntry,
+}
+
+enum CallableEntry {
+    Script(FunctionRef),
+    Native(NativeImportId),
+}
+
+enum CallTarget {
+    Static(CallableId),
+    Value { value: MirValue, signature: SignatureId },
+    Interface {
+        receiver: MirValue,
+        member: InterfaceMemberRef,
+        signature: SignatureId,
+    },
+}
+
+struct NativeImport {
+    binding: NativeBindingKey,
+    contract_version: u32,
+    instance: ConcreteFunctionIdentity,
+    signature: SignatureId,
+    required_callables: Vec<ResolvedCallableRequirement>,
+}
+```
+
+Concrete signatures retain full parameter/result ABI types, access, nominal
+identity and Never. Derive and check physical representations from these facts;
+`HeapObject` alone cannot validate a call. Executable applications contain no
+inference variables, generic parameters or unresolved projections. Generic
+declaration templates may remain in module ABI for independent verification.
+
+Resolved requirements retain contract requirement IDs, applied trait/member facts,
+concrete callable targets and signatures. Script/native targets use the callable
+table. Virtual targets retain the applied interface/member; invocation supplies
+the receiver as a validated argument. Serialized requirements carry no per-call
+values, HIR arena IDs or Rust addresses. Function-valued arguments are runtime
+values, distinct from statically resolved requirements.
+
+Generic MIR/bytecode verification checks table references, signatures, operands,
+results and proof relationships. Trusted provider validation checks the complete
+import application. Runtime linking checks actual handlers, authority and installed
+generations, resolving each import once. Structural verification cannot authorize
+native execution; decoded claims or cached seals cannot bypass provider-dependent
+checks. Effects come from the trusted instantiated contract and conservatively
+include callback/reentry effects. Bytecode and codegen consume the same handoff.
+
+Arithmetic, indexing, fields, enums, storage and GC retain reviewed language
+primitives. Public native methods always use the common import path, even when
+their Rust implementations invoke these primitives internally.
+
+#### Shared runtime lifecycle
+
+Registrations supply a direct entry or an invocation factory. Factories produce
+erased provider-owned state. Generic drivers handle bounded progress, a checked
+call request, completion and failure without enumerating Array/Iterator/Option/
+Result/Sort states. There are no speculative async wait variants.
+
+Ordinary callback failures are explicit outcomes. Cancellation, exhaustion and
+quarantine remain terminal driver state and cannot be recovered by a provider.
+Context-managed roots, checked callable handles and guards pin values and provider/
+dependency generations. No heap/table borrow or host lease crosses a callback.
+Cleanup releases the native suffix without executing script. Preserve current
+logical charges and failure positions until the separate execution-policy track.
+
+#### Minimal slice and removal boundary
+
+Use a small `std::array` slice: `len` tests a direct generic receiver; `from_fn`
+tests generic results and rooted function arguments; `sort_by` tests callback
+resumption and prepared mutation; `sort` tests a selected `Ord::cmp` requirement.
+Complete the first direct/callback/trait paths across NR01-NR03 as one reviewable
+vertical outcome. A direct-only function is insufficient to freeze the data model.
+Include an external direct function and a concrete host callback function that
+invokes its supplied callable twice, without modifying generic core logic.
+
+Before bulk removal, record the bounded public-route removal list and retained
+language/storage/resource primitives. Revision `b42c35a` retains the previous
+implementation; do not maintain a second compatibility implementation. Preserve
+declaration sources as migration inputs and keep meaningful behavioral tests.
+The installed package exposes checked declarations/contracts; missing handlers
+fail executable linking, and unknown/malformed bindings still fail validation.
+Do not substitute successful stubs or silently ignore invalid imports.
+
+The user permits replacing old standard implementations before restoring full
+coverage. Record intermediate build/test failures and their restoration owners
+here. Do not remove or weaken tests to obtain a passing minimal build. NR04 restores
+every predecessor public capability. NR05 closes carried ST06 obligations as well
+as extension/behavior acceptance; no reduced-slice checkpoint claims full acceptance.
+
+### NR00 — Replacement inventory and baseline
+
+- [ ] Record the ST interim commit, passing evidence and open ST06 obligations;
+  final combined acceptance is carried to NR05 rather than required at entry.
 - [ ] Re-audit method-specific branches, contract duplication, provider asymmetries
   and primitive exceptions. Map each finding to NR01-NR05 in this ledger.
 - [ ] Select descriptor ownership, trust/seal boundaries and the public callback
   representation without creating dependency cycles.
-- [ ] Run baseline checks and representative direct/callback workloads; record
+- [ ] Run applicable baseline checks and representative direct/callback workloads; record
   toolchain, machine, profile, features, default parallelism, cache state and input.
 
 Exit: every remaining coupling has an owner; the measured baseline and concrete
@@ -267,6 +471,9 @@ consumer examples define behavior to preserve.
   existing ABI types; establish provider-dependent verification and cache rules.
 - [ ] Complete one direct function through declaration, compilation, encoded
   artifact, trusted validation, runtime linking and execution for both providers.
+- [ ] Carry the first-slice callback and trait-call requirements through the data
+  model; complete their invocation path with NR02/NR03 before accepting the
+  initial vertical replacement.
 - [ ] Update affected wire versions and consumers; reject superseded products.
 
 Exit: an external consumer registers a direct function through the common path
@@ -321,6 +528,8 @@ their private implementation branches do not leak into generic consumers.
   registration using existing capabilities, without edits to generic core logic.
 - [ ] Complete the matrix below, dependency/feature audits, specification updates
   and encoded fixture regeneration; resolve all carried errors.
+- [ ] Close carried ST06 final combined acceptance and matched measurements,
+  distinguishing coverage restoration from generic-provider extension proof.
 - [ ] Repeat baseline measurements and report dispatch, allocations, memory and
   callback behavior without asserting improvements unsupported by measurements.
 
@@ -364,7 +573,7 @@ logs under ignored `target/`; record durable results and reproduction commands h
 
 ## Checkpoint and progress policy
 
-NR00-NR05 are ordered implementation phases after activation. Complete vertical
+NR00-NR05 are ordered replacement phases under the revised entry policy. Complete vertical
 producer-to-consumer paths in cohesive checkpoints; avoid speculative compatibility
 layers. Attempt affected checks at migration boundaries. If an intermediate build
 break is unavoidable, record the command, representative diagnostic, cause and
@@ -378,6 +587,18 @@ resolved. Do not reopen completed ST phase ledgers for this follow-up.
 
 ## Progress ledger
 
+- 2026-10-01: At clean revision `b42c35a`, the user requested HIR/MIR data design
+  first, removal of old standard implementation paths and a small standard-library
+  integration before restoring the rest. Replaced the ST06 entry gate with carried
+  final acceptance. Added declaration/application separation, contract-owned
+  callable requirements, concrete MIR callable/import tables and the common
+  invocation lifecycle. The current audit also covers compiler `expr/native_*`
+  witness policy omitted from the original audit table. Selected the `std::array`
+  direct/callback/trait slice and an external callback consumer as initial proof.
+  No implementation or deletion occurred in this design checkpoint; all NR phase
+  acceptance checkboxes remain open. Documentation validation checked 91 local
+  links and 16 heading anchors across the four changed documents; whitespace and
+  diff review passed. No Rust build or runtime test was required for this change.
 - 2026-09-30: Drafted the queued follow-up at `136ec596` after a read-only architecture
   audit. The user requested a plan to execute after standard-library/HIR integration,
   not implementation now. Recorded the no-core-edit extension criterion, trusted
