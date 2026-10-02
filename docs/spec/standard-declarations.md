@@ -109,7 +109,7 @@ its own traversal policy. Nested dependencies participate in the common traversa
 guard graph, including independently held guards.
 
 The application-owned Cursor/Source/map proof in
-[native_state_api.rs](../../crates/kagari-embed/tests/fixtures/native_state_api.rs)
+native_state_api.rs (retired predecessor file)
 uses these interfaces with defaults disabled. It checks idle GC and cyclic
 collection, non-fused source semantics, shared progress and generation-pinned
 selected calls. This bounded facility does not restore the full standard Iterator
@@ -184,7 +184,7 @@ fn echo_template<U: NativeValue, T: NativeValue, P: NativeValue>(
 ```
 
 The ordinary `invoke` continuation helper is implemented in the
-[compiling fixture](../../crates/kagari-embed/tests/fixtures/native_default_typed_api.rs).
+compiling fixture (retired predecessor file).
 The annotation explicitly maps T to Self, P to the trait parameter and U to
 Self::Output, regardless of template generic order. The script member's parameters
 and return type come from the real Rust signature; injected context and selected

@@ -24,90 +24,9 @@ kagari-vm.workspace = true
 smallvec = { workspace = true, optional = true }
 
 [dev-dependencies]
-kagari-native-macros.workspace = true
 bincode.workspace = true
 kagari-codegen-cranelift.workspace = true
 
 [[example]]
-name = "architecture_baseline"
-required-features = ["source", "native"]
-
-[[example]]
-name = "stdlib_baseline"
-required-features = ["source"]
-
-[[example]]
 name = "regenerate_feature_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_provider_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_bounds_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_associated_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_selected_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_ops_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_concrete_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_projected_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_scalar_protocol_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_cmp_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_sorting_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_state_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_string_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_debug_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_math_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_numeric_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "native_mutable_list"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_default_typed_artifact"
-required-features = ["source"]
-
-[[example]]
-name = "regenerate_native_default_external_artifact"
 required-features = ["source"]

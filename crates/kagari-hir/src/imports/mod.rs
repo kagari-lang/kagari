@@ -23,6 +23,7 @@ use kagari_common::{
     span::Span,
 };
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, btree_map::Entry},
     sync::Arc,
 };
@@ -34,7 +35,6 @@ pub mod functions;
 mod members;
 #[cfg(test)]
 mod signature_tests;
-mod stdlib;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -518,7 +518,6 @@ fn resolve_imports(
             entry.target = None;
         }
     }
-    catalog.install_standard_prelude(module, &local_items, &mut result);
     let mut roots = result
         .entries
         .iter()
@@ -852,7 +851,6 @@ fn source_module_accessible(
 struct SourceCatalog<'a> {
     paths: BTreeMap<String, Vec<SourceCatalogEntry<'a>>>,
     package_aliases: BTreeMap<String, BTreeSet<String>>,
-    standard_root: Option<ModuleIdentity>,
 }
 
 struct SourceCatalogEntry<'a> {
@@ -869,13 +867,23 @@ struct CatalogMember {
 }
 
 impl<'a> SourceCatalog<'a> {
+    fn source_path<'p>(&self, path: &'p str) -> Cow<'p, str> {
+        if let Some((alias, member)) = path.split_once("::")
+            && let Some(packages) = self.package_aliases.get(alias)
+            && packages.len() == 1
+        {
+            let package = packages.first().expect("one installed package alias");
+            return Cow::Owned(format!("{package}::{member}"));
+        }
+        Cow::Borrowed(path)
+    }
+
     fn new(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
         imports: Option<&BTreeMap<ModuleIdentity, ModuleImports>>,
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut paths = BTreeMap::<_, Vec<_>>::new();
-        let mut standard_root = None;
         let mut package_aliases = BTreeMap::<String, BTreeSet<String>>::new();
         for module in sources {
             cancel.check()?;
@@ -884,10 +892,6 @@ impl<'a> SourceCatalog<'a> {
                     .entry(alias.clone())
                     .or_default()
                     .insert(module.source.module_identity().package.0.clone());
-            }
-            if module.installed_stdlib.is_some() && module.source.module_identity().path == ["std"]
-            {
-                standard_root = Some(module.source.module_identity().clone());
             }
             let mut members = BTreeMap::<_, Vec<_>>::new();
             let mut add = |name: &str, item, visibility| {
@@ -1059,13 +1063,11 @@ impl<'a> SourceCatalog<'a> {
         Ok(Self {
             paths,
             package_aliases,
-            standard_root,
         })
     }
 
     fn same_members(&self, other: &Self) -> bool {
         self.package_aliases == other.package_aliases
-            && self.standard_root == other.standard_root
             && self.paths.len() == other.paths.len()
             && self.paths.iter().all(|(path, entries)| {
                 other.paths.get(path).is_some_and(|old| {

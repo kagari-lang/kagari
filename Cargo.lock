@@ -392,7 +392,6 @@ dependencies = [
  "kagari-compiler",
  "kagari-hir",
  "kagari-mir",
- "kagari-native-macros",
  "kagari-runtime",
  "kagari-syntax",
  "kagari-vm",
@@ -406,7 +405,6 @@ version = "0.1.0"
 dependencies = [
  "kagari-abi",
  "kagari-common",
- "kagari-stdlib",
  "kagari-syntax",
  "serde",
  "smallvec",
@@ -426,15 +424,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kagari-native-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "kagari-runtime"
 version = "0.1.0"
 dependencies = [
@@ -445,16 +434,6 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-mir",
- "kagari-native-macros",
- "thiserror",
-]
-
-[[package]]
-name = "kagari-stdlib"
-version = "0.1.0"
-dependencies = [
- "kagari-common",
- "kagari-syntax",
  "thiserror",
 ]
 

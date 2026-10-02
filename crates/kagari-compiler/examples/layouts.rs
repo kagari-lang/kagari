@@ -48,7 +48,7 @@ fn main() {
     });
     storage.validate().unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(storage)], false);
+    analysis.set_native_modules(vec![Arc::new(storage)]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), Default::default(), &Default::default())
         .unwrap();

@@ -11,25 +11,19 @@ use kagari_abi::native_api::render::NativeApiSource;
 use kagari_common::source_database::SourceDatabase;
 #[cfg(feature = "source")]
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::{
-    Runtime, RuntimeConfig,
-    error::RuntimeError,
-    native::{api::NativeApi, packages::standard_library},
-};
+use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeError, native::api::NativeApi};
 #[cfg(feature = "source")]
 use std::cell::RefCell;
 
 #[derive(Debug, Clone)]
 pub struct EngineConfig {
     pub default_runtime: RuntimeConfig,
-    pub install_standard_library: bool,
 }
 
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             default_runtime: RuntimeConfig::default(),
-            install_standard_library: true,
         }
     }
 }
@@ -56,17 +50,14 @@ impl KagariEngine {
     /// Built-in and application packages use the same checked installation path.
     pub fn with_native_apis(
         config: EngineConfig,
-        mut native_apis: Vec<NativeApi>,
+        native_apis: Vec<NativeApi>,
     ) -> Result<Self, RuntimeError> {
-        if config.install_standard_library {
-            native_apis.insert(0, standard_library());
-        }
         let native_api = NativeApi::combine(native_apis)?;
         #[cfg(feature = "source")]
         let analysis = {
             let mut analysis = AnalysisDatabase::default();
             let modules = native_api.modules().to_vec();
-            analysis.set_native_modules(modules, config.install_standard_library);
+            analysis.set_native_modules(modules);
             RefCell::new(analysis)
         };
         Ok(Self {

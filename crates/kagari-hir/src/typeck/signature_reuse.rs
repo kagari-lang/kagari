@@ -104,7 +104,6 @@ pub(crate) fn reuse_signatures(
     // inputs. The implementation facts are retained by a reused signature.
     if previous.registered_native_api != current.registered_native_api
         || previous.native_functions != current.native_functions
-        || previous.installed_stdlib.is_some() != current.installed_stdlib.is_some()
     {
         return None;
     }

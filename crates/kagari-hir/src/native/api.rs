@@ -139,7 +139,6 @@ pub(crate) fn import(
             native_functions: importer.native_functions,
             method_policies: importer.method_policies,
             native_attributes: HashSet::new(),
-            installed_stdlib: None,
         }),
     ))
 }

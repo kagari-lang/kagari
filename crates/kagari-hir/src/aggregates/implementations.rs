@@ -478,8 +478,7 @@ impl AggregateCatalog {
             self.implementations.insert(
                 id.clone(),
                 Arc::new(ImplementationSignature {
-                    engine_owned: lowered.registered_native_api
-                        || lowered.installed_stdlib.is_some(),
+                    engine_owned: lowered.registered_native_api,
                     associated_type_families: signatures
                         .type_table()
                         .associated_type_families

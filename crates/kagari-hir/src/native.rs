@@ -6,7 +6,6 @@ use kagari_abi::{
 use kagari_common::{collection::CollectionAccess, identity::DefinitionId, range::RangeKind};
 
 pub(crate) mod api;
-pub(crate) mod stdlib;
 
 /// Installed entry identity, checked host catalog index or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.

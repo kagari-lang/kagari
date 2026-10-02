@@ -36,8 +36,6 @@ mod layout_fixtures;
 pub mod metadata;
 pub mod module;
 pub mod native;
-pub mod native_module;
-pub mod native_value;
 pub mod numeric;
 pub mod range;
 pub mod reflection;

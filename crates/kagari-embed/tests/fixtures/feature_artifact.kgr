@@ -1,19 +1,8 @@
 fn main() -> i32 { 42 }
 
-fn native_library() -> i32 {
-    val values = [22, 1, 20];
-    values.sort_by(|left, right| left.cmp(right));
-    values.retain(|value| value > 1);
-    values.iter().map(|value| Some(value)).collect::<Option<ArrayList<i32>>>()
-        .map(|items| items.iter().fold(0, |total, value| total + value)).unwrap_or(0)
-}
-
 fn required_methods() -> i32 {
     val values = [20, 22];
     change(values);
-    val range = 0usize..2usize;
-    std::debug::assert(range.start_bound() == Bound::Included(0usize), "bound");
-    std::debug::assert(<i32 as FromStr>::from_str("42") == Ok(42), "parse");
     values[0] + values[1]
 }
 

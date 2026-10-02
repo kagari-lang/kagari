@@ -1,6 +1,5 @@
 pub mod numeric;
 pub mod surface;
-pub mod traits;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinFunction {

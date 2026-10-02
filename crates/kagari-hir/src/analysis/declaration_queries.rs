@@ -6,7 +6,7 @@ use crate::{
     declare_analysis,
     imports::ModuleGraph,
     lower,
-    native::{api as native_api, stdlib::InstalledStdlib},
+    native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
 
@@ -130,34 +130,8 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
-        let stdlib = if !self.legacy_stdlib {
-            None
-        } else {
-            Some(match self.stdlib.get() {
-                Some(stdlib) => stdlib.clone(),
-                None => {
-                    let stdlib = Arc::new(InstalledStdlib::prepare(self.parse_limits, cancel)?);
-                    // Installation is immutable and independent of user source revisions.
-                    // A failed or cancelled preparation never enters the cache.
-                    self.stdlib
-                        .set(stdlib.clone())
-                        .expect("single analysis owner installs once");
-                    stdlib
-                }
-            })
-        };
         let previous = self.declaration_cache.as_ref();
-        let mut lowered_files = stdlib
-            .iter()
-            .flat_map(|stdlib| stdlib.package.files().iter().zip(&stdlib.modules))
-            .filter(|(file, _)| {
-                !self
-                    .native_modules
-                    .iter()
-                    .any(|module| module.identity == *file.source().module_identity())
-            })
-            .map(|(file, lowered)| (file.source().id(), (file.parsed().clone(), lowered.clone())))
-            .collect::<BTreeMap<_, _>>();
+        let mut lowered_files = BTreeMap::new();
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {

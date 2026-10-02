@@ -69,43 +69,32 @@ impl FileDeclarations {
         if source.span(declaration.location.range)? != declaration.location {
             return None;
         }
-        let (documentation, written_signature) =
-            if let Some(package) = &self.declared.lowered.installed_stdlib {
-                let file = package
-                    .files()
-                    .iter()
-                    .find(|file| file.source().id() == source.id())?;
-                let site = file
-                    .declarations()
-                    .iter()
-                    .find(|site| site.name_span == Some(declaration.location.range))?;
-                (site.documentation.clone(), site.written_signature.clone())
-            } else {
-                let node = self.parsed.syntax().syntax().descendants().find(|node| {
-                    node.children().filter_map(Name::cast).any(|name| {
-                        let range = name
-                            .syntax()
-                            .descendants_with_tokens()
-                            .filter_map(|element| element.into_token())
-                            .find(|token| !token.kind().is_trivia())
-                            .map(|token| token.text_range());
-                        range.is_some_and(|range| {
-                            Span::new(usize::from(range.start()), usize::from(range.end()))
-                                == declaration.location.range
-                        })
+        let (documentation, written_signature) = {
+            let node = self.parsed.syntax().syntax().descendants().find(|node| {
+                node.children().filter_map(Name::cast).any(|name| {
+                    let range = name
+                        .syntax()
+                        .descendants_with_tokens()
+                        .filter_map(|element| element.into_token())
+                        .find(|token| !token.kind().is_trivia())
+                        .map(|token| token.text_range());
+                    range.is_some_and(|range| {
+                        Span::new(usize::from(range.start()), usize::from(range.end()))
+                            == declaration.location.range
                     })
-                })?;
-                let documentation = if let Some(item) = Item::cast(node.clone()) {
-                    item.documentation(source.text())
-                } else if let Some(method) = MethodDef::cast(node.clone()) {
-                    method.documentation(source.text())
-                } else if let Some(variant) = Variant::cast(node.clone()) {
-                    variant.documentation(source.text())
-                } else {
-                    Field::cast(node.clone())?.documentation(source.text())
-                };
-                (documentation, node.text().to_string())
+                })
+            })?;
+            let documentation = if let Some(item) = Item::cast(node.clone()) {
+                item.documentation(source.text())
+            } else if let Some(method) = MethodDef::cast(node.clone()) {
+                method.documentation(source.text())
+            } else if let Some(variant) = Variant::cast(node.clone()) {
+                variant.documentation(source.text())
+            } else {
+                Field::cast(node.clone())?.documentation(source.text())
             };
+            (documentation, node.text().to_string())
+        };
         Some(DeclarationDocumentation {
             declaration: declaration.clone(),
             documentation,

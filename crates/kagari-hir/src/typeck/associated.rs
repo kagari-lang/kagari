@@ -823,7 +823,6 @@ mod tests {
             .unwrap();
         let source = sources.snapshot().file(file).unwrap().clone();
         let lowered = Arc::new(lower_module(&source));
-        assert!(lowered.installed_stdlib.is_none());
         let declared = declare_analysis(
             lowered,
             HostDeclarations::empty(),

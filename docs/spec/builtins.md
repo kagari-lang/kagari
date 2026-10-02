@@ -399,8 +399,8 @@ on concrete storage and writable interfaces. Fresh result containers are shallow
 copies; interface conversion preserves the underlying object.
 
 Full signatures, failure behavior and examples live in the source declarations:
-[array](../../stdlib/array.kgr), [map](../../stdlib/map.kgr),
-[set](../../stdlib/set.kgr). The [collection contract](collection-access.md)
+array (retired predecessor file), map (retired predecessor file),
+set (retired predecessor file). The [collection contract](collection-access.md)
 defines assignability, mutation and factory guarantees. The old module-level
 Map/Set `new` functions are removed.
 
@@ -878,7 +878,7 @@ dispatch model as arithmetic. Native bitwise operands have the same integer type
 shifts permit a different integer count type. Ordinary shifts validate the count
 before executing. These traits do not override compound assignment.
 
-[`stdlib/numeric.kgr`](../../stdlib/numeric.kgr) declares per-type integer methods:
+`stdlib/numeric.kgr` (retired predecessor file) declares per-type integer methods:
 wrapping_add/sub/mul, checked_add/sub/mul/div/rem, overflowing_add/sub/mul,
 saturating_add/sub/mul, rotate_left/right, and unsigned wrapping_add_signed.
 Signatures, documentation and executable examples belong to these declarations.

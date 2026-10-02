@@ -112,7 +112,7 @@ The following are concrete migration inputs, not target boundaries:
 
 | Current owner | Current behavior | Required change |
 | --- | --- | --- |
-| Former ABI `build/{main,api,implementations}.rs` (removed in ST01) | Parsed SDK files; interpreted selected generic bounds, receiver shapes and implementations; emitted source/API tables | [Installed package preparation](../crates/kagari-stdlib/src/package.rs) owns sources; ordinary HIR owns semantics |
+| Former ABI `build/{main,api,implementations}.rs` (removed in ST01) | Parsed SDK files; interpreted selected generic bounds, receiver shapes and implementations; emitted source/API tables | Installed package preparation (retired predecessor file) owns sources; ordinary HIR owns semantics |
 | Former ABI `standard/declarations.rs` and generated surface tables (removed in ST01) | Mixed docs, source locations, type expressions, default-method classification and execution identities | Separate source input from checked semantic facts and native execution contracts |
 | Former HIR `builtin/declarations.rs` (removed during ST01) | Converted generated descriptors into types, declarations and candidates | [Checked implementation selection](../crates/kagari-hir/src/aggregates/native.rs) consumes ordinary HIR facts and installed provenance |
 | [HIR call facts](../crates/kagari-hir/src/typeck/table.rs) | Distinguish `StandardIntrinsic` from ordinary function targets | Record resolved callable identity, implementation and checked application facts |
@@ -3408,7 +3408,7 @@ and ABI build edges, in addition to removal of textual source-catalog references
   test/example targets and dependency compilation; neither is a source-analysis
   latency measurement. Ignored measurement files outside `target/debug` survived.
 - ST00 repeatable runtime workload is
-  [`stdlib_baseline.rs`](../crates/kagari-embed/examples/stdlib_baseline.rs).
+  `stdlib_baseline.rs` (retired predecessor file).
   Build separately, then run `target/debug/examples/stdlib_baseline`: one warmup,
   21 fresh-engine source-to-artifact samples and 101 interpreter execution samples
   per workload. Process tables/pages are warm, compilation includes artifact

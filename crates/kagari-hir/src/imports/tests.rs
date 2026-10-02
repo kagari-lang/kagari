@@ -1,10 +1,10 @@
 use super::*;
+use crate::profile::LanguageFeatureProfile;
 use kagari_common::{
     host_interface::value_type::HostValueType,
     identity::PackageId,
     source_database::{SourceDatabase, SourceLayer},
 };
-use {crate::profile::LanguageFeatureProfile, kagari_stdlib::manifest::bundled_sources};
 
 use crate::analysis::{AnalysisDatabase, AnalysisSnapshot};
 
@@ -25,15 +25,8 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
         .unwrap()
 }
 
-fn with_standard(names: &[&str]) -> Vec<ModuleIdentity> {
-    let mut expected = bundled_sources()
-        .iter()
-        .map(|source| ModuleIdentity {
-            package: PackageId("kagari-std".into()),
-            path: vec![source.module().into()],
-        })
-        .chain(names.iter().map(|name| identity(name)))
-        .collect::<Vec<_>>();
+fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
+    let mut expected = names.iter().map(|name| identity(name)).collect::<Vec<_>>();
     expected.sort();
     expected
 }
@@ -308,13 +301,13 @@ fn diamond_has_deterministic_reachable_order() {
         graph
             .reachable_order(&identity("root"), &Default::default())
             .unwrap(),
-        with_standard(&["left", "right", "root", "shared"])
+        expected_modules(&["left", "right", "root", "shared"])
     );
     assert_eq!(
         graph
             .reachable_order(&identity("unrelated"), &Default::default())
             .unwrap(),
-        with_standard(&["unrelated"])
+        expected_modules(&["unrelated"])
     );
     let root = graph.node(&identity("root")).unwrap();
     assert!(
@@ -344,7 +337,7 @@ fn cycles_are_reachable_without_invalidating_dependents() {
         graph
             .reachable_order(&identity("caller"), &Default::default())
             .unwrap(),
-        with_standard(&["a", "b", "caller"])
+        expected_modules(&["a", "b", "caller"])
     );
     assert!(
         snapshot
@@ -622,7 +615,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
             .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
-        1024 + bundled_sources().len()
+        1024
     );
     let cancel = CancellationToken::default();
     cancel.cancel();

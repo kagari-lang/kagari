@@ -9,12 +9,37 @@ use kagari_embed::{
     program::PreparedProgram,
 };
 
+#[cfg(feature = "source")]
+use kagari_common::source::SourceFile;
 use kagari_runtime::value::Value;
+use std::{fs, path::Path, sync::OnceLock};
 
-const ARTIFACT: &[u8] = include_bytes!("fixtures/feature_artifact.kbc");
+fn artifact_bytes() -> &'static [u8] {
+    static BYTES: OnceLock<Vec<u8>> = OnceLock::new();
+    BYTES.get_or_init(|| {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("workspace root");
+        let path = workspace.join("target/fixtures/feature_artifact.kbc");
+        #[cfg(feature = "source")]
+        {
+            let source = SourceFile::new(
+                "memory://feature-artifact.kgr",
+                include_str!("fixtures/feature_artifact.kgr"),
+            );
+            let artifact = KagariEngine::default()
+                .compile_to_artifact(source, Default::default(), Default::default())
+                .unwrap();
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, artifact.to_bytes().unwrap()).unwrap();
+        }
+        fs::read(path).expect("generate the target fixture with regenerate_feature_artifact")
+    })
+}
 
 fn artifact() -> KbcArtifact {
-    KbcArtifact::from_bytes(ARTIFACT).unwrap()
+    KbcArtifact::from_bytes(artifact_bytes()).unwrap()
 }
 
 #[test]
@@ -45,23 +70,21 @@ fn source_free_native_bindings_execute_and_release_scopes() {
     let mut runtime = KagariEngine::new(config).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     for _ in 0..3 {
-        for entry in ["native_library", "required_methods"] {
-            assert_eq!(
-                runtime
-                    .execute(&loaded, entry, &[], &context)
-                    .unwrap()
-                    .return_value,
-                Value::I32(42)
-            );
-            assert_eq!(runtime.runtime().gc().active_roots(), 0);
-            assert_eq!(
-                runtime.runtime().resources().counters().current_call_depth,
-                0
-            );
-            assert!(!runtime.runtime().is_quarantined());
-            runtime.runtime().collect_garbage().unwrap();
-            assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
-        }
+        assert_eq!(
+            runtime
+                .execute(&loaded, "required_methods", &[], &context)
+                .unwrap()
+                .return_value,
+            Value::I32(42)
+        );
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        assert_eq!(
+            runtime.runtime().resources().counters().current_call_depth,
+            0
+        );
+        assert!(!runtime.runtime().is_quarantined());
+        runtime.runtime().collect_garbage().unwrap();
+        assert_eq!(runtime.runtime().gc().allocated_objects(), 0);
     }
 }
 
@@ -119,7 +142,6 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
 #[cfg(feature = "source")]
 #[test]
 fn portable_fixture_matches_source_emission() {
-    use kagari_common::source::SourceFile;
     let source = SourceFile::new(
         "memory://feature-artifact.kgr",
         include_str!("fixtures/feature_artifact.kgr"),
@@ -127,7 +149,7 @@ fn portable_fixture_matches_source_emission() {
     let generated = KagariEngine::default()
         .compile_to_artifact(source, Default::default(), Default::default())
         .unwrap();
-    assert_eq!(generated.to_bytes().unwrap(), ARTIFACT);
+    assert_eq!(generated.to_bytes().unwrap(), artifact_bytes());
 }
 
 #[cfg(feature = "native")]
@@ -275,14 +297,14 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
         .prepare_native(
             &program,
             &loaded,
-            "native_library",
+            "required_methods",
             &mut CraneliftBackend::for_host().unwrap(),
             &Default::default(),
         )
         .unwrap();
     assert!(matches!(prepared, PreparedNativeEntry::Unsupported { .. }));
     let report = runtime
-        .execute_prepared(&loaded, "native_library", &[], &context, &prepared)
+        .execute_prepared(&loaded, "required_methods", &[], &context, &prepared)
         .unwrap();
     assert_eq!(report.return_value, Value::I32(42));
     assert_eq!(

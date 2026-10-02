@@ -23,7 +23,7 @@ or commit is authorized by this planning task.
 - [Loading specifications](spec/module-loading.md) describe host-approved package
   roots and dependency mappings, and reserve `kg` for future tooling. They are not
   evidence of an implemented general package manager.
-- The [standard package](../crates/kagari-stdlib/src/package.rs) has a bundled source
+- The standard package (retired predecessor file) has a bundled source
   manifest and content fingerprint. General packages should use common identities
   and source handoff, not copy standard-library-specific installation privileges.
 

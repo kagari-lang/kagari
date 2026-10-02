@@ -394,7 +394,7 @@ methods. Ordinary arithmetic, including compound assignment, still traps.
 Unsigned types provide wrapping_add_signed with the corresponding signed width.
 All integer types provide rotate_left/right with a u32 count reduced modulo the
 receiver width. These methods are pure value operations. Standard declarations
-and examples live in [numeric.kgr](../../stdlib/numeric.kgr).
+and examples live in numeric.kgr (retired predecessor file).
 
 ## Explicit numeric conversions
 
@@ -464,7 +464,7 @@ destination unchanged; completed argument side effects are not rolled back.
 
 Range expressions are immutable bounds values rather than arrays. See
 [range syntax and iteration](syntax.md) and the declarations in
-[stdlib/ops.kgr](../../stdlib/ops.kgr). Iterators own their cursor; assigning a
+stdlib/ops.kgr (retired predecessor file). Iterators own their cursor; assigning a
 range copies its bounds, and iterating it twice creates independent cursors.
 
 `ArrayList<T>.copy_within<R: RangeBounds<usize>>(source, destination)` replaces

@@ -1,10 +1,14 @@
 # Kagari Implementation Roadmap
 
-## Native collections reset (active plan; implementation not started)
+## Native collections reset (active plan; phase 1 complete)
 
 The [native collections reset plan](native-provider-refactor.md) replaces the
-previous ST/NR full-library restoration sequence. The old goal remains paused;
-this planning update does not resume implementation.
+previous ST/NR full-library restoration sequence. Execution is authorized in goal
+mode with one commit per completed phase. Intermediate compilation failures are
+allowed; temporary implementations to satisfy builds are explicitly rejected.
+Phase 1 removed the predecessor library/macros/catalogs and binary fixtures.
+The active plan records focused passes and carried compilation errors; phase 2
+now establishes compiler-owned contracts and the three default containers.
 
 Execution has four phases, in strict order:
 
@@ -417,7 +421,7 @@ types/enums and 21 traits. Documentation follows Rust's summary, behavior,
 applicable Panics and Examples structure while describing Kagari semantics.
 Native enum discriminants and payload types are validated as runtime ABI bindings;
 public signatures must instantiate without unknown/error types. The standard API
-index is [stdlib/README.md](../stdlib/README.md). Full LSP transport, lexical trait
+index is stdlib/README.md (retired predecessor file). Full LSP transport, lexical trait
 completion, scalar reference pages and host declaration generation remain future
 work. This batch does not implement those separate features.
 

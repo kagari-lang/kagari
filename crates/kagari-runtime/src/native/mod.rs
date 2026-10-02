@@ -1,22 +1,7 @@
 //! A frame-owned invocation drives native entry state without identifying library methods.
 pub mod api;
-pub(crate) mod array;
-pub mod array_api;
 pub mod catalog;
-pub mod cmp_api;
-pub mod debug_api;
-pub mod factory;
-pub mod fmt_api;
-pub mod hash_api;
-pub mod math_api;
-pub mod numeric_api;
-pub mod ops_api;
-pub mod option_api;
-pub mod packages;
 pub mod registration;
-pub mod result_api;
-pub mod sorting;
-pub mod string_api;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,

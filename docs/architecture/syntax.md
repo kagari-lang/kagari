@@ -274,7 +274,7 @@ The following locations own the contracts described above.
 | Syntax views and Rowan bridge | [AST views](../../crates/kagari-syntax/src/ast/mod.rs), [node adapter](../../crates/kagari-syntax/src/syntax_node.rs) |
 | Partial trees and syntax diagnostics | [Error tests](../../crates/kagari-syntax/src/tests/parser/errors.rs) |
 | Lossless limits and cancellation | [Limit tests](../../crates/kagari-syntax/src/tests/limits.rs), [cancellation tests](../../crates/kagari-syntax/src/tests/cancellation.rs) |
-| Offline declarations | [Declaration tests](../../crates/kagari-syntax/src/tests/declarations.rs), [Installed package preparation](../../crates/kagari-stdlib/src/package.rs) |
+| Offline declarations | [Declaration tests](../../crates/kagari-syntax/src/tests/declarations.rs), Installed package preparation (retired predecessor file) |
 | Caller-owned parse reuse and HIR lowering | [Analysis queries](../../crates/kagari-hir/src/analysis/declaration_queries.rs) |
 | Grammar coverage and its limits | [Coverage audit](../syntax-coverage.md) |
 

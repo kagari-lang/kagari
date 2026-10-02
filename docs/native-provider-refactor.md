@@ -1,8 +1,7 @@
 # Native Collections Reset Plan
 
-Status: replacement plan defined on 2026-10-02; implementation has not started.
-The previous restoration goal remains paused. This documentation update does not
-resume it or start implementation.
+Status: execution started on 2026-10-02; phase 1 is complete and phase 2 is next.
+The goal follows this replacement plan, not the retired restoration sequence.
 
 This is the active native-library plan. It replaces NR00-NR05, the full-library
 restoration sequence and inherited ST06 acceptance obligations. Historical results
@@ -669,20 +668,26 @@ No build/test failure remains in retained workspace consumers.
   belongs to phase 2, not a temporary restoration exception.
 - Keep the four checklist items fixed. Record discoveries briefly with their phase
   owner; substantial scope growth requires user direction.
+- Intermediate compilation failures are allowed throughout the migration at the
+  user's explicit direction. Do not add temporary implementations, compatibility
+  wrappers or restore obsolete code merely to make a checkpoint compile. Record
+  representative errors and their owning phase; final integration still requires
+  the intended implementation and passing checks.
 - Use focused checks during implementation; do not repeat unchanged expensive
   suites or inherit the old full-library/budget matrix.
 - No routine ABI/format bumps for unpublished changes. Regenerate only affected
   disposable artifacts under target/ when needed.
 - Use coherent Conventional Commits. Implementation checkpoints carry
   Native-Reset-Phase: 1, 2, 3 or 4. Disclose intermediate build failures and owners
-  in the commit and this ledger.
+  in the commit and this ledger. Commit once per completed phase, as requested;
+  do not make intermediate implementation or documentation-only commits.
 - Final integration runs structure checks, formatting, workspace Clippy/tests and
   git diff --check. Additional feature/backend routes must serve this fixed proof.
   Historical passes are not current acceptance evidence.
 
 ## Checklist
 
-- [ ] Phase 1: old library implementation and tracked executable fixtures removed.
+- [x] Phase 1: old library implementation and tracked executable fixtures removed.
 - [ ] Phase 2: compiler-owned protocols and three default containers implemented independently.
 - [ ] Phase 3: efficient synchronous native calls and typed storage implemented.
 - [ ] Phase 4: ArrayList algorithm module, storage extension and measured proof accepted.
@@ -745,3 +750,48 @@ existing Kagari member; bind_with supplies explicit codecs for ambiguous/special
 representations. Both produce the same prepared binding, without runtime name
 resolution or a second signature authority. Examples and ownership descriptions
 are updated; four phases remain unstarted and the previous goal remains paused.
+
+2026-10-02 — Execution authorized in goal mode, with one commit per phase. Phase 1
+is active. The user explicitly permits compilation failures throughout migration
+and rejects temporary implementations to satisfy builds. The entry worktree diff
+and untracked language-protocol files are preserved under target/native-reset-entry
+for inspection; language-owned implicit protocol facts remain in the working tree.
+Old macro authoring, provider algorithms and binary fixture consumers are cleanup
+inputs, not requirements to preserve the predecessor architecture.
+
+2026-10-02 — Phase 1 completed. Removed kagari-stdlib, kagari-native-macros, all
+stdlib source products, HIR legacy package preparation/prelude/cache state, bundled
+native registrations/algorithms, Rust declaration-expansion helpers and mixed
+StandardTrait/intrinsic/native-adapter tables. Generic source package aliases,
+portable declaration/verification machinery, low-level native registration and
+independent arithmetic/GC/host infrastructure remain. Removed all 19 tracked .kbc
+products; the retained feature fixture is generated under target/fixtures and its
+standalone consumers read that file. Cargo dependencies/feature checks no longer
+refer to removed crates. Removed the uncommitted routine ABI/KBC/MIR increments;
+format identifiers and validation remain.
+
+Test disposition: 221 tests exclusively tied to removed macro/package integration
+were retired with their authoring mechanism (161 obsolete files removed in total).
+Full numeric/math/string/conversion/default-template restoration is intentionally
+withdrawn. Retained compiler/VM language, trait, host, mutation, GC, artifact and
+source-query suites preserve independent behavior; retained ABI native-declaration
+tests preserve signature/contract rejection. Phase 2 owns foundational protocol
+and three-default-container coverage, phase 3 owns explicit registration/binding
+coverage, and phase 4 owns sort/comparator/lazy-adapter/non-sequence/source-free
+proofs. The generic feature fixture retains basic MutableList operations, GC/root
+cleanup, forged binding rejection and actual Cranelift scalar/unsupported paths;
+its retired full-library pipeline is not an acceptance obligation. The initial
+implicit-protocol metadata/lowering changes remain uncommitted for reconciliation
+with compiler-owned contracts in phase 2, including the three new protocol files.
+
+Validation: cargo test -p kagari-common -p kagari-syntax passed (23 + 80 tests).
+uv run --locked scripts/check_structure.py, cargo fmt --all -- --check and git diff
+--check passed. Removal audit found no retired crate imports, legacy package cache,
+bundled registration/macro or embedded .kbc consumer. cargo check -p kagari-abi
+failed with 11 diagnostics: E0432 for removed standard::traits/intrinsic/native
+imports in proof/verification code, plus the resulting E0277 inference diagnostic.
+Phase 2 replaces these language-contract references, without restoring old tables.
+The removed typed macro adapters also leave managed_iter's native_value references
+for phase 3's cursor/context replacement. No temporary implementation is added.
+Whole-workspace execution is intentionally unavailable at this intermediate point;
+final acceptance still requires resolving retained consumers and all required checks.

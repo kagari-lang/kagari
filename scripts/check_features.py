@@ -5,7 +5,6 @@ live under target/; Cargo uses the repository's normal target directory and O1.
 """
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 import subprocess
@@ -16,7 +15,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 
 
 def check_crate_boundaries(output: Path = OUTPUT) -> None:
-    source = {"kagari-hir", "kagari-syntax", "kagari-stdlib"}
+    source = {"kagari-hir", "kagari-syntax"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     execution = {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-bytecode"}
     constraints = {
@@ -48,8 +47,8 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
     print("ABI build graph is independent of source analysis and execution", flush=True)
 
 
-def run(native_proof: bool = False) -> None:
-    output = OUTPUT / "native-proof" if native_proof else OUTPUT
+def run() -> None:
+    output = OUTPUT
     output.mkdir(parents=True, exist_ok=True)
     check_crate_boundaries(output)
     lines = [
@@ -59,16 +58,14 @@ def run(native_proof: bool = False) -> None:
         'native = ["kagari-embed/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         '[dependencies]',
     ]
-    for name in ["abi", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift", "native-macros"]:
+    for name in ["abi", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
         options = [f'path = {json.dumps(str(ROOT / "crates" / f"kagari-{name}"))}']
         if name == "embed":
             options.append('default-features = false')
         if name in {"codegen", "mir", "codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'kagari-{name} = {{ {", ".join(options)} }}')
-    targets = ["native_provider_artifact", "native_registration", "native_math", "native_callbacks", "native_values", "native_bounds", "native_associated", "native_selected", "native_defaults", "native_default_source", "native_default_typed", "native_default_external", "native_ops", "native_concrete", "native_projected", "native_cmp", "native_sorting", "native_state", "native_numeric", "native_math_complete", "native_string", "native_debug"] if native_proof else ["artifact_features"]
-    if native_proof:
-        targets.append("native_scalar_protocol")
+    targets = ["artifact_features"]
     for target in targets:
         lines += ['[[test]]', f'name = "{target}"',
                   f'path = {json.dumps(str(ROOT / "crates/kagari-embed/tests" / f"{target}.rs"))}']
@@ -80,6 +77,11 @@ def run(native_proof: bool = False) -> None:
     (output / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
     locked = tomllib.loads((ROOT / "Cargo.lock").read_text())["package"]
     external = {(item["name"], item["version"]) for item in locked if "source" in item}
+    subprocess.run([
+        "cargo", "run", "--locked", "--offline", "-p", "kagari-embed",
+        "--no-default-features", "--features", "source",
+        "--example", "regenerate_feature_artifact",
+    ], cwd=ROOT, check=True)
     for features in ["", "source", "native", "source,native"]:
         label = features.replace(",", "-") or "artifact-only"
         args = ["--manifest-path", str(manifest), "--no-default-features"]
@@ -95,14 +97,14 @@ def run(native_proof: bool = False) -> None:
         packages = {line.split()[0] for line in graph.splitlines() if line}
         forbidden = set()
         if "source" not in features:
-            forbidden |= {"kagari-hir", "kagari-syntax", "kagari-stdlib"}
+            forbidden |= {"kagari-hir", "kagari-syntax"}
         if not features:
             forbidden |= {"kagari-compiler", "kagari-mir", "kagari-codegen", "kagari-codegen-cranelift"}
         if features == "source":
             forbidden |= {"kagari-codegen", "kagari-codegen-cranelift"}
         assert not packages & forbidden, (label, packages & forbidden)
         if "source" in features:
-            assert {"kagari-hir", "kagari-syntax", "kagari-stdlib"} <= packages, label
+            assert {"kagari-hir", "kagari-syntax"} <= packages, label
         with (output / f"{label}-tests.log").open("w") as log:
             subprocess.run(
                 ["cargo", "test", "--locked", "--offline", *args, "--target-dir", str(ROOT / "target")],
@@ -112,7 +114,4 @@ def run(native_proof: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--native-proof", action="store_true",
-                        help="exercise the current minimal native API proof; retain the default full fixture suite")
-    run(parser.parse_args().native_proof)
+    run()

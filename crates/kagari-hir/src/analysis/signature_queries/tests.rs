@@ -49,7 +49,6 @@ fn reused_signatures_cannot_transfer_installed_native_implementation_authority()
     assert_eq!(changed.source.text(), original.source.text());
     assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
     let mut changed = original.as_ref().clone();
-    changed.installed_stdlib = None;
     assert!(reuse_signatures(original, file.signatures(), &changed, &Default::default()).is_none());
 }
 

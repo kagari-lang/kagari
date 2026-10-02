@@ -5,7 +5,6 @@ use crate::{
     native::{
         NativeContext, NativeInvocationState,
         catalog::NativeCatalog,
-        factory::NativeFactory,
         registration::{NativeEntry, NativeRegistration, NativeRegistry},
     },
 };
@@ -27,13 +26,6 @@ pub struct NativeHandler {
     entry: Rc<NativeEntry>,
 }
 impl NativeHandler {
-    pub(crate) fn from_factory(binding: DefinitionId, factory: NativeFactory) -> Self {
-        Self {
-            binding,
-            scratch_slots: factory.scratch_slots,
-            entry: factory.entry,
-        }
-    }
     pub fn new(
         binding: DefinitionId,
         scratch_slots: usize,

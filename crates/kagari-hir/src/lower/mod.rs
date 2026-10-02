@@ -8,7 +8,6 @@ use kagari_syntax::{
 
 use kagari_abi::{callable::MethodPolicy, types::NativeDeclaration};
 use kagari_common::{cancellation::CancellationToken, source::SourceFile, span::Span};
-use kagari_stdlib::package::ParsedStdlibPackage;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -44,7 +43,6 @@ pub struct LoweredModule {
     pub(crate) native_functions: HashMap<FunctionId, NativeBinding>,
     pub(crate) method_policies: HashMap<FunctionId, MethodPolicy>,
     pub(crate) native_attributes: HashSet<(usize, usize)>,
-    pub(crate) installed_stdlib: Option<Arc<ParsedStdlibPackage>>,
 }
 
 impl LoweredModule {
@@ -145,6 +143,5 @@ pub(crate) fn lower_module_controlled(
         native_functions: HashMap::new(),
         method_policies: HashMap::new(),
         native_attributes: HashSet::new(),
-        installed_stdlib: None,
     }
 }

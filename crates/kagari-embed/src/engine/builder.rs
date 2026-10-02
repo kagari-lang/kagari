@@ -16,10 +16,6 @@ impl KagariEngineBuilder {
         self.packages.push(package);
         self
     }
-    pub fn install_standard_library(mut self, install: bool) -> Self {
-        self.config.install_standard_library = install;
-        self
-    }
     pub fn build(self) -> Result<KagariEngine, RuntimeError> {
         KagariEngine::with_native_apis(
             self.config,

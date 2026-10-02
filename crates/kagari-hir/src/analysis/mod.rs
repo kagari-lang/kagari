@@ -14,7 +14,6 @@ use crate::{
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, SourceImport, functions::ImportedFunction},
     lower::LoweredModule,
-    native::stdlib::InstalledStdlib,
     profile::LanguageFeatureProfile,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -704,10 +703,8 @@ pub struct AnalysisDatabase {
     latest_revision: Revision,
     hosts: Arc<HostDeclarations>,
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
-    stdlib: OnceCell<Arc<InstalledStdlib>>,
     native_modules: Vec<Arc<NativeModule>>,
     native_files: OnceCell<Vec<(Parse, Arc<LoweredModule>)>>,
-    legacy_stdlib: bool,
 }
 
 impl Default for AnalysisDatabase {
@@ -724,21 +721,17 @@ impl Default for AnalysisDatabase {
             latest_revision: Revision::default(),
             hosts: HostDeclarations::empty(),
             inline_ids: RefCell::new(HashMap::new()),
-            stdlib: OnceCell::new(),
             native_modules: vec![],
             native_files: OnceCell::new(),
-            legacy_stdlib: false,
         }
     }
 }
 
 impl AnalysisDatabase {
     /// Native declarations are explicit snapshot inputs. Existing snapshots keep their owners.
-    pub fn set_native_modules(&mut self, modules: Vec<Arc<NativeModule>>, legacy_stdlib: bool) {
+    pub fn set_native_modules(&mut self, modules: Vec<Arc<NativeModule>>) {
         self.native_modules = modules;
-        self.legacy_stdlib = legacy_stdlib;
         self.native_files.take();
-        self.stdlib.take();
         self.declaration_cache = None;
         self.signature_cache = None;
         self.body_cache.clear();
@@ -767,7 +760,6 @@ impl AnalysisDatabase {
             return;
         }
         self.parse_limits = limits;
-        self.stdlib.take();
         self.native_files.take();
         self.declaration_cache = None;
         self.signature_cache = None;
