@@ -5,9 +5,10 @@ It describes the intended system shape that implementation work must converge on
 When existing code conflicts with the specifications, the specifications are authoritative.
 
 The [native collections reset plan](native-provider-refactor.md) defines the
-2026-10-02 target: compiler-owned language protocols, explicit Kagari declaration
-and implementation-binding APIs, synchronous calls, typed contiguous collection
-storage and one representative optional library. Rust functions supply bodies;
+2026-10-02 target: compiler-owned language protocols, explicit module declarations
+through ModuleBuilder and Rust bodies through NativeBinding, synchronous calls,
+typed contiguous collection storage and one representative optional library.
+Rust functions supply bodies;
 Rust traits/signatures and #[native_module] do not define Kagari contracts.
 The native-specific descriptions below record predecessor mechanisms awaiting
 replacement; they do not require preserving library-owned language declarations,

@@ -47,31 +47,33 @@ policy migration. Necessary consumer changes belong to their owning phase.
 
 ## Proposed data structures and explicit API
 
-This is a design proposal, not an implemented API. The Rust-style snippets show
-contracts and ownership; exact names can change during implementation. They do
-not add execution phases or restore more algorithm families.
+This is a design proposal, not an implemented interface. Naming follows modules
+and language declarations: define a trait/type/function, implement it, bind its
+Rust body, then install the module. The snippets show contracts and ownership;
+they do not add execution phases or restore more algorithm families.
 
 ### Declaration, binding and execution models
 
 | Model | Responsibility |
 | --- | --- |
+| ModuleBuilder | Builds one Kagari module with explicit declarations and implementation bindings |
 | LanguageContracts | Complete compiler-defined language declarations; an immutable portable view is available to registration/tooling without HIR or library installation |
-| ApiSchema | Kagari types, traits, functions, impls, documentation and dependencies; no Rust pointers or execution state |
-| TypeExpr | Primitive, nominal application, owner-scoped parameter, Self, associated projection or function type; represents Kagari types |
+| ModuleDecl | Kagari types, traits, functions, impls, documentation and dependencies; no Rust pointers or execution state |
+| Type | Primitive, nominal application, owner-scoped parameter, Self, associated projection or function type; represents Kagari types |
 | TypeDecl | Nominal identity, binders, value/reference semantics and an optional storage contract |
 | TraitDecl / MethodDecl | Parents, bounds, associated types and full Kagari method signatures, including receivers and method binders |
 | ImplDecl | Its own binders/bounds, receiver, applied trait, associated bindings and concrete member implementations; inherent impls have no trait |
-| NativePackage | Checked ApiSchema plus local Rust binding entries and storage factories |
-| SyncBinding | Explicit argument/result conversion views plus a Rust function, checked against a declaration before installation |
-| PreparedNativeCall | Closed layouts, linked entry, selected callable slots and retained generations; prepared before execution |
-| NativeContext | Scoped view over existing rooted arguments and prepared targets; no owned copy of the API/signature graph |
+| NativeModule | Checked ModuleDecl plus local Rust binding entries and storage factories |
+| NativeBinding | Synchronous Rust entry with explicit argument/result conversion views, checked against a declaration before installation |
+| LinkedNativeFunction | Closed layouts, linked entry, selected callable slots and retained generations; prepared before execution |
+| CallContext | Scoped view over existing rooted arguments and prepared targets; no owned copy of the API/signature graph |
 | SequenceStorage | Shared object containing a concrete contiguous primitive buffer or traced values |
 | NativeCursor | Persistent cursor, traced captures and pinned callable handles; no expired context or Rust buffer borrow |
 
 The declaration graph is conceptually:
 
 ```rust
-struct ApiSchema {
+struct ModuleDecl {
     types: Vec<TypeDecl>,
     traits: Vec<TraitDecl>,
     functions: Vec<FunctionDecl>,
@@ -81,7 +83,7 @@ struct ApiSchema {
 struct ImplDecl {
     parameters: Vec<TypeParameter>,
     bounds: Vec<TraitConstraint>,
-    receiver: TypeExpr,
+    receiver: Type,
     interface: Option<TraitApplication>,
     associated_types: Vec<AssociatedBinding>,
     methods: Vec<ImplementedMethod>,
@@ -104,26 +106,31 @@ T are not interchangeable. Name resolution happens during authoring, followed by
 checked ID references. A library defines Kagari traits without declaring matching
 Rust traits; Rust receiver syntax and inheritance do not define Kagari semantics.
 
+The define_ operations add declarations; method(name) resolves an existing member.
+ModuleBuilder::implement starts an impl builder with its own parameter scope;
+receiver and implements then set its header. Binding attaches a body to a checked
+member, while finish validates and publishes the completed declaration/module.
+
 The execution view is conceptually separate:
 
 ```rust
-struct PreparedNativeCall {
+struct LinkedNativeFunction {
     entry: LinkedNativeEntry,
     signature: SignatureRef,
     argument_layouts: Box<[ValueLayout]>,
     result_layout: ValueLayout,
-    selected: Box<[PreparedCallable]>,
+    selected: Box<[LinkedCallable]>,
     owner: RetainedModule,
 }
 
-struct PreparedCallable {
+struct LinkedCallable {
     target: ResolvedTarget,
     signature: SignatureRef,
     owner: RetainedModule,
 }
 
-struct NativeContext<'call> {
-    prepared: &'call PreparedNativeCall,
+struct CallContext<'call> {
+    function: &'call LinkedNativeFunction,
     arguments: ArgumentView<'call>,
     runtime: RuntimeAccess<'call>,
 }
@@ -141,34 +148,34 @@ List/MutableList illustrate library-owned declarations over the proof operations
 Index comes from the compiler-owned catalog. These views do not add new algorithms.
 
 ```rust
-let mut api = NativePackageBuilder::new("example::collections", &language);
+let mut module = ModuleBuilder::new("example::collections", &language);
 
-let mut list = api.trait_decl("List");
-let t = list.type_param("T");
+let mut list = module.define_trait("List");
+let t = list.type_parameter("T");
 list.parent(
-    language.index().apply([Ty::usize()]).associated("Output", t.ty()),
+    language.index().apply([Type::usize()]).associated("Output", t.ty()),
 )?;
-let len = list.method(MethodDecl::instance("len").returns(Ty::usize()))?;
-let get = list.method(
+let len = list.define_method(MethodDecl::instance("len").returns(Type::usize()))?;
+let get = list.define_method(
     MethodDecl::instance("get")
-        .param("index", Ty::usize())
+        .parameter("index", Type::usize())
         .returns(language.option(t.ty())),
 )?;
 let list = list.finish()?;
 
-let mut mutable = api.trait_decl("MutableList");
-let t = mutable.type_param("T");
+let mut mutable = module.define_trait("MutableList");
+let t = mutable.type_parameter("T");
 mutable.parent(list.apply([t.ty()]))?;
-let set = mutable.method(
+let set = mutable.define_method(
     MethodDecl::instance("set")
-        .param("index", Ty::usize())
-        .param("value", t.ty())
-        .returns(Ty::unit()),
+        .parameter("index", Type::usize())
+        .parameter("value", t.ty())
+        .returns(Type::unit()),
 )?;
 let mutable = mutable.finish()?;
 
-let mut array = api.type_decl("ArrayList");
-let t = array.type_param("T");
+let mut array = module.define_type("ArrayList");
+let t = array.type_parameter("T");
 array.reference_semantics();
 array.sequence_storage(t.ty());
 let array = array.finish()?;
@@ -189,72 +196,72 @@ Impl builders explicitly define Kagari impls. Binding a member creates its actua
 concrete implementation function; it does not install a universal trait body.
 
 ```rust
-let mut imp = api.impl_decl();
-let t = imp.type_param("T");
-imp.for_type(array.apply([t.ty()]));
-imp.trait_(list.apply([t.ty()]));
-imp.bind(len, SyncBinding::new(
+let mut implementation = module.implement();
+let t = implementation.type_parameter("T");
+implementation.receiver(array.apply([t.ty()]));
+implementation.implements(list.apply([t.ty()]));
+implementation.bind(len, NativeBinding::new(
     Args::receiver(Codec::sequence(t.ty())),
     Codec::usize(),
     entries::len,
 ))?;
-imp.bind(get, SyncBinding::new(
+implementation.bind(get, NativeBinding::new(
     Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
     Codec::option(Codec::value(t.ty())),
     entries::get,
 ))?;
-imp.finish()?;
+implementation.finish()?;
 
-let mut imp = api.impl_decl();
-let t = imp.type_param("T");
-imp.for_type(array.apply([t.ty()]));
-imp.trait_(mutable.apply([t.ty()]));
-imp.bind(set, SyncBinding::new(
+let mut implementation = module.implement();
+let t = implementation.type_parameter("T");
+implementation.receiver(array.apply([t.ty()]));
+implementation.implements(mutable.apply([t.ty()]));
+implementation.bind(set, NativeBinding::new(
     Args::receiver(Codec::sequence(t.ty()))
         .arg(Codec::usize()).arg(Codec::value(t.ty())),
     Codec::unit(),
     entries::set,
 ))?;
-imp.finish()?;
+implementation.finish()?;
 
-let mut imp = api.impl_decl();
-let t = imp.type_param("T");
-imp.for_type(array.apply([t.ty()]));
-imp.trait_(language.index().apply([Ty::usize()]));
-imp.associated_type("Output", t.ty());
-imp.bind(language.index().method("index")?, SyncBinding::new(
+let mut implementation = module.implement();
+let t = implementation.type_parameter("T");
+implementation.receiver(array.apply([t.ty()]));
+implementation.implements(language.index().apply([Type::usize()]));
+implementation.associated_type("Output", t.ty());
+implementation.bind(language.index().method("index")?, NativeBinding::new(
     Args::receiver(Codec::sequence(t.ty())).arg(Codec::usize()),
     Codec::value(t.ty()),
     entries::index,
 ))?;
-imp.finish()?;
+implementation.finish()?;
 
-let package = api.finish()?;
-engine.install(package)?;
+let module = module.finish()?;
+engine.install(module)?;
 ```
 
-Index satisfies List's parent; List satisfies MutableList's parent. Package
+Index satisfies List's parent; List satisfies MutableList's parent. Module
 finalization checks the whole graph independent of authoring order. Inherent
-new/push/sort methods use the same impl builder without trait_, declare their
-FunctionDecl explicitly and attach SyncBinding entries.
+new/push/sort methods use the same impl builder without implements, declare their
+FunctionDecl explicitly and attach NativeBinding entries.
 
 Free functions follow the same separation:
 
 ```rust
-let add = api.function_decl(
+let add = module.define_function(
     FunctionDecl::new("add")
-        .param("left", Ty::i32())
-        .param("right", Ty::i32())
-        .returns(Ty::i32()),
+        .parameter("left", Type::i32())
+        .parameter("right", Type::i32())
+        .returns(Type::i32()),
 )?;
-api.bind(add, SyncBinding::new(
+module.bind(add, NativeBinding::new(
     Args::empty().arg(Codec::i32()).arg(Codec::i32()),
     Codec::i32(),
     entries::checked_add,
 ))?;
 ```
 
-This independent excerpt runs before package finalization. Its Rust body receives
+This independent excerpt runs before module finalization. Its Rust body receives
 the context and two i32 values and returns NativeResult<i32>. Binding codecs do
 not create or overwrite the declared function's Kagari signature.
 
@@ -267,7 +274,7 @@ outputs; no macro reads the function signature to invent a language declaration.
 For example, the len body is an ordinary Rust function:
 
 ```rust
-fn len(_cx: &mut NativeContext<'_>, values: SequenceHandle<'_>)
+fn len(_cx: &mut CallContext<'_>, values: SequenceHandle<'_>)
     -> NativeResult<usize>
 {
     Ok(values.len())
@@ -312,7 +319,7 @@ This is an excerpt: sort is the explicitly declared method, t its in-scope
 parameter, and compare a dependency key that its registration closure may retain.
 Execution uses prepared slots and stack argument packs/scoped views. There is no
 request/receive handshake, target scan or signature cloning. A retained lazy
-callback instead uses an owned traced/pinned handle; it cannot retain NativeContext.
+callback instead uses an owned traced/pinned handle; it cannot retain CallContext.
 
 ```rust
 enum SequenceStorage {
@@ -340,17 +347,17 @@ and state interface. No async executor is introduced by this proposal.
 
 ```text
 explicit Kagari declaration builders + explicit Rust bindings
-    -> checked NativePackage
-       -> schema -> HIR/static checking -> portable executable contracts
-       -> schema -> generated .kgr + declaration-to-span navigation map
+    -> checked NativeModule
+       -> declarations -> HIR/static checking -> portable executable contracts
+       -> declarations -> generated .kgr + declaration-to-span navigation map
        -> binding entries/storage factories -> engine installation
 portable contracts + installed entries
     -> prepared entry, layouts and callable slots
     -> scoped context -> direct Rust result or synchronous script call
 ```
 
-Tooling projects the same schema consumed by compilation, without parsing generated
-text back to recover signatures. Compiler-owned declarations use the same projection
+Tooling projects the same declarations consumed by compilation, without parsing
+generated text back to recover signatures. Compiler-owned declarations use the same projection
 machinery. Artifacts retain complete validation/linking contracts, never Rust pointers
 or a requirement to regenerate source at execution time.
 
@@ -567,3 +574,9 @@ ownership is separate from Rust implementation bindings; macro derivation is
 rejected. The proposal covers declaration graphs, impl substitution, codecs,
 prepared calls, contiguous primitive storage and traced lazy state. The same four
 phases remain unstarted; no Rust implementation or resumed goal is claimed.
+
+2026-10-02 — Module naming adopted at the user's request. The proposal uses
+ModuleBuilder/ModuleDecl, NativeModule, NativeBinding, LinkedNativeFunction and
+CallContext. Authoring uses define_trait, define_type, define_method,
+define_function, implement and bind. Existing implementation names remain cleanup
+input; no compatibility aliases or Rust implementation changes are introduced.

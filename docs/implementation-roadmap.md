@@ -16,10 +16,11 @@ Execution has four phases, in strict order:
    installation: equality/hash/ordering, operators/indexing, iteration, callable
    and existing implicit formatting/range contracts. Native and script types
    implement these ordinary contracts.
-3. Define Kagari APIs explicitly and bind Rust functions with checked conversion
-   views; retire macro-derived declarations. Replace mandatory continuations with
-   efficient synchronous functions and callbacks. Prepare callable targets once;
-   use compact primitive collection buffers and scoped bulk access. Lazy cursors retain persistent state; genuine
+3. Define Kagari modules through ModuleBuilder and bind Rust functions through
+   NativeBinding with checked conversion views; retire macro-derived declarations.
+   Replace mandatory continuations with efficient synchronous functions and
+   callbacks. Prepare callable targets once; use compact primitive collection
+   buffers and scoped bulk access. Lazy cursors retain persistent state; genuine
    asynchronous suspension alone needs resumable execution machinery.
 4. Prove one optional ArrayList package, including contiguous i32 storage, script
    comparators, a lazy map iterator, tooling declarations, source-free execution
