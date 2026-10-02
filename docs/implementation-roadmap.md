@@ -69,6 +69,29 @@ their runtime/library owners. Execution, source-free artifact and feature checks
 pass; the plan ledger records the workspace sweep and focused regression fixes
 without reopening the completed reset checkpoints.
 
+## Contract and common responsibility cleanup (queued)
+
+The approved name is `kagari-contract`, replacing `kagari-abi`, with domain type
+names such as `Type`, `FunctionDecl` and `TraitDecl` instead of `Abi` affixes.
+The [architecture decision](architecture.md#contract-and-common-responsibility-cleanup)
+records the naming map and the joint ABI/common ownership review. This is a
+documentation checkpoint; code migration is not active and does not reopen the
+completed native collection reset.
+
+The finite implementation scope is to map current consumers and dependencies,
+separate portable contracts, language foundations, source-independent verification,
+native registration and source/tooling responsibilities, then migrate the crate,
+types and affected consumers/checks together. Review common's source utilities,
+identities, numeric semantics and host schemas in the same change sequence.
+Resolve duplicate declaration ownership rather than adding aliases. The final
+module map determines whether common remains; no extra crate count is prescribed.
+
+Preserve existing semantics and source-free execution/validation. Do not add
+library features, execution-policy redesign, compatibility workflows or an FFI
+implementation to this scope. `kagari-ffi` is recorded only as the future external
+C adapter boundary. Activation, phase breakdown and implementation acceptance
+checks remain pending; this queue entry is the progress record until activation.
+
 ## Execution policy work deferred
 
 The [execution-policy proposal](execution-policy-refactor.md) is separate future

@@ -158,6 +158,92 @@ not consume Kagari source or call its parser/compiler. The feature audit checks
 ABI's build graph as well as normal production dependencies. LLVM is deferred;
 no placeholder crate exists.
 
+## Contract and common responsibility cleanup
+
+The approved replacement name for `kagari-abi` is **`kagari-contract`**. This is
+a queued ownership cleanup covering both `kagari-abi` and `kagari-common`, not
+just a crate rename. The workspace list above describes the current code; this
+section records the target direction. Implementation has not started.
+
+The current ABI crate combines portable executable records and layouts, generic
+substitution and proof checking, language foundation catalogs, declaration
+construction and `.kgr` rendering. Common also combines source management and
+diagnostics, declaration identities, numeric semantics and host interface records.
+Being used by several crates is not sufficient reason to put a feature in either
+shared crate. The cleanup must assign each responsibility a clear owner without
+turning `kagari-contract` into the same collection under a new name.
+
+### Names
+
+Use domain names within meaningful modules instead of an `Abi` prefix or suffix:
+
+| Current name | Target name |
+| --- | --- |
+| `AbiType` | `Type` |
+| `NominalAbiType` | `NominalType` |
+| `FunctionAbi` | `FunctionDecl` |
+| `TypeAbi` | `TypeDecl` |
+| `TraitAbi` | `TraitDecl` |
+| `ParameterAbi` | `Parameter` |
+| `GenericBoundAbi` | `GenericBound` |
+| `InterfaceTableAbi` | `InterfaceTable` |
+
+Keep the existing `ModuleDecl` / `ImplDecl` vocabulary. Do not replace every `Abi`
+suffix with `Contract`. Resolve collisions through meaningful module imports,
+such as `use kagari_contract::types as contract;` and `contract::Type`. The runtime's
+existing native `FunctionDecl` authoring model must be reviewed alongside the
+portable declaration model: decide their distinct responsibilities or consolidate
+them before renaming. Do not preserve duplicate models through compatibility
+aliases or forwarding re-exports.
+
+### Ownership boundaries
+
+These are responsibility boundaries, not a requirement to create one crate per row:
+
+| Responsibility | Target ownership and constraints |
+| --- | --- |
+| Portable declarations, executable types, layouts, native imports, helper calling conventions and encoded contract validation | `kagari-contract`; available to compiler, artifact validation, runtime and backends without source analysis. |
+| Foundation trait identities, canonical declarations and intrinsic language rules | An explicit language foundation owner, shared where source-free validation needs these facts; compiler-owned language behavior must not become an optional library. Separate catalog construction from generic record handling. |
+| Substitution, matching and implementation proof checking | A coherent source-independent verification owner. Preserve artifact validation; moving these checks into HIR is not an acceptable way to shrink the shared layer. Separate generic proof machinery from closed language rules. |
+| Native declaration authoring, Rust handlers and storage bindings | Native registration ownership; distinguish portable descriptions from runtime implementation state. |
+| `.kgr` rendering, documentation and navigation spans | Tooling ownership consuming structured declarations; executable consumers must not need source generation or parsing. |
+
+Audit common at the same time, using its actual consumers rather than moving it
+wholesale into contract:
+
+| Current common area | Required review |
+| --- | --- |
+| `source`, `source_database`, `line_index`, `diagnostic`, `literal` | Group source and tooling responsibilities; separate literal parsing from numeric execution semantics. |
+| `identity`, `span` | Separate portable package/module/definition identity from source file revisions and locations where appropriate. Preserve debug metadata consumers; these modules are not uniformly source-only. |
+| `arithmetic`, `integer`, `numeric`, `range`, `collection` | Give shared language semantics a deliberate owner; preserve one implementation of compile-time/runtime numeric behavior. Distinguish semantic tags from execution algorithms. |
+| `host_interface`, `capability` | Locate portable host schema and effect/requirement records with their contract owner; keep runtime policy enforcement and host state with runtime/embedding. This does not activate execution-policy redesign. |
+| `cancellation`, decode-limit helpers | Retain or relocate small shared mechanisms according to concrete dependency needs; preserve cancellation and bounded decoding. |
+
+Whether a small `common` crate remains, is renamed or disappears follows this
+consumer/ownership audit. No replacement utility crate or final crate count is
+approved merely by this naming decision. In particular, ABI currently depends on
+common: moving declarations must account for that graph rather than introduce a
+cycle, a forwarding crate or a second public path to the same model.
+
+### Scope and completion boundary
+
+The eventual cleanup delivers an explicit module/dependency map, the crate and
+type renames, and migration of affected imports, consumers, documentation and
+checks. Keep existing behavior, source-free validation and backend dependency
+constraints. Replace unpublished internal interfaces directly; no routine version
+bump, old-format reader or compatibility layer is required. This work does not
+add traits, containers, library algorithms or new execution-policy obligations.
+
+A future external C embedding API belongs in a proposed **`kagari-ffi`** adapter
+over `kagari-embed`: C exports, opaque handles, buffer ownership, error/panic
+translation and callback adapters into the existing native registration path.
+Internal JIT/runtime calling conventions remain executable contracts. Creating
+the FFI crate or committing to a stable external ABI is outside this cleanup;
+do not add a placeholder crate now.
+
+The [roadmap](implementation-roadmap.md#contract-and-common-responsibility-cleanup-queued)
+tracks this queued work separately from the completed native collection reset.
+
 ## Compilation Pipeline
 
 ```text
@@ -307,8 +393,8 @@ passes consume verified input, make bounded changes and reverify the result.
 
 The ABI crate owns nominal executable types, signatures, layouts, provider
 contracts, language primitives, helper/native representations and version constants.
-The offline standard descriptor crate has no source/handler dependency. HIR carries
-installed descriptor facts; MIR carries concrete native imports and bytecode
+Structured native declaration records have no source/handler dependency. HIR carries
+installed declaration facts; MIR carries concrete native imports and bytecode
 deduplicates them. Runtime links against trusted registrations and drives erased
 state with explicit roots and checked callbacks, without standard-method selection. Compiler
 core lowers verified MIR into the register/local bytecode contract. Bytecode validates
