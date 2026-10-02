@@ -1,4 +1,4 @@
-//! Optional algorithms over the language-owned ArrayList storage.
+//! Always-installed algorithms over the language-owned ArrayList storage.
 mod mapping;
 mod sorting;
 use crate::native::{

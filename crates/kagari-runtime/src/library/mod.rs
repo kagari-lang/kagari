@@ -1,2 +1,2 @@
-//! Optional Rust modules installed through the same API as application modules.
+//! Bundled foundation algorithms using ordinary checked native modules.
 pub mod collections;

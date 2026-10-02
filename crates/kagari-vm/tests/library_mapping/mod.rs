@@ -65,7 +65,6 @@ fn for_scope_protects_wrapped_sources_and_failure_releases_the_guards() {
         fn main() { val values = [1,2]; keep(values); for item in map(values, |item| item) { values.push(item); } }
     "#;
     let mut runtime = Runtime::default();
-    library.install(&mut runtime).unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
@@ -93,7 +92,6 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         }
     "#;
     let mut runtime = Runtime::default();
-    library.install(&mut runtime).unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("map", program(source, &[&library, &probe.module]))
@@ -123,7 +121,6 @@ fn native_map_next_does_not_allocate_an_intermediate_option() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = None;
     let mut runtime = Runtime::new(config);
-    library.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("map", program("use std::collections::map; fn make() -> Iterator<Item = i32> { map([42], |item| item) }", &[&library])).unwrap();
     let mut vm = Vm::new(runtime);
     let iterator = vm.execute(&loaded, "make").unwrap().return_value;
@@ -157,7 +154,6 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
         }
     "#;
     let mut runtime = Runtime::default();
-    library.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();
@@ -176,7 +172,6 @@ fn retained_map_uses_its_original_callback_after_reload() {
     let library = collections::module().unwrap();
     let source = "use std::collections::map; fn make() -> Iterator<Item = i32> { val offset = [1]; map([10,20], |item| item + offset[0]) }";
     let mut runtime = Runtime::default();
-    library.install(&mut runtime).unwrap();
     let old = runtime
         .load_program("map", program(source, &[&library]))
         .unwrap();

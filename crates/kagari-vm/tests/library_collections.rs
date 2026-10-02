@@ -44,7 +44,6 @@ fn run(text: &str) -> Value {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    library.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("sort", program(text, &[&library]))
         .unwrap();
@@ -162,7 +161,6 @@ fn comparator_failure_stops_callbacks_and_does_not_publish_a_partial_order() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    library.install(&mut runtime).unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program("sort", program(source, &[&library, &probe.module]))
@@ -225,7 +223,6 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         "#
         );
         let mut runtime = Runtime::default();
-        library.install(&mut runtime).unwrap();
         probe.module.install(&mut runtime).unwrap();
         let loaded = runtime
             .load_program("sort", program(&source, &[&library, &probe.module]))

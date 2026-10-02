@@ -2,7 +2,7 @@
 
 Status: active, 2026-10-02. The user authorized implementation of this plan,
 including the bounded API inventory and approved generic-interface/mutation rules.
-FA01 is accepted; FA02 is next. This plan fills the gaps left by the completed native collections
+FA01 and FA02 are accepted; FA03 is next. This plan fills the gaps left by the completed native collections
 reset and execution-policy simplification. It does not resume the historical full
 standard-library restoration checklist.
 
@@ -52,7 +52,7 @@ explicit overrides already have coverage. The public MethodDecl builder currentl
 lowers methods as Required; filling the declaration/binding API is distinct from
 inventing default dispatch from scratch.
 
-The engine's `default_modules(bool)` currently gates a collections module with
+At plan activation, the engine's `default_modules(bool)` gated a collections module with
 free functions sort, sort_by and lazy map. Inherent native registration currently
 accepts only a module's own NativeObject types. Foundation String methods need an
 owner-controlled binding path for built-in types; this must not authorize arbitrary
@@ -406,7 +406,7 @@ binary regeneration or compatibility reader belongs here.
 ## Progress ledger
 
 - [x] FA01 Generic interface calls and foundation contracts.
-- [ ] FA02 Always-present foundation assembly.
+- [x] FA02 Always-present foundation assembly.
 - [ ] FA03 List algorithms and scoped mutation.
 - [ ] FA04 String foundation methods.
 - [ ] FA05 Integration and acceptance.
@@ -512,3 +512,26 @@ violations or exceptions). Workspace all-target Clippy passes with `-D warnings`
 final parent-link/fixture edits. Full feature matrices and
 performance evidence remain FA05 work. Temporary diagnostic output has been
 removed. No ABI/version bump or tracked binary artifact was introduced.
+
+### FA02 execution record
+
+2026-10-03: FA02 accepted. Removed the engine foundation opt-out. Runtime::new now owns mandatory
+foundation and bundled algorithm installation for embedding and raw/source-free
+VM use. Engine constructors share that runtime installation path, expose the
+bundled declaration to analysis/tooling, and install only explicit application
+modules afterward. Existing VM/measurement consumers no longer install the same
+foundation twice. Application conflict/signature validation remains unchanged.
+
+The existing sort/sort_by implementations remain callable at this checkpoint;
+FA03 owns their replacement by trait methods and mutation implementation. Lazy map
+remains an always-provided ordinary function. No compatibility alias, alternative
+installation switch or temporary algorithm was introduced.
+
+Validation passes: native_provider_reset (13), conversion_traits (15), VM collection
+algorithms (15), native boundaries (71), warmed native allocation checks (1), and
+runtime units (49). These include default and explicit-empty engine construction,
+raw VM loading without manual foundation installation, application installation,
+and conflicting foundation binding rejection. `cargo check -p kagari-embed
+--no-default-features` passes. Embed/runtime/VM all-target Clippy with `-D warnings`,
+formatting, structure (634 files, no exceptions) and diff checks pass. No carried
+build/test error remains. The checkpoint uses `Roadmap-Step: FA02`.

@@ -62,6 +62,7 @@ use crate::{
         HostRegistry, HostTypeRegistration,
     },
     host_scope::HostResourceScope,
+    library::collections,
     metadata::{TypeId, TypeRegistry},
     module::{
         LoadedModule, ModuleEpochRetention, ModuleInstance, ModuleKey, ModuleStore, VerifiedProgram,
@@ -191,6 +192,10 @@ impl Runtime {
             .expect("checked language foundation")
             .install(&mut runtime)
             .expect("mandatory language implementation installation");
+        collections::module()
+            .expect("checked foundation algorithms")
+            .install(&mut runtime)
+            .expect("mandatory foundation algorithm installation");
         runtime
     }
 

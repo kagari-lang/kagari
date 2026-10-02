@@ -10,8 +10,8 @@ methods and built-in String inherent methods. The approved follow-up includes
 generic interface methods with checked type/constraint argument passing for both
 script and native implementations, and nontransactional in-place collection
 operations without rollback-only buffering. The bounded API scope is accepted;
-optional-module and atomic sorting descriptions below describe the implemented
-baseline until that plan is integrated.
+foundation assembly is now mandatory. Atomic sorting descriptions below still
+describe the storage baseline until FA03 is integrated.
 
 The completed [native collections reset plan](native-provider-refactor.md) records
 the baseline implementation and acceptance ledger. Phases 1-3 replaced the
@@ -38,10 +38,13 @@ Rust function signatures do not define Kagari traits or infer exported contracts
 There is no native declaration macro crate or separate standard-library crate.
 
 ModuleBuilder::finish produces a validated NativeModule. Installation checks its
-binding/storage closure atomically. The engine installs the optional collections
-module by default; default_modules(false) keeps the foundation while omitting the
-algorithms. This bounded module exports sort, sort_by and lazy map. Additional
-containers and algorithms remain optional future modules.
+binding/storage closure atomically. Runtime construction installs the foundation
+and bundled collection algorithms unconditionally, including source-free execution.
+Engine construction supplies their declarations to source analysis and installs
+only explicit application modules afterward. There is no foundation opt-out.
+The current bounded module exports sort, sort_by and lazy map; FA03 replaces the
+sort free functions with List/MutableList methods and retains lazy map. Additional
+containers and algorithms remain application-installable future modules.
 
 HIR consumes native ModuleDecl records directly for static checking, generic
 bounds, ordinary trait selection and tooling. Generated .kgr files provide

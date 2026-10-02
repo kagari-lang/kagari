@@ -1,9 +1,9 @@
 use kagari_common::source::SourceFile;
 use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
-use kagari_runtime::value::Value;
+use kagari_runtime::{library::collections, value::Value};
 
 #[test]
-fn optional_collection_algorithms_use_the_normal_default_installation_path() {
+fn foundation_algorithms_are_available_from_normal_engine_construction() {
     let engine = KagariEngine::new(Default::default());
     let sources = engine.native_declaration_sources();
     assert_eq!(sources.len(), 1);
@@ -34,22 +34,19 @@ fn optional_collection_algorithms_use_the_normal_default_installation_path() {
 }
 
 #[test]
-fn disabling_optional_modules_keeps_language_collections_and_removes_algorithms() {
-    let engine = KagariEngine::builder()
-        .default_modules(false)
-        .build()
-        .unwrap();
-    assert!(engine.native_declaration_sources().is_empty());
+fn explicit_empty_application_modules_keep_the_foundation() {
+    let engine = KagariEngine::with_native_modules(Default::default(), vec![]).unwrap();
+    assert_eq!(engine.native_declaration_sources().len(), 1);
     assert!(
         engine
             .compile_to_artifact(
                 SourceFile::new(
-                    "memory://missing.kgr",
+                    "memory://foundation-sort.kgr",
                     "use std::collections::sort; fn main() { sort([2,1]); }"
                 ),
                 Default::default()
             )
-            .is_err()
+            .is_ok()
     );
     let program = engine.compile_to_artifact(SourceFile::new("memory://foundation.kgr", r#"
         fn main() -> i32 {
@@ -70,4 +67,10 @@ fn disabling_optional_modules_keeps_language_collections_and_removes_algorithms(
             .return_value,
         Value::I32(42)
     );
+}
+
+#[test]
+fn application_installation_cannot_replace_foundation_bindings() {
+    let module = collections::module().unwrap();
+    assert!(KagariEngine::builder().install(module).build().is_err());
 }

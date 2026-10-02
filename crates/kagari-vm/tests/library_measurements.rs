@@ -36,7 +36,6 @@ fn setup() -> (Vm, LoadedModule, Value, Vec<DefinitionId>) {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(4096);
     let mut runtime = Runtime::new(config);
-    library.install(&mut runtime).unwrap();
     let loaded = runtime.load_program("measure", bytecode).unwrap();
     let contract = loaded
         .bytecode

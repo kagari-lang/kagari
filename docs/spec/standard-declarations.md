@@ -19,11 +19,13 @@ They promise neither insertion nor sorted order. LinkedHashMap/LinkedHashSet and
 other additional containers belong to optional modules; none are installed by
 the current bounded library proof.
 
-Optional native modules use the same registration mechanism as application-owned
-modules. `KagariEngine::builder().default_modules(false).build()` disables bundled
-algorithms while preserving language contracts and default collections. An engine
-builder's `install(module)` adds an application module. A finished module contains
-both the portable declarations and runtime-local Rust entries/storage descriptors.
+Runtime construction always installs the foundation and bundled algorithms,
+including source-free execution. All engine constructors expose the same foundation;
+there is no opt-out. The builder's `install(module)` adds an application module,
+and `with_native_modules` accepts application modules in addition to the foundation.
+Duplicate/conflicting foundation bindings are rejected. A finished module contains
+both portable declarations and runtime-local Rust entries/storage descriptors.
+Compiler-only consumers can read the same declarations without a runtime.
 
 Currently the bundled `std::collections` module provides these ordinary functions:
 
