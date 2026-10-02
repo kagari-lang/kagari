@@ -1,5 +1,5 @@
 use crate::{
-    standard::{intrinsic, traits::StandardTrait},
+    language::{Protocol, primitive as intrinsic},
     types::{
         AbiType, ConstraintAbi, GenericBoundAbi, NominalAbiType, matching,
         proofs::{Budget, ProofCatalog, host_application, satisfies},
@@ -257,7 +257,7 @@ impl ProofCatalog<'_> {
         if let Some(requirements) = intrinsic::requirements(interface, receiver, budget.cancel)? {
             return self.obligations(&requirements, assumptions, search, budget, depth + 1);
         }
-        let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
+        let Some(kind) = Protocol::from_id(&interface.declaration) else {
             return Ok(false);
         };
         if !interface.arguments.is_empty() || !interface.associated_types.is_empty() {

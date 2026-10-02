@@ -1,7 +1,7 @@
 //! Source query regressions, including native implementations and protocol views.
 
-use crate::{builtin::traits::StandardTraitSemantics, declarations::DeclarationId, types::TypeId};
-use kagari_abi::standard::traits::StandardTrait;
+use crate::{declarations::DeclarationId, language::semantics::ProtocolSemantics, types::TypeId};
+use kagari_abi::language::Protocol;
 use kagari_common::collection::CollectionAccess;
 
 #[cfg(test)]
@@ -66,7 +66,7 @@ mod tests {
         let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
         let receiver = TypeId::Iter(Box::new(item_type.clone()));
         let catalog = &analysis.result().facts().aggregates;
-        let interface = StandardTrait::Iterator.nominal();
+        let interface = Protocol::Iterator.nominal();
         let (implementation, arguments) = catalog
             .engine_implementation(&interface, &receiver, &Default::default())
             .unwrap();
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use crate::{builtin::traits, typeck::table::ConstraintTarget};
+        use crate::{language::semantics as traits, typeck::table::ConstraintTarget};
         use kagari_abi::standard::surface::StandardEnum;
         let mut sources = SourceDatabase::default();
         let root = sources
@@ -155,13 +155,10 @@ mod tests {
         };
         let item = TypeId::Tuple(vec![integer.clone(), string.clone()]);
         for (kind, arguments) in [
-            (StandardTrait::Map, vec![integer.clone(), string.clone()]),
-            (
-                StandardTrait::MutableMap,
-                vec![integer.clone(), string.clone()],
-            ),
-            (StandardTrait::Iterable, vec![]),
-            (StandardTrait::FromIterator, vec![item.clone()]),
+            (Protocol::Map, vec![integer.clone(), string.clone()]),
+            (Protocol::MutableMap, vec![integer.clone(), string.clone()]),
+            (Protocol::Iterable, vec![]),
+            (Protocol::FromIterator, vec![item.clone()]),
         ] {
             let mut interface = kind.nominal();
             interface.arguments = arguments;
@@ -172,7 +169,7 @@ mod tests {
                 "{kind:?}"
             );
         }
-        let mut interface = StandardTrait::FromIterator.nominal();
+        let mut interface = Protocol::FromIterator.nominal();
         interface.arguments.push(item.clone());
         let (collect, arguments) = catalog
             .engine_implementation(&interface, &target, &Default::default())
@@ -220,7 +217,7 @@ mod tests {
             kind: StandardEnum::Result,
             args: vec![target.clone(), string.clone()],
         };
-        let mut lifted = StandardTrait::FromIterator.nominal();
+        let mut lifted = Protocol::FromIterator.nominal();
         lifted.arguments.push(TypeId::StandardEnum {
             kind: StandardEnum::Result,
             args: vec![item, string],
@@ -414,7 +411,7 @@ mod trait_tests {
             .result()
             .facts()
             .aggregates
-            .trait_(&StandardTrait::Iterator.nominal().declaration)
+            .trait_(&Protocol::Iterator.nominal().declaration)
             .unwrap();
         let member = iterator.associated_types.keys().next().unwrap();
         let declaration = snapshot
@@ -528,7 +525,7 @@ mod collection_access_tests {
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     #[test]
     fn native_collection_witnesses_match_the_declared_interface_signatures() {
-        use kagari_abi::standard::traits::StandardTrait as S;
+        use kagari_abi::language::Protocol as S;
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)

@@ -182,7 +182,6 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
         associated_type_families: vec![],
         associated_consts: vec![],
         host_bridge: false,
-        native_bridge: false,
         declaration: implementation.clone(),
         name: "Impl".into(),
         generic_params: vec![outer.clone()],

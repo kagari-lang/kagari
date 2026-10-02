@@ -132,6 +132,18 @@ authoring supports generic receiver parameters and local or explicitly cataloged
 registered traits. Projected receivers and member-local generics remain queued.
 Required Rust trait signatures do not inject implementation handles.
 
+An injected PartialEq, Hash, Debug or Display dependency may select an eligible
+implicit language implementation. HIR checks the registered member signature;
+compilation materializes an ordinary protocol function using existing primitive
+and member-composition lowering. The portable selection records a protocol-adapter
+origin and the function carries its applied contract. Offline verification checks
+that no explicit implementation supersedes it and that identity, signature and
+function metadata match. Explicit native/script implementations keep their actual
+implementation identities. All targets use the common callback driver, roots,
+budgets and generation retention. This does not add a runtime protocol interpreter.
+The generated function body receives ordinary executable validation; the verifier
+does not prove algorithm equivalence of arbitrary replacement bytecode.
+
 ArrayList sorting provides a concrete implementation of both callback forms:
 
 ```rust

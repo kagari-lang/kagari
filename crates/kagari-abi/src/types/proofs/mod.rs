@@ -8,6 +8,7 @@ pub mod defaults;
 pub mod implementation;
 mod normalize;
 mod ownership;
+mod protocols;
 mod search;
 mod structural;
 
@@ -264,12 +265,7 @@ pub fn host_application(implementation: &HostTraitImplementationDeclaration) -> 
 }
 
 fn satisfies(available: &NominalAbiType, required: &NominalAbiType) -> bool {
-    available.declaration == required.declaration
-        && available.arguments == required.arguments
-        && required
-            .associated_types
-            .iter()
-            .all(|(member, ty)| available.associated_types.get(member) == Some(ty))
+    available.satisfies(required)
 }
 
 #[cfg(test)]

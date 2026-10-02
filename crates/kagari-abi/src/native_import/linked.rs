@@ -62,7 +62,7 @@ pub(super) fn matches_declaration(
         let required = required
             .apply(&substitution, cancel)?
             .normalized(catalog, cancel)?;
-        if catalog.select_callable(&required, cancel)?.as_ref() != Some(selected) {
+        if !catalog.callable_matches(&required, selected, cancel)? {
             return Ok(false);
         }
     }

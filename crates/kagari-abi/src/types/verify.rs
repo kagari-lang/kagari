@@ -3,7 +3,6 @@ use crate::{
     callable::CallableImplementation,
     layout::LayoutValidationError,
     scalar::BuiltinType,
-    standard::native,
     types::{
         AbiType, ConstraintAbi, FunctionAbi, GenericBoundAbi, GenericParameterAbi,
         InterfaceTableAbi, NativeDeclaration, NominalAbiType, PublicAbiItem, TraitAbi,
@@ -28,20 +27,6 @@ use std::{
 };
 
 type Parameters = HashSet<(DefinitionId, usize)>;
-
-fn native_bridge_valid(table: &InterfaceTableAbi) -> bool {
-    let AbiType::Trait(applied) = &table.trait_type else {
-        return false;
-    };
-    !table.host_bridge
-        && table.trait_type.within_wire_limits()
-        && table.for_type.within_wire_limits()
-        && table.generic_params.is_empty()
-        && table.bounds.is_empty()
-        && table.trait_type.is_concrete()
-        && table.for_type.is_concrete()
-        && native::interface_applies(applied, &table.for_type)
-}
 
 fn scalar_const_type(ty: &AbiType) -> bool {
     matches!(
@@ -146,7 +131,6 @@ pub fn validate(
                         })
                     }) && bounds_valid(&table.bounds, &params, cancel)
                         && families_valid(table, &params, cancel)
-                        && (!table.native_bridge || native_bridge_valid(table))
                         && (!table.host_bridge
                             || (table.generic_params.is_empty()
                                 && table.bounds.is_empty()

@@ -1,8 +1,8 @@
 use crate::{
-    builtin::traits::{self, intrinsic_holds},
     callable::{AppliedCallSignature, CallableSignature},
     hir::{expr::ExprKind, ids::ExprId},
     imports::functions::ImportedFunction,
+    language::semantics::{self as traits, intrinsic_holds},
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -15,9 +15,9 @@ use crate::{
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::{
-    surface::{self as standard_surface, StandardTypeConstraint},
-    traits::StandardTrait,
+use kagari_abi::{
+    language::Protocol,
+    standard::surface::{self as standard_surface, StandardTypeConstraint},
 };
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use std::iter;
@@ -409,7 +409,7 @@ impl<'a> BodyChecker<'a> {
                                     self.declarations.hosts.implements(&trait_type, actual),
                                 ) {
                                 0 => {
-                                    StandardTrait::from_id(&trait_type.declaration).is_none()
+                                    Protocol::from_id(&trait_type.declaration).is_none()
                                         && self.type_table.implements(&trait_type, actual)
                                 }
                                 1 => true,
@@ -543,10 +543,10 @@ impl<'a> BodyChecker<'a> {
             constraint,
             StandardTypeConstraint::HashKey | StandardTypeConstraint::Comparable
         ) {
-            let protocols: &[StandardTrait] = if constraint == StandardTypeConstraint::HashKey {
-                &[StandardTrait::Eq, StandardTrait::Hash]
+            let protocols: &[Protocol] = if constraint == StandardTypeConstraint::HashKey {
+                &[Protocol::Eq, Protocol::Hash]
             } else {
-                &[StandardTrait::PartialEq]
+                &[Protocol::PartialEq]
             };
             if !ty.is_unresolved()
                 && protocols
@@ -653,7 +653,7 @@ impl<'a> BodyChecker<'a> {
     ) {
         if !bounds.values().flatten().any(|bound| {
             matches!(bound, ConstraintTarget::Trait(interface)
-                if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
+                if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
                     || !interface.associated_types.is_empty())
         }) {
             return;

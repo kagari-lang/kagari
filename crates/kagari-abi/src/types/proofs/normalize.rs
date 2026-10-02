@@ -1,5 +1,5 @@
 use crate::{
-    standard::{intrinsic, traits::StandardTrait},
+    language::{Protocol, primitive as intrinsic},
     types::{
         AbiType, matching,
         proofs::{Budget, ProofCatalog, host_application, satisfies, search::Search},
@@ -34,8 +34,7 @@ impl ProofCatalog<'_> {
                     {
                         return Ok(Some(output));
                     }
-                    if StandardTrait::from_id(&interface.declaration)
-                        == Some(StandardTrait::Iterable)
+                    if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterable)
                         && let Some(required) = intrinsic::identity_iterator(interface, receiver)
                         && self.prove(
                             &required,

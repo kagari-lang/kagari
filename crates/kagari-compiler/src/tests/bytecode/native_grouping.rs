@@ -1,11 +1,8 @@
 use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
-    callable::EngineNativeBinding,
-    native_import::NativeWitnessImplementation,
-    scalar::BuiltinType,
-    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
-    types::AbiType,
+    callable::EngineNativeBinding, language::Protocol, native_import::NativeWitnessImplementation,
+    scalar::BuiltinType, standard::bindings::NativeDefaultMethod, types::AbiType,
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
@@ -79,31 +76,26 @@ fn main(){{val items:ArrayList<Item<{key}>> =[Item{{key:{expression}}}];val sour
                     .witnesses
                     .iter()
                     .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration)
-                            == Some(StandardTrait::Iterator)
+                        Protocol::from_id(&w.interface.declaration) == Some(Protocol::Iterator)
                     })
                     .unwrap();
                 let hash = contract
                     .witnesses
                     .iter()
                     .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration)
-                            == Some(StandardTrait::Hash)
+                        Protocol::from_id(&w.interface.declaration) == Some(Protocol::Hash)
                     })
                     .unwrap();
                 let eq = contract
                     .witnesses
                     .iter()
-                    .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration) == Some(StandardTrait::Eq)
-                    })
+                    .position(|w| Protocol::from_id(&w.interface.declaration) == Some(Protocol::Eq))
                     .unwrap();
                 let partial = contract
                     .witnesses
                     .iter()
                     .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration)
-                            == Some(StandardTrait::PartialEq)
+                        Protocol::from_id(&w.interface.declaration) == Some(Protocol::PartialEq)
                     })
                     .unwrap();
                 match mutation {
@@ -179,14 +171,12 @@ fn main(){{val items:ArrayList<Item<{key}>> =[Item{{key:{expression}}}];val sour
                 reject(&forged, &format!("{shape} {route} contract {mutation}"));
                 checked += 1;
             }
-            for protocol in [StandardTrait::Hash, StandardTrait::PartialEq] {
+            for protocol in [Protocol::Hash, Protocol::PartialEq] {
                 let contract = &artifact.program.modules[root].native_imports[import];
                 let selected = contract
                     .witnesses
                     .iter()
-                    .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration) == Some(protocol)
-                    })
+                    .position(|w| Protocol::from_id(&w.interface.declaration) == Some(protocol))
                     .unwrap();
                 if contract.witnesses[selected].methods.is_empty() {
                     continue;

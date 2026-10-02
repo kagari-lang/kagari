@@ -6,8 +6,7 @@ use crate::{
     value::{MapKey, Value},
 };
 
-use indexmap::{IndexMap, map::RawEntryApiV1};
-use std::hash::BuildHasher;
+use crate::gc::hash_storage::HashMapStorage;
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid custom key operation")
@@ -19,10 +18,16 @@ impl GcHeap {
     pub fn ensure_key_mode(&self, collection: &Value, custom: bool) -> Result<(), RuntimeError> {
         let mode = match collection {
             Value::Map(id) => self.with_map(*id, |entries| {
-                entries.first().map(|(key, _)| key.custom_parts().is_some())
+                entries
+                    .iter()
+                    .next()
+                    .map(|(key, _)| key.custom_parts().is_some())
             }),
             Value::Set(id) => self.with_set(*id, |entries| {
-                entries.first().map(|(key, _)| key.custom_parts().is_some())
+                entries
+                    .iter()
+                    .next()
+                    .map(|key| key.custom_parts().is_some())
             }),
             _ => None,
         }
@@ -85,36 +90,9 @@ impl GcHeap {
         hash: i64,
     ) -> Result<Vec<Value>, RuntimeError> {
         self.ensure_key_mode(collection, true)?;
-        fn candidates<V>(
-            entries: &IndexMap<MapKey, V>,
-            hash: i64,
-        ) -> Result<Vec<Value>, RuntimeError> {
-            let mut values = Vec::new();
-            let bucket = entries
-                .hasher()
-                .hash_one(MapKey::custom(hash, -1, Value::Unit));
-            entries.raw_entry_v1().from_hash(bucket, |key| {
-                if let Some((stored, token)) = key.custom_parts()
-                    && stored == hash
-                {
-                    values.push(Value::Tuple(vec![Value::I64(token), key.to_value()]));
-                }
-                false
-            });
-            // Bucket traversal order is an implementation detail. Stable tokens
-            // preserve insertion order for observable comparison callbacks.
-            values.sort_by_key(|value| match value {
-                Value::Tuple(v) => match v[0] {
-                    Value::I64(token) => token,
-                    _ => unreachable!(),
-                },
-                _ => unreachable!(),
-            });
-            Ok(values)
-        }
         match collection {
-            Value::Map(id) => self.with_map(*id, |entries| candidates(entries, hash)),
-            Value::Set(id) => self.with_set(*id, |entries| candidates(entries, hash)),
+            Value::Map(id) => self.with_map(*id, |entries| Ok(entries.candidates(hash))),
+            Value::Set(id) => self.with_set(*id, |entries| Ok(entries.candidates(hash))),
             _ => None,
         }
         .ok_or_else(invalid)?
@@ -130,9 +108,7 @@ impl GcHeap {
         let key = MapKey::custom(hash, token, Value::Unit);
         match collection {
             Value::Map(id) => self.with_map(*id, |entries| entries.get(&key).cloned()),
-            Value::Set(id) => self.with_set(*id, |entries| {
-                entries.get_key_value(&key).map(|(key, _)| key.to_value())
-            }),
+            Value::Set(id) => self.with_set(*id, |entries| entries.get(&key).map(MapKey::to_value)),
             _ => None,
         }
         .ok_or_else(invalid)
@@ -168,12 +144,14 @@ impl GcHeap {
         };
         let growth = self.resources.prepare_heap_growth(usize::from(new))?;
         let key = MapKey::custom(hash, token, key);
-        let insert = |entries: &mut IndexMap<MapKey, Value>| -> Result<(), RuntimeError> {
+        let insert = |entries: &mut HashMapStorage| -> Result<(), RuntimeError> {
             if new {
                 entries
                     .try_reserve(1)
                     .map_err(|_| self.resource_limit("allocation capacity"))?;
-                entries.insert(key.clone(), value.clone());
+                entries
+                    .insert(key.clone(), value.clone())
+                    .map_err(|_| self.resource_limit("allocation capacity"))?;
             } else {
                 *entries.get_mut(&key).ok_or_else(invalid)? = value.clone();
             }
@@ -187,8 +165,10 @@ impl GcHeap {
                         entries
                             .try_reserve(1)
                             .map_err(|_| self.resource_limit("allocation capacity"))?;
-                        entries.insert(key, ());
-                    } else if !entries.contains_key(&key) {
+                        entries
+                            .insert(key)
+                            .map_err(|_| self.resource_limit("allocation capacity"))?;
+                    } else if !entries.contains(&key) {
                         return Err(invalid());
                     }
                     Ok(())
@@ -215,8 +195,8 @@ impl GcHeap {
         self.ensure_key_mode(collection, true)?;
         let key = MapKey::custom(hash, token, Value::Unit);
         let removed = match collection {
-            Value::Map(_) => self.with_map_mut(id, |entries| entries.shift_remove(&key).is_some()),
-            Value::Set(_) => self.with_set_mut(id, |entries| entries.shift_remove(&key).is_some()),
+            Value::Map(_) => self.with_map_mut(id, |entries| entries.remove(&key).is_some()),
+            Value::Set(_) => self.with_set_mut(id, |entries| entries.remove(&key)),
             _ => None,
         }
         .ok_or_else(invalid)?;

@@ -1,14 +1,14 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_hir::{
-    builtin::traits::StandardTraitSemantics,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::PlaceId, place::PlaceKind},
+    language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
     types::{TypeId, abi::lower_nominal_type},
 };
 
 use kagari_abi::{
-    numeric::NumericOperation, operations::BinaryOp, representation::ValueType,
-    scalar::BuiltinType, standard::traits::StandardTrait, types::NominalAbiType,
+    language::Protocol, numeric::NumericOperation, operations::BinaryOp, representation::ValueType,
+    scalar::BuiltinType, types::NominalAbiType,
 };
 use kagari_common::identity;
 
@@ -201,14 +201,14 @@ impl FunctionLowerer<'_, '_> {
                     )?
                     .remove(0);
                 if let Some(item) = receiver.list_item() {
-                    let mut read = StandardTrait::Index.nominal();
+                    let mut read = Protocol::Index.nominal();
                     read.arguments.push(TypeId::Builtin(BuiltinType::USize));
                     read.associated_types.insert(
                         identity::associated_type_id(&read.declaration, "Output"),
                         item.clone(),
                     );
                     let write = if receiver.writable_list() {
-                        let mut write = StandardTrait::MutableList.nominal();
+                        let mut write = Protocol::MutableList.nominal();
                         write.arguments.push(item.clone());
                         Some(lower_nominal_type(&write))
                     } else {
@@ -258,7 +258,7 @@ impl FunctionLowerer<'_, '_> {
                     if self.current_block_terminated() {
                         return Ok(None);
                     }
-                    let method = self.protocol_method(StandardTrait::Index, 0)?;
+                    let method = self.protocol_method(Protocol::Index, 0)?;
                     let value = self.lower_applied_operator(
                         interface,
                         receiver_ty,

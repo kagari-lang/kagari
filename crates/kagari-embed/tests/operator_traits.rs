@@ -1,4 +1,4 @@
-use kagari_abi::standard::traits as standard_traits;
+use kagari_abi::language as standard_traits;
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -335,7 +335,7 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
 #[test]
 fn portable_operator_contracts_reject_wrong_inputs_and_outputs() {
     use kagari_abi::{
-        standard::traits::StandardTrait,
+        language::Protocol,
         types::{AbiType, PublicAbiItem},
     };
     let artifact = KagariEngine::default()
@@ -356,7 +356,7 @@ fn main()->i32 {Number{value:20}+22}
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
         let table=module.public_items.iter_mut().find_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type,AbiType::Trait(t) if t.declaration==standard_traits::identity(StandardTrait::Add))=>Some(table),
+            PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type,AbiType::Trait(t) if t.declaration==standard_traits::identity(Protocol::Add))=>Some(table),
             _=>None,
         }).unwrap();
         let AbiType::Trait(interface) = &mut table.trait_type else {

@@ -6,7 +6,10 @@ use crate::source::{
 use kagari_abi::{
     callable::CallableImplementation,
     effects::EffectSet,
-    native_import::{NativeImport, NativeSignature, callables::NativeCallableApplication},
+    native_import::{
+        NativeImport, NativeSignature,
+        callables::{NativeCallableApplication, NativeCallableOrigin},
+    },
     types::{ConcreteFunctionIdentity, NativeDeclaration, substitution::TypeSubstitution},
 };
 use kagari_common::{identity::DefinitionId, span::Span};
@@ -79,7 +82,7 @@ impl InstancePlanner<'_> {
                 .iter()
                 .map(|ty| lower_type(&self.catalog.normalize_type(&raise_type(ty))))
                 .collect();
-            let (implementation, arguments) = self
+            let implementation = self
                 .catalog
                 .concrete_interface_implementation(
                     &interface,
@@ -89,8 +92,30 @@ impl InstancePlanner<'_> {
                     64,
                     &self.options.cancel,
                 )
-                .map_err(|_| invalid())?
-                .ok_or_else(invalid)?;
+                .map_err(|_| invalid())?;
+            let Some((implementation, arguments)) = implementation else {
+                let application = self
+                    .catalog
+                    .implicit_protocol_application(
+                        &required,
+                        &receiver,
+                        &interface,
+                        &self.options.cancel,
+                    )
+                    .map_err(|_| invalid())?
+                    .ok_or_else(invalid)?;
+                let id = self.enqueue_selected_protocol(application.kind, &receiver, span)?;
+                let instance = self.instances[id.index()].key.lower(self.options, span)?;
+                selected.push(NativeCallableApplication {
+                    origin: NativeCallableOrigin::ProtocolAdapter,
+                    requirement: application.requirement,
+                    instance,
+                    implementation: CallableImplementation::Script,
+                    signature: application.signature,
+                    effects: EffectSet::native_call(),
+                });
+                continue;
+            };
             let contract = self
                 .catalog
                 .implementation_signature(&implementation)
@@ -210,6 +235,7 @@ impl InstancePlanner<'_> {
                 self.enqueue_declaration(&target, instance_arguments.clone(), span)?;
             }
             selected.push(NativeCallableApplication {
+                origin: NativeCallableOrigin::Implementation,
                 requirement: required,
                 instance: ConcreteFunctionIdentity {
                     declaration: target,

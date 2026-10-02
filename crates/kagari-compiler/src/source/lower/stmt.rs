@@ -16,9 +16,10 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
+    language::Protocol,
     operations::{IterOp, StandardEnumOp},
     representation::ValueType,
-    standard::{surface::StandardEnum, traits::StandardTrait},
+    standard::surface::StandardEnum,
 };
 
 use std::slice;
@@ -290,7 +291,7 @@ impl FunctionLowerer<'_, '_> {
         let iterator = self.lower_applied_operator(
             fact.into_interface,
             receiver,
-            &self.protocol_method(StandardTrait::Iterable, 0)?,
+            &self.protocol_method(Protocol::Iterable, 0)?,
             &[source],
         )?;
         let concrete_iterator = self
@@ -319,7 +320,7 @@ impl FunctionLowerer<'_, '_> {
         let value = self.lower_applied_operator(
             fact.next_interface,
             fact.iterator,
-            &self.protocol_method(StandardTrait::Iterator, 0)?,
+            &self.protocol_method(Protocol::Iterator, 0)?,
             &[iterator],
         )?;
         let optional = TypeId::StandardEnum {

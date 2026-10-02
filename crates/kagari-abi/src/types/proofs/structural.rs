@@ -1,10 +1,7 @@
 use crate::{
+    language::{Protocol, primitive as intrinsic},
     scalar::BuiltinType,
-    standard::{
-        intrinsic,
-        surface::{StandardEnum, StandardTypeConstraint},
-        traits::StandardTrait,
-    },
+    standard::surface::{StandardEnum, StandardTypeConstraint},
     types::{
         AbiType, ConstraintAbi, GenericBoundAbi,
         proofs::{Budget, ProofCatalog, search::Search},
@@ -15,7 +12,7 @@ use crate::{
 impl ProofCatalog<'_> {
     pub(super) fn structural(
         &self,
-        kind: StandardTrait,
+        kind: Protocol,
         receiver: &AbiType,
         assumptions: &[GenericBoundAbi],
         search: &mut Search,
@@ -23,10 +20,10 @@ impl ProofCatalog<'_> {
         depth: usize,
     ) -> Result<bool, TypeTransformError> {
         budget.step(depth)?;
-        if matches!(kind, StandardTrait::PartialOrd | StandardTrait::Ord) {
+        if matches!(kind, Protocol::PartialOrd | Protocol::Ord) {
             return Ok(match receiver {
                 AbiType::Builtin(BuiltinType::F32 | BuiltinType::F64) => {
-                    kind == StandardTrait::PartialOrd
+                    kind == Protocol::PartialOrd
                 }
                 AbiType::Builtin(_)
                 | AbiType::StandardEnum {
@@ -36,26 +33,24 @@ impl ProofCatalog<'_> {
                 _ => false,
             });
         }
-        if !kind.equality_protocol()
-            && !matches!(kind, StandardTrait::Debug | StandardTrait::Display)
-        {
+        if !kind.equality_protocol() && !matches!(kind, Protocol::Debug | Protocol::Display) {
             return Ok(false);
         }
-        if kind == StandardTrait::PartialEq
+        if kind == Protocol::PartialEq
             && assumptions
                 .iter()
                 .filter(|bound| bound.ty == *receiver)
                 .flat_map(|bound| &bound.constraints)
                 .any(|bound| {
-                    *bound == ConstraintAbi::Trait(intrinsic::applied(StandardTrait::Eq, vec![]))
+                    *bound == ConstraintAbi::Trait(intrinsic::applied(Protocol::Eq, vec![]))
                 })
         {
             return Ok(true);
         }
         if matches!(receiver, AbiType::Struct(_) | AbiType::Enum(_))
-            && matches!(kind, StandardTrait::Eq | StandardTrait::Hash)
+            && matches!(kind, Protocol::Eq | Protocol::Hash)
             && self.explicit(
-                &intrinsic::applied(StandardTrait::PartialEq, vec![]),
+                &intrinsic::applied(Protocol::PartialEq, vec![]),
                 receiver,
                 assumptions,
                 search,
@@ -69,19 +64,20 @@ impl ProofCatalog<'_> {
         }
         let members: Vec<&AbiType> = match receiver {
             AbiType::Builtin(ty) => {
-                return Ok(!matches!(kind, StandardTrait::Eq | StandardTrait::Hash)
+                return Ok(!matches!(kind, Protocol::Eq | Protocol::Hash)
                     || !matches!(ty, BuiltinType::F32 | BuiltinType::F64));
             }
-            _ if kind == StandardTrait::Display => return Ok(false),
-            AbiType::Host(_) => return Ok(kind == StandardTrait::Debug),
-            AbiType::Enum(_) if kind == StandardTrait::Debug => return Ok(true),
+            _ if kind == Protocol::Display => return Ok(false),
+            AbiType::Host(_) => return Ok(kind == Protocol::Debug),
+            AbiType::Enum(_) if kind == Protocol::Debug => return Ok(true),
             AbiType::Struct(_)
             | AbiType::Array(_, _)
             | AbiType::Map { .. }
             | AbiType::Set(_, _) => return Ok(true),
             AbiType::Trait(interface) => {
-                return Ok(StandardTrait::from_id(&interface.declaration)
-                    .is_some_and(StandardTrait::collection));
+                return Ok(
+                    Protocol::from_id(&interface.declaration).is_some_and(Protocol::collection)
+                );
             }
             AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => {
                 items.iter().collect()
@@ -123,14 +119,14 @@ impl ProofCatalog<'_> {
         budget.step(depth)?;
         match required {
             StandardTypeConstraint::HashKey => Ok(self.prove(
-                &intrinsic::applied(StandardTrait::Eq, vec![]),
+                &intrinsic::applied(Protocol::Eq, vec![]),
                 actual,
                 assumptions,
                 search,
                 budget,
                 depth,
             )? && self.prove(
-                &intrinsic::applied(StandardTrait::Hash, vec![]),
+                &intrinsic::applied(Protocol::Hash, vec![]),
                 actual,
                 assumptions,
                 search,
@@ -138,7 +134,7 @@ impl ProofCatalog<'_> {
                 depth,
             )?),
             StandardTypeConstraint::Comparable => self.prove(
-                &intrinsic::applied(StandardTrait::PartialEq, vec![]),
+                &intrinsic::applied(Protocol::PartialEq, vec![]),
                 actual,
                 assumptions,
                 search,

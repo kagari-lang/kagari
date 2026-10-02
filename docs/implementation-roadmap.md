@@ -1,14 +1,16 @@
 # Kagari Implementation Roadmap
 
-## Native collections reset (active plan; phase 1 complete)
+## Native collections reset (active plan; phases 1-2 scope checkpoints committed)
 
 The [native collections reset plan](native-provider-refactor.md) replaces the
 previous ST/NR full-library restoration sequence. Execution is authorized in goal
 mode with one commit per completed phase. Intermediate compilation failures are
 allowed; temporary implementations to satisfy builds are explicitly rejected.
 Phase 1 removed the predecessor library/macros/catalogs and binary fixtures.
-The active plan records focused passes and carried compilation errors; phase 2
-now establishes compiler-owned contracts and the three default containers.
+Phase 2 establishes compiler-owned contracts, checked lowering and base default
+container storage. Runtime execution acceptance is carried into phase 3, which
+replaces the removed iterator adapters and connects the real synchronous bindings.
+The active plan distinguishes verified scope from the still incomplete build.
 
 Execution has four phases, in strict order:
 

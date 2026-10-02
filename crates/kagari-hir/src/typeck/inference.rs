@@ -1,5 +1,5 @@
 use crate::types::{GenericParameterType, TypeId, TypeSubstitution};
-use kagari_abi::standard::traits::StandardTrait;
+use kagari_abi::language::Protocol;
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 #[cfg(test)]
 use kagari_common::collection::CollectionAccess;
@@ -104,16 +104,16 @@ pub(super) fn infer(
 
 /// Borrow the native representation's slots so cross-view inference keeps the
 /// same bounded, iterative traversal as nominal and structural types.
-fn collection_inputs(ty: &TypeId) -> Option<(StandardTrait, Vec<&TypeId>)> {
+fn collection_inputs(ty: &TypeId) -> Option<(Protocol, Vec<&TypeId>)> {
     Some(match ty {
-        TypeId::Array(item, _) => (StandardTrait::List, vec![item]),
-        TypeId::Set(item, _) => (StandardTrait::Set, vec![item]),
-        TypeId::Map { key, value, .. } => (StandardTrait::Map, vec![key, value]),
+        TypeId::Array(item, _) => (Protocol::List, vec![item]),
+        TypeId::Set(item, _) => (Protocol::Set, vec![item]),
+        TypeId::Map { key, value, .. } => (Protocol::Map, vec![key, value]),
         TypeId::Trait(interface) => (
-            match StandardTrait::from_id(&interface.declaration)? {
-                StandardTrait::List | StandardTrait::MutableList => StandardTrait::List,
-                StandardTrait::Map | StandardTrait::MutableMap => StandardTrait::Map,
-                StandardTrait::Set | StandardTrait::MutableSet => StandardTrait::Set,
+            match Protocol::from_id(&interface.declaration)? {
+                Protocol::List | Protocol::MutableList => Protocol::List,
+                Protocol::Map | Protocol::MutableMap => Protocol::Map,
+                Protocol::Set | Protocol::MutableSet => Protocol::Set,
                 _ => return None,
             },
             interface.arguments.iter().collect(),
@@ -125,7 +125,7 @@ fn collection_inputs(ty: &TypeId) -> Option<(StandardTrait, Vec<&TypeId>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{builtin::traits::StandardTraitSemantics, types::NominalType};
+    use crate::{language::semantics::ProtocolSemantics, types::NominalType};
     use kagari_abi::scalar::BuiltinType;
     use kagari_common::identity::{
         DefinitionId, DefinitionKind, DefinitionPathSegment, ModuleIdentity,
@@ -145,10 +145,10 @@ mod tests {
             position: 0,
             name: "T".into(),
         };
-        let mut expected = StandardTrait::Set.nominal();
+        let mut expected = Protocol::Set.nominal();
         expected.arguments = vec![TypeId::Generic(parameter.clone())];
         let integer = TypeId::Builtin(BuiltinType::I32);
-        let mut writable = StandardTrait::MutableSet.nominal();
+        let mut writable = Protocol::MutableSet.nominal();
         writable.arguments = vec![integer.clone()];
         for actual in [
             TypeId::Set(Box::new(integer.clone()), CollectionAccess::Mutable),

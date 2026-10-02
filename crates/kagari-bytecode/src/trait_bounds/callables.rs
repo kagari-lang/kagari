@@ -1,7 +1,8 @@
 //! Selected native callbacks must have a matching concrete executable target.
 use crate::module::BytecodeModule;
 use kagari_abi::{
-    callable::CallableImplementation, native_import::callables::NativeCallableApplication,
+    callable::CallableImplementation,
+    native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
 };
 
 pub(super) fn target_valid(call: &NativeCallableApplication, closure: &[&BytecodeModule]) -> bool {
@@ -17,7 +18,15 @@ pub(super) fn target_valid(call: &NativeCallableApplication, closure: &[&Bytecod
             .iter()
             .find(|function| function.identity.as_ref() == Some(&call.instance))
             .is_some_and(|function| {
-                function.metadata.params.len() == call.signature.params.len()
+                (match call.origin {
+                    NativeCallableOrigin::Implementation => {
+                        function.metadata.semantic.protocol_adapter.is_none()
+                    }
+                    NativeCallableOrigin::ProtocolAdapter => {
+                        function.metadata.semantic.protocol_adapter.as_ref()
+                            == Some(&call.requirement)
+                    }
+                }) && function.metadata.params.len() == call.signature.params.len()
                     && function
                         .metadata
                         .params

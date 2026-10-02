@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::EngineNativeBinding,
+    language::Protocol,
     native_import::{NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, intrinsic, traits::StandardTrait},
+    standard::{RuntimePrimitive, intrinsic},
     types::{AbiType, ConstraintAbi, GenericBoundAbi},
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -64,7 +65,7 @@ fn string_iterator_calls_reject_forged_constructor_contracts() {
                 8 => contract.requirements.push(GenericBoundAbi {
                     ty: AbiType::Builtin(BuiltinType::String),
                     constraints: vec![ConstraintAbi::Trait(intrinsic::applied(
-                        StandardTrait::Eq,
+                        Protocol::Eq,
                         vec![],
                     ))],
                 }),
@@ -82,7 +83,7 @@ fn string_iterator_calls_reject_forged_constructor_contracts() {
                 }
                 _ => contract.witnesses.push(NativeWitness {
                     receiver: AbiType::Builtin(BuiltinType::String),
-                    interface: intrinsic::applied(StandardTrait::Eq, vec![]),
+                    interface: intrinsic::applied(Protocol::Eq, vec![]),
                     implementation: NativeWitnessImplementation::Primitive,
                     methods: vec![],
                 }),

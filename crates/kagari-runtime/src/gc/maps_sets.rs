@@ -1,14 +1,14 @@
+use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObject, HeapObjectId},
     value::{MapKey, Value},
 };
-use indexmap::IndexMap;
 
 impl GcHeap {
     pub fn alloc_map(&self, entries: Vec<(Value, Value)>) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let mut map = IndexMap::new();
+        let mut map = HashMapStorage::new();
         for (key, value) in entries {
             if !self.valid_payload(&value) {
                 return Err(RuntimeError::new(
@@ -21,21 +21,23 @@ impl GcHeap {
             })?;
             map.try_reserve(usize::from(!map.contains_key(&key)))
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            map.insert(key, value);
+            map.insert(key, value)
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
         }
         self.alloc_object(HeapObject::Map(map))
     }
 
     pub fn alloc_set(&self, values: Vec<Value>) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        let mut set = IndexMap::new();
+        let mut set = HashSetStorage::new();
         for value in values {
             let key = MapKey::from_value(self, &value).ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key")
             })?;
-            set.try_reserve(usize::from(!set.contains_key(&key)))
+            set.try_reserve(usize::from(!set.contains(&key)))
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            set.insert(key, ());
+            set.insert(key)
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
         }
         self.alloc_object(HeapObject::Set(set))
     }
@@ -77,7 +79,8 @@ impl GcHeap {
         self.ensure_key_mutable(id)?;
         self.with_map_mut(id, |entries| {
             if entries
-                .first()
+                .iter()
+                .next()
                 .is_some_and(|(key, _)| key.custom_parts().is_some())
             {
                 return Err(RuntimeError::new(
@@ -93,7 +96,9 @@ impl GcHeap {
             entries
                 .try_reserve(units)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            entries.insert(key, value);
+            entries
+                .insert(key, value)
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             growth.commit();
             Ok(())
         })
@@ -106,7 +111,7 @@ impl GcHeap {
         let key = MapKey::from_value(self, key)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         let value = self
-            .with_map_mut(id, |entries| entries.shift_remove(&key))
+            .with_map_mut(id, |entries| entries.remove(&key))
             .ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
             })?;
@@ -137,12 +142,12 @@ impl GcHeap {
     }
 
     pub fn set_snapshot(&self, id: HeapObjectId) -> Option<Vec<Value>> {
-        self.with_set(id, |values| values.keys().map(MapKey::to_value).collect())
+        self.with_set(id, |values| values.iter().map(MapKey::to_value).collect())
     }
 
     pub fn set_contains(&self, id: HeapObjectId, value: &Value) -> Option<bool> {
         let key = MapKey::from_value(self, value)?;
-        self.with_set(id, |values| values.contains_key(&key))
+        self.with_set(id, |values| values.contains(&key))
     }
 
     pub fn set_insert(&self, id: HeapObjectId, value: Value) -> Result<bool, RuntimeError> {
@@ -152,15 +157,16 @@ impl GcHeap {
         self.ensure_key_mutable(id)?;
         self.with_set_mut(id, |values| {
             if values
-                .first()
-                .is_some_and(|(key, _)| key.custom_parts().is_some())
+                .iter()
+                .next()
+                .is_some_and(|key| key.custom_parts().is_some())
             {
                 return Err(RuntimeError::new(
                     RuntimeErrorKind::ScriptTrap,
                     "custom keys require script protocol execution",
                 ));
             }
-            let units = usize::from(!values.contains_key(&key));
+            let units = usize::from(!values.contains(&key));
             if units != 0 {
                 self.ensure_structure_mutable(id)?;
             }
@@ -168,7 +174,9 @@ impl GcHeap {
             values
                 .try_reserve(units)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            let inserted = values.insert(key, ()).is_none();
+            let inserted = values
+                .insert(key)
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
             growth.commit();
             Ok(inserted)
         })
@@ -181,7 +189,7 @@ impl GcHeap {
         let key = MapKey::from_value(self, value)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         let removed = self
-            .with_set_mut(id, |values| values.shift_remove(&key).is_some())
+            .with_set_mut(id, |values| values.remove(&key))
             .ok_or_else(|| {
                 RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
             })?;
@@ -210,7 +218,7 @@ impl GcHeap {
     pub(super) fn with_map<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&IndexMap<MapKey, Value>) -> R,
+        f: impl FnOnce(&HashMapStorage) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
@@ -230,7 +238,7 @@ impl GcHeap {
     pub(super) fn with_map_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&mut IndexMap<MapKey, Value>) -> R,
+        f: impl FnOnce(&mut HashMapStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
         let revision = objects.get(id.slot)?.revision.checked_add(1)?;
@@ -258,7 +266,7 @@ impl GcHeap {
     pub(super) fn with_set<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&IndexMap<MapKey, ()>) -> R,
+        f: impl FnOnce(&HashSetStorage) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
         match self.readable_object(&objects, id)? {
@@ -278,7 +286,7 @@ impl GcHeap {
     pub(super) fn with_set_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&mut IndexMap<MapKey, ()>) -> R,
+        f: impl FnOnce(&mut HashSetStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects.borrow_mut();
         let revision = objects.get(id.slot)?.revision.checked_add(1)?;

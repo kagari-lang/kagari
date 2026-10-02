@@ -5,14 +5,25 @@ use crate::source::lower::{
 };
 use kagari_hir::{
     AnalyzedModule,
-    builtin::traits::callable_signature,
     hir::{expr::ExprKind, ids::ExprId, item::function::Function},
+    language::semantics::callable_signature,
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction},
-    types::{TypeId, TypeSubstitution},
+    types::TypeId,
 };
 
-use kagari_abi::{representation::ValueType, scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_abi::{
+    language::{Protocol, identity},
+    native_import::callables::NativeCallableRequirement,
+    representation::ValueType,
+    scalar::BuiltinType,
+    standard::RuntimePrimitive,
+};
+use kagari_common::identity::{DefinitionKind, DefinitionPathSegment};
+use kagari_hir::{
+    language::semantics::ProtocolSemantics,
+    types::abi::{lower_nominal_type, lower_type},
+};
 
 use kagari_mir::{
     debug::MirCapturedBindingDebugInfo,
@@ -95,7 +106,7 @@ pub(crate) fn lower_callable<'a>(
         lowerer.lower_applied_operator(
             body.interface,
             body.receiver,
-            &lowerer.protocol_method(StandardTrait::Fn, 0)?,
+            &lowerer.protocol_method(Protocol::Fn, 0)?,
             &[values[0], packed],
         )
     })?;
@@ -115,7 +126,7 @@ pub(crate) fn lower_protocol<'a>(
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
-    let equality = protocol == StandardTrait::PartialEq;
+    let equality = protocol == Protocol::PartialEq;
     let typed = TypedFunction {
         implementation: FunctionImplementation::Script,
         generic_params: Vec::new(),
@@ -123,13 +134,50 @@ pub(crate) fn lower_protocol<'a>(
         id: parent.id,
         name: String::new(),
         params: Default::default(),
-        return_type: TypeId::Builtin(if equality {
-            BuiltinType::Bool
-        } else {
-            BuiltinType::I64
+        return_type: TypeId::Builtin(match protocol {
+            Protocol::PartialEq => BuiltinType::Bool,
+            Protocol::Hash => BuiltinType::I64,
+            Protocol::Debug | Protocol::Display => BuiltinType::String,
+            _ => return Err(MirLoweringError::MissingBinding("closed protocol adapter")),
         }),
     };
     let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
+    let interface = protocol.nominal();
+    let mut member = identity(protocol);
+    member.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Method,
+        name: match protocol {
+            Protocol::PartialEq => "eq",
+            Protocol::Hash => "hash",
+            Protocol::Debug => "debug",
+            Protocol::Display => "display",
+            _ => unreachable!("checked adapter kind"),
+        }
+        .into(),
+        occurrence: 0,
+    });
+    let required = NativeCallableRequirement {
+        receiver: lower_type(&receiver),
+        interface: lower_nominal_type(&interface),
+        member,
+        arguments: vec![],
+    };
+    // Direct derived equality also works without an installed protocol contract.
+    // Only a checked, declared implicit application can be selected by native code.
+    if lowerer
+        .planner
+        .catalog
+        .implicit_protocol_application(
+            &required,
+            &receiver,
+            &interface,
+            &lowerer.planner.options.cancel,
+        )
+        .map_err(|_| MirLoweringError::MissingBinding("checked protocol adapter"))?
+        .is_some()
+    {
+        lowerer.function.semantic.protocol_adapter = Some(required);
+    }
     lowerer.function.name = format!(
         "$derived_{}_{}",
         protocol.name(),
@@ -167,7 +215,18 @@ pub(crate) fn lower_protocol<'a>(
         lowerer.emit(Instruction::LoadLocal { dst: value, local });
         args.push(value);
     }
-    let value = lowerer.lower_protocol_body(protocol, &receiver, &args, 0)?;
+    let value = match protocol {
+        Protocol::Debug | Protocol::Display => lowerer.emit_intrinsic(
+            if protocol == Protocol::Debug {
+                RuntimePrimitive::ValueDebug
+            } else {
+                RuntimePrimitive::ValueDisplay
+            },
+            &args,
+            ValueType::Str,
+        ),
+        _ => lowerer.lower_protocol_body(protocol, &receiver, &args, 0)?,
+    };
     lowerer.set_terminator(Terminator::Return(Some(value)));
     lowerer.planner.check()?;
     lowerer.finish()
@@ -357,89 +416,6 @@ pub(crate) fn lower_closure<'a>(
     if !lowerer.current_block_terminated() {
         lowerer.set_terminator(Terminator::Return(Some(value)));
     }
-    lowerer.planner.check()?;
-    lowerer.finish()
-}
-
-pub(crate) fn lower_native_method<'a>(
-    module: &'a AnalyzedModule,
-    parent: &Function,
-    instance: Instance,
-    planner: &mut InstancePlanner<'a>,
-) -> Result<MirFunction, MirLoweringError> {
-    let (receiver, interface, method) = instance.native_method.clone().expect("native method");
-    let contract = planner
-        .catalog
-        .trait_(&interface.declaration)
-        .ok_or(MirLoweringError::MissingBinding("native trait"))?;
-    let signature = planner
-        .catalog
-        .trait_method(&method)
-        .ok_or(MirLoweringError::MissingBinding("native method"))?;
-    let substitution: TypeSubstitution = contract
-        .generic_params
-        .iter()
-        .cloned()
-        .zip(interface.arguments.iter().cloned())
-        .collect();
-    let instantiate = |ty: &TypeId| {
-        ty.with_self(&contract.id, &receiver)
-            .instantiate(&substitution)
-            .with_associated_types(&interface)
-    };
-    let params: Vec<_> = signature
-        .params
-        .iter()
-        .map(|p| (p.name.clone(), instantiate(&p.ty)))
-        .collect();
-    let typed = TypedFunction {
-        implementation: FunctionImplementation::Script,
-        generic_params: vec![],
-        bounds: Default::default(),
-        id: parent.id,
-        name: String::new(),
-        params: Default::default(),
-        return_type: instantiate(&signature.return_type),
-    };
-    let mut lowerer = FunctionLowerer::new(module, parent, &typed, instance, planner)?;
-    lowerer.function.name = format!("$native_{}", lowerer.function.id.index());
-    let mut args = Vec::new();
-    for (index, (name, ty)) in params.iter().enumerate() {
-        let physical = lowerer.value_type(ty)?;
-        let local = lowerer.alloc_local(name.clone(), physical, lowerer.function.debug.source_span);
-        lowerer
-            .function
-            .debug
-            .locals
-            .last_mut()
-            .unwrap()
-            .is_parameter = true;
-        lowerer.function.params.push(MirParameter {
-            name: name.clone(),
-            ty: physical,
-            local,
-        });
-        let semantic = lowerer.semantic_type(ty)?;
-        lowerer
-            .function
-            .semantic
-            .params
-            .insert(index, semantic.clone());
-        lowerer
-            .function
-            .semantic
-            .locals
-            .insert(local.index(), semantic);
-        let value = lowerer.alloc_temp(physical);
-        lowerer.emit(Instruction::LoadLocal { dst: value, local });
-        args.push(value);
-    }
-    let value = lowerer.lower_applied_operator(interface, receiver, &method, &args)?;
-    lowerer.set_terminator(if value.ty == ValueType::Never {
-        Terminator::Unreachable
-    } else {
-        Terminator::Return(Some(value))
-    });
     lowerer.planner.check()?;
     lowerer.finish()
 }

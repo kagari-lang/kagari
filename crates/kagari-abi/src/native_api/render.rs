@@ -61,6 +61,7 @@ impl NativeModule {
                 });
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params);
+            let bounds = output.bounds(&ty.bounds)?;
             if matches!(constructor, NativeTypeConstructor::Enum(_)) {
                 output.text.push_str(" {\n");
                 for variant in &ty.variants {
@@ -91,7 +92,12 @@ impl NativeModule {
             } else {
                 output.text.push_str(";\n\n");
             }
-            output.site(id, start, name_span, generics, vec![]);
+            output.site(id.clone(), start, name_span, generics, vec![]);
+            output
+                .sites
+                .get_mut(&id)
+                .expect("type declaration site")
+                .bounds = bounds;
             if self.variant_exports.contains(&ty.name) {
                 output.text.push_str(&format!(
                     "pub use self::{}::{{{}}};\n\n",
@@ -261,6 +267,18 @@ impl NativeModule {
                     .unwrap_or("ArrayList");
                 format!("{name}<{}>", self.spell(item)?)
             }
+            AbiType::Map {
+                key,
+                value,
+                access: CollectionAccess::Mutable,
+            } => {
+                let name = self.representation_name(NativeTypeConstructor::Map, "HashMap");
+                format!("{name}<{}, {}>", self.spell(key)?, self.spell(value)?)
+            }
+            AbiType::Set(item, CollectionAccess::Mutable) => {
+                let name = self.representation_name(NativeTypeConstructor::Set, "HashSet");
+                format!("{name}<{}>", self.spell(item)?)
+            }
             AbiType::Tuple(items) => format!(
                 "({}{})",
                 join(items)?,
@@ -339,12 +357,7 @@ impl NativeModule {
             name.name.clone()
         } else {
             let module = &ty.declaration.module;
-            let prefix = if module.package.0 == "kagari-std" {
-                "std"
-            } else {
-                &module.package.0
-            };
-            format!("{}::{}::{}", prefix, module.path.join("::"), name.name)
+            format!("{}::{}", module, name.name)
         };
         let mut args = ty
             .arguments

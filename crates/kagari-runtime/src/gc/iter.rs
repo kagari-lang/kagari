@@ -4,7 +4,7 @@ use crate::{
     gc::{CollectionIteration, GcHeap, GcObjectKind, HeapObject},
     module::{LoadedModule, RetainedRuntimeProgram},
     session::SessionState,
-    value::{EnumTag, Value},
+    value::{EnumTag, MapKey, Value},
 };
 use kagari_abi::{
     operations::{IterOp, StringIterKind},
@@ -22,6 +22,8 @@ pub(super) struct NativeIter {
     pub(super) item_type: AbiType,
     pub(super) position: u128,
     pub(super) string: Option<StringTraversal>,
+    /// Unordered tables retain keys once; next performs a direct checked lookup.
+    pub(super) keys: Vec<MapKey>,
     pub(super) revision: u64,
     pub(super) guard: Option<CollectionIteration>,
     pub(super) loops: Rc<Cell<usize>>,
@@ -158,11 +160,30 @@ impl GcHeap {
             .try_reserve(1)
             .map_err(|_| self.resource_limit("iterator registry"))?;
         let guard = Some(self.begin_collection_iteration(source)?);
+        let count = match source {
+            Value::Map(id) => self.map_len(*id),
+            Value::Set(id) => self.set_len(*id),
+            _ => Some(0),
+        }
+        .ok_or_else(invalid)?;
+        let mut keys = Vec::new();
+        keys.try_reserve_exact(count)
+            .map_err(|_| self.resource_limit("iterator keys"))?;
+        match source {
+            Value::Map(id) => self
+                .with_map(*id, |entries| keys.extend(entries.keys().cloned()))
+                .ok_or_else(invalid)?,
+            Value::Set(id) => self
+                .with_set(*id, |entries| keys.extend(entries.iter().cloned()))
+                .ok_or_else(invalid)?,
+            _ => {}
+        }
         let id = self.alloc_object(HeapObject::Iter(Box::new(NativeIter {
             source: source.clone(),
             item_type,
             position: 0,
             string: None,
+            keys,
             revision,
             guard,
             loops: Rc::new(Cell::new(0)),
@@ -248,20 +269,21 @@ impl GcHeap {
                     Value::Array(id) => (self.array_get(*id, iter.position as usize), 1),
                     Value::Set(id) => (
                         self.with_set(*id, |values| {
-                            values
-                                .get_index(iter.position as usize)
-                                .map(|(key, _)| key.to_value())
+                            iter.keys
+                                .get(iter.position as usize)
+                                .and_then(|key| values.get(key))
+                                .map(MapKey::to_value)
                         })
                         .ok_or_else(invalid)?,
                         1,
                     ),
                     Value::Map(id) => (
                         self.with_map(*id, |entries| {
-                            entries
-                                .get_index(iter.position as usize)
-                                .map(|(key, value)| {
-                                    Value::Tuple(vec![key.to_value(), value.clone()])
-                                })
+                            iter.keys.get(iter.position as usize).and_then(|key| {
+                                entries
+                                    .get(key)
+                                    .map(|value| Value::Tuple(vec![key.to_value(), value.clone()]))
+                            })
                         })
                         .ok_or_else(invalid)?,
                         1,

@@ -3,9 +3,10 @@ use crate::source::lower::{
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault,
-    builtin::{BuiltinFunction, traits},
+    builtin::BuiltinFunction,
     declarations::DeclarationId,
     hir::{expr::ExprKind, ids::ExprId},
+    language::semantics as traits,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{scalar::ScalarValue, table::CallTarget as TypeckCallTarget},
@@ -16,9 +17,8 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
-    native_import::NativeImport,
-    representation::ValueType,
-    standard::{RuntimePrimitive, traits::StandardTrait},
+    language::Protocol, native_import::NativeImport, representation::ValueType,
+    standard::RuntimePrimitive,
 };
 
 use kagari_common::host_interface;
@@ -139,11 +139,11 @@ impl FunctionLowerer<'_, '_> {
             );
         }
         if let TypeckCallTarget::TraitMethod { ref interface, .. } = call.target
-            && StandardTrait::from_id(&interface.declaration).is_some_and(|kind| {
+            && Protocol::from_id(&interface.declaration).is_some_and(|kind| {
                 kind.operator()
                     || kind.collection()
                     || kind.iteration()
-                    || kind == StandardTrait::RangeBounds
+                    || kind == Protocol::RangeBounds
             })
         {
             let receiver = call
@@ -158,7 +158,7 @@ impl FunctionLowerer<'_, '_> {
                 ControlFlow::Continue(args) => values.extend(args),
                 ControlFlow::Break(value) => return Ok(value),
             };
-            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
+            if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
                 && matches!(&self.analyzed.lowered.module.expr(expr).kind, ExprKind::Call { callee, .. } if *callee == receiver)
             {
                 let receiver_type = self
@@ -194,7 +194,7 @@ impl FunctionLowerer<'_, '_> {
             ref interface,
             ref method,
         } = call.target
-            && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+            && let Some(protocol) = Protocol::from_id(&interface.declaration)
             && protocol.equality_protocol()
         {
             let receiver = call
@@ -336,7 +336,7 @@ impl FunctionLowerer<'_, '_> {
                 .catalog
                 .implementation_method(&method, &interface, &ty)
                 .is_none()
-                && let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+                && let Some(protocol) = Protocol::from_id(&interface.declaration)
                 && traits::intrinsic_holds(
                     protocol,
                     &ty,
@@ -345,13 +345,13 @@ impl FunctionLowerer<'_, '_> {
                 )
             {
                 let intrinsic = match protocol {
-                    StandardTrait::PartialOrd => RuntimePrimitive::ValuePartialCmp,
-                    StandardTrait::Ord => RuntimePrimitive::ValueCmp,
-                    StandardTrait::PartialEq => RuntimePrimitive::ValueEq,
-                    StandardTrait::Hash => RuntimePrimitive::ValueHash,
-                    StandardTrait::Debug => RuntimePrimitive::ValueDebug,
-                    StandardTrait::Display => RuntimePrimitive::ValueDisplay,
-                    StandardTrait::Eq => unreachable!("marker trait has no methods"),
+                    Protocol::PartialOrd => RuntimePrimitive::ValuePartialCmp,
+                    Protocol::Ord => RuntimePrimitive::ValueCmp,
+                    Protocol::PartialEq => RuntimePrimitive::ValueEq,
+                    Protocol::Hash => RuntimePrimitive::ValueHash,
+                    Protocol::Debug => RuntimePrimitive::ValueDebug,
+                    Protocol::Display => RuntimePrimitive::ValueDisplay,
+                    Protocol::Eq => unreachable!("marker trait has no methods"),
                     _ => unreachable!("operator protocol handled above"),
                 };
                 (

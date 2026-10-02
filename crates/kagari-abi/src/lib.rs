@@ -7,6 +7,7 @@ pub mod decode_limits;
 pub mod effects;
 pub mod host;
 pub mod ids;
+pub mod language;
 pub mod layout;
 pub mod native;
 pub mod native_api;

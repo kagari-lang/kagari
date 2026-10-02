@@ -1,10 +1,10 @@
 use crate::{
-    builtin::traits::StandardTraitSemantics,
     hir::ids::ExprId,
+    language::semantics::ProtocolSemantics,
     typeck::{BodyTypeEnv, body::BodyChecker, table::ResolvedIteration},
     types::TypeId,
 };
-use kagari_abi::standard::traits::StandardTrait;
+use kagari_abi::language::Protocol;
 use kagari_common::identity::associated_type_id;
 impl BodyChecker<'_> {
     pub(super) fn infer_iteration(
@@ -14,7 +14,7 @@ impl BodyChecker<'_> {
         env: &BodyTypeEnv,
     ) -> Option<TypeId> {
         let (interface, iterator) =
-            self.select_operator(receiver, StandardTrait::Iterable.nominal(), env)?;
+            self.select_operator(receiver, Protocol::Iterable.nominal(), env)?;
         let member = associated_type_id(&interface.declaration, "Item");
         let item = interface
             .associated_types
@@ -28,7 +28,7 @@ impl BodyChecker<'_> {
                     arguments: vec![],
                 })
             });
-        let mut next = StandardTrait::Iterator.nominal();
+        let mut next = Protocol::Iterator.nominal();
         next.associated_types
             .insert(associated_type_id(&next.declaration, "Item"), item.clone());
         self.type_table.insert_iteration(

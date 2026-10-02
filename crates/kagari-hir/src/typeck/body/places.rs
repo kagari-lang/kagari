@@ -1,18 +1,18 @@
 use crate::{
     aggregates::FieldSignature,
-    builtin::traits::StandardTraitSemantics,
     hir::{
         expr::ExprKind,
         ids::{ExprId, PlaceId},
         place::PlaceKind,
     },
+    language::semantics::ProtocolSemantics,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, scalar::ScalarValue, ty::display_type_id,
     },
     types::TypeId,
 };
-use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{
     collection::CollectionAccess,
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -147,7 +147,7 @@ impl<'a> BodyChecker<'a> {
                     .list_item()
                     .map(|_| TypeId::Builtin(BuiltinType::USize));
                 let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
-                let mut requested = StandardTrait::Index.nominal();
+                let mut requested = Protocol::Index.nominal();
                 requested.arguments.push(index_ty.clone());
                 if !matches!(base_ty, TypeId::Array(_, _) | TypeId::Tuple(_))
                     && let Some((interface, result)) =

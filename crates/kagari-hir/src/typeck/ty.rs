@@ -1,11 +1,11 @@
 use crate::{
-    builtin::traits::StandardTraitSemantics,
     declarations::{DeclarationId, Declarations},
     hir::{
         ids::{BodyOwner, HirOwner, ImplId, TraitId, TypeRefId},
         item::{Module, behavior::GenericParam},
         ty::TypeKind,
     },
+    language::semantics::ProtocolSemantics,
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -15,7 +15,7 @@ use crate::{
     types::{NominalType, TypeId},
 };
 
-use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{cancellation::CancellationToken, identity};
 
 #[derive(Debug, Clone, Copy)]
@@ -315,8 +315,8 @@ pub(super) fn resolve_type_in(
                             && (!nominal.arguments.is_empty() || !bindings.is_empty())
                             && !*positional_after_binding
                             && (!*callable_syntax
-                                || StandardTrait::from_id(&nominal.declaration)
-                                    == Some(StandardTrait::Fn)) =>
+                                || Protocol::from_id(&nominal.declaration)
+                                    == Some(Protocol::Fn)) =>
                     {
                         nominal.arguments = args;
                         let members =
@@ -387,7 +387,7 @@ pub(super) fn resolve_type_in(
             }
         }
         TypeKind::Array(element) => {
-            let mut interface = StandardTrait::List.nominal();
+            let mut interface = Protocol::List.nominal();
             interface
                 .arguments
                 .push(resolve_type_in(module, *element, context, table, cancel));

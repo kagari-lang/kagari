@@ -6,7 +6,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     standard::{
         RuntimePrimitive,
-        traits::{self, StandardTrait},
+        traits::{self, Protocol},
     },
     types::AbiType,
 };
@@ -177,10 +177,7 @@ fn main()->i32{{val items:ArrayList<{item}> =[{value}];{callback}{action}42}}
                         match mutation {
                             0 => contract.witnesses.clear(),
                             1 => witness.receiver = AbiType::Builtin(BuiltinType::Bool),
-                            2 => {
-                                witness.interface.declaration =
-                                    traits::identity(StandardTrait::Hash)
-                            }
+                            2 => witness.interface.declaration = traits::identity(Protocol::Hash),
                             3 => witness.methods.push(contract.instance.clone()),
                             4 => {
                                 witness.implementation = if witness.implementation

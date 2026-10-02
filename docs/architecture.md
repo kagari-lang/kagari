@@ -45,8 +45,13 @@ not distinguish standard functions from application native functions.
 The registered hash/fmt protocols own their actual scalar implementations. Shared
 checked scalar helpers preserve script hashes and bounded rendering, charge native
 work and retain converted values through the pinned call view. Implicit object
-identity and member-composition bridges remain language primitives; selected
-callback facts for those implicit implementations are still migration work.
+identity and member-composition bridges remain language primitives. Checked implicit
+PartialEq, Hash, Debug and Display selections materialize ordinary executable
+protocol functions. Their applied contracts and distinct origin are carried in
+MIR/bytecode; offline verification checks eligibility, absence of an explicit
+override, function identity, signature and matching function metadata. Explicit
+implementations retain their ordinary implementation records and take precedence.
+Other implicit protocol selections remain migration work.
 
 Closed numeric Rust adapters own their signature predicates. NativeNumber<T>
 and NativeSignedNumber<T> emit OrderedNumber and SignedNumber respectively;

@@ -1,9 +1,9 @@
+use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::GcHeap,
     value::Value,
 };
-use indexmap::IndexMap;
 
 fn invalid() -> RuntimeError {
     RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid capacity receiver")
@@ -13,8 +13,8 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         match value {
             Value::Array(id) => self.with_array(*id, Vec::capacity),
-            Value::Map(id) => self.with_map(*id, IndexMap::capacity),
-            Value::Set(id) => self.with_set(*id, IndexMap::capacity),
+            Value::Map(id) => self.with_map(*id, HashMapStorage::capacity),
+            Value::Set(id) => self.with_set(*id, HashSetStorage::capacity),
             _ => None,
         }
         .ok_or_else(invalid)

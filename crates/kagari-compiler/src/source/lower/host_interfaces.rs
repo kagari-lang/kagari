@@ -130,6 +130,7 @@ pub(super) fn collect(
             planner.check()?;
             let mut function = MirFunction {
                 semantic: SemanticSlots {
+                    protocol_adapter: None,
                     params: params
                         .iter()
                         .enumerate()
@@ -214,7 +215,6 @@ pub(super) fn collect(
                 associated_type_families: Vec::new(),
                 associated_consts: Vec::new(),
                 host_bridge: true,
-                native_bridge: false,
                 declaration,
                 name: format!(
                     "{} as {}",

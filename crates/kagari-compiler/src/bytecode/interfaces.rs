@@ -130,8 +130,7 @@ pub(super) fn collect_interface_tables(
                 if matches!(
                     method.implementation,
                     CallableImplementation::Native(_) | CallableImplementation::NativeDefault(_)
-                ) && !abi.native_bridge
-                {
+                ) {
                     if !method.generic_params.is_empty()
                         || (instance.arguments.is_empty() && !abi.generic_params.is_empty())
                     {

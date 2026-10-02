@@ -1,13 +1,14 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
+    language::Protocol,
     operations::{BinaryOp, StandardEnumOp},
     representation::ValueType,
-    standard::{RuntimePrimitive, surface::StandardEnum, traits::StandardTrait},
+    standard::{RuntimePrimitive, surface::StandardEnum},
 };
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchError,
-    builtin::traits::StandardTraitSemantics,
+    language::semantics::ProtocolSemantics,
     types::{
         TypeId,
         abi::{lower_nominal_type, lower_type},
@@ -41,7 +42,7 @@ impl FunctionLowerer<'_, '_> {
                         .planner
                         .catalog
                         .concrete_interface_implementation(
-                            &StandardTrait::PartialEq.nominal(),
+                            &Protocol::PartialEq.nominal(),
                             &ty,
                             &Default::default(),
                             self.planner.options.max_type_nodes,
@@ -85,7 +86,7 @@ impl FunctionLowerer<'_, '_> {
         Ok(false)
     }
 
-    pub(super) fn emit_intrinsic(
+    pub(crate) fn emit_intrinsic(
         &mut self,
         intrinsic: RuntimePrimitive,
         args: &[MirValue],
@@ -102,7 +103,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_protocol(
         &mut self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         ty: &TypeId,
         args: &[MirValue],
         depth: usize,
@@ -123,7 +124,7 @@ impl FunctionLowerer<'_, '_> {
                 ty,
                 self.function.debug.source_span,
             )?;
-            let dst = self.alloc_temp(if protocol == StandardTrait::PartialEq {
+            let dst = self.alloc_temp(if protocol == Protocol::PartialEq {
                 ValueType::Bool
             } else {
                 ValueType::I64
@@ -141,7 +142,7 @@ impl FunctionLowerer<'_, '_> {
 
     pub(crate) fn lower_protocol_body(
         &mut self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         ty: &TypeId,
         args: &[MirValue],
         depth: usize,
@@ -152,13 +153,13 @@ impl FunctionLowerer<'_, '_> {
                 "protocol composition exceeds type depth limit",
             ));
         }
-        let result_ty = if protocol == StandardTrait::PartialEq {
+        let result_ty = if protocol == Protocol::PartialEq {
             ValueType::Bool
         } else {
             ValueType::I64
         };
         if !self.has_custom_protocol(ty)? {
-            if protocol == StandardTrait::PartialEq {
+            if protocol == Protocol::PartialEq {
                 let dst = self.alloc_temp(ValueType::Bool);
                 self.emit(Instruction::Binary {
                     dst,
@@ -277,7 +278,7 @@ impl FunctionLowerer<'_, '_> {
             }
             _ => {
                 let dst = self.alloc_temp(result_ty);
-                let intrinsic = if protocol == StandardTrait::PartialEq {
+                let intrinsic = if protocol == Protocol::PartialEq {
                     RuntimePrimitive::ValueEq
                 } else {
                     RuntimePrimitive::ValueHash
@@ -294,12 +295,12 @@ impl FunctionLowerer<'_, '_> {
 
     fn combine_protocol(
         &mut self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         inputs: &[(TypeId, Vec<MirValue>)],
         tag: Option<Constant>,
         depth: usize,
     ) -> Result<MirValue, MirLoweringError> {
-        if protocol == StandardTrait::Hash {
+        if protocol == Protocol::Hash {
             let mut hashes = ValueBuffer::new();
             if let Some(tag) = tag {
                 let ty = if matches!(tag, Constant::Str(_)) {
@@ -351,13 +352,13 @@ impl FunctionLowerer<'_, '_> {
 
     fn enum_protocol(
         &mut self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         ty: &TypeId,
         args: &[MirValue],
         variants: &[(usize, Vec<TypeId>)],
         depth: usize,
     ) -> Result<MirValue, MirLoweringError> {
-        let dst = self.alloc_temp(if protocol == StandardTrait::PartialEq {
+        let dst = self.alloc_temp(if protocol == Protocol::PartialEq {
             ValueType::Bool
         } else {
             ValueType::I64
@@ -374,7 +375,7 @@ impl FunctionLowerer<'_, '_> {
                 else_block: next,
             });
             self.switch_to_block(matched);
-            if protocol == StandardTrait::PartialEq {
+            if protocol == Protocol::PartialEq {
                 let cond = self.enum_test(ty, args[1], *variant)?;
                 let payload = self.new_block();
                 self.set_terminator(Terminator::Branch {
@@ -421,7 +422,7 @@ impl FunctionLowerer<'_, '_> {
         }
         self.set_terminator(Terminator::Jump(fail));
         self.switch_to_block(fail);
-        let zero = if protocol == StandardTrait::PartialEq {
+        let zero = if protocol == Protocol::PartialEq {
             self.lower_constant(Constant::Bool(false), ValueType::Bool)
         } else {
             self.lower_constant(Constant::I64(0), ValueType::I64)

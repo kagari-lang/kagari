@@ -1,11 +1,8 @@
 use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
-    callable::EngineNativeBinding,
-    native_import::NativeWitnessImplementation,
-    scalar::BuiltinType,
-    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
-    types::AbiType,
+    callable::EngineNativeBinding, language::Protocol, native_import::NativeWitnessImplementation,
+    scalar::BuiltinType, standard::bindings::NativeDefaultMethod, types::AbiType,
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 use kagari_common::{collection::CollectionAccess, identity::associated_type_id};
@@ -94,21 +91,19 @@ fn main(){{{source}val rhs:Set<{item}> =Policy{{items:[{element}]}};val output:{
                             .iter()
                             .position(|w| {
                                 w.receiver == contract.signature.params[source]
-                                    && StandardTrait::from_id(&w.interface.declaration)
-                                        == Some(protocol)
+                                    && Protocol::from_id(&w.interface.declaration) == Some(protocol)
                             })
                             .unwrap()
                     };
-                    let left = selected(0, StandardTrait::Set);
-                    let right = selected(1, StandardTrait::Set);
-                    let left_iter = selected(0, StandardTrait::Iterable);
-                    let right_iter = selected(1, StandardTrait::Iterable);
+                    let left = selected(0, Protocol::Set);
+                    let right = selected(1, Protocol::Set);
+                    let left_iter = selected(0, Protocol::Iterable);
+                    let right_iter = selected(1, Protocol::Iterable);
                     let next = contract
                         .witnesses
                         .iter()
                         .position(|w| {
-                            StandardTrait::from_id(&w.interface.declaration)
-                                == Some(StandardTrait::Iterator)
+                            Protocol::from_id(&w.interface.declaration) == Some(Protocol::Iterator)
                         })
                         .unwrap();
                     match mutation {
@@ -186,10 +181,10 @@ fn main(){{{source}val rhs:Set<{item}> =Policy{{items:[{element}]}};val output:{
                     );
                     checked += 1;
                 }
-                for protocol in [StandardTrait::Hash, StandardTrait::PartialEq] {
+                for protocol in [Protocol::Hash, Protocol::PartialEq] {
                     let contract = &artifact.program.modules[root].native_imports[import];
                     let Some(selected) = contract.witnesses.iter().position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration) == Some(protocol)
+                        Protocol::from_id(&w.interface.declaration) == Some(protocol)
                     }) else {
                         continue;
                     };

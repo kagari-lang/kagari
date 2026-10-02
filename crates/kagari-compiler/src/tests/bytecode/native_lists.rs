@@ -6,7 +6,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     standard::{
         bindings::NativeDefaultMethod,
-        traits::{self, StandardTrait},
+        traits::{self, Protocol},
     },
     types::AbiType,
 };
@@ -43,8 +43,7 @@ fn main()->i32 {{{source}val out=source.{call};42}}
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::List)
+                    Protocol::from_id(&witness.interface.declaration) == Some(Protocol::List)
                 })
                 .unwrap();
             verify_program(&program).unwrap();
@@ -90,7 +89,7 @@ fn main()->i32 {{{source}val out=source.{call};42}}
                     9 => contract.witnesses[list].receiver = AbiType::Builtin(BuiltinType::I32),
                     10 => {
                         contract.witnesses[list].interface.declaration =
-                            traits::identity(StandardTrait::Iterator)
+                            traits::identity(Protocol::Iterator)
                     }
                     _ => {
                         contract.binding = EngineNativeBinding::TraitDefault(
@@ -158,7 +157,7 @@ fn list_queries_reject_forged_required_shapes_and_parent_contracts() {
                     .supertraits
                     .iter_mut()
                     .find(|parent| {
-                        StandardTrait::from_id(&parent.declaration) == Some(StandardTrait::Iterable)
+                        Protocol::from_id(&parent.declaration) == Some(Protocol::Iterable)
                     })
                     .unwrap();
                 let (_, output) = iterable

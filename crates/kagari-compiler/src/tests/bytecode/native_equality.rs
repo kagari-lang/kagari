@@ -6,7 +6,7 @@ use kagari_abi::{
     scalar::BuiltinType,
     standard::{
         bindings::NativeDefaultMethod,
-        traits::{self, StandardTrait},
+        traits::{self, Protocol},
     },
     types::AbiType,
 };
@@ -59,8 +59,7 @@ fn main()->i32 {{val value:{ty} ={value};val source:ArrayList<{ty}> =[value];val
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::PartialEq)
+                    Protocol::from_id(&witness.interface.declaration) == Some(Protocol::PartialEq)
                 })
                 .unwrap();
             let derived = program.modules[root].native_imports[import].witnesses[equality]
@@ -80,7 +79,7 @@ fn main()->i32 {{val value:{ty} ={value};val source:ArrayList<{ty}> =[value];val
                         contract.witnesses.push(duplicate);
                     }
                     2 => witness.receiver = AbiType::Builtin(BuiltinType::U32),
-                    3 => witness.interface.declaration = traits::identity(StandardTrait::Eq),
+                    3 => witness.interface.declaration = traits::identity(Protocol::Eq),
                     4 => witness.methods.push(contract.instance.clone()),
                     5 => {
                         witness.implementation =
@@ -97,8 +96,8 @@ fn main()->i32 {{val value:{ty} ={value};val source:ArrayList<{ty}> =[value];val
                             .witnesses
                             .iter()
                             .position(|witness| {
-                                StandardTrait::from_id(&witness.interface.declaration)
-                                    == Some(StandardTrait::Iterable)
+                                Protocol::from_id(&witness.interface.declaration)
+                                    == Some(Protocol::Iterable)
                             })
                             .unwrap();
                         contract.witnesses.remove(slot);

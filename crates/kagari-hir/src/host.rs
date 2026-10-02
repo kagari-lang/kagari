@@ -10,9 +10,8 @@ use crate::{
 };
 
 use kagari_abi::{
-    host::satisfies_standard_constraint,
-    scalar::BuiltinType,
-    standard::{surface::StandardEnum, traits::StandardTrait},
+    host::satisfies_standard_constraint, language::Protocol, scalar::BuiltinType,
+    standard::surface::StandardEnum,
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -179,7 +178,7 @@ impl HostDeclarations {
             cancel.check()?;
             for implementation in &host.trait_implementations {
                 cancel.check()?;
-                let standard = StandardTrait::from_id(&implementation.trait_id);
+                let standard = Protocol::from_id(&implementation.trait_id);
                 if &implementation.trait_id.module != module && standard.is_none() {
                     continue;
                 }

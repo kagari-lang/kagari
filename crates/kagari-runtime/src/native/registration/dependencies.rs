@@ -56,7 +56,6 @@ fn implementation_matches(
     // independently checked against the exact carried trait/template contracts.
     actual.declaration == *id
         && !actual.host_bridge
-        && !actual.native_bridge
         && actual.generic_params == expected.generic_params
         && actual.bounds == expected.bounds
         && actual.for_type == expected.for_type

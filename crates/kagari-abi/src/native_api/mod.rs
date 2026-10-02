@@ -73,7 +73,7 @@ pub struct NativeModule {
 impl NativeModule {
     pub fn new(identity: ModuleIdentity) -> Self {
         Self {
-            package_alias: (identity.package.0 == "kagari-std").then(|| "std".into()),
+            package_alias: None,
             identity,
             dependencies: BTreeSet::new(),
             types: vec![],
@@ -300,7 +300,6 @@ impl NativeModule {
         for ty in &self.types {
             if !identifier(&ty.name)
                 || !names.insert(&ty.name)
-                || !ty.bounds.is_empty()
                 || !matches!(ty.kind, TypeAbiKind::Native(_))
             {
                 return Err(fail());
@@ -447,6 +446,14 @@ impl NativeModule {
     }
 
     fn validate_supported_types(&self) -> Result<(), NativeApiError> {
+        for ty in &self.types {
+            for bound in &ty.bounds {
+                supported_type(&bound.ty)?;
+                for constraint in &bound.constraints {
+                    supported_constraint(constraint)?;
+                }
+            }
+        }
         let mut functions = self.functions.iter().collect::<Vec<_>>();
         for contract in &self.traits {
             functions.extend(&contract.methods);
@@ -568,10 +575,17 @@ impl NativeModule {
                     let Some(candidate_trait) = &candidate.trait_type else {
                         continue;
                     };
-                    if self.normalized(
+                    let available = self.normalized(
                         &AbiType::Trait(candidate_trait.clone()),
                         &candidate.generic_params,
-                    )? == required
+                    )?;
+                    let parent_matches = matches!((&available, &required),
+                        (AbiType::Trait(available), AbiType::Trait(required))
+                        if available.declaration == required.declaration
+                            && available.arguments == required.arguments
+                            && required.associated_types.iter().all(|(member, output)|
+                                available.associated_types.get(member) == Some(output)));
+                    if parent_matches
                         && self.normalized(&candidate.for_type, &candidate.generic_params)?
                             == target
                     {
@@ -623,9 +637,11 @@ fn supported_type(ty: &AbiType) -> Result<(), NativeApiError> {
     while let Some(ty) = pending.pop() {
         match ty {
             AbiType::Builtin(_) | AbiType::Parameter { .. } | AbiType::SelfType(_) => {}
-            AbiType::Array(item, _) | AbiType::Range(item, _) | AbiType::Iter(item) => {
-                pending.push(item)
-            }
+            AbiType::Array(item, _)
+            | AbiType::Set(item, _)
+            | AbiType::Range(item, _)
+            | AbiType::Iter(item) => pending.push(item),
+            AbiType::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             AbiType::Tuple(items) | AbiType::StandardEnum { args: items, .. } => {
                 pending.extend(items);
             }

@@ -21,8 +21,8 @@ pub enum NativeBinding {
 pub enum NativeTypeKind {
     String,
     ArrayList,
-    LinkedHashMap,
-    LinkedHashSet,
+    HashMap,
+    HashSet,
     Iter,
     Range(RangeKind),
     Enum(StandardEnum),
@@ -43,28 +43,11 @@ pub(crate) fn enum_display_name(kind: StandardEnum) -> &'static str {
 }
 
 impl NativeTypeKind {
-    pub(crate) fn from_binding(binding: &str) -> Option<Self> {
-        Some(match binding {
-            "String" => Self::String,
-            "ArrayList" => Self::ArrayList,
-            "LinkedHashMap" => Self::LinkedHashMap,
-            "LinkedHashSet" => Self::LinkedHashSet,
-            "Iter" => Self::Iter,
-            "Range" => Self::Range(RangeKind::Exclusive),
-            "RangeInclusive" => Self::Range(RangeKind::Inclusive),
-            "RangeFrom" => Self::Range(RangeKind::From),
-            "RangeTo" => Self::Range(RangeKind::To),
-            "RangeToInclusive" => Self::Range(RangeKind::ToInclusive),
-            "RangeFull" => Self::Range(RangeKind::Full),
-            _ => return None,
-        })
-    }
-
     pub fn arity(self) -> usize {
         match self {
             Self::Enum(kind) => kind.arity(),
             Self::String | Self::Range(RangeKind::Full) => 0,
-            Self::LinkedHashMap => 2,
+            Self::HashMap => 2,
             _ => 1,
         }
     }
@@ -81,12 +64,12 @@ impl NativeTypeKind {
             },
             Self::String => TypeId::Builtin(BuiltinType::String),
             Self::ArrayList => TypeId::Array(first(), CollectionAccess::Mutable),
-            Self::LinkedHashMap => TypeId::Map {
+            Self::HashMap => TypeId::Map {
                 key: first(),
                 value: Box::new(arguments[1].clone()),
                 access: CollectionAccess::Mutable,
             },
-            Self::LinkedHashSet => TypeId::Set(first(), CollectionAccess::Mutable),
+            Self::HashSet => TypeId::Set(first(), CollectionAccess::Mutable),
             Self::Iter => TypeId::Iter(first()),
             Self::Range(RangeKind::Full) => TypeId::Range(
                 Box::new(TypeId::Builtin(BuiltinType::Unit)),

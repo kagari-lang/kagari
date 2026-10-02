@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::EngineNativeBinding,
+    language::Protocol,
     native_import::{NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{bindings::NativeDefaultMethod, intrinsic, traits::StandardTrait},
+    standard::{bindings::NativeDefaultMethod, intrinsic},
     types::{AbiType, ConstraintAbi, GenericBoundAbi},
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -46,12 +47,12 @@ fn main(){{{source}}}
                 import
                     .witnesses
                     .iter()
-                    .position(|w| StandardTrait::from_id(&w.interface.declaration) == Some(kind))
+                    .position(|w| Protocol::from_id(&w.interface.declaration) == Some(kind))
                     .unwrap()
             };
-            let iterable = witness(StandardTrait::Iterable);
-            let iterator = witness(StandardTrait::Iterator);
-            let list = witness(StandardTrait::List);
+            let iterable = witness(Protocol::Iterable);
+            let iterator = witness(Protocol::Iterator);
+            let list = witness(Protocol::List);
             let boolean = AbiType::Builtin(BuiltinType::Bool);
             match mutation {
                 0 => import.binding_version -= 1,
@@ -91,7 +92,7 @@ fn main(){{{source}}}
                     .push(import.instance.clone()),
                 15 => import.witnesses.push(NativeWitness {
                     receiver: boolean,
-                    interface: intrinsic::applied(StandardTrait::Eq, vec![]),
+                    interface: intrinsic::applied(Protocol::Eq, vec![]),
                     implementation: NativeWitnessImplementation::Primitive,
                     methods: vec![],
                 }),
@@ -99,7 +100,7 @@ fn main(){{{source}}}
                 _ => import.requirements.push(GenericBoundAbi {
                     ty: import.signature.params[0].clone(),
                     constraints: vec![ConstraintAbi::Trait(intrinsic::applied(
-                        StandardTrait::Eq,
+                        Protocol::Eq,
                         vec![],
                     ))],
                 }),

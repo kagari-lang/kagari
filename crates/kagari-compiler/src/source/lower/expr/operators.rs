@@ -4,8 +4,8 @@ use crate::source::{
 };
 use kagari_hir::{
     aggregates::traits::MethodDefault,
-    builtin::traits,
     hir::{expr::ops::BinaryOp as HirBinaryOp, ids::ExprId},
+    language::semantics as traits,
     native::NativeBinding,
     typeck::table::CallTarget as HirCallTarget,
     types::{
@@ -15,11 +15,12 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
+    language::Protocol,
     numeric::{NumericConversion, NumericOperation},
     operations::{BinaryOp, StandardEnumOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, traits::StandardTrait},
+    standard::RuntimePrimitive,
 };
 use kagari_common::{identity::DefinitionId, integer::IntegerOp};
 
@@ -131,7 +132,7 @@ impl FunctionLowerer<'_, '_> {
             unreachable!()
         };
 
-        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Fn)
+        if Protocol::from_id(&interface.declaration) == Some(Protocol::Fn)
             && let TypeId::Function { params, result } = &ty
         {
             let mut values = ValueBuffer::new();
@@ -165,7 +166,7 @@ impl FunctionLowerer<'_, '_> {
         let interface = if let TypeId::Trait(child) = &ty {
             self.planner
                 .catalog
-                .trait_closure(child, &ty, &self.planner.options.cancel)
+                .interface_closure(child, &ty, &self.planner.options.cancel)
                 .ok()
                 .and_then(|parents| {
                     parents
@@ -190,7 +191,7 @@ impl FunctionLowerer<'_, '_> {
             && self
                 .planner
                 .catalog
-                .trait_closure(child, &ty, &self.planner.options.cancel)
+                .interface_closure(child, &ty, &self.planner.options.cancel)
                 .is_ok_and(|parents| parents.contains(&interface))
         {
             let contract = self
@@ -227,15 +228,13 @@ impl FunctionLowerer<'_, '_> {
             return Ok(dst);
         }
         if let TypeId::Builtin(input) = &ty {
-            let op = match StandardTrait::from_id(&interface.declaration) {
-                Some(StandardTrait::BitAnd) => Some(IntegerOp::BitAnd),
-                Some(StandardTrait::BitOr) => Some(IntegerOp::BitOr),
-                Some(StandardTrait::BitXor) => Some(IntegerOp::BitXor),
-                Some(StandardTrait::Shl) => Some(IntegerOp::Shl),
-                Some(StandardTrait::Shr) => Some(IntegerOp::Shr),
-                Some(StandardTrait::Not) if input.integer_layout().is_some() => {
-                    Some(IntegerOp::BitNot)
-                }
+            let op = match Protocol::from_id(&interface.declaration) {
+                Some(Protocol::BitAnd) => Some(IntegerOp::BitAnd),
+                Some(Protocol::BitOr) => Some(IntegerOp::BitOr),
+                Some(Protocol::BitXor) => Some(IntegerOp::BitXor),
+                Some(Protocol::Shl) => Some(IntegerOp::Shl),
+                Some(Protocol::Shr) => Some(IntegerOp::Shr),
+                Some(Protocol::Not) if input.integer_layout().is_some() => Some(IntegerOp::BitNot),
                 _ => None,
             };
             if let Some(op) = op {
@@ -272,26 +271,13 @@ impl FunctionLowerer<'_, '_> {
         {
             return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
         }
-        if let Some((required, target)) = traits::conversion_requirement(&interface, &ty) {
-            let kind = StandardTrait::from_id(&required.declaration).expect("forward conversion");
-            return self.lower_applied_operator(
-                required,
-                target,
-                &self.protocol_method(kind, 0)?,
-                args,
-            );
-        }
-        if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::From)
+        if Protocol::from_id(&interface.declaration) == Some(Protocol::From)
             && interface.arguments.as_slice() == [ty.clone()]
         {
             return Ok(args[0]);
         }
-        if let (
-            Some(protocol @ (StandardTrait::From | StandardTrait::TryFrom)),
-            TypeId::Builtin(target),
-            [TypeId::Builtin(source)],
-        ) = (
-            StandardTrait::from_id(&interface.declaration),
+        if let (Some(Protocol::From), TypeId::Builtin(target), [TypeId::Builtin(source)]) = (
+            Protocol::from_id(&interface.declaration),
             &ty,
             interface.arguments.as_slice(),
         ) && traits::intrinsic_applies(
@@ -303,7 +289,7 @@ impl FunctionLowerer<'_, '_> {
             let conversion = NumericConversion {
                 source: *source,
                 target: *target,
-                checked: protocol == StandardTrait::TryFrom,
+                checked: false,
             };
             let (_, output) = conversion
                 .contract()
@@ -382,22 +368,32 @@ impl FunctionLowerer<'_, '_> {
                 }))
             }
         } else {
-            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Iterable) {
+            if Protocol::from_id(&interface.declaration) == Some(Protocol::Iterable)
+                && result == ty
+                && traits::iterator_requirement(&interface, &ty).is_some_and(|required| {
+                    traits::intrinsic_applies(
+                        &required,
+                        &ty,
+                        Some(self.planner.catalog),
+                        &Default::default(),
+                    )
+                })
+            {
                 return Ok(args[0]);
             }
-            if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
+            if let Some(protocol) = Protocol::from_id(&interface.declaration)
                 && protocol.binary_operator()
             {
                 let op = match protocol {
-                    StandardTrait::Add => BinaryOp::Add,
-                    StandardTrait::Sub => BinaryOp::Sub,
-                    StandardTrait::Mul => BinaryOp::Mul,
-                    StandardTrait::Div => BinaryOp::Div,
-                    StandardTrait::Rem => BinaryOp::Rem,
+                    Protocol::Add => BinaryOp::Add,
+                    Protocol::Sub => BinaryOp::Sub,
+                    Protocol::Mul => BinaryOp::Mul,
+                    Protocol::Div => BinaryOp::Div,
+                    Protocol::Rem => BinaryOp::Rem,
                     _ => unreachable!(),
                 };
                 let dst = self.alloc_temp(result_ty);
-                if protocol == StandardTrait::Rem
+                if protocol == Protocol::Rem
                     && let TypeId::Builtin(input @ (BuiltinType::I8 | BuiltinType::I16)) = ty
                 {
                     let operation = types::lower_numeric_operation(HirBinaryOp::Rem, input, input)
@@ -419,13 +415,13 @@ impl FunctionLowerer<'_, '_> {
                 }
                 return Ok(dst);
             }
-            if let Some(protocol) = StandardTrait::from_id(&interface.declaration)
-                && matches!(protocol, StandardTrait::Neg | StandardTrait::Not)
+            if let Some(protocol) = Protocol::from_id(&interface.declaration)
+                && matches!(protocol, Protocol::Neg | Protocol::Not)
             {
                 let dst = self.alloc_temp(result_ty);
                 self.emit(Instruction::Unary {
                     dst,
-                    op: if protocol == StandardTrait::Neg {
+                    op: if protocol == Protocol::Neg {
                         UnaryOp::Neg
                     } else {
                         UnaryOp::Not
@@ -435,7 +431,7 @@ impl FunctionLowerer<'_, '_> {
                 self.check_integer_range(dst, &result);
                 return Ok(dst);
             }
-            if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::Index) {
+            if Protocol::from_id(&interface.declaration) == Some(Protocol::Index) {
                 let dst = self.alloc_temp(result_ty);
                 self.emit(Instruction::ReadAggregateIndex {
                     dst,
@@ -444,9 +440,9 @@ impl FunctionLowerer<'_, '_> {
                 });
                 return Ok(dst);
             }
-            let intrinsic = match StandardTrait::from_id(&interface.declaration) {
-                Some(StandardTrait::PartialOrd) => RuntimePrimitive::ValuePartialCmp,
-                Some(StandardTrait::Ord) => RuntimePrimitive::ValueCmp,
+            let intrinsic = match Protocol::from_id(&interface.declaration) {
+                Some(Protocol::PartialOrd) => RuntimePrimitive::ValuePartialCmp,
+                Some(Protocol::Ord) => RuntimePrimitive::ValueCmp,
                 _ => return Err(MirLoweringError::MissingBinding("builtin operator")),
             };
             CallTarget::RuntimePrimitive(intrinsic)

@@ -6,8 +6,9 @@ use crate::{
     verifier::{self, BytecodeVerificationError},
 };
 use kagari_abi::{
-    host, layout,
-    standard::traits::StandardTrait,
+    host,
+    language::Protocol,
+    layout,
     types::{AbiType, PublicAbiItem, TypeAbiKind, verify},
 };
 use kagari_common::identity::DefinitionKind;
@@ -184,11 +185,10 @@ pub fn verify_program(program: &BytecodeProgram) -> Result<(), BytecodeVerificat
             let AbiType::Trait(instance) = &table.trait_type else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if let Some(kind) = StandardTrait::from_id(&instance.declaration)
+            if let Some(kind) = Protocol::from_id(&instance.declaration)
                 && (!kind.host_implementable() && matches!(table.for_type, AbiType::Host(_))
-                    || !table.native_bridge
-                        && instance.declaration.module != table.declaration.module
-                        && !kind.conversion()
+                    || instance.declaration.module != table.declaration.module
+                        && kind != Protocol::From
                         && !matches!(
                             table.for_type,
                             AbiType::Struct(_) | AbiType::Enum(_) | AbiType::Host(_)

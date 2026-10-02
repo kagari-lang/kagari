@@ -1,7 +1,7 @@
 use crate::{
     aggregates::implementations::ImplementationSearchError,
-    builtin::traits::{self, StandardTraitSemantics},
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
+    language::semantics::ProtocolSemantics,
     native::NativeBinding,
     typeck::{
         BodyTypeEnv, FunctionImplementation,
@@ -15,7 +15,7 @@ use crate::{
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
+use kagari_abi::language::{self as standard_traits, Protocol};
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity,
@@ -91,39 +91,6 @@ impl<'a> BodyChecker<'a> {
                 },
             );
             return target.clone();
-        }
-        let mut native_interface = interface.clone();
-        if let Some(storage) = traits::collection_storage(interface) {
-            let _ = self.solver.constrain(&storage, &source, self.cancel);
-            if let TypeId::Trait(resolved) = self.solver.resolve(&TypeId::Trait(interface.clone()))
-            {
-                native_interface = resolved;
-            }
-        }
-        if let (Some(TypeId::Trait(expected)), Some(TypeId::Trait(actual))) = (
-            TypeId::Trait(native_interface.clone()).collection_view(),
-            source.collection_view(),
-        ) && expected.declaration == actual.declaration
-        {
-            for (expected, actual) in native_interface.arguments.iter_mut().zip(&actual.arguments) {
-                expected.recover_from(actual);
-            }
-        }
-        if traits::native_interface_applies(
-            &native_interface,
-            &source,
-            self.aggregates,
-            &env.generic_bounds,
-        ) {
-            self.type_table.insert_interface_coercion(
-                expr_id,
-                ResolvedInterfaceCoercion {
-                    implementation: ResolvedInterfaceImplementation::Native,
-                    concrete_type: source,
-                    interface_type: native_interface.clone(),
-                },
-            );
-            return TypeId::Trait(native_interface);
         }
         if matches!(&source, TypeId::Host(_))
             && self.declarations.hosts.implements(interface, &source)
@@ -445,7 +412,7 @@ impl<'a> BodyChecker<'a> {
         // apply Index to the actual argument, just like bracket expressions.
         if matches!(receiver_ty, TypeId::Array(_, _)) && name == "index" && args.len() == 1 {
             let index_ty = self.infer_expr_type(args[0], env);
-            let protocol = StandardTrait::Index;
+            let protocol = Protocol::Index;
             let mut requested = protocol.nominal();
             requested.arguments.push(index_ty);
             if let Some((interface, _)) = self.select_operator(&receiver_ty, requested, env) {
@@ -476,8 +443,8 @@ impl<'a> BodyChecker<'a> {
         // Unrelated same-named traits retain ordinary ambiguity diagnostics.
         if candidates.len() > 1
             && args.len() == 1
-            && let Some(protocol) = StandardTrait::from_id(&candidates[0].1.declaration)
-            && (protocol.binary_operator() || protocol == StandardTrait::Index)
+            && let Some(protocol) = Protocol::from_id(&candidates[0].1.declaration)
+            && (protocol.binary_operator() || protocol == Protocol::Index)
             && candidates
                 .iter()
                 .all(|(_, interface)| interface.declaration == standard_traits::identity(protocol))

@@ -3,11 +3,8 @@ use crate::{
         AggregateCatalog,
         traits::{MethodDefault, MethodSignature},
     },
-    builtin::{
-        numeric,
-        traits::{self, StandardTraitSemantics},
-    },
     declarations::Declarations,
+    language::semantics::{self as traits, ProtocolSemantics},
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
@@ -20,7 +17,7 @@ use crate::{
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 
-use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
+use kagari_abi::language::{self as standard_traits, Protocol};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{self, DefinitionId},
@@ -43,7 +40,7 @@ struct SearchBudget<'a> {
     max_depth: usize,
     cancel: &'a CancellationToken,
     assumptions: &'a GenericBounds,
-    defaults: HashSet<(StandardTrait, TypeId)>,
+    defaults: HashSet<(Protocol, TypeId)>,
 }
 
 impl SearchBudget<'_> {
@@ -80,12 +77,12 @@ impl AggregateCatalog {
         &self,
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
-        let protocol = StandardTrait::from_id(&implementation.trait_type.declaration)?;
+        let protocol = Protocol::from_id(&implementation.trait_type.declaration)?;
         if protocol.iteration() {
-            let other = if protocol == StandardTrait::Iterator {
-                StandardTrait::Iterable
+            let other = if protocol == Protocol::Iterator {
+                Protocol::Iterable
             } else {
-                StandardTrait::Iterator
+                Protocol::Iterator
             };
             if self.implementations.values().any(|candidate| {
                 candidate.trait_type.declaration == standard_traits::identity(other)
@@ -94,12 +91,7 @@ impl AggregateCatalog {
                 return Some("Iterator already supplies identity Iterable");
             }
         }
-        if protocol.reverse_conversion() {
-            return Some(
-                "Into/TryInto are derived from From/TryFrom and cannot be implemented directly",
-            );
-        }
-        if protocol == StandardTrait::From
+        if protocol == Protocol::From
             && implementation
                 .trait_type
                 .arguments
@@ -119,7 +111,7 @@ impl AggregateCatalog {
         {
             return Some("identity From<T> for T is supplied by the language");
         }
-        if protocol.conversion() {
+        if protocol == Protocol::From {
             if matches!(implementation.for_type, TypeId::Host(_))
                 || implementation
                     .trait_type
@@ -149,9 +141,9 @@ impl AggregateCatalog {
         if !protocol.equality_protocol() {
             return None;
         }
-        for required in [StandardTrait::PartialEq, StandardTrait::Eq] {
-            if protocol == StandardTrait::PartialEq
-                || protocol == StandardTrait::Eq && required == StandardTrait::Eq
+        for required in [Protocol::PartialEq, Protocol::Eq] {
+            if protocol == Protocol::PartialEq
+                || protocol == Protocol::Eq && required == Protocol::Eq
             {
                 continue;
             }
@@ -176,7 +168,7 @@ impl AggregateCatalog {
 
     pub fn standard_protocol_holds(
         &self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         ty: &TypeId,
         assumptions: &GenericBounds,
     ) -> bool {
@@ -195,7 +187,7 @@ impl AggregateCatalog {
 
     fn standard_holds(
         &self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         ty: &TypeId,
         visiting: &mut HashSet<(NominalType, TypeId)>,
         budget: &mut SearchBudget<'_>,
@@ -222,8 +214,7 @@ impl AggregateCatalog {
             for constraint in constraints {
                 if let ConstraintTarget::Trait(nominal) = constraint
                     && (nominal == &protocol.nominal()
-                        || protocol == StandardTrait::PartialEq
-                            && nominal == &StandardTrait::Eq.nominal())
+                        || protocol == Protocol::PartialEq && nominal == &Protocol::Eq.nominal())
                 {
                     return Ok(true);
                 }
@@ -246,12 +237,12 @@ impl AggregateCatalog {
                         return Ok(true);
                     }
                 }
-                if matches!(protocol, StandardTrait::Eq | StandardTrait::Hash) {
+                if matches!(protocol, Protocol::Eq | Protocol::Hash) {
                     for implementation in self.implementations.values() {
                         if self
                             .implementation_matches(
                                 implementation,
-                                &StandardTrait::PartialEq.nominal(),
+                                &Protocol::PartialEq.nominal(),
                                 ty,
                                 visiting,
                                 budget,
@@ -263,8 +254,8 @@ impl AggregateCatalog {
                     }
                 }
             }
-            if protocol == StandardTrait::Iterable
-                && self.standard_holds(StandardTrait::Iterator, ty, visiting, budget)?
+            if protocol == Protocol::Iterable
+                && self.standard_holds(Protocol::Iterator, ty, visiting, budget)?
             {
                 return Ok(true);
             }
@@ -333,42 +324,13 @@ impl AggregateCatalog {
     pub fn normalize_type(&self, ty: &TypeId) -> TypeId {
         associated::normalize(ty, &|interface, receiver, member, arguments| {
             if arguments.is_empty()
-                && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::FromStr)
-                && *member == identity::associated_type_id(&interface.declaration, "Err")
-                && let Some(error) = traits::parsing_error(receiver)
-            {
-                return Some(error);
-            }
-
-            if arguments.is_empty()
-                && StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::TryFrom)
-                && *member == identity::associated_type_id(&interface.declaration, "Error")
-                && let (TypeId::Builtin(target), [TypeId::Builtin(source)]) =
-                    (receiver, interface.arguments.as_slice())
-            {
-                return numeric::try_error(*source, *target);
-            }
-
-            if arguments.is_empty()
-                && let Some(kind) = StandardTrait::from_id(&interface.declaration)
+                && let Some(kind) = Protocol::from_id(&interface.declaration)
                 && kind.iteration()
                 && let Some(outputs) =
                     traits::iteration_outputs(kind, receiver, Some(self), &Default::default())
                 && let Some(output) = outputs.get(member)
             {
                 return Some(output.clone());
-            }
-            if arguments.is_empty()
-                && *member == identity::associated_type_id(&interface.declaration, "Error")
-                && let Some((required, target)) =
-                    traits::conversion_requirement(interface, receiver)
-            {
-                return Some(TypeId::Projection {
-                    receiver: Box::new(target),
-                    member: identity::associated_type_id(&required.declaration, "Error"),
-                    interface: Box::new(required),
-                    arguments: vec![],
-                });
             }
             if arguments.is_empty()
                 && *member == identity::associated_type_id(&interface.declaration, "Output")
@@ -378,7 +340,7 @@ impl AggregateCatalog {
             }
             if let TypeId::Trait(actual) = receiver {
                 return self
-                    .trait_closure(actual, receiver, &Default::default())
+                    .interface_closure(actual, receiver, &Default::default())
                     .ok()?
                     .into_iter()
                     .find(|parent| parent.satisfies(interface))?
@@ -668,10 +630,6 @@ impl AggregateCatalog {
         max_depth: usize,
         cancel: &CancellationToken,
     ) -> Result<usize, ImplementationSearchError> {
-        if let Some((required, target)) = traits::conversion_requirement(trait_type, receiver) {
-            return self
-                .implementation_count_bounded(&required, &target, max_checks, max_depth, cancel);
-        }
         let mut budget = SearchBudget {
             checks_left: max_checks,
             depth: 0,
@@ -760,21 +718,6 @@ impl AggregateCatalog {
                             }) {
                                 continue;
                             }
-                            let (mut required, mut actual) =
-                                traits::conversion_requirement(&required, &actual)
-                                    .unwrap_or((required, actual.clone()));
-                            let mut lifted = 0;
-                            while let Some((inner, destination)) =
-                                traits::lifted_collection_requirement(&required, &actual, self)
-                            {
-                                budget.check_candidate()?;
-                                lifted += 1;
-                                if budget.depth + lifted >= budget.max_depth {
-                                    return Err(ImplementationSearchError::LimitExceeded);
-                                }
-                                required = inner;
-                                actual = destination;
-                            }
                             if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b| matches!(b, ConstraintTarget::Trait(t) if t.satisfies(&required)))) { continue; }
                             if traits::intrinsic_applies(
                                 &required,
@@ -786,8 +729,7 @@ impl AggregateCatalog {
                             }
                             if required.arguments.is_empty()
                                 && required.associated_types.is_empty()
-                                && let Some(protocol) =
-                                    StandardTrait::from_id(&required.declaration)
+                                && let Some(protocol) = Protocol::from_id(&required.declaration)
                                 && self.standard_holds(protocol, &actual, visiting, budget)?
                             {
                                 continue;

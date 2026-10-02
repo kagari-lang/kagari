@@ -1,5 +1,5 @@
 use crate::{
-    standard::{intrinsic, traits::StandardTrait},
+    language::{Protocol, primitive as intrinsic},
     types::{
         AbiType,
         proofs::implementation::Implementation,
@@ -16,7 +16,7 @@ impl ProofCatalog<'_> {
         for host in &self.hosts {
             for implementation in &host.trait_implementations {
                 budget.step(0)?;
-                if let Some(kind) = StandardTrait::from_id(&implementation.trait_id) {
+                if let Some(kind) = Protocol::from_id(&implementation.trait_id) {
                     if kind.equality_protocol() || !kind.host_implementable() {
                         return Ok(false);
                     }
@@ -43,19 +43,19 @@ impl ProofCatalog<'_> {
 
     fn iteration_conflict(
         &self,
-        kind: StandardTrait,
+        kind: Protocol,
         receiver: &AbiType,
         budget: &Budget<'_>,
     ) -> Result<bool, TypeTransformError> {
-        let other = if kind == StandardTrait::Iterator {
-            StandardTrait::Iterable
+        let other = if kind == Protocol::Iterator {
+            Protocol::Iterable
         } else {
-            StandardTrait::Iterator
+            Protocol::Iterator
         };
         for table in &self.implementations {
             budget.step(0)?;
             if let Some(applied) = table.interface()
-                && StandardTrait::from_id(&applied.declaration) == Some(other)
+                && Protocol::from_id(&applied.declaration) == Some(other)
                 && overlapping(table.receiver(), receiver)
             {
                 return Ok(true);
@@ -64,7 +64,7 @@ impl ProofCatalog<'_> {
         for host in &self.hosts {
             for implementation in &host.trait_implementations {
                 budget.step(0)?;
-                if StandardTrait::from_id(&implementation.trait_id) == Some(other)
+                if Protocol::from_id(&implementation.trait_id) == Some(other)
                     && *receiver == AbiType::Host(host.id.clone())
                 {
                     return Ok(true);
@@ -82,16 +82,13 @@ impl ProofCatalog<'_> {
         let Some(interface) = table.interface() else {
             return Ok(false);
         };
-        let Some(kind) = StandardTrait::from_id(&interface.declaration) else {
+        let Some(kind) = Protocol::from_id(&interface.declaration) else {
             return Ok(true);
         };
         if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
             return Ok(false);
         }
-        if kind.reverse_conversion() {
-            return Ok(false);
-        }
-        if kind == StandardTrait::From
+        if kind == Protocol::From
             && interface.arguments.first().is_some_and(|input| {
                 input == table.receiver()
                     || match (input, table.receiver()) {
@@ -107,7 +104,7 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        if kind.conversion() {
+        if kind == Protocol::From {
             if iter::once(table.receiver())
                 .chain(&interface.arguments)
                 .any(|ty| matches!(ty, AbiType::Host(_)))
@@ -128,10 +125,8 @@ impl ProofCatalog<'_> {
         if !kind.equality_protocol() {
             return Ok(true);
         }
-        for required in [StandardTrait::PartialEq, StandardTrait::Eq] {
-            if kind == StandardTrait::PartialEq
-                || kind == StandardTrait::Eq && required == StandardTrait::Eq
-            {
+        for required in [Protocol::PartialEq, Protocol::Eq] {
+            if kind == Protocol::PartialEq || kind == Protocol::Eq && required == Protocol::Eq {
                 continue;
             }
             // All nested checks share the override audit's work/cancellation budget.

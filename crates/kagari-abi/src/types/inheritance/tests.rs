@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
+    language::{self, Protocol},
     scalar::BuiltinType,
-    standard::traits::{self, StandardTrait},
     types::{GenericParameterAbi, PublicAbiItem, TraitContract, trait_contract},
 };
 use kagari_common::identity::{
@@ -169,8 +169,8 @@ fn ancestry_rejects_expanding_cycles_missing_contracts_and_wrong_arity() {
 
 #[test]
 fn standard_ids_require_carried_contracts_and_obey_cancellation() {
-    for kind in StandardTrait::ALL {
-        let owner = traits::identity(kind);
+    for kind in Protocol::ALL {
+        let owner = language::identity(kind);
         let root = applied(&owner, vec![]);
         assert_eq!(
             trait_closure(
@@ -215,6 +215,6 @@ fn executable_trait_lookup_requires_exact_owner_and_declaration_identity() {
     let mut repeated = owner.clone();
     repeated.path[0].occurrence = 1;
     assert!(trait_contract(&owner.module, &public, &private, &repeated).is_none());
-    let standard = traits::identity(StandardTrait::PartialEq);
+    let standard = language::identity(Protocol::PartialEq);
     assert!(trait_contract(&standard.module, &[], &[], &standard).is_none());
 }

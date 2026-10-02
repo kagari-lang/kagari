@@ -1,13 +1,14 @@
 #[cfg(test)]
 use crate::hir::ids::HirArenaId;
 use crate::{
-    builtin::{BuiltinFunction, traits},
+    builtin::BuiltinFunction,
     callable::AppliedCallSignature,
     hir::ids::{
         EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, OpaqueTypeId, PatternId,
         PlaceId, StructId, TraitId, TypeRefId,
     },
     host::{HostFunctionId, HostTypeId},
+    language::semantics as traits,
     source_map::SourceMap,
     typeck::{constraints, scalar::ScalarValue},
     types::{
@@ -16,7 +17,7 @@ use crate::{
     },
 };
 
-use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
+use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     host_interface::path::{HostPathContract, HostPathDeclaration},
     identity::DefinitionId,
@@ -157,7 +158,6 @@ pub struct ResolvedInterfaceCoercion {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedInterfaceImplementation {
-    Native,
     Upcast,
     Script {
         declaration: DefinitionId,
@@ -401,7 +401,7 @@ impl TypeTable {
     ) -> bool {
         if trait_type.arguments.is_empty()
             && trait_type.associated_types.is_empty()
-            && let Some(kind) = StandardTrait::from_id(&trait_type.declaration)
+            && let Some(kind) = Protocol::from_id(&trait_type.declaration)
         {
             return traits::intrinsic_holds(kind, ty, None, &Default::default());
         }

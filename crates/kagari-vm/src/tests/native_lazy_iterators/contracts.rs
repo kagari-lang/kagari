@@ -3,9 +3,10 @@ use super::cases;
 use crate::tests::common::compile_test_bytecode;
 use kagari_abi::{
     callable::EngineNativeBinding,
+    language::Protocol,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{bindings::NativeDefaultMethod, traits::StandardTrait},
+    standard::bindings::NativeDefaultMethod,
     types::{AbiType, PublicAbiItem},
 };
 use kagari_bytecode::{
@@ -63,9 +64,7 @@ fn native_list_source_and_readonly_result_require_distinct_applications() {
             .iter()
             .enumerate()
             .filter_map(|(index, witness)| {
-                if StandardTrait::from_id(&witness.interface.declaration)
-                    != Some(StandardTrait::List)
-                {
+                if Protocol::from_id(&witness.interface.declaration) != Some(Protocol::List) {
                     return None;
                 }
                 let NativeWitnessImplementation::Table(target) = &witness.implementation else {

@@ -26,10 +26,11 @@ mod calls;
 mod patterns;
 
 use kagari_abi::{
+    language::Protocol,
     numeric::NumericConversion,
     operations::{StandardEnumOp, UnaryOp},
     representation::ValueType,
-    standard::{RuntimePrimitive, traits::StandardTrait},
+    standard::RuntimePrimitive,
 };
 use kagari_common::collection::CollectionAccess;
 
@@ -207,10 +208,6 @@ impl FunctionLowerer<'_, '_> {
                     .require_parent_interfaces(&types[0], interface, span)?;
                 let (implementation, arguments) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
-                    ResolvedInterfaceImplementation::Native => (
-                        self.planner.native_interface(&types[0], interface, span)?,
-                        Vec::new(),
-                    ),
                     ResolvedInterfaceImplementation::Host => {
                         let mut types = self
                             .planner
@@ -660,8 +657,7 @@ impl FunctionLowerer<'_, '_> {
                             self.function.debug.source_span,
                         )?
                         .remove(0);
-                    let equal =
-                        self.lower_protocol(StandardTrait::PartialEq, &ty, &[lhs, rhs], 0)?;
+                    let equal = self.lower_protocol(Protocol::PartialEq, &ty, &[lhs, rhs], 0)?;
                     if op == HirBinaryOp::Eq {
                         return Ok(equal);
                     }

@@ -51,8 +51,7 @@ pub(super) fn catalog<'a>(
                 let PublicAbiItem::InterfaceTable(table) = item else {
                     return None;
                 };
-                (!table.native_bridge && !table.host_bridge)
-                    .then_some(Implementation::Interface(table.as_ref()))
+                (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
             })
             .collect(),
         closure

@@ -1,12 +1,10 @@
 //! Core scalar operations over closed engine representation facts.
-use super::traits;
+use crate::language::semantics as traits;
 use crate::types::TypeId;
 use kagari_abi::{
+    language::Protocol,
     scalar::BuiltinType,
-    standard::{
-        surface::{BuiltinTypeFamily, builtin_type_spec},
-        traits::StandardTrait,
-    },
+    standard::surface::{BuiltinTypeFamily, builtin_type_spec},
 };
 
 pub fn is_numeric(ty: &TypeId) -> bool {
@@ -47,8 +45,8 @@ pub fn supports_const_type(ty: &TypeId) -> bool {
 }
 
 pub fn supports_hash_key(ty: &TypeId) -> bool {
-    traits::intrinsic_holds(StandardTrait::Eq, ty, None, &Default::default())
-        && traits::intrinsic_holds(StandardTrait::Hash, ty, None, &Default::default())
+    traits::intrinsic_holds(Protocol::Eq, ty, None, &Default::default())
+        && traits::intrinsic_holds(Protocol::Hash, ty, None, &Default::default())
 }
 
 fn builtin_family(ty: &TypeId) -> Option<BuiltinTypeFamily> {

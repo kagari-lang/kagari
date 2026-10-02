@@ -3,8 +3,8 @@ mod applications;
 mod native;
 use kagari_abi::{
     contracts, host,
+    language::Protocol,
     representation::ValueType,
-    standard::traits::StandardTrait,
     types::{
         self as abi, AbiType, ConcreteFunctionIdentity, PublicAbiItem, inheritance,
         substitution::TypeTransformError,
@@ -252,7 +252,7 @@ pub fn verify_program(
         {
             let id = &implementation.trait_id;
             let owner = indices.get(&id.module);
-            if StandardTrait::from_id(id).is_some()
+            if Protocol::from_id(id).is_some()
                 && !owner.is_some_and(|owner| *owner == index || dependencies.contains(owner))
             {
                 return Err(error(

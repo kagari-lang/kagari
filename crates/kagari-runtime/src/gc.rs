@@ -30,10 +30,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use indexmap::IndexMap;
+use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
 mod array_ops;
 mod capacity;
 mod custom_keys;
+mod hash_storage;
 mod iter;
 pub(crate) mod managed_iter;
 pub mod mutations;
@@ -189,8 +190,8 @@ enum HeapObject {
     Iter(Box<iter::NativeIter>),
     ManagedIter(Box<managed_iter::ManagedIter>),
     Array(Vec<Value>),
-    Map(IndexMap<MapKey, Value>),
-    Set(IndexMap<MapKey, ()>),
+    Map(HashMapStorage),
+    Set(HashSetStorage),
     Enum(EnumValueSnapshot, Option<Arc<ErrorTrace>>),
     Struct {
         layout: StructLayoutRef,
@@ -213,7 +214,7 @@ enum HeapObject {
 impl HeapObject {
     fn units(&self) -> usize {
         1 + match self {
-            Self::Iter(_) => 1,
+            Self::Iter(iter) => 1 + iter.keys.len(),
             Self::ManagedIter(state) => state.units(),
             Self::Array(values) => values.len(),
             Self::Map(values) => values.len(),
@@ -1153,11 +1154,12 @@ impl GcHeap {
             match object {
                 HeapObject::Iter(iter) => {
                     pending.push(&iter.source);
+                    pending.extend(iter.keys.iter().map(MapKey::value));
                 }
                 HeapObject::ManagedIter(iter) => pending.extend(iter.captures.iter().rev()),
                 HeapObject::Array(elements) => pending.extend(elements.iter().rev()),
                 HeapObject::Map(entries) => {
-                    for (key, value) in entries.iter().rev() {
+                    for (key, value) in entries.iter() {
                         pending.push(key.value());
                         pending.push(value);
                     }
@@ -1169,7 +1171,7 @@ impl GcHeap {
                     pending.extend(snapshot.captures.iter().rev())
                 }
                 HeapObject::Cell { value, .. } => pending.push(value),
-                HeapObject::Set(keys) => pending.extend(keys.keys().rev().map(MapKey::value)),
+                HeapObject::Set(keys) => pending.extend(keys.iter().map(MapKey::value)),
             }
         }
         Some(traced)

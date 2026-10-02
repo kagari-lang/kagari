@@ -1,5 +1,5 @@
 use crate::{analysis::AnalysisDatabase, declarations::DeclarationId};
-use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
+use kagari_abi::language::{self as standard_traits, Protocol};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 use std::collections::HashSet;
 
@@ -54,7 +54,7 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
         }
     }
     assert!(count > 0);
-    for kind in StandardTrait::ALL {
+    for kind in Protocol::ALL {
         assert!(identities.contains(&DeclarationId::Definition(standard_traits::identity(kind))));
     }
 }

@@ -3,9 +3,9 @@
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
-    builtin::traits::intrinsic_holds,
     declarations::Declarations,
     host::HostDeclarations,
+    language::semantics::intrinsic_holds,
     lower::LoweredModule,
     typeck::{
         GenericBounds, ModuleSignatures,
@@ -17,7 +17,7 @@ use crate::{
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
+use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -66,7 +66,7 @@ pub(super) fn validate(
         };
         if let Some(key) = key
             && type_satisfies_standard_constraint(key, StandardTypeConstraint::HashKey, bounds)
-            && [StandardTrait::Eq, StandardTrait::Hash]
+            && [Protocol::Eq, Protocol::Hash]
                 .into_iter()
                 .any(|p| !intrinsic_holds(p, key, Some(catalog), bounds))
         {
@@ -184,7 +184,7 @@ pub(super) fn validate(
                             // Trait implementation identity needs complete members;
                             // standard constraint recovery belongs to the shared checker.
                             if actual.is_unresolved()
-                                && matches!(constraint, ConstraintTarget::Trait(t) if StandardTrait::from_id(&t.declaration).is_none())
+                                && matches!(constraint, ConstraintTarget::Trait(t) if Protocol::from_id(&t.declaration).is_none())
                             {
                                 continue;
                             }
@@ -211,7 +211,7 @@ pub(super) fn validate(
                                         _ => match catalog.implementation_count(&applied, actual)
                                             + usize::from(hosts.implements(&applied, actual))
                                         {
-                                            0 => StandardTrait::from_id(&applied.declaration).is_none() && table.implements(&applied, actual),
+                                            0 => Protocol::from_id(&applied.declaration).is_none() && table.implements(&applied, actual),
                                             1 => true,
                                             _ => false,
                                         },
@@ -518,8 +518,7 @@ pub(super) fn validate_imported_interface_type(
         }
         match ty {
             TypeId::Trait(instance) => {
-                if StandardTrait::from_id(&instance.declaration).is_some_and(|kind| !kind.dynamic())
-                {
+                if Protocol::from_id(&instance.declaration).is_some_and(|kind| !kind.dynamic()) {
                     diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidInterfaceType { trait_name: ty.display_name(), reason: "standard protocols currently support static bounds and dispatch only".into() }).with_span(span));
                 }
                 let erased = catalog.trait_closure(instance, ty, cancel);
@@ -537,7 +536,7 @@ pub(super) fn validate_imported_interface_type(
                         .with_span(span),
                     );
                 }
-                if let Ok(parents) = catalog.trait_closure(instance, ty, cancel) {
+                if let Ok(parents) = catalog.interface_closure(instance, ty, cancel) {
                     for (index, parent) in parents.into_iter().enumerate() {
                         if index == 0 && &instance.declaration.module == module {
                             continue;
@@ -545,7 +544,7 @@ pub(super) fn validate_imported_interface_type(
                         let Some(contract) = catalog.trait_(&parent.declaration) else {
                             continue;
                         };
-                        if StandardTrait::from_id(&parent.declaration)
+                        if Protocol::from_id(&parent.declaration)
                             .is_some_and(|kind| !kind.dynamic())
                             && index != 0
                         {

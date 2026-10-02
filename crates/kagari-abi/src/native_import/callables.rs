@@ -61,7 +61,15 @@ impl NativeCallableRequirement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NativeCallableOrigin {
+    Implementation,
+    /// A checked language protocol is materialized as an ordinary function.
+    ProtocolAdapter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeCallableApplication {
+    pub origin: NativeCallableOrigin,
     pub requirement: NativeCallableRequirement,
     pub instance: ConcreteFunctionIdentity,
     pub implementation: CallableImplementation,

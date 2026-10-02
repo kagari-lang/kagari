@@ -1,6 +1,7 @@
 # Native Collections Reset Plan
 
-Status: execution started on 2026-10-02; phase 1 is complete and phase 2 is next.
+Status: execution started on 2026-10-02; phases 1-2 are committed scope checkpoints.
+Phase 3 is next; runtime execution acceptance remains pending, as recorded below.
 The goal follows this replacement plan, not the retired restoration sequence.
 
 This is the active native-library plan. It replaces NR00-NR05, the full-library
@@ -522,6 +523,7 @@ library. Audit existing syntax/specifications first; do not copy all 38 old trai
 | Index and existing writable indexing rules | Index/output contracts, read/write lowering and once-only evaluation; no new assignment syntax |
 | Iterator / Iterable | Associated item/iterator contracts and ordinary selected implementations used by for loops |
 | Fn | Function/closure contracts, argument tuples, associated outputs and normal callable implementations |
+| From used by Result propagation | Preserve the specified `F: From<E>` error conversion for `?`, including identity/lossless scalar cases and type-owned explicit implementations; no reverse/fallible/parsing selector catalog |
 | RangeBounds and range forms | Contracts required by existing range/index syntax and bounds checks |
 | Debug / Display | Existing implicit formatting contracts and implementations; public printing functions remain library/host APIs |
 
@@ -535,6 +537,9 @@ Iterable constrained by its actual associated iterator instead of a fixed Iter<T
 Callback conveniences such as get_or_insert_with/update, sorting and grouping are
 library algorithms. FromIterator, Sum/Product and conversion/parsing helpers remain
 library declarations where no language syntax or implicit semantics requires them.
+The existing Result `?` specification does require From, so that minimal forward
+contract belongs to the language; this does not restore the predecessor conversion
+package or its method-name selectors.
 Moving basic contracts into the compiler does not restore all predecessor methods.
 
 - HIR receives complete compiler-owned declarations, bounds and associated outputs.
@@ -688,7 +693,7 @@ No build/test failure remains in retained workspace consumers.
 ## Checklist
 
 - [x] Phase 1: old library implementation and tracked executable fixtures removed.
-- [ ] Phase 2: compiler-owned protocols and three default containers implemented independently.
+- [x] Phase 2: compiler-owned protocol/default declarations, lowering and base storage implemented; execution integration carried below.
 - [ ] Phase 3: efficient synchronous native calls and typed storage implemented.
 - [ ] Phase 4: ArrayList algorithm module, storage extension and measured proof accepted.
 
@@ -795,3 +800,77 @@ The removed typed macro adapters also leave managed_iter's native_value referenc
 for phase 3's cursor/context replacement. No temporary implementation is added.
 Whole-workspace execution is intentionally unavailable at this intermediate point;
 final acceptance still requires resolving retained consumers and all required checks.
+
+2026-10-02 — Phase 2 in progress (not a completed checkpoint). Added the HIR-owned
+explicit language declaration catalog and portable kagari-core::language protocol
+identities, independently of optional native installation. The catalog defines
+complete value/operator/collection/iteration contracts, Option/Result/Ordering/
+Bound/range representations, canonical defaults and ordinary foundation binding
+slots. Native type bounds now reach declaration text and HIR from the same checked
+records; hash bounds belong to HashMap/HashSet, never Map/Set. Removed conversion/
+aggregation method-name selectors, synthetic native interface tables and their
+native_bridge ABI flag. Retained From because Result `?` requires its specified
+forward error conversion, with identity/ownership checks preserved. Ordinary user
+traits with library names use normal nominal proof records.
+
+Default GC storage now uses std::collections::HashMap/HashSet. A cached-hash token
+index enumerates collision candidates without invoking script callbacks under a
+Rust table borrow. Structural mutation/lookup guards, generation checks and GC
+edges remain. Hash iteration retains a key snapshot once and performs direct
+lookups on next; it does not promise insertion order or perform an O(n) scan on
+every next. The key snapshot's construction/tracing cost is explicit. Runtime
+integration is not yet verified while the old managed-iterator adapter still
+imports retired native_value state types (phase 3 owns that replacement).
+
+Current focused evidence: cargo test -p kagari-abi passes 39 unit and 11 native-
+default tests. Two predecessor numeric-dispatch tests were retired with the removed
+RuntimePrimitive library variants; the independent numeric shape test remains.
+The new language_contracts integration target passes its portable catalog/tooling
+and library-disabled declaration cases. Its two behavior cases currently fail:
+dynamic List/Map/Set views inherit Iterable with an unconstrained actual Iter,
+where the existing interface checker requires all associated outputs to be fixed.
+This is a real phase 2 boundary to implement, not a reason to restore a fixed
+Iter<T> or skip interface validation. The custom iterator test also needs the
+existing parser's parenthesized struct-construction syntax in its for expression.
+The failures are retained. ABI/HIR production checks pass; compiler import cleanup
+is being checked. Structure inspection passes 793 Rust files with no exceptions;
+no phase 2 commit or completion is claimed.
+
+
+2026-10-02 — Phase 2 scope checkpoint. Completed the compiler-owned contract
+catalog and default container implementation records independently of optional
+native installation. RangeBounds and the three start-bearing integral range forms
+have ordinary implementation records. Iterable's actual Iter remains concrete in
+implementation proofs; dynamic collection views expose Iterator<Item = Item>
+from its checked associated bound. Portable dynamic surfaces are distinct from raw
+implementation ancestry. Parent selection checks every specified associated output
+while permitting an implementation to supply the remaining required outputs.
+Removed an unsafe predecessor lowering fallback: Iterable returns its receiver
+only when the Iterator identity rule is actually proved, rather than whenever
+implementation lookup fails. Retained the user's pending scalar protocol adapter
+metadata/lowering work, reconciled against the language kernel identities.
+
+Focused validation: cargo test -p kagari-abi passes 39 unit + 11 integration tests;
+cargo test -p kagari-hir --test language_contracts passes 6 cases (portable records,
+generated source, no optional installation, defaults and user iteration, readonly/
+hash rejection, and invalid associated iterator/item rejection). cargo test -p
+kagari-compiler --test language_foundation passes all 3 cases, including actual
+MIR/bytecode verification for scalar programs, default list native calls and dynamic
+List iteration. Compiler production checking, formatting, structure inspection
+(795 Rust files, zero violations/exceptions), and git diff --check pass.
+
+Build status is separate from this phase's scope checkpoint, under the user's
+explicit permission for compilation failures throughout the migration. Runtime
+still cannot build because gc/managed_iter.rs imports retired native_value state
+adapters. Phase 3 must replace that storage/invocation mechanism, install the
+foundation binding slots through the intended synchronous interface and prepare
+checked interface result conversions when a dynamic view hides a concrete iterator.
+No runtime execution, custom hash collision behavior or GC pass is claimed here;
+phase 2's execution exit assertions remain final integration obligations after
+that real implementation is connected. There are no placeholder callbacks or
+restored old adapters. cargo test -p kagari-hir --lib --no-run reports 33 obsolete
+consumer errors (removed EngineNativeBinding/NativeDefaultMethod/library variants,
+removed stdlib cache, and optional FromIterator/Sum/Product kernel identities).
+Phase 3 owns retained native/tooling consumer migration; phase 4 owns the explicit
+bounded-test disposition and final workspace integration. Do not restore the full
+library or weaken retained assertions to satisfy these predecessor consumers.

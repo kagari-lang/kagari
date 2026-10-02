@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::EngineNativeBinding,
+    language::Protocol,
     native_import::{NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{bindings::NativeProtocolMethod, intrinsic, traits::StandardTrait},
+    standard::{bindings::NativeProtocolMethod, intrinsic},
     types::AbiType,
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -82,16 +83,15 @@ fn main(){{val items:ArrayList<{item}> =[{values}];val result:{output} = <{outpu
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::FromIterator)
+                    Protocol::from_id(&witness.interface.declaration)
+                        == Some(Protocol::FromIterator)
                 })
                 .unwrap();
             let next = import
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::Iterator)
+                    Protocol::from_id(&witness.interface.declaration) == Some(Protocol::Iterator)
                 })
                 .unwrap();
             match mutation {
@@ -113,7 +113,7 @@ fn main(){{val items:ArrayList<{item}> =[{values}];val result:{output} = <{outpu
                     .push(import.instance.clone()),
                 11 => import.witnesses.push(NativeWitness {
                     receiver: boolean,
-                    interface: intrinsic::applied(StandardTrait::Eq, vec![]),
+                    interface: intrinsic::applied(Protocol::Eq, vec![]),
                     implementation: NativeWitnessImplementation::Primitive,
                     methods: vec![],
                 }),
@@ -151,8 +151,7 @@ fn main(){{val items:ArrayList<{item}> =[{values}];val result:{output} = <{outpu
             .witnesses
             .iter()
             .find(|witness| {
-                StandardTrait::from_id(&witness.interface.declaration)
-                    == Some(StandardTrait::FromIterator)
+                Protocol::from_id(&witness.interface.declaration) == Some(Protocol::FromIterator)
                     && !witness.methods.is_empty()
             });
         if let Some(selected) = selected {

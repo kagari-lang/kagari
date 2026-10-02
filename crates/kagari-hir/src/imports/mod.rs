@@ -14,7 +14,7 @@ use crate::{
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
 };
-use kagari_abi::standard::surface::StandardEnum;
+use kagari_abi::{language, standard::surface::StandardEnum};
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -518,6 +518,7 @@ fn resolve_imports(
             entry.target = None;
         }
     }
+    add_language_prelude(module, catalog, &local_items, &mut result, cancel)?;
     let mut roots = result
         .entries
         .iter()
@@ -597,6 +598,54 @@ fn resolve_imports(
         }
     }
     Ok(result)
+}
+
+/// The compiler's immutable declarations are the weakest implicit imports.
+/// Local declarations and explicit imports/globs retain ordinary precedence.
+fn add_language_prelude(
+    module: &LoweredModule,
+    catalog: &SourceCatalog<'_>,
+    local_items: &HashSet<&str>,
+    imports: &mut ModuleImports,
+    cancel: &CancellationToken,
+) -> Result<(), Cancelled> {
+    let core = language::module_identity();
+    if module.source.module_identity() == &core {
+        return Ok(());
+    }
+    let Some(entries) = catalog.paths.get(&core.to_string()) else {
+        return Ok(());
+    };
+    let [entry] = entries.as_slice() else {
+        return Ok(());
+    };
+    for (name, members) in entry.members.iter() {
+        cancel.check()?;
+        if name.contains("::")
+            || local_items.contains(name.as_str())
+            || imports.entries.iter().any(|import| import.alias == *name)
+        {
+            continue;
+        }
+        let [member] = members.as_slice() else {
+            continue;
+        };
+        if member.visibility != Visibility::Public {
+            continue;
+        }
+        imports.entries.push(ResolvedImport {
+            alias: name.clone(),
+            span: Span::new(0, 0),
+            target: Some(ImportTarget::Source(
+                entry.target(Some(member.item), module.source.module_identity()),
+            )),
+            glob_root: false,
+            implicit_module: None,
+            visibility: Visibility::Private,
+            internal_namespace: false,
+        });
+    }
+    Ok(())
 }
 
 fn visibility_covers(

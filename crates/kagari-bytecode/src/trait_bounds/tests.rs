@@ -1,7 +1,7 @@
 use super::*;
 use kagari_abi::{
+    language::primitive,
     scalar::BuiltinType,
-    standard::intrinsic,
     types::{AssociatedTypeAbi, AssociatedTypeFamilyAbi, ConstraintAbi, InterfaceTableAbi},
 };
 use kagari_common::identity::{ModuleIdentity, associated_type_id};
@@ -46,7 +46,6 @@ fn table(name: &str, interface: NominalAbiType) -> InterfaceTableAbi {
         associated_consts: vec![],
         associated_type_families: vec![],
         host_bridge: false,
-        native_bridge: false,
     }
 }
 fn module(items: Vec<PublicAbiItem>) -> BytecodeModule {
@@ -59,7 +58,7 @@ fn module(items: Vec<PublicAbiItem>) -> BytecodeModule {
 
 fn with_hash_bounds(module: &BytecodeModule) -> bool {
     let protocol = BytecodeModule {
-        identity: intrinsic::applied(StandardTrait::Hash, vec![])
+        identity: intrinsic::applied(Protocol::Hash, vec![])
             .declaration
             .module,
         public_items: vec![PublicAbiItem::Trait(record("Hash"))],
@@ -78,7 +77,7 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
         generic_params: vec![],
         parameter_bounds: vec![],
         bounds: vec![ConstraintAbi::Trait(intrinsic::applied(
-            StandardTrait::Hash,
+            Protocol::Hash,
             vec![],
         ))],
     });
@@ -125,7 +124,7 @@ fn linked_family_bounds_use_declared_input_assumptions_and_check_unused_projecti
         owner: member.clone(),
         position: 0,
     };
-    let hash = ConstraintAbi::Trait(intrinsic::applied(StandardTrait::Hash, vec![]));
+    let hash = ConstraintAbi::Trait(intrinsic::applied(Protocol::Hash, vec![]));
     let mut declaration = record("Family");
     declaration.associated_types.push(AssociatedTypeAbi {
         declaration: member.clone(),

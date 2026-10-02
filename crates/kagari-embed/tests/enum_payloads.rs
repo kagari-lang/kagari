@@ -1,6 +1,6 @@
 use kagari_abi::{
+    language::{self as standard_traits, Protocol},
     scalar::BuiltinType,
-    standard::traits::{self as standard_traits, StandardTrait},
     types::{AbiType, PublicAbiItem},
 };
 use {kagari_bytecode::instruction::EnumId, kagari_runtime::module::LoadedModule};
@@ -265,10 +265,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     let AbiType::Trait(list) = &payload[1] else {
         panic!("list interface payload")
     };
-    assert_eq!(
-        list.declaration,
-        standard_traits::identity(StandardTrait::List)
-    );
+    assert_eq!(list.declaration, standard_traits::identity(Protocol::List));
     assert_eq!(list.arguments, vec![AbiType::Builtin(BuiltinType::String)]);
     let decoded = BytecodeArtifact::from_bytes(&original.to_bytes().unwrap()).unwrap();
     decoded.validate_for_loader(&Default::default()).unwrap();

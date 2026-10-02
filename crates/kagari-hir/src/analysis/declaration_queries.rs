@@ -5,7 +5,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::ModuleGraph,
-    lower,
+    language, lower,
     native::api as native_api,
     resolver::resolved::DeclarationNames,
 };
@@ -135,12 +135,11 @@ impl AnalysisDatabase {
         let native_files = match self.native_files.get() {
             Some(files) => files,
             None => {
-                let prepared = self
-                    .native_modules
+                let mut modules = vec![Arc::new(language::declarations())];
+                modules.extend(self.native_modules.iter().cloned());
+                let prepared = modules
                     .iter()
-                    .map(|module| {
-                        native_api::import(module, &self.native_modules, self.parse_limits, cancel)
-                    })
+                    .map(|module| native_api::import(module, &modules, self.parse_limits, cancel))
                     .collect::<Result<Vec<_>, _>>();
                 cancel.check()?;
                 self.native_files

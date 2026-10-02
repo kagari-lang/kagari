@@ -3,7 +3,7 @@ use kagari_abi::{
     callable::{CallableImplementation, NativeBinding},
     standard::{
         surface::StandardEnum,
-        traits::{self, StandardTrait},
+        traits::{self, Protocol},
     },
     types::{
         self as abi, AbiType, NominalAbiType, PublicAbiItem, TypeAbiKind,
@@ -109,7 +109,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             analyzed.result().diagnostics()
         );
         let module = collect_module_abi(analyzed.result().facts());
-        for kind in StandardTrait::ALL {
+        for kind in Protocol::ALL {
             let id = traits::identity(kind);
             if id.module != *declared.source().module_identity() {
                 continue;
@@ -140,7 +140,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             assert!(contracts.insert(id, record.clone()).is_none());
         }
     }
-    assert_eq!(contracts.len(), StandardTrait::ALL.len());
+    assert_eq!(contracts.len(), Protocol::ALL.len());
     for (id, record) in &contracts {
         let interface = NominalAbiType {
             declaration: id.clone(),
@@ -163,7 +163,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             record.name
         );
     }
-    let add = traits::identity(StandardTrait::Add);
+    let add = traits::identity(Protocol::Add);
     let method = &contracts[&add].methods[0];
     assert_eq!(method.params[0].ty, AbiType::SelfType(add.clone()));
     let AbiType::Projection {

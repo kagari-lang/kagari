@@ -1,4 +1,4 @@
-use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
+use kagari_abi::language::{self as standard_traits, Protocol};
 use {kagari_bytecode::program::verify_program, kagari_embed::error::EmbeddingError};
 use {
     kagari_embed::{context::JitPolicy, engine::EngineConfig},
@@ -221,7 +221,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
                     let AbiType::Trait(trait_type) = &mut table.trait_type else {
                         panic!("trait");
                     };
-                    trait_type.declaration = standard_traits::identity(StandardTrait::Hash);
+                    trait_type.declaration = standard_traits::identity(Protocol::Hash);
                 }
                 3 => table.methods.clear(),
                 _ => {
@@ -681,7 +681,7 @@ pub fn make()->LinkedHashMap<Key,i32> {val m:LinkedHashMap<Key,i32> = LinkedHash
 #[test]
 fn portable_hash_implementations_require_explicit_comparison_contracts() {
     use kagari_abi::{
-        standard::traits::StandardTrait,
+        language::Protocol,
         types::{AbiType, PublicAbiItem},
     };
     let artifact = KagariEngine::default()
@@ -700,7 +700,7 @@ fn main()->i64 {Key{id:1}.hash()}
             Default::default(),
         )
         .unwrap();
-    for missing in [StandardTrait::Eq, StandardTrait::PartialEq] {
+    for missing in [Protocol::Eq, Protocol::PartialEq] {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
         module.public_items.retain(|item| !matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type, AbiType::Trait(t) if t.declaration==standard_traits::identity(missing))));
@@ -771,12 +771,12 @@ fn key_calls_carry_checked_storage_and_selected_protocols() {
                 contract.resolve(),
                 Some(EngineNativeOperation::Resumable(binding))
             );
-            for protocol in [StandardTrait::Hash, StandardTrait::PartialEq] {
+            for protocol in [Protocol::Hash, Protocol::PartialEq] {
                 let witness = contract
                     .witnesses
                     .iter()
                     .find(|witness| {
-                        StandardTrait::from_id(&witness.interface.declaration) == Some(protocol)
+                        Protocol::from_id(&witness.interface.declaration) == Some(protocol)
                     })
                     .unwrap();
                 assert_eq!(

@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
+    language::Protocol,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, bindings::NativeProtocolMethod, traits::StandardTrait},
+    standard::{RuntimePrimitive, bindings::NativeProtocolMethod},
     types::AbiType,
 };
 use kagari_bytecode::{
@@ -67,16 +68,14 @@ fn main(){{{setup}{body}}}
                     .witnesses
                     .iter()
                     .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration)
-                            == Some(StandardTrait::Iterable)
+                        Protocol::from_id(&w.interface.declaration) == Some(Protocol::Iterable)
                     })
                     .unwrap();
                 let next = contract
                     .witnesses
                     .iter()
                     .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration)
-                            == Some(StandardTrait::Iterator)
+                        Protocol::from_id(&w.interface.declaration) == Some(Protocol::Iterator)
                     })
                     .unwrap();
                 match mutation {
@@ -116,8 +115,7 @@ fn main(){{{setup}{body}}}
                         .push(contract.instance.clone()),
                     7 => {
                         if let Some(index) = contract.witnesses.iter().position(|w| {
-                            StandardTrait::from_id(&w.interface.declaration)
-                                == Some(StandardTrait::List)
+                            Protocol::from_id(&w.interface.declaration) == Some(Protocol::List)
                         }) {
                             contract.witnesses.remove(index);
                         } else {

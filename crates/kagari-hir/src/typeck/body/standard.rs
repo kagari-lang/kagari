@@ -1,11 +1,11 @@
 use crate::{
-    builtin::traits::StandardTraitSemantics,
     hir::{expr::ExprKind, ids::ExprId},
+    language::semantics::ProtocolSemantics,
     native::NativeTypeKind,
     typeck::{BodyTypeEnv, body::BodyChecker, completion, table::CallTarget},
     types::TypeId,
 };
-use kagari_abi::standard::{surface::StandardEnum, traits::StandardTrait};
+use kagari_abi::{language::Protocol, standard::surface::StandardEnum};
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
@@ -140,11 +140,14 @@ impl BodyChecker<'_> {
                         self.propagation_defaults
                             .push((target.clone(), source.clone()));
                     }
-                    let mut interface = StandardTrait::From.nominal();
+                    let mut interface = Protocol::From.nominal();
                     interface.arguments.push(source.clone());
                     if source.is_unresolved() || target.is_unresolved() {
                         true
-                    } else if self.conversion_holds(&interface, &target, env)
+                    } else if self
+                        .aggregates
+                        .implementation_count_bounded(&interface, &target, 4096, 64, self.cancel)
+                        .is_ok_and(|count| count == 1)
                         && let Some(contract) = self.aggregates.trait_(&interface.declaration)
                         && let [method] = contract.methods.as_slice()
                     {

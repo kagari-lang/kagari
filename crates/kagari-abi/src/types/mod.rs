@@ -10,13 +10,11 @@ mod wire;
 
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
+    language::Protocol,
     native_import::callables::NativeCallableRequirement,
     representation::ValueType,
     scalar::BuiltinType,
-    standard::{
-        surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
-        traits::StandardTrait,
-    },
+    standard::surface::{StandardEnum as StandardEnumKind, StandardTypeConstraint},
     types::{
         native::NativeTypeConstructor,
         substitution::{TypeSubstitution, resolve_associated_outputs},
@@ -174,6 +172,19 @@ pub struct NominalAbiType {
     pub arguments: Vec<AbiType>,
     #[serde(deserialize_with = "crate::decode_limits::map")]
     pub associated_types: BTreeMap<DefinitionId, AbiType>,
+}
+
+impl NominalAbiType {
+    /// A required view can leave outputs unspecified; specified outputs remain
+    /// invariant and must equal the concrete implementation's checked outputs.
+    pub fn satisfies(&self, required: &Self) -> bool {
+        self.declaration == required.declaration
+            && self.arguments == required.arguments
+            && required
+                .associated_types
+                .iter()
+                .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -375,7 +386,6 @@ pub struct InterfaceTableAbi {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     pub associated_consts: Vec<ConstAbi>,
     pub host_bridge: bool,
-    pub native_bridge: bool,
     pub declaration: DefinitionId,
     pub name: String,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -452,7 +462,6 @@ impl InterfaceTableAbi {
                 .collect::<Option<_>>()?,
             associated_consts: self.associated_consts.clone(),
             host_bridge: self.host_bridge,
-            native_bridge: self.native_bridge,
             declaration: self.declaration.clone(),
             name: self.name.clone(),
             generic_params: Vec::new(),
@@ -610,5 +619,5 @@ pub fn trait_contract<'a>(
 
 /// Whether a canonical standard interface uses collection identity semantics.
 pub fn is_collection_interface(id: &DefinitionId) -> bool {
-    StandardTrait::from_id(id).is_some_and(StandardTrait::collection)
+    Protocol::from_id(id).is_some_and(Protocol::collection)
 }

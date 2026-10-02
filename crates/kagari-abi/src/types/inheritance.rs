@@ -1,14 +1,65 @@
 //! Applied trait ancestry over portable declaration contracts.
-use crate::types::{
-    AbiType, NominalAbiType, TraitAbi,
-    substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+use crate::{
+    language::{Protocol, identity},
+    types::{
+        AbiType, ConstraintAbi, NominalAbiType, TraitAbi,
+        substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+    },
 };
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionId, associated_type_id},
+};
 use std::collections::HashSet;
 
 const MAX_TRAITS: usize = 4_096;
 const MAX_PATH: usize = 64;
 const MAX_EDGES: usize = 100_000;
+
+/// Concrete dynamic values hide Iterable's iterator behind its declared bound.
+/// Implementation ancestry remains unchanged: a view is not a second impl.
+pub fn interface_views<'a>(
+    interface: &NominalAbiType,
+    receiver: &AbiType,
+    cancel: &CancellationToken,
+    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitAbi>,
+) -> Result<Vec<NominalAbiType>, TypeTransformError> {
+    let mut closure = trait_closure(interface, receiver, cancel, lookup)?;
+    for parent in &mut closure {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        if parent.declaration != identity(Protocol::Iterable) {
+            continue;
+        }
+        let iter = associated_type_id(&parent.declaration, "Iter");
+        if parent.associated_types.contains_key(&iter) {
+            continue;
+        }
+        let contract = lookup(&parent.declaration).ok_or(TypeTransformError::InvalidContract)?;
+        let Some(output) = contract
+            .associated_types
+            .iter()
+            .find(|output| output.declaration == iter)
+        else {
+            continue;
+        };
+        let [ConstraintAbi::Trait(bound)] = output.bounds.as_slice() else {
+            continue;
+        };
+        if !output.generic_params.is_empty() || bound.declaration != identity(Protocol::Iterator) {
+            continue;
+        }
+        let mut parameters = TypeSubstitution::default();
+        for (parameter, argument) in contract.generic_params.iter().zip(&parent.arguments) {
+            parameters.bind(&parameter.owner, parameter.position, argument);
+        }
+        let bound = AbiType::Trait(parameters.apply_nominal(bound, cancel)?);
+        let bound = resolve_associated_outputs(&bound, parent, cancel)?;
+        if bound.is_concrete() {
+            parent.associated_types.insert(iter, bound);
+        }
+    }
+    Ok(closure)
+}
 
 /// Preserve applied arguments and associated bindings while walking supertraits.
 /// Declaration cycles fail even when they change arguments. Diamond paths to the

@@ -2,7 +2,7 @@
 use crate::{
     callable::CallableImplementation,
     effects::EffectSet,
-    native_import::linked::matches_declaration,
+    native_import::{callables::NativeCallableOrigin, linked::matches_declaration},
     types::{
         AbiType, ConcreteFunctionIdentity, GenericBoundAbi, NativeDeclaration,
         proofs::ProofCatalog, substitution::TypeTransformError, verify::concrete_type_valid,
@@ -16,6 +16,7 @@ use kagari_common::{
 use serde::{Deserialize, Serialize};
 pub mod callables;
 mod linked;
+pub mod protocol;
 
 /// An installed declaration names an entry within its module's binding namespace.
 /// The name does not select compiler/verifier policy or grant registration authority.
@@ -93,6 +94,8 @@ impl NativeImport {
             && self.callables.len() <= 4096
             && self.callables.iter().all(|call| {
                 call.effects == EffectSet::native_call()
+                    && (call.origin != NativeCallableOrigin::ProtocolAdapter
+                        || call.implementation == CallableImplementation::Script)
                     && call.instance.declaration.within_path_limit()
                     && call.instance.arguments.len() <= 4096
                     && call.instance.arguments.iter().all(valid)

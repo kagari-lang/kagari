@@ -1,11 +1,8 @@
 use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
-    callable::EngineNativeBinding,
-    native_import::NativeWitnessImplementation,
-    scalar::BuiltinType,
-    standard::{bindings::NativeProtocolMethod, traits::StandardTrait},
-    types::AbiType,
+    callable::EngineNativeBinding, language::Protocol, native_import::NativeWitnessImplementation,
+    scalar::BuiltinType, standard::bindings::NativeProtocolMethod, types::AbiType,
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
 
@@ -40,16 +37,14 @@ fn main()->i32 {{{source}i32::{method}(source)}}
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::Iterator)
+                    Protocol::from_id(&witness.interface.declaration) == Some(Protocol::Iterator)
                 })
                 .unwrap();
             let conversion = contract
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::Iterable)
+                    Protocol::from_id(&witness.interface.declaration) == Some(Protocol::Iterable)
                 })
                 .unwrap();
             verify_program(&program).unwrap();

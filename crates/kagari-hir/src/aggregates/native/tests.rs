@@ -1,16 +1,13 @@
 use crate::{
     aggregates::AggregateCatalog,
     analysis::{AnalysisDatabase, AnalysisSnapshot},
-    builtin::traits::{self, StandardTraitSemantics},
+    language::semantics::{self as traits, ProtocolSemantics},
     native::{NativeBinding, NativeTypeKind},
     typeck::FunctionImplementation,
     types::{TypeId, TypeSubstitution},
 };
 
-use kagari_abi::{
-    scalar::BuiltinType,
-    standard::{surface::StandardEnum, traits::StandardTrait},
-};
+use kagari_abi::{language::Protocol, scalar::BuiltinType, standard::surface::StandardEnum};
 use kagari_common::{
     collection::CollectionAccess,
     identity::FileId,
@@ -35,10 +32,7 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
     let item = TypeId::Builtin(BuiltinType::I32);
     let mutable = TypeId::Array(Box::new(item.clone()), CollectionAccess::Mutable);
     let readonly = TypeId::Array(Box::new(item.clone()), CollectionAccess::ReadOnly);
-    for (kind, writable) in [
-        (StandardTrait::List, false),
-        (StandardTrait::MutableList, true),
-    ] {
+    for (kind, writable) in [(Protocol::List, false), (Protocol::MutableList, true)] {
         let mut interface = kind.nominal();
         interface.arguments.push(item.clone());
         assert!(
@@ -80,7 +74,7 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
     }
     assert!(
         traits::iteration_outputs(
-            StandardTrait::Iterator,
+            Protocol::Iterator,
             &TypeId::Iter(Box::new(item)),
             None,
             &Default::default()
@@ -93,7 +87,7 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
         value: Box::new(TypeId::Builtin(BuiltinType::I32)),
         access: CollectionAccess::Mutable,
     };
-    let mut interface = StandardTrait::FromIterator.nominal();
+    let mut interface = Protocol::FromIterator.nominal();
     interface
         .arguments
         .push(TypeId::Tuple(vec![key, TypeId::Builtin(BuiltinType::I32)]));
@@ -113,7 +107,7 @@ fn native_capabilities_require_installed_impls_and_preserve_readonly_access() {
 fn numeric_aggregation_requires_checked_installed_scalar_implementations() {
     let (snapshot, root) = snapshot("fn main() {}");
     let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
-    for kind in [StandardTrait::Sum, StandardTrait::Product] {
+    for kind in [Protocol::Sum, Protocol::Product] {
         for scalar in [BuiltinType::I8, BuiltinType::I32, BuiltinType::F64] {
             let receiver = TypeId::Builtin(scalar);
             let mut interface = kind.nominal();
@@ -179,7 +173,7 @@ fn main() {}
         .find(|implementation| !implementation.engine_owned)
         .unwrap();
     let receiver = &implementation.for_type;
-    let interface = StandardTrait::Iterator.nominal();
+    let interface = Protocol::Iterator.nominal();
     assert!(
         facts
             .aggregates
@@ -207,13 +201,13 @@ fn main() {}
         &Default::default()
     ));
     let outputs = traits::iteration_outputs(
-        StandardTrait::Iterable,
+        Protocol::Iterable,
         receiver,
         Some(&facts.aggregates),
         &Default::default(),
     )
     .unwrap();
-    let iterable = StandardTrait::Iterable.nominal();
+    let iterable = Protocol::Iterable.nominal();
     assert_eq!(
         outputs[&kagari_common::identity::associated_type_id(&iterable.declaration, "Item")],
         TypeId::Builtin(BuiltinType::I32)

@@ -803,13 +803,13 @@ pub(crate) fn normalize(
 mod tests {
     use super::*;
     use crate::{declare_analysis, host::HostDeclarations, lower::lower_module};
-    use kagari_abi::standard::traits::{self as standard_traits, StandardTrait};
+    use kagari_abi::language::{self as standard_traits, Protocol};
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
     use std::sync::Arc;
 
     #[test]
     fn trait_identity_alone_does_not_replace_source_parameter_or_member_declarations() {
-        let identity = standard_traits::identity(StandardTrait::Add);
+        let identity = standard_traits::identity(Protocol::Add);
         let mut sources = SourceDatabase::default();
         let file = sources
             .bind_module("untrusted.kgr", identity.module.clone())

@@ -271,7 +271,6 @@ fn interface_instruction_module() -> BytecodeModule {
             associated_type_families: Vec::new(),
             associated_consts: Vec::new(),
             host_bridge: false,
-            native_bridge: false,
             declaration: impl_id.clone(),
             name: String::new(),
             generic_params: vec![],

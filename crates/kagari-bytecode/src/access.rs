@@ -71,6 +71,9 @@ pub(super) fn verify(
         reason: "invalid collection access flow",
     };
     let semantic = &function.metadata.semantic;
+    if !semantic.protocol_adapter_valid(function.identity.as_ref()) {
+        return Err(invalid());
+    }
     if semantic
         .params
         .keys()
@@ -746,7 +749,7 @@ pub(super) fn verify(
                                     || vec![module],
                                     |program| program.modules.iter().collect(),
                                 );
-                                if !trait_bounds::interface_ancestors(
+                                if !trait_bounds::interface_views(
                                     actual,
                                     &AbiType::Trait(actual.clone()),
                                     &modules,

@@ -1,16 +1,14 @@
 pub mod abi;
 
 use crate::{
-    builtin::traits::StandardTraitSemantics,
+    language::semantics::ProtocolSemantics,
     native::enum_display_name,
     typeck::{GenericBounds, associated},
 };
 use kagari_abi::{
+    language::Protocol,
     scalar::BuiltinType,
-    standard::{
-        surface::{self as standard_surface, StandardEnum},
-        traits::StandardTrait,
-    },
+    standard::surface::{self as standard_surface, StandardEnum},
 };
 use kagari_common::{
     collection::CollectionAccess::{self, Mutable, ReadOnly},
@@ -201,17 +199,17 @@ impl TypeId {
     /// Canonical read-only interface for a native collection or collection view.
     pub fn collection_view(&self) -> Option<Self> {
         let (kind, arguments) = match self {
-            Self::Array(item, _) => (StandardTrait::List, vec![item.as_ref().clone()]),
+            Self::Array(item, _) => (Protocol::List, vec![item.as_ref().clone()]),
             Self::Map { key, value, .. } => (
-                StandardTrait::Map,
+                Protocol::Map,
                 vec![key.as_ref().clone(), value.as_ref().clone()],
             ),
-            Self::Set(item, _) => (StandardTrait::Set, vec![item.as_ref().clone()]),
+            Self::Set(item, _) => (Protocol::Set, vec![item.as_ref().clone()]),
             Self::Trait(interface) => (
-                match StandardTrait::from_id(&interface.declaration)? {
-                    StandardTrait::List | StandardTrait::MutableList => StandardTrait::List,
-                    StandardTrait::Map | StandardTrait::MutableMap => StandardTrait::Map,
-                    StandardTrait::Set | StandardTrait::MutableSet => StandardTrait::Set,
+                match Protocol::from_id(&interface.declaration)? {
+                    Protocol::List | Protocol::MutableList => Protocol::List,
+                    Protocol::Map | Protocol::MutableMap => Protocol::Map,
+                    Protocol::Set | Protocol::MutableSet => Protocol::Set,
                     _ => return None,
                 },
                 interface.arguments.clone(),
@@ -232,14 +230,14 @@ impl TypeId {
             return None;
         };
         matches!(
-            StandardTrait::from_id(&interface.declaration),
-            Some(StandardTrait::List | StandardTrait::MutableList)
+            Protocol::from_id(&interface.declaration),
+            Some(Protocol::List | Protocol::MutableList)
         )
         .then(|| interface.arguments.first())
         .flatten()
     }
     pub fn writable_list(&self) -> bool {
-        matches!(self, Self::Trait(interface) if StandardTrait::from_id(&interface.declaration) == Some(StandardTrait::MutableList))
+        matches!(self, Self::Trait(interface) if Protocol::from_id(&interface.declaration) == Some(Protocol::MutableList))
     }
 
     /// Access is part of type identity; it never changes the underlying object.

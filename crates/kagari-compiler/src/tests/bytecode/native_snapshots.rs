@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::EngineNativeBinding,
+    language::Protocol,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, bindings::NativeDefaultMethod, traits::StandardTrait},
+    standard::{RuntimePrimitive, bindings::NativeDefaultMethod},
     types::{AbiType, PublicAbiItem},
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -58,8 +59,7 @@ fn main()->i32{{{setup}val out=source.{method}();42}}
                 .witnesses
                 .iter()
                 .position(|witness| {
-                    StandardTrait::from_id(&witness.interface.declaration)
-                        == Some(StandardTrait::List)
+                    Protocol::from_id(&witness.interface.declaration) == Some(Protocol::List)
                 })
                 .unwrap();
             let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
@@ -133,12 +133,12 @@ fn main()->i32{{{setup}val out=source.{method}();42}}
                     }
                     12..=14 => {
                         let protocol = match mutation {
-                            12 => StandardTrait::Iterable,
-                            13 => StandardTrait::Iterator,
-                            _ => StandardTrait::Map,
+                            12 => Protocol::Iterable,
+                            13 => Protocol::Iterator,
+                            _ => Protocol::Map,
                         };
                         if let Some(slot) = contract.witnesses.iter().position(|witness| {
-                            StandardTrait::from_id(&witness.interface.declaration) == Some(protocol)
+                            Protocol::from_id(&witness.interface.declaration) == Some(protocol)
                         }) {
                             if mutation == 14 {
                                 contract.witnesses[slot]

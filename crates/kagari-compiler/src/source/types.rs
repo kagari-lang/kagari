@@ -15,8 +15,8 @@ pub(crate) fn lower_native_constructor(kind: NativeTypeKind) -> NativeTypeConstr
     match kind {
         NativeTypeKind::String => NativeTypeConstructor::String,
         NativeTypeKind::ArrayList => NativeTypeConstructor::Array,
-        NativeTypeKind::LinkedHashMap => NativeTypeConstructor::Map,
-        NativeTypeKind::LinkedHashSet => NativeTypeConstructor::Set,
+        NativeTypeKind::HashMap => NativeTypeConstructor::Map,
+        NativeTypeKind::HashSet => NativeTypeConstructor::Set,
         NativeTypeKind::Iter => NativeTypeConstructor::Iter,
         NativeTypeKind::Range(kind) => NativeTypeConstructor::Range(kind),
         NativeTypeKind::Enum(kind) => NativeTypeConstructor::Enum(kind),

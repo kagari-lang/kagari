@@ -1,5 +1,5 @@
 use crate::{
-    builtin::{surface, traits::intrinsic_holds},
+    builtin::surface,
     declarations::Declarations,
     hir::{
         item::{
@@ -9,6 +9,7 @@ use crate::{
         },
         ty::TypeKind,
     },
+    language::semantics::intrinsic_holds,
     lower::LoweredModule,
     typeck::{
         check::function_type_context,
@@ -18,7 +19,7 @@ use crate::{
     types::TypeId,
 };
 
-use kagari_abi::standard::{surface::StandardTypeConstraint, traits::StandardTrait};
+use kagari_abi::{language::Protocol, standard::surface::StandardTypeConstraint};
 use kagari_common::{
     cancellation::CancellationToken,
     diagnostic::{Diagnostic, DiagnosticKind},
@@ -403,11 +404,11 @@ pub fn type_satisfies_standard_constraint(
 ) -> bool {
     match constraint {
         StandardTypeConstraint::HashKey => {
-            intrinsic_holds(StandardTrait::Eq, ty, None, bounds)
-                && intrinsic_holds(StandardTrait::Hash, ty, None, bounds)
+            intrinsic_holds(Protocol::Eq, ty, None, bounds)
+                && intrinsic_holds(Protocol::Hash, ty, None, bounds)
         }
         StandardTypeConstraint::Comparable => {
-            intrinsic_holds(StandardTrait::PartialEq, ty, None, bounds)
+            intrinsic_holds(Protocol::PartialEq, ty, None, bounds)
         }
         _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
             .get(ty)

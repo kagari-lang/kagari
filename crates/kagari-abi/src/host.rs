@@ -1,8 +1,9 @@
 //! Nominal host dependencies include signatures and layouts, even without a call.
 
 use crate::{
+    language::Protocol,
     layout::{EnumLayout, LayoutValidationError, StructLayout},
-    standard::{surface::StandardTypeConstraint, traits::StandardTrait},
+    standard::surface::StandardTypeConstraint,
     types::{
         self as abi, AbiType, ConstraintAbi, FunctionAbi, InterfaceTableAbi, PublicAbiItem,
         TraitAbi, TraitContract,
@@ -38,7 +39,7 @@ pub fn trait_bindings_match(
         for implementation in &host.trait_implementations {
             cancel.check()?;
             let id = &implementation.trait_id;
-            if StandardTrait::from_id(id).is_some_and(|kind| !kind.host_implementable()) {
+            if Protocol::from_id(id).is_some_and(|kind| !kind.host_implementable()) {
                 return Ok(false);
             }
             if &id.module != module {

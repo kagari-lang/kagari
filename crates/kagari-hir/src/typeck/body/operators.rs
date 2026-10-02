@@ -1,8 +1,5 @@
 use crate::{
-    builtin::{
-        surface,
-        traits::{self, StandardTraitSemantics, callable_signature},
-    },
+    builtin::surface,
     hir::{
         expr::{
             ExprKind,
@@ -11,6 +8,7 @@ use crate::{
         },
         ids::ExprId,
     },
+    language::semantics::{self as traits, ProtocolSemantics, callable_signature},
     typeck::{
         BodyTypeEnv, body::BodyChecker, completion, constraints, table::CallTarget,
         ty::display_type_id,
@@ -18,11 +16,9 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_abi::{
+    language::{self as standard_traits, Protocol},
     scalar::BuiltinType,
-    standard::{
-        surface::StandardTypeConstraint,
-        traits::{self as standard_traits, StandardTrait},
-    },
+    standard::surface::StandardTypeConstraint,
 };
 use kagari_common::{
     cancellation::Cancelled,
@@ -59,8 +55,8 @@ impl BodyChecker<'_> {
         };
         if completes {
             let protocol = match op {
-                PrefixOp::Neg => StandardTrait::Neg,
-                PrefixOp::Not => StandardTrait::Not,
+                PrefixOp::Neg => Protocol::Neg,
+                PrefixOp::Not => Protocol::Not,
             };
             if let Some(result) =
                 self.record_operator(expr_id, *expr, &inner, protocol.nominal(), env)
@@ -113,16 +109,16 @@ impl BodyChecker<'_> {
         expected: Option<&TypeId>,
     ) -> TypeId {
         let arithmetic = match op {
-            BinaryOp::Add => Some(StandardTrait::Add),
-            BinaryOp::Sub => Some(StandardTrait::Sub),
-            BinaryOp::Mul => Some(StandardTrait::Mul),
-            BinaryOp::Div => Some(StandardTrait::Div),
-            BinaryOp::Rem => Some(StandardTrait::Rem),
-            BinaryOp::BitAnd => Some(StandardTrait::BitAnd),
-            BinaryOp::BitOr => Some(StandardTrait::BitOr),
-            BinaryOp::BitXor => Some(StandardTrait::BitXor),
-            BinaryOp::Shl => Some(StandardTrait::Shl),
-            BinaryOp::Shr => Some(StandardTrait::Shr),
+            BinaryOp::Add => Some(Protocol::Add),
+            BinaryOp::Sub => Some(Protocol::Sub),
+            BinaryOp::Mul => Some(Protocol::Mul),
+            BinaryOp::Div => Some(Protocol::Div),
+            BinaryOp::Rem => Some(Protocol::Rem),
+            BinaryOp::BitAnd => Some(Protocol::BitAnd),
+            BinaryOp::BitOr => Some(Protocol::BitOr),
+            BinaryOp::BitXor => Some(Protocol::BitXor),
+            BinaryOp::Shl => Some(Protocol::Shl),
+            BinaryOp::Shr => Some(Protocol::Shr),
 
             _ => None,
         };
@@ -194,13 +190,7 @@ impl BodyChecker<'_> {
             && rhs_completes
             && !left.conflicts_with(&rhs_ty)
             && self
-                .record_operator(
-                    expr_id,
-                    *lhs,
-                    left,
-                    StandardTrait::PartialOrd.nominal(),
-                    env,
-                )
+                .record_operator(expr_id, *lhs, left, Protocol::PartialOrd.nominal(), env)
                 .is_some()
         {
             TypeId::Builtin(BuiltinType::Bool)
@@ -219,7 +209,7 @@ impl BodyChecker<'_> {
         let context = self
             .trait_bounds_for(&receiver_ty, env)
             .into_iter()
-            .find(|t| t.declaration == standard_traits::identity(StandardTrait::Index))
+            .find(|t| t.declaration == standard_traits::identity(Protocol::Index))
             .and_then(|t| t.arguments.into_iter().next());
         let index_ty = self.infer_expr_type_expected(*index, env, context.as_ref());
         let Ok(completes) = completion::expr_can_complete(
@@ -232,7 +222,7 @@ impl BodyChecker<'_> {
             return TypeId::Unknown;
         };
         if completes {
-            let mut requested = StandardTrait::Index.nominal();
+            let mut requested = Protocol::Index.nominal();
             requested.arguments.push(index_ty.clone());
             if let Some(result) =
                 self.record_operator(expr_id, *receiver, &receiver_ty, requested, env)
@@ -257,7 +247,7 @@ impl<'a> BodyChecker<'a> {
             .trait_bounds_for(ty, env)
             .into_iter()
             .filter_map(|interface| {
-                if StandardTrait::from_id(&interface.declaration) != Some(StandardTrait::Fn) {
+                if Protocol::from_id(&interface.declaration) != Some(Protocol::Fn) {
                     return None;
                 }
                 let (mut interface, output) = self.select_operator(ty, interface, env)?;
@@ -289,7 +279,7 @@ impl<'a> BodyChecker<'a> {
             &env.generic_bounds,
         ) {
             let mut interface = requested;
-            if let Some(kind) = StandardTrait::from_id(&interface.declaration)
+            if let Some(kind) = Protocol::from_id(&interface.declaration)
                 && kind.iteration()
                 && let Some(outputs) =
                     traits::iteration_outputs(kind, ty, Some(self.aggregates), &env.generic_bounds)
@@ -451,7 +441,7 @@ impl<'a> BodyChecker<'a> {
                     || [&lhs_ty, &rhs_ty].into_iter().any(|ty| {
                         !matches!(ty, TypeId::Unknown | TypeId::Error)
                             && !traits::intrinsic_holds(
-                                StandardTrait::PartialEq,
+                                Protocol::PartialEq,
                                 ty,
                                 Some(self.aggregates),
                                 &env.generic_bounds,
@@ -468,7 +458,7 @@ impl<'a> BodyChecker<'a> {
                 let supports_ordering = |ty: &TypeId| {
                     matches!(ty, TypeId::Unknown | TypeId::Error)
                         || self
-                            .select_operator(ty, StandardTrait::PartialOrd.nominal(), env)
+                            .select_operator(ty, Protocol::PartialOrd.nominal(), env)
                             .is_some()
                         || constraints::type_satisfies_standard_constraint(
                             ty,

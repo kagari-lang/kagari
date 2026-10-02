@@ -1,8 +1,9 @@
 use super::*;
 use crate::{
+    language::{Protocol, primitive as intrinsic},
     layout::EnumVariantLayout,
     scalar::BuiltinType,
-    standard::{intrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::surface::StandardEnum,
     types::{AssociatedTypeFamilyAbi, GenericParameterAbi, InterfaceTableAbi},
 };
 use kagari_common::{
@@ -42,7 +43,6 @@ fn table(name: &str, interface: NominalAbiType, receiver: AbiType) -> InterfaceT
         associated_consts: vec![],
         associated_type_families: vec![],
         host_bridge: false,
-        native_bridge: false,
     }
 }
 fn bound(ty: AbiType, required: NominalAbiType) -> GenericBoundAbi {
@@ -56,8 +56,8 @@ fn bound(ty: AbiType, required: NominalAbiType) -> GenericBoundAbi {
 fn scalar_aggregation_is_not_a_source_free_intrinsic_proof() {
     let cancel = CancellationToken::default();
     let catalog = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
-    for kind in [StandardTrait::Sum, StandardTrait::Product] {
-        let interface = intrinsic::applied(kind, vec![scalar()]);
+    for name in ["Sum", "Product"] {
+        let interface = nominal(id(DefinitionKind::Trait, name), vec![scalar()]);
         assert!(
             intrinsic::requirements(&interface, &scalar(), &cancel)
                 .unwrap()
@@ -80,7 +80,7 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
     generic.generic_params.push(parameter.clone());
     generic.bounds.push(bound(
         parameter.as_type(),
-        intrinsic::applied(StandardTrait::Eq, vec![]),
+        intrinsic::applied(Protocol::Eq, vec![]),
     ));
     let query = |item| AbiType::Array(Box::new(item), CollectionAccess::Mutable);
     let catalog = ProofCatalog::new(vec![(&generic).into()], vec![], [], [], [], &cancel).unwrap();
@@ -138,17 +138,17 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     let receiver = AbiType::Struct(nominal(id(DefinitionKind::Struct, "Key"), vec![]));
     let partial = table(
         "partial",
-        intrinsic::applied(StandardTrait::PartialEq, vec![]),
+        intrinsic::applied(Protocol::PartialEq, vec![]),
         receiver.clone(),
     );
     let eq = table(
         "eq",
-        intrinsic::applied(StandardTrait::Eq, vec![]),
+        intrinsic::applied(Protocol::Eq, vec![]),
         receiver.clone(),
     );
     let hash = table(
         "hash",
-        intrinsic::applied(StandardTrait::Hash, vec![]),
+        intrinsic::applied(Protocol::Hash, vec![]),
         receiver.clone(),
     );
     let catalog = ProofCatalog::new(vec![(&partial).into()], vec![], [], [], [], &cancel).unwrap();
@@ -156,7 +156,7 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     assert!(
         !catalog
             .holds(
-                &intrinsic::applied(StandardTrait::Eq, vec![]),
+                &intrinsic::applied(Protocol::Eq, vec![]),
                 &receiver,
                 &[],
                 &cancel
@@ -267,7 +267,7 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
     assert!(
         catalog
             .holds(
-                &intrinsic::applied(StandardTrait::Hash, vec![]),
+                &intrinsic::applied(Protocol::Hash, vec![]),
                 &ty,
                 &[],
                 &cancel
@@ -281,7 +281,7 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
     assert!(
         !catalog
             .holds(
-                &intrinsic::applied(StandardTrait::Hash, vec![]),
+                &intrinsic::applied(Protocol::Hash, vec![]),
                 &ty,
                 &[],
                 &cancel
@@ -289,8 +289,8 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
             .unwrap()
     );
     let set = AbiType::Set(Box::new(ty), CollectionAccess::Mutable);
-    let collect = intrinsic::applied(
-        StandardTrait::FromIterator,
+    let collect = nominal(
+        id(DefinitionKind::Trait, "FromIterator"),
         vec![AbiType::Enum(nominal(layout.declaration.clone(), vec![]))],
     );
     assert!(!catalog.holds(&collect, &set, &[], &cancel).unwrap());
@@ -302,7 +302,7 @@ fn structural_enum_defaults_are_coinductive_but_reject_non_hashable_payloads() {
     assert!(
         catalog
             .holds(
-                &intrinsic::applied(StandardTrait::Hash, vec![]),
+                &intrinsic::applied(Protocol::Hash, vec![]),
                 &wrapped,
                 &[],
                 &cancel
@@ -381,7 +381,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
     let cancel = CancellationToken::default();
     let mut set = table(
         "collect_set",
-        intrinsic::applied(StandardTrait::FromIterator, vec![]),
+        nominal(id(DefinitionKind::Trait, "FromIterator"), vec![]),
         scalar(),
     );
     let item = GenericParameterAbi {
@@ -390,17 +390,17 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
     };
     set.generic_params.push(item.clone());
     set.for_type = AbiType::Set(Box::new(item.as_type()), CollectionAccess::Mutable);
-    set.trait_type = AbiType::Trait(intrinsic::applied(
-        StandardTrait::FromIterator,
+    set.trait_type = AbiType::Trait(nominal(
+        id(DefinitionKind::Trait, "FromIterator"),
         vec![item.as_type()],
     ));
-    for kind in [StandardTrait::Eq, StandardTrait::Hash] {
+    for kind in [Protocol::Eq, Protocol::Hash] {
         set.bounds
             .push(bound(item.as_type(), intrinsic::applied(kind, vec![])));
     }
     let mut lifted = table(
         "collect_option",
-        intrinsic::applied(StandardTrait::FromIterator, vec![]),
+        nominal(id(DefinitionKind::Trait, "FromIterator"), vec![]),
         scalar(),
     );
     let element = GenericParameterAbi {
@@ -417,16 +417,19 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
         args: vec![ty],
     };
     lifted.for_type = option(output.as_type());
-    lifted.trait_type = AbiType::Trait(intrinsic::applied(
-        StandardTrait::FromIterator,
+    lifted.trait_type = AbiType::Trait(nominal(
+        id(DefinitionKind::Trait, "FromIterator"),
         vec![option(element.as_type())],
     ));
     lifted.bounds.push(bound(
         output.as_type(),
-        intrinsic::applied(StandardTrait::FromIterator, vec![element.as_type()]),
+        nominal(
+            id(DefinitionKind::Trait, "FromIterator"),
+            vec![element.as_type()],
+        ),
     ));
     let storage = |ty| AbiType::Set(Box::new(ty), CollectionAccess::Mutable);
-    let requested = |ty| intrinsic::applied(StandardTrait::FromIterator, vec![ty]);
+    let requested = |ty| nominal(id(DefinitionKind::Trait, "FromIterator"), vec![ty]);
     let empty = ProofCatalog::new(vec![], vec![], [], [], [], &cancel).unwrap();
     assert!(
         !empty
@@ -499,13 +502,13 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
 fn carried_iterator_outputs_supply_identity_iterable_and_reject_forged_items() {
     let cancel = CancellationToken::default();
     let iterator = AbiType::Iter(Box::new(scalar()));
-    let mut implemented = intrinsic::applied(StandardTrait::Iterator, vec![]);
+    let mut implemented = intrinsic::applied(Protocol::Iterator, vec![]);
     implemented.associated_types.insert(
         associated_type_id(&implemented.declaration, "Item"),
         scalar(),
     );
     let implementation = table("iterator", implemented, iterator.clone());
-    let mut required = intrinsic::applied(StandardTrait::Iterable, vec![]);
+    let mut required = intrinsic::applied(Protocol::Iterable, vec![]);
     required
         .associated_types
         .insert(associated_type_id(&required.declaration, "Item"), scalar());
@@ -538,7 +541,7 @@ fn equality_composition_uses_carried_payloads_and_stops_at_identity_boundaries()
     let key = AbiType::Struct(nominal(id(DefinitionKind::Struct, "Key"), vec![]));
     let partial = table(
         "key_partial",
-        intrinsic::applied(StandardTrait::PartialEq, vec![]),
+        intrinsic::applied(Protocol::PartialEq, vec![]),
         key.clone(),
     );
     let instance = nominal(id(DefinitionKind::Enum, "Chain"), vec![]);

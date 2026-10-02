@@ -1,12 +1,12 @@
 use crate::{
     aggregates::AggregateCatalog,
-    builtin::traits::StandardTraitSemantics,
     declarations::Declarations,
     hir::{
         expr::{Condition, ExprKind, literal::LiteralKind},
         ids::{BlockId, ConstId, ExprId},
     },
     imports::functions::ImportedFunctions,
+    language::semantics::ProtocolSemantics,
     lower::LoweredModule,
     resolver::resolved::{ResolvedName, ResolvedNames},
     typeck::{
@@ -26,7 +26,7 @@ mod patterns;
 mod places;
 mod statements;
 
-use kagari_abi::{scalar::BuiltinType, standard::traits::StandardTrait};
+use kagari_abi::{language::Protocol, scalar::BuiltinType};
 use kagari_common::{
     cancellation::CancellationToken,
     collection::CollectionAccess,
@@ -37,7 +37,6 @@ use std::{
     collections::{HashMap, HashSet},
     mem,
 };
-mod conversions;
 mod iteration;
 mod numeric;
 mod operators;
@@ -319,9 +318,9 @@ impl<'a> BodyChecker<'a> {
             ExprKind::FormatPart { expr, debug } => {
                 let ty = self.infer_expr_type(*expr, env);
                 let protocol = if *debug {
-                    StandardTrait::Debug
+                    Protocol::Debug
                 } else {
-                    StandardTrait::Display
+                    Protocol::Display
                 };
                 let completes = completion::expr_can_complete(
                     &self.lowered.module,
@@ -432,11 +431,7 @@ impl<'a> BodyChecker<'a> {
                 self.infer_binary_operator(expr_id, lhs, op, rhs, env, expected)
             }
             ExprKind::Call { callee, args, .. } => {
-                if let Some(ty) = self.infer_conversion_call(expr_id, *callee, args, env, expected)
-                {
-                    ty
-                } else if let Some(ty) =
-                    self.infer_enum_constructor(expr_id, *callee, args, env, expected)
+                if let Some(ty) = self.infer_enum_constructor(expr_id, *callee, args, env, expected)
                 {
                     ty
                 } else if let Some(ty) =
@@ -840,8 +835,8 @@ impl<'a> BodyChecker<'a> {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),
                     Some(TypeId::Trait(interface))
                         if matches!(
-                            StandardTrait::from_id(&interface.declaration),
-                            Some(StandardTrait::List | StandardTrait::MutableList)
+                            Protocol::from_id(&interface.declaration),
+                            Some(Protocol::List | Protocol::MutableList)
                         ) =>
                     {
                         interface.arguments.first()
@@ -896,8 +891,8 @@ impl<'a> BodyChecker<'a> {
                     Some(TypeId::Array(element, _)) => Some(element.as_ref()),
                     Some(TypeId::Trait(interface))
                         if matches!(
-                            StandardTrait::from_id(&interface.declaration),
-                            Some(StandardTrait::List | StandardTrait::MutableList)
+                            Protocol::from_id(&interface.declaration),
+                            Some(Protocol::List | Protocol::MutableList)
                         ) =>
                     {
                         interface.arguments.first()

@@ -12,7 +12,7 @@ use crate::{
     verifier::BytecodeVerificationError,
 };
 use kagari_abi::{
-    standard::traits::StandardTrait,
+    language::Protocol,
     types::{
         self as abi, AbiType, GenericBoundAbi, GenericParameterAbi, NominalAbiType, PublicAbiItem,
         TraitAbi, inheritance as trait_inheritance,
@@ -48,20 +48,35 @@ pub fn interface_ancestors(
     .ok()
 }
 
+/// Checked dynamic surfaces; concrete implementation proofs use raw ancestry.
+pub fn interface_views(
+    interface: &NominalAbiType,
+    receiver: &AbiType,
+    closure: &[&BytecodeModule],
+) -> Option<Vec<NominalAbiType>> {
+    trait_inheritance::interface_views(interface, receiver, &CancellationToken::default(), &|id| {
+        contract(id, closure)
+    })
+    .ok()
+}
+
 fn executable_interface(
     applied: &NominalAbiType,
     receiver: &AbiType,
     closure: &[&BytecodeModule],
 ) -> bool {
-    let Some(views) = interface_ancestors(applied, &AbiType::Trait(applied.clone()), closure)
+    let Some(preserved) = interface_ancestors(applied, &AbiType::Trait(applied.clone()), closure)
     else {
         return false;
     };
-    if interface_ancestors(applied, receiver, closure).as_ref() != Some(&views) {
+    if interface_ancestors(applied, receiver, closure).as_ref() != Some(&preserved) {
         return false;
     }
+    let Some(views) = interface_views(applied, &AbiType::Trait(applied.clone()), closure) else {
+        return false;
+    };
     for view in views {
-        if StandardTrait::from_id(&view.declaration).is_some_and(|kind| !kind.dynamic()) {
+        if Protocol::from_id(&view.declaration).is_some_and(|kind| !kind.dynamic()) {
             return false;
         }
         let Some(record) = contract(&view.declaration, closure) else {
@@ -165,9 +180,7 @@ fn linked_bounds_match(
         .iter()
         .flat_map(|dependency| &dependency.public_items)
         .filter_map(|item| match item {
-            PublicAbiItem::InterfaceTable(table) if !table.host_bridge && !table.native_bridge => {
-                Some(table.as_ref())
-            }
+            PublicAbiItem::InterfaceTable(table) if !table.host_bridge => Some(table.as_ref()),
             _ => None,
         })
         .collect();
@@ -196,6 +209,22 @@ fn linked_bounds_match(
     if !catalog.overrides_valid(&cancel)? || !instruction_contracts_match(module, closure, program)
     {
         return Ok(false);
+    }
+    for function in &module.functions {
+        if !function
+            .metadata
+            .semantic
+            .protocol_adapter_valid(function.identity.as_ref())
+        {
+            return Ok(false);
+        }
+        if let Some(required) = &function.metadata.semantic.protocol_adapter
+            && catalog
+                .implicit_callable_signature(required, &cancel)?
+                .is_none()
+        {
+            return Ok(false);
+        }
     }
     if module
         .native_declarations
@@ -314,9 +343,6 @@ fn linked_bounds_match(
         {
             return Ok(false);
         }
-        if table.native_bridge && !catalog.holds(interface, &table.for_type, &[], &cancel)? {
-            return Ok(false);
-        }
         if !associated_bounds_match(table, interface, record, &catalog, closure, &cancel)? {
             return Ok(false);
         }
@@ -336,9 +362,7 @@ fn linked_bounds_match(
         let AbiType::Trait(interface) = &table.trait_type else {
             return Ok(false);
         };
-        if !table.native_bridge
-            && catalog.implementation_count(interface, &table.for_type, &[], &cancel)? != 1
-        {
+        if catalog.implementation_count(interface, &table.for_type, &[], &cancel)? != 1 {
             return Ok(false);
         }
     }
@@ -355,7 +379,7 @@ fn parents_proven(
 ) -> Result<bool, TypeTransformError> {
     // Offline host declarations may advertise traits outside this program.
     if matches!(receiver, AbiType::Host(_))
-        && StandardTrait::from_id(&interface.declaration).is_none()
+        && Protocol::from_id(&interface.declaration).is_none()
         && contract(&interface.declaration, closure).is_none()
     {
         return Ok(true);
@@ -384,8 +408,7 @@ fn instruction_contracts_match(
         .flat_map(|function| &function.instructions)
     {
         if let BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
-            let Some(parents) =
-                interface_ancestors(source, &AbiType::Trait(source.clone()), closure)
+            let Some(parents) = interface_views(source, &AbiType::Trait(source.clone()), closure)
             else {
                 return false;
             };
@@ -436,8 +459,8 @@ fn instruction_contracts_match(
                                 && template.instantiate(&linked.arguments).is_some_and(
                                     |candidate| {
                                         candidate.for_type == table.for_type
-                                            && candidate.trait_type
-                                                == AbiType::Trait(parent.clone())
+                                            && matches!(&candidate.trait_type, AbiType::Trait(actual)
+                                                if actual.satisfies(&parent))
                                     },
                                 )
                         })

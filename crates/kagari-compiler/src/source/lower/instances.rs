@@ -5,23 +5,16 @@ mod native;
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
     aggregates::{AggregateCatalog, traits::MethodDefault},
-    builtin::traits,
     declarations::DeclarationId,
     hir::ids::{ExprId, FunctionId},
     resolver::resolved::ResolvedName,
     typeck::{FunctionImplementation, TypedFunction, scalar::ScalarValue},
-    types::{
-        NominalType, TypeId, TypeSubstitution,
-        abi::{lower_nominal_type, lower_type},
-    },
+    types::{NominalType, TypeId, TypeSubstitution, abi::lower_type},
 };
 
 use kagari_abi::{
-    callable::CallableImplementation,
-    native_import::NativeImport,
-    representation::ValueType,
-    standard::traits::StandardTrait,
-    types::{AbiType, ConcreteFunctionIdentity, FunctionAbi, InterfaceTableAbi, ParameterAbi},
+    language::Protocol, native_import::NativeImport, representation::ValueType,
+    types::ConcreteFunctionIdentity,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -103,8 +96,7 @@ pub(super) struct Instance {
     pub key: InstanceKey,
     pub substitution: TypeSubstitution,
     pub closure: Option<ExprId>,
-    pub native_method: Option<(TypeId, NominalType, DefinitionId)>,
-    pub protocol: Option<(StandardTrait, TypeId)>,
+    pub protocol: Option<(Protocol, TypeId)>,
 }
 
 #[derive(Debug, Clone)]
@@ -123,7 +115,6 @@ pub(super) struct InstancePlanner<'a> {
     pub layout_roots: Vec<(TypeId, Span)>,
     pub host_types: BTreeSet<DefinitionId>,
     pub host_interfaces: Vec<(DefinitionId, TypeId, NominalType, Span)>,
-    pub native_tables: Vec<InterfaceTableAbi>,
     pub native_targets: Vec<NativeImport>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
     keys: HashMap<InstanceKey, InstanceId>,
@@ -179,7 +170,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: None,
-            native_method: None,
             protocol: None,
         });
         Ok(id)
@@ -204,7 +194,6 @@ impl<'a> InstancePlanner<'a> {
             host_types: Default::default(),
             host_interfaces: Vec::new(),
             interface_instances: Vec::new(),
-            native_tables: Vec::new(),
             native_targets: Vec::new(),
             keys: HashMap::new(),
             generic_count: 0,
@@ -229,7 +218,45 @@ impl<'a> InstancePlanner<'a> {
     pub fn enqueue_protocol(
         &mut self,
         parent: &Instance,
-        protocol: StandardTrait,
+        protocol: Protocol,
+        ty: &TypeId,
+        span: Span,
+    ) -> Result<InstanceId, MirLoweringError> {
+        self.enqueue_protocol_body(
+            parent.origin.clone(),
+            parent.function,
+            parent.substitution.clone(),
+            protocol,
+            ty,
+            span,
+        )
+    }
+
+    pub(super) fn enqueue_selected_protocol(
+        &mut self,
+        protocol: Protocol,
+        ty: &TypeId,
+        span: Span,
+    ) -> Result<InstanceId, MirLoweringError> {
+        let parent = self.module.lowered.module.functions.first().ok_or(
+            MirLoweringError::MissingBinding("protocol adapter source context"),
+        )?;
+        self.enqueue_protocol_body(
+            self.module.lowered.source.module_identity().clone(),
+            parent.id,
+            TypeSubstitution::default(),
+            protocol,
+            ty,
+            span,
+        )
+    }
+
+    fn enqueue_protocol_body(
+        &mut self,
+        origin: ModuleIdentity,
+        function: FunctionId,
+        substitution: TypeSubstitution,
+        protocol: Protocol,
         ty: &TypeId,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
@@ -261,13 +288,12 @@ impl<'a> InstancePlanner<'a> {
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
             callable: None,
-            origin: parent.origin.clone(),
+            origin,
             id,
-            function: parent.function,
+            function,
             key,
-            substitution: parent.substitution.clone(),
+            substitution,
             closure: None,
-            native_method: None,
             protocol: Some((protocol, ty.clone())),
         });
         self.record_layout_root(ty, &Default::default(), span)?;
@@ -380,7 +406,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
-            native_method: None,
             protocol: None,
         });
         Ok(id)
@@ -413,9 +438,8 @@ impl<'a> InstancePlanner<'a> {
         }
 
         let base = self.module.lowered.module.impls.len();
-        let occurrence =
-            u32::try_from(base + self.host_interfaces.len() + self.native_tables.len())
-                .map_err(|_| MirLoweringError::MissingBinding("host interface identity limit"))?;
+        let occurrence = u32::try_from(base + self.host_interfaces.len())
+            .map_err(|_| MirLoweringError::MissingBinding("host interface identity limit"))?;
         let id = DefinitionId {
             module: self.module.lowered.source.module_identity().clone(),
             path: vec![DefinitionPathSegment {
@@ -427,124 +451,6 @@ impl<'a> InstancePlanner<'a> {
         self.host_interfaces
             .push((id.clone(), receiver.clone(), interface.clone(), span));
         Ok(id)
-    }
-
-    pub fn native_interface(
-        &mut self,
-        receiver: &TypeId,
-        interface: &NominalType,
-        span: Span,
-    ) -> Result<DefinitionId, MirLoweringError> {
-        self.check()?;
-        let concrete = lower_type(receiver);
-        let applied = AbiType::Trait(lower_nominal_type(interface));
-        if let Some(table) = self
-            .native_tables
-            .iter()
-            .find(|t| t.for_type == concrete && t.trait_type == applied)
-        {
-            return Ok(table.declaration.clone());
-        }
-        self.charge_layout_instance(span)?;
-        let declaration = DefinitionId {
-            module: self.module.lowered.source.module_identity().clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Impl,
-                name: String::new(),
-                occurrence: u32::try_from(
-                    self.module.lowered.module.impls.len()
-                        + self.host_interfaces.len()
-                        + self.native_tables.len(),
-                )
-                .map_err(|_| MirLoweringError::MissingBinding("native interface limit"))?,
-            }],
-        };
-        let contract =
-            self.catalog
-                .trait_(&interface.declaration)
-                .ok_or(MirLoweringError::MissingBinding(
-                    "native interface contract",
-                ))?;
-        let substitution: TypeSubstitution = contract
-            .generic_params
-            .iter()
-            .cloned()
-            .zip(interface.arguments.iter().cloned())
-            .collect();
-        let instantiate = |ty: &TypeId| {
-            ty.with_self(&contract.id, receiver)
-                .instantiate(&substitution)
-                .with_associated_types(interface)
-        };
-        let parent = self
-            .instances
-            .first()
-            .cloned()
-            .ok_or(MirLoweringError::MissingBinding("native bridge origin"))?;
-        let mut methods = Vec::new();
-        for method in &contract.methods {
-            if matches!(method.default, Some(MethodDefault::Native(_))) {
-                continue;
-            }
-            let mut id = declaration.clone();
-            id.path.push(DefinitionPathSegment {
-                kind: DefinitionKind::Method,
-                name: method.name.clone(),
-                occurrence: 0,
-            });
-            let key = InstanceKey {
-                declaration: id,
-                arguments: Vec::new(),
-            };
-            let instance_id = InstanceId::new(self.instances.len());
-            self.keys.insert(key.clone(), instance_id);
-            self.instances.push(Instance {
-                callable: None,
-                origin: parent.origin.clone(),
-                id: instance_id,
-                function: parent.function,
-                key,
-                substitution: Default::default(),
-                closure: None,
-                protocol: None,
-                native_method: Some((receiver.clone(), interface.clone(), method.id.clone())),
-            });
-            methods.push(FunctionAbi {
-                method_policy: Default::default(),
-                implementation: CallableImplementation::Script,
-                name: method.name.clone(),
-                generic_params: Vec::new(),
-                bounds: Vec::new(),
-                params: method
-                    .params
-                    .iter()
-                    .map(|p| ParameterAbi {
-                        name: p.name.clone(),
-                        mutable: false,
-                        ty: lower_type(&instantiate(&p.ty)),
-                    })
-                    .collect(),
-                return_type: lower_type(&instantiate(&method.return_type)),
-            });
-        }
-        self.native_tables.push(InterfaceTableAbi {
-            declaration: declaration.clone(),
-            name: format!(
-                "{} as {}",
-                receiver.display_name(),
-                interface.declaration.path.last().unwrap().name
-            ),
-            host_bridge: false,
-            native_bridge: true,
-            generic_params: Vec::new(),
-            bounds: Vec::new(),
-            trait_type: applied,
-            for_type: concrete,
-            methods,
-            associated_type_families: Vec::new(),
-            associated_consts: Vec::new(),
-        });
-        Ok(declaration)
     }
 
     pub fn charge_instruction(&mut self, span: Span) {
@@ -612,15 +518,6 @@ impl<'a> InstancePlanner<'a> {
             .trait_closure(interface, receiver, &self.options.cancel)
             .map_err(|_| MirLoweringError::MissingBinding("checked inheritance closure"))?;
         for parent in parents.into_iter().skip(1) {
-            if traits::native_interface_applies(
-                &parent,
-                receiver,
-                self.catalog,
-                &Default::default(),
-            ) {
-                self.native_interface(receiver, &parent, span)?;
-                continue;
-            }
             if self
                 .module
                 .names
@@ -752,7 +649,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution,
             closure: None,
-            native_method: None,
             protocol: None,
         });
         Ok(id)
@@ -795,7 +691,6 @@ impl<'a> InstancePlanner<'a> {
             key,
             substitution: parent.substitution.clone(),
             closure: Some(closure),
-            native_method: None,
             protocol: None,
         });
         Ok(id)

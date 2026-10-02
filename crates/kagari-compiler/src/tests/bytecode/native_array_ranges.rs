@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
+    language::Protocol,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, traits::StandardTrait},
+    standard::RuntimePrimitive,
     types::AbiType,
 };
 use kagari_bytecode::{
@@ -57,8 +58,7 @@ fn main(){{val a=[20,22];val r={range};{action}}}
                     .witnesses
                     .iter()
                     .position(|w| {
-                        StandardTrait::from_id(&w.interface.declaration)
-                            == Some(StandardTrait::RangeBounds)
+                        Protocol::from_id(&w.interface.declaration) == Some(Protocol::RangeBounds)
                     })
                     .unwrap();
                 match mutation {
@@ -129,8 +129,8 @@ fn main(){{val a=[20,22];val r={range};{action}}}
                                 .witnesses
                                 .iter()
                                 .position(|w| {
-                                    StandardTrait::from_id(&w.interface.declaration)
-                                        == Some(StandardTrait::List)
+                                    Protocol::from_id(&w.interface.declaration)
+                                        == Some(Protocol::List)
                                 })
                                 .unwrap();
                             contract.witnesses.remove(factory);
@@ -144,8 +144,8 @@ fn main(){{val a=[20,22];val r={range};{action}}}
                                 .witnesses
                                 .iter_mut()
                                 .find(|w| {
-                                    StandardTrait::from_id(&w.interface.declaration)
-                                        == Some(StandardTrait::List)
+                                    Protocol::from_id(&w.interface.declaration)
+                                        == Some(Protocol::List)
                                 })
                                 .unwrap();
                             let AbiType::Array(_, access) = &mut factory.receiver else {

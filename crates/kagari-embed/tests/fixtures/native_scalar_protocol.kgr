@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::string::String;
 use std::fmt::{Debug, Display};
 use std::cmp::{PartialEq, Eq, Ordering};
-use game::selection::{stamp, diagnostic, display};
+use game::selection::{stamp, diagnostic, display, same};
 use game::presentation::{Render, fingerprint};
 struct Identifier { val key: i64 }
 impl PartialEq for Identifier { fn eq(self, other: Self) -> bool { self.key == other.key } }
@@ -11,6 +11,7 @@ impl Hash for Identifier { fn hash(self) -> i64 { self.key } }
 impl Debug for Identifier { fn debug(self) -> String { "identifier debug" } }
 impl Display for Identifier { fn display(self) -> String { "identifier display" } }
 struct Payload { val number: i32 }
+enum Packet { Item(Identifier, i32), Empty }
 fn signed() -> bool {
     (-128i8).hash() == stamp(-128i8) && (-32768i16).hash() == stamp(-32768i16) &&
     (-2147483648i32).hash() == stamp(-2147483648i32) &&
@@ -47,9 +48,16 @@ fn custom() -> bool {
 fn implicit() -> bool {
     val first = Payload { number: 7 };
     val alias = first;
-    first.hash() == alias.hash() &&
-    (1i32, true).debug() == "(1, true)" &&
-    (Identifier { key: 42i64 }, 1i32).hash() == (Identifier { key: 42i64 }, 1i32).hash()
+    first.hash() == alias.hash() && stamp(first) == stamp(alias) &&
+    stamp(first) == first.hash() && same(first, alias) &&
+    !same(first, Payload { number: 7 }) &&
+    (1i32, true).debug() == "(1, true)" && diagnostic((1i32, true)) == "(1, true)" &&
+    (Identifier { key: 42i64 }, 1i32).hash() == stamp((Identifier { key: 42i64 }, 1i32)) &&
+    same((Identifier { key: 42i64 }, 1i32), (Identifier { key: 42i64 }, 1i32)) &&
+    !same((Identifier { key: 42i64 }, 1i32), (Identifier { key: 9i64 }, 1i32)) &&
+    same(Packet::Item(Identifier { key: 42i64 }, 1i32), Packet::Item(Identifier { key: 42i64 }, 1i32)) &&
+    stamp(Packet::Item(Identifier { key: 42i64 }, 1i32)) == Packet::Item(Identifier { key: 42i64 }, 1i32).hash() &&
+    !same(Packet::Empty, Packet::Item(Identifier { key: 42i64 }, 1i32))
 }
 fn string_debug() -> String { "é😀".debug() }
 fn string_display() -> String { display("é😀") }

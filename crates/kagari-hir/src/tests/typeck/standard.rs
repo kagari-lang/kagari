@@ -2,7 +2,7 @@ use super::*;
 use {crate::typeck::table::CallTarget, kagari_common::source::SourceFile};
 
 use crate::{
-    aggregates::traits::MethodDefault, builtin::traits::StandardTraitSemantics,
+    aggregates::traits::MethodDefault, language::semantics::ProtocolSemantics,
     native::NativeBinding,
 };
 use kagari_abi::{callable::EngineNativeBinding, standard::RuntimePrimitive};
@@ -79,9 +79,9 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         native::NativeTypeKind,
         typeck::{FunctionImplementation, table::ConstraintTarget},
     };
-    use kagari_abi::standard::{
-        surface::{self as standard_surface, StandardEnum},
-        traits::StandardTrait,
+    use kagari_abi::{
+        language::Protocol,
+        standard::surface::{self as standard_surface, StandardEnum},
     };
     use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
@@ -179,7 +179,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     };
     let map_get = signature(RuntimePrimitive::MapGet);
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
-    for kind in [StandardTrait::Eq, StandardTrait::Hash] {
+    for kind in [Protocol::Eq, Protocol::Hash] {
         assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal().declaration)));
     }
     assert_eq!(signature(RuntimePrimitive::StringSlice).params.len(), 3);
@@ -204,7 +204,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         == "difference"));
     let difference = facts
         .aggregates
-        .trait_(&StandardTrait::Set.nominal().declaration)
+        .trait_(&Protocol::Set.nominal().declaration)
         .unwrap()
         .methods
         .iter()
@@ -408,7 +408,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
             EngineNativeBinding::Intrinsic(RuntimePrimitive::MapKeys)
         ))
     );
-    let mut list = kagari_abi::standard::traits::StandardTrait::List.nominal();
+    let mut list = kagari_abi::language::Protocol::List.nominal();
     list.arguments.push(TypeId::Builtin(BuiltinType::String));
     assert_eq!(
         typed.type_table.expr_type(keys_tail),

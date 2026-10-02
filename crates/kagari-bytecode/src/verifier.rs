@@ -392,8 +392,7 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                         method.implementation,
                         CallableImplementation::Native(_)
                             | CallableImplementation::NativeDefault(_)
-                    ) && !abi.native_bridge
-                    {
+                    ) {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
                     if abi.host_bridge && !host_bridge_method_matches(abi, slot, function, module) {
@@ -410,7 +409,6 @@ fn verify_interface_tables(module: &BytecodeModule) -> Result<(), BytecodeVerifi
                         .get(target.index())
                         .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
                     if abi.host_bridge
-                        || abi.native_bridge
                         || import.host.is_some()
                         || match &method.implementation {
                             CallableImplementation::Native(binding) => binding != &import.binding,

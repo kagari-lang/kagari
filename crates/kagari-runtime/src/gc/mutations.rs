@@ -6,7 +6,7 @@ use crate::{
     value::Value,
 };
 
-use indexmap::IndexMap;
+use crate::gc::hash_storage::{HashMapStorage, HashSetStorage};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreparedCollectionCommit {
     ReplaceArray,
@@ -77,21 +77,22 @@ impl GcHeap {
                     HeapObject::Array(copy)
                 }
                 HeapObject::Map(values) if values.len() == input.len() => {
-                    let mut copy = IndexMap::new();
+                    let mut copy = HashMapStorage::new();
                     copy.try_reserve(kept).map_err(|_| allocation())?;
                     for ((key, value), keep) in values.iter().zip(input) {
                         if matches!(keep, Value::Bool(true)) {
-                            copy.insert(key.clone(), value.clone());
+                            copy.insert(key.clone(), value.clone())
+                                .map_err(|_| allocation())?;
                         }
                     }
                     HeapObject::Map(copy)
                 }
                 HeapObject::Set(values) if values.len() == input.len() => {
-                    let mut copy = IndexMap::new();
+                    let mut copy = HashSetStorage::new();
                     copy.try_reserve(kept).map_err(|_| allocation())?;
-                    for ((key, ()), keep) in values.iter().zip(input) {
+                    for (key, keep) in values.iter().zip(input) {
                         if matches!(keep, Value::Bool(true)) {
-                            copy.insert(key.clone(), ());
+                            copy.insert(key.clone()).map_err(|_| allocation())?;
                         }
                     }
                     HeapObject::Set(copy)

@@ -4,7 +4,7 @@ use crate::{
     effects::EffectSet,
     native_import::{
         NativeSignature,
-        callables::{NativeCallableApplication, NativeCallableRequirement},
+        callables::{NativeCallableApplication, NativeCallableOrigin, NativeCallableRequirement},
     },
     types::{
         ConcreteFunctionIdentity, matching,
@@ -144,6 +144,7 @@ impl ProofCatalog<'_> {
                 )
             };
             selected = Some(NativeCallableApplication {
+                origin: NativeCallableOrigin::Implementation,
                 requirement: requirement.clone(),
                 instance,
                 implementation,

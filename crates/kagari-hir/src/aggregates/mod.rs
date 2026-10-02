@@ -7,11 +7,11 @@ use kagari_common::{
 
 use crate::{
     aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
-    builtin::traits as builtin_traits,
     declarations::{Declaration, DeclarationId, Declarations},
     hir::{item::storage::Visibility, writeability::Writeability},
     host::HostDeclarations,
     imports::{ModuleGraph, functions::SourceFunctionId},
+    language::semantics as builtin_traits,
     lower::LoweredModule,
     native::NativeTypeKind,
     resolver::resolved::ResolvedName,
@@ -19,7 +19,9 @@ use crate::{
     types::{GenericParameterType, NominalType, TypeId},
 };
 pub mod implementations;
+mod interfaces;
 mod native;
+pub mod protocols;
 pub mod traits;
 
 use std::{

@@ -1,5 +1,5 @@
 use crate::{
-    callable::{CallableImplementation, EngineNativeBinding},
+    callable::CallableImplementation,
     types::{ParameterAbi, verify::*},
 };
 
@@ -30,7 +30,8 @@ fn requirements_are_not_executable_functions_or_forged_native_entries() {
     function.method_policy.override_allowed = false;
     assert!(!valid(&function));
     function.method_policy.override_allowed = true;
-    function.implementation = CallableImplementation::Native(EngineNativeBinding::ParseRadix);
+    function.implementation =
+        CallableImplementation::Native(owner(&module, &[], DefinitionKind::Trait, "forged"));
     assert!(!valid(&function));
 }
 
@@ -144,7 +145,6 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         bounds: Vec::new(),
         methods: Vec::new(),
         host_bridge: false,
-        native_bridge: false,
     };
     assert!(same_method_contract(
         &declared,
@@ -310,7 +310,6 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         associated_type_families: vec![],
         methods: vec![],
         host_bridge: false,
-        native_bridge: false,
     };
     let dependency = InterfaceTableAbi {
         trait_type: AbiType::Trait(NominalAbiType {

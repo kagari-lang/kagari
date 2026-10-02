@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::EngineNativeBinding,
+    language::Protocol,
     native_import::{NativeWitness, NativeWitnessImplementation},
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, intrinsic, surface::StandardEnum, traits::StandardTrait},
+    standard::{RuntimePrimitive, intrinsic, surface::StandardEnum},
     types::{AbiType, ConstraintAbi, GenericBoundAbi, PublicAbiItem},
 };
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
@@ -81,12 +82,12 @@ fn main(){{{body}}}
                 5 => import.requirements.clear(),
                 6 => import.witnesses.clear(),
                 7 => import.witnesses[0].receiver = boolean,
-                8 => import.witnesses[0].interface = intrinsic::applied(StandardTrait::Eq, vec![]),
+                8 => import.witnesses[0].interface = intrinsic::applied(Protocol::Eq, vec![]),
                 9 => import.witnesses[0].implementation = NativeWitnessImplementation::Host,
                 10 => import.witnesses[0].methods.push(import.instance.clone()),
                 11 => import.witnesses.push(NativeWitness {
                     receiver: boolean,
-                    interface: intrinsic::applied(StandardTrait::Eq, vec![]),
+                    interface: intrinsic::applied(Protocol::Eq, vec![]),
                     implementation: NativeWitnessImplementation::Primitive,
                     methods: vec![],
                 }),
@@ -102,7 +103,7 @@ fn main(){{{body}}}
                 13 => import.requirements.push(GenericBoundAbi {
                     ty: boolean,
                     constraints: vec![ConstraintAbi::Trait(intrinsic::applied(
-                        StandardTrait::Eq,
+                        Protocol::Eq,
                         vec![],
                     ))],
                 }),
@@ -135,7 +136,7 @@ fn main(){val result="bad".parse::<Wrapped<i32>>();}
 "#,
     );
     let root = program.root.index();
-    let table_index=program.modules[root].public_items.iter().position(|item|matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type,AbiType::Trait(interface) if StandardTrait::from_id(&interface.declaration)==Some(StandardTrait::FromStr)))).unwrap();
+    let table_index=program.modules[root].public_items.iter().position(|item|matches!(item,PublicAbiItem::InterfaceTable(table) if matches!(&table.trait_type,AbiType::Trait(interface) if Protocol::from_id(&interface.declaration)==Some(Protocol::FromStr)))).unwrap();
     let slot = program.modules[root]
         .interface_tables
         .iter()

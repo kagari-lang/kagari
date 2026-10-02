@@ -224,12 +224,13 @@ impl Importer<'_> {
                 .source_map
                 .insert_item_name(Item::OpaqueType(id), site.name_span);
             let generic_params = self.generics(&owner, &ty.generic_params);
+            let bounds = self.bounds(&ty.bounds, &site.bounds)?;
             self.lowerer.module.opaque_types.push(OpaqueType {
                 id,
                 visibility: Visibility::Public,
                 name: ty.name.clone(),
                 generic_params,
-                bounds: vec![],
+                bounds,
                 trait_bounds: vec![],
                 definition: None,
             });
@@ -243,8 +244,8 @@ impl Importer<'_> {
                 match constructor {
                     NativeTypeConstructor::Array => NativeTypeKind::ArrayList,
                     NativeTypeConstructor::String => NativeTypeKind::String,
-                    NativeTypeConstructor::Map => NativeTypeKind::LinkedHashMap,
-                    NativeTypeConstructor::Set => NativeTypeKind::LinkedHashSet,
+                    NativeTypeConstructor::Map => NativeTypeKind::HashMap,
+                    NativeTypeConstructor::Set => NativeTypeKind::HashSet,
                     NativeTypeConstructor::Iter => NativeTypeKind::Iter,
                     NativeTypeConstructor::Range(kind) => NativeTypeKind::Range(kind),
                     NativeTypeConstructor::Enum(_) => unreachable!("enum imported separately"),
@@ -699,6 +700,26 @@ impl Importer<'_> {
                     }
                 }
             }
+            AbiType::Map {
+                key,
+                value,
+                access: CollectionAccess::Mutable,
+            } => TypeKind::Generic {
+                name: self.representation_name(NativeTypeConstructor::Map, "HashMap", span)?,
+                args: [self.ty(key, span)?, self.ty(value, span)?]
+                    .into_iter()
+                    .collect(),
+                bindings: vec![],
+                positional_after_binding: false,
+                callable_syntax: false,
+            },
+            AbiType::Set(item, CollectionAccess::Mutable) => TypeKind::Generic {
+                name: self.representation_name(NativeTypeConstructor::Set, "HashSet", span)?,
+                args: [self.ty(item, span)?].into_iter().collect(),
+                bindings: vec![],
+                positional_after_binding: false,
+                callable_syntax: false,
+            },
             AbiType::Function { params, result } => TypeKind::Function {
                 params: params
                     .iter()
@@ -799,21 +820,11 @@ impl Importer<'_> {
             &preferred
         };
         let [(module, ty)] = candidates.as_slice() else {
-            if candidates.is_empty() {
-                // Carried source-owned declarations still resolve through their
-                // actual installed prelude until their NR04 provider migrates.
-                return Ok(fallback.into());
-            }
             return Err(NativeApiError(
-                "ambiguous installed native representation".into(),
+                "missing or ambiguous native representation declaration".into(),
             ));
         };
-        let name = format!(
-            "{}::{}::{}",
-            module.identity.package.0,
-            module.identity.path.join("::"),
-            ty.name
-        );
+        let name = format!("{}::{}", module.identity, ty.name);
         if self.external_imports.insert(name.clone()) {
             self.lowerer.module.imports.push(Import {
                 visibility: Visibility::Private,

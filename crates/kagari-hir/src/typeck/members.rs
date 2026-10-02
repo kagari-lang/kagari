@@ -2,13 +2,13 @@
 
 use crate::{
     aggregates::{AggregateCatalog, InherentMethodSignature},
-    builtin::traits::{self, StandardTraitSemantics},
+    language::semantics::{self as traits, ProtocolSemantics},
     typeck::{GenericBounds, inference, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_abi::{
+    language::{self as standard_traits, Protocol},
     scalar::BuiltinType,
-    standard::traits::{self as standard_traits, StandardTrait},
 };
 use kagari_common::{
     cancellation::CancellationToken, identity::associated_type_id, range::RangeKind,
@@ -43,15 +43,15 @@ pub(crate) fn interfaces(
 ) -> Vec<NominalType> {
     if let TypeId::Trait(interface) = ty {
         let mut bounds = aggregates
-            .trait_closure(interface, ty, cancel)
+            .interface_closure(interface, ty, cancel)
             .unwrap_or_default();
-        if StandardTrait::from_id(&interface.declaration).is_some_and(StandardTrait::collection) {
+        if Protocol::from_id(&interface.declaration).is_some_and(Protocol::collection) {
             bounds.extend(
                 [
-                    StandardTrait::PartialEq,
-                    StandardTrait::Eq,
-                    StandardTrait::Hash,
-                    StandardTrait::Debug,
+                    Protocol::PartialEq,
+                    Protocol::Eq,
+                    Protocol::Hash,
+                    Protocol::Debug,
                 ]
                 .map(|kind| kind.nominal()),
             );
@@ -91,7 +91,7 @@ pub(crate) fn interfaces(
                 }
             }
         }
-        for kind in StandardTrait::ALL {
+        for kind in Protocol::ALL {
             let interface = kind.intrinsic_view(ty);
             if traits::intrinsic_holds(kind, ty, Some(aggregates), assumptions)
                 && !implemented.iter().any(|available| {
@@ -198,11 +198,11 @@ fn add_iterator_view(
     if let TypeId::Range(item, kind) = receiver
         && *kind != RangeKind::Full
     {
-        let mut view = StandardTrait::RangeBounds.nominal();
+        let mut view = Protocol::RangeBounds.nominal();
         view.arguments.push((**item).clone());
         views.push(view);
     }
-    for kind in [StandardTrait::Iterator, StandardTrait::Iterable] {
+    for kind in [Protocol::Iterator, Protocol::Iterable] {
         if matches!(
             receiver,
             TypeId::Range(_, _)
@@ -228,13 +228,13 @@ fn add_iterator_view(
     }
     if views
         .iter()
-        .any(|n| n.declaration == standard_traits::identity(StandardTrait::Iterable))
+        .any(|n| n.declaration == standard_traits::identity(Protocol::Iterable))
     {
         return;
     }
     let Some(iterator) = views
         .iter()
-        .find(|n| n.declaration == standard_traits::identity(StandardTrait::Iterator))
+        .find(|n| n.declaration == standard_traits::identity(Protocol::Iterator))
     else {
         return;
     };
@@ -251,7 +251,7 @@ fn add_iterator_view(
                 arguments: vec![],
             })
         });
-    let mut into = StandardTrait::Iterable.nominal();
+    let mut into = Protocol::Iterable.nominal();
     into.associated_types
         .insert(associated_type_id(&into.declaration, "Item"), item);
     into.associated_types.insert(

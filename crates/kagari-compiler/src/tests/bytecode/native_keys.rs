@@ -2,9 +2,10 @@ use crate::tests::common;
 use bincode::{DefaultOptions, Options};
 use kagari_abi::{
     callable::{EngineNativeBinding, NativeCall},
+    language::Protocol,
     native_import::NativeWitnessImplementation,
     scalar::BuiltinType,
-    standard::{RuntimePrimitive, traits::StandardTrait},
+    standard::RuntimePrimitive,
     types::AbiType,
 };
 use kagari_bytecode::{
@@ -149,7 +150,7 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
                 checked += 1;
             }
             if shape == "nominal" {
-                for protocol in [StandardTrait::PartialEq, StandardTrait::Hash] {
+                for protocol in [Protocol::PartialEq, Protocol::Hash] {
                     for mutation in 0..8 {
                         let mut forged = artifact.clone();
                         let contract = &mut forged.program.modules[root].native_imports[import];
@@ -157,7 +158,7 @@ fn key_imports_reject_forged_storage_arguments_authority_and_selected_methods() 
                             .witnesses
                             .iter()
                             .position(|w| {
-                                StandardTrait::from_id(&w.interface.declaration) == Some(protocol)
+                                Protocol::from_id(&w.interface.declaration) == Some(protocol)
                             })
                             .unwrap();
                         let witness = &mut contract.witnesses[selected];
@@ -248,7 +249,7 @@ fn composed_key_imports_reject_bypassed_hash_equality_and_forged_helper_results(
             .position(|c| c.binding == EngineNativeBinding::Intrinsic(RuntimePrimitive::MapGet))
             .unwrap();
         let artifact = KbcArtifact::from_program(program, Default::default()).unwrap();
-        for protocol in [StandardTrait::PartialEq, StandardTrait::Hash] {
+        for protocol in [Protocol::PartialEq, Protocol::Hash] {
             for mutation in 0..6 {
                 let mut forged = artifact.clone();
                 let module = &mut forged.program.modules[root];
@@ -256,7 +257,7 @@ fn composed_key_imports_reject_bypassed_hash_equality_and_forged_helper_results(
                 let witness = contract
                     .witnesses
                     .iter_mut()
-                    .find(|w| StandardTrait::from_id(&w.interface.declaration) == Some(protocol))
+                    .find(|w| Protocol::from_id(&w.interface.declaration) == Some(protocol))
                     .unwrap();
                 assert_eq!(witness.implementation, NativeWitnessImplementation::Derived);
                 match mutation {
@@ -276,7 +277,7 @@ fn composed_key_imports_reject_bypassed_hash_equality_and_forged_helper_results(
                             .find(|f| f.identity.as_ref() == Some(&target))
                             .unwrap();
                         helper.metadata.semantic.result =
-                            Some(AbiType::Builtin(if protocol == StandardTrait::Hash {
+                            Some(AbiType::Builtin(if protocol == Protocol::Hash {
                                 BuiltinType::Bool
                             } else {
                                 BuiltinType::I64

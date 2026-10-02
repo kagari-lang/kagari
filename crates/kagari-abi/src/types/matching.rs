@@ -1,6 +1,6 @@
 //! Match checked implementation templates against a requested executable contract.
 use crate::{
-    standard::traits::StandardTrait,
+    language::Protocol,
     types::{
         AbiType, AssociatedTypeFamilyAbi, GenericParameterAbi, InterfaceTableAbi, NominalAbiType,
         substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
@@ -62,14 +62,10 @@ pub fn match_pattern<'a>(
     TypeSubstitution::default().apply_nominal(implemented, cancel)?;
     // Readonly native capabilities admit either storage view. Other impls must
     // match access exactly; storage arguments remain invariant in either case.
-    let readonly = StandardTrait::from_id(&implemented.declaration).is_some_and(|kind| {
+    let readonly = Protocol::from_id(&implemented.declaration).is_some_and(|kind| {
         matches!(
             kind,
-            StandardTrait::List
-                | StandardTrait::Map
-                | StandardTrait::Set
-                | StandardTrait::Iterable
-                | StandardTrait::Index
+            Protocol::List | Protocol::Map | Protocol::Set | Protocol::Iterable | Protocol::Index
         )
     });
     let mut bindings = TypeSubstitution::default();
@@ -250,7 +246,7 @@ mod tests {
             position: 0,
         };
         let mut interface =
-            crate::standard::intrinsic::applied(StandardTrait::List, vec![integer.clone()]);
+            crate::language::primitive::applied(Protocol::List, vec![integer.clone()]);
         let mut table = InterfaceTableAbi {
             declaration: parameter.owner.clone(),
             name: "List".into(),
@@ -259,13 +255,12 @@ mod tests {
             methods: vec![],
             associated_consts: vec![],
             for_type: AbiType::Array(Box::new(parameter.as_type()), CollectionAccess::Mutable),
-            trait_type: AbiType::Trait(crate::standard::intrinsic::applied(
-                StandardTrait::List,
+            trait_type: AbiType::Trait(crate::language::primitive::applied(
+                Protocol::List,
                 vec![parameter.as_type()],
             )),
             associated_type_families: vec![],
             host_bridge: false,
-            native_bridge: false,
         };
         let cancel = CancellationToken::default();
         assert!(
@@ -278,7 +273,7 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        interface.declaration = crate::standard::traits::identity(StandardTrait::MutableList);
+        interface.declaration = crate::language::identity(Protocol::MutableList);
         let AbiType::Trait(implemented) = &mut table.trait_type else {
             unreachable!()
         };
@@ -294,10 +289,9 @@ mod tests {
                 .is_none()
         );
         // Generic arguments cannot acquire the outer access relaxation.
-        interface =
-            crate::standard::intrinsic::applied(StandardTrait::List, vec![readonly.clone()]);
-        table.trait_type = AbiType::Trait(crate::standard::intrinsic::applied(
-            StandardTrait::List,
+        interface = crate::language::primitive::applied(Protocol::List, vec![readonly.clone()]);
+        table.trait_type = AbiType::Trait(crate::language::primitive::applied(
+            Protocol::List,
             vec![parameter.as_type()],
         ));
         table.for_type = AbiType::Array(Box::new(mutable), CollectionAccess::Mutable);
@@ -342,7 +336,6 @@ mod tests {
                 value: AbiType::Tuple(vec![parameter.as_type(), family_parameter.as_type()]),
             }],
             host_bridge: false,
-            native_bridge: false,
         };
         let integer = AbiType::Builtin(BuiltinType::I32);
         let boolean = AbiType::Builtin(BuiltinType::Bool);

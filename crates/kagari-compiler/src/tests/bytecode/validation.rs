@@ -12,12 +12,12 @@ use kagari_abi::{
     budget::LogicalBudgetCharge,
     callable::{EngineNativeBinding, NativeCall},
     effects::EffectSet,
+    language::{self as standard_traits, Protocol},
     native_import::{EngineNativeOperation, NativeWitnessImplementation},
     scalar::BuiltinType,
     standard::{
         RuntimePrimitive,
         bindings::{NativeDefaultMethod, NativeProtocolMethod},
-        traits::{self as standard_traits, StandardTrait},
     },
     types::AbiType,
 };
@@ -46,8 +46,7 @@ impl<T> Product<T> for Bucket<T> {fn product<I:Iterable<Item=T>>(source:I)->Self
             .witnesses
             .iter()
             .position(|witness| {
-                StandardTrait::from_id(&witness.interface.declaration)
-                    .is_some_and(StandardTrait::aggregation)
+                Protocol::from_id(&witness.interface.declaration).is_some_and(Protocol::aggregation)
             })
             .unwrap();
         verify_program(&program).unwrap();
@@ -140,7 +139,7 @@ fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0
         .witnesses
         .iter()
         .position(|witness| {
-            StandardTrait::from_id(&witness.interface.declaration) == Some(StandardTrait::Ord)
+            Protocol::from_id(&witness.interface.declaration) == Some(Protocol::Ord)
         })
         .unwrap();
     verify_program(&program).unwrap();
@@ -158,7 +157,7 @@ fn main()->Option<ArrayList<i32>> {[[1],[2]].iter().min_by_key(|n|Rank{value:n[0
             2 => contract.witnesses[ordinal].receiver = AbiType::Builtin(BuiltinType::I64),
             3 => {
                 contract.witnesses[ordinal].interface.declaration =
-                    standard_traits::identity(StandardTrait::Eq)
+                    standard_traits::identity(Protocol::Eq)
             }
             4 => {
                 let NativeWitnessImplementation::Table(instance) =

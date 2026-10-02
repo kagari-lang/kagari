@@ -1,7 +1,7 @@
 use crate::{
-    builtin::traits,
     declarations::Declarations,
     hir::{ids::FunctionId, ty::TypeKind},
+    language::semantics as traits,
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     typeck::{
@@ -16,7 +16,7 @@ use crate::{
     },
     types::{NominalType, TypeId},
 };
-use kagari_abi::standard::traits::StandardTrait;
+use kagari_abi::language::Protocol;
 use kagari_common::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity,
@@ -125,7 +125,7 @@ pub(super) fn validate_trait_surface(
                             );
                         }
                         ConstraintTarget::Trait(required_trait) => {
-                            let satisfied = StandardTrait::from_id(&required_trait.declaration)
+                            let satisfied = Protocol::from_id(&required_trait.declaration)
                                 .is_some_and(|kind| {
                                     required_trait.arguments.is_empty()
                                         && required_trait.associated_types.is_empty()
@@ -205,11 +205,11 @@ pub(super) fn validate_trait_surface(
         }
         seen_impls.push((id.clone(), for_ty.clone()));
 
-        let standard = StandardTrait::from_id(&id.declaration);
+        let standard = Protocol::from_id(&id.declaration);
         if standard.is_some_and(|kind| {
             !kind.host_implementable() && matches!(for_ty, TypeId::Host(_))
                 || !lowered.registered_native_api
-                    && !kind.conversion()
+                    && kind != Protocol::From
                     && !matches!(
                         for_ty,
                         TypeId::Struct(_) | TypeId::Enum(_) | TypeId::Host(_)

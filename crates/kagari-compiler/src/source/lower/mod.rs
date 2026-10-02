@@ -1,9 +1,6 @@
 use crate::source::{lower::instances::MirLoweringOptions, types::raise_type};
 use instances::InstancePlanner;
-use kagari_abi::{
-    host as module_host,
-    types::{ConcreteFunctionIdentity, PublicAbiItem},
-};
+use kagari_abi::{host as module_host, types::ConcreteFunctionIdentity};
 use kagari_common::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_hir::{
     CheckedAnalysis,
@@ -160,8 +157,6 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
             .ok_or(MirLoweringError::MissingTypedFunction(instance.function))?;
         functions.push(if instance.callable.is_some() {
             function::lower_callable(origin, function, instance, &mut planner)?
-        } else if instance.native_method.is_some() {
-            function::lower_native_method(origin, function, instance, &mut planner)?
         } else if instance.protocol.is_some() {
             function::lower_protocol(origin, function, instance, &mut planner)?
         } else if let Some(closure) = instance.closure {
@@ -174,13 +169,6 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     let (structures, enumerations) = layouts::collect(module, &mut planner)?;
     let mut abi = abi::collect_module_abi(module);
     host_interfaces::collect(&mut planner, module, &mut abi, &mut functions)?;
-    abi.public_items.extend(
-        planner
-            .native_tables
-            .iter()
-            .cloned()
-            .map(|t| PublicAbiItem::InterfaceTable(Box::new(t))),
-    );
     planner.host_types.extend(
         module_host::references(
             &abi.public_items,

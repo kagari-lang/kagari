@@ -11,10 +11,10 @@ use kagari_hir::{
 };
 
 use kagari_abi::{
+    language::{self as standard_traits, Protocol},
     operations::{BinaryOp, UnaryOp},
     representation::ValueType,
     scalar::BuiltinType,
-    standard::traits::{self as standard_traits, StandardTrait},
     types::NominalAbiType,
 };
 use kagari_common::identity::DefinitionId;
@@ -46,7 +46,7 @@ impl FunctionLowerer<'_, '_> {
     /// missing contract or slot is an invalid lowering input, not a catalog fallback.
     pub(super) fn protocol_method(
         &self,
-        protocol: StandardTrait,
+        protocol: Protocol,
         slot: usize,
     ) -> Result<DefinitionId, MirLoweringError> {
         self.planner

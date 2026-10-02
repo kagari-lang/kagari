@@ -2,7 +2,7 @@
 use crate::{function::MirModule, verify::VerifiedMirModule};
 use kagari_abi::{
     callable::CallableImplementation,
-    native_import::NativeSignature,
+    native_import::{NativeSignature, callables::NativeCallableOrigin},
     types::{
         ConcreteFunctionIdentity, PublicAbiItem,
         proofs::{ProofCatalog, implementation::Implementation},
@@ -24,8 +24,7 @@ pub(super) fn validate(
         .flat_map(|module| &module.abi.public_items)
         .filter_map(|item| {
             if let PublicAbiItem::InterfaceTable(table) = item {
-                (!table.host_bridge && !table.native_bridge)
-                    .then_some(Implementation::Interface(table.as_ref()))
+                (!table.host_bridge).then_some(Implementation::Interface(table.as_ref()))
             } else {
                 None
             }
@@ -71,6 +70,21 @@ pub(super) fn validate(
     )?;
     if !catalog.overrides_valid(cancel)? {
         return Ok(false);
+    }
+    for function in &caller.functions {
+        if !function
+            .semantic
+            .protocol_adapter_valid(Some(&function.instance))
+        {
+            return Ok(false);
+        }
+        if let Some(required) = &function.semantic.protocol_adapter
+            && catalog
+                .implicit_callable_signature(required, cancel)?
+                .is_none()
+        {
+            return Ok(false);
+        }
     }
     if !native_slots_valid(caller, &catalog, cancel)? {
         return Ok(false);
@@ -135,7 +149,16 @@ pub(super) fn validate(
                 else {
                     return Ok(false);
                 };
-                if target.params.len() != callable.signature.params.len()
+                let marker_valid = match callable.origin {
+                    NativeCallableOrigin::Implementation => {
+                        target.semantic.protocol_adapter.is_none()
+                    }
+                    NativeCallableOrigin::ProtocolAdapter => {
+                        target.semantic.protocol_adapter.as_ref() == Some(&callable.requirement)
+                    }
+                };
+                if !marker_valid
+                    || target.params.len() != callable.signature.params.len()
                     || target.semantic.params.len() != callable.signature.params.len()
                     || callable
                         .signature
@@ -184,8 +207,7 @@ fn native_slots_valid(
         }) else {
             return Ok(false);
         };
-        if template.native_bridge
-            || template.host_bridge
+        if template.host_bridge
             || instance.arguments.is_empty() && !template.generic_params.is_empty()
         {
             continue;

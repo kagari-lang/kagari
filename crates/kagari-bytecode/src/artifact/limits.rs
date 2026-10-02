@@ -68,6 +68,15 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     }
     for function in &module.functions {
         if function
+            .metadata
+            .semantic
+            .protocol_adapter
+            .as_ref()
+            .is_some_and(|required| !add_callable_requirement(required, &mut add))
+        {
+            return false;
+        }
+        if function
             .identity
             .as_ref()
             .is_some_and(|identity| !add(identity.arguments.len()))

@@ -1,6 +1,6 @@
 //! Bounded classification of core equality composition from executable facts.
 use crate::{
-    standard::{intrinsic, traits::StandardTrait},
+    language::{Protocol, primitive as intrinsic},
     types::{
         AbiType,
         proofs::{Budget, ProofCatalog, search::Search},
@@ -29,7 +29,7 @@ impl ProofCatalog<'_> {
             match ty {
                 AbiType::Struct(_) | AbiType::Enum(_) => {
                     if self.explicit(
-                        &intrinsic::applied(StandardTrait::PartialEq, vec![]),
+                        &intrinsic::applied(Protocol::PartialEq, vec![]),
                         ty,
                         &[],
                         &mut search,
