@@ -4,6 +4,38 @@ Kagari is a statically typed, GC-backed scripting language implemented in Rust.
 Its priorities include host embedding, explicit execution semantics, tooling and
 hot reload. This document defines repository-wide engineering and workflow rules.
 
+## Early Development Policy
+
+Kagari is currently unpublished and in early development. Prioritize fast,
+working implementation with a clear architecture. Do not apply release engineering
+or compatibility workflows without an actual released consumer or an explicit
+user requirement. This policy supersedes older plan requirements for routine
+version bumps, repeated artifact regeneration and exhaustive checkpoint validation.
+
+- Replace internal APIs and data models directly. Do not preserve obsolete
+  callers, formats or artifacts for hypothetical compatibility.
+- Keep format and runtime ABI identifiers, but do not increment them for each
+  unpublished internal API or schema change. Establish a version boundary when
+  publishing or making an explicit compatibility commitment, or when requested
+  by the user. Ordinary native function additions and Rust implementation changes
+  do not automatically require a format or ABI version bump.
+- Treat development artifacts and caches as disposable. Invalidate or regenerate
+  affected products when their layout or contracts change; do not add old-format
+  readers. Batch necessary fixture updates at a coherent checkpoint instead of
+  rebuilding all products after every incremental edit. Preserve meaningful
+  source-free and behavioral coverage.
+- Use focused checks for the changed behavior during development. Run full
+  workspace checks and feature/backend matrices at final integration, or when
+  broad impact or a concrete failure justifies them. Do not repeat unchanged
+  successful checks or known failures at every small checkpoint.
+- Keep the authorized scope finite. Do not silently expand a library task into
+  unrelated architecture migration or continually add checklist items. Implement
+  shared capabilities only for concrete requirements; record material gaps
+  concisely in the existing plan and make substantial scope changes explicit.
+- Keep correctness, static typing, ABI/schema validation, permissions, bounds,
+  roots, cleanup and generation checks. Faster development does not permit fake
+  success, weakened assertions or executing unvalidated input.
+
 ## Authority and Task Context
 
 - Follow the user's current instructions and previously authorized scope. When
