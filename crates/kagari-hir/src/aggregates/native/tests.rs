@@ -24,7 +24,7 @@ fn snapshot(text: &str) -> (AnalysisSnapshot, FileId) {
         .set("native-contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     (snapshot, root)
 }

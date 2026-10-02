@@ -32,7 +32,7 @@ version bumps, repeated artifact regeneration and exhaustive checkpoint validati
   unrelated architecture migration or continually add checklist items. Implement
   shared capabilities only for concrete requirements; record material gaps
   concisely in the existing plan and make substantial scope changes explicit.
-- Keep correctness, static typing, ABI/schema validation, permissions, bounds,
+- Keep correctness, static typing, ABI/schema validation, declared access, bounds,
   roots, cleanup and generation checks. Faster development does not permit fake
   success, weakened assertions or executing unvalidated input.
 
@@ -172,7 +172,7 @@ When changing the checker, run its `--self-test` suite as well.
 - Replace obsolete internal models directly. Do not add compatibility aliases,
   forwarding crates, duplicate public entrypoints, old artifact readers or a second
   semantic implementation solely to preserve superseded callers.
-- Keep runtime ABI, schema, version, permission, bounds and handle checks. Removing
+- Keep runtime ABI, schema, version, declared-access, bounds and handle checks. Removing
   compatibility support does not permit executing unvalidated input.
 - Update examples, consumers and tests to the intended model. Preserve meaningful
   behavioral coverage; do not remove tests or weaken assertions to conceal failures.
@@ -189,18 +189,19 @@ When changing the checker, run its `--self-test` suite as well.
 - Preserve existing static typing, generics, traits, checked numeric behavior,
   shared object semantics and Result/Option propagation under their specifications.
 - Host-owned Rust state remains outside the script heap. Script access uses the
-  declared host capabilities and typed paths; never expose unrestricted Rust
+  installed host interfaces and typed paths; never expose unrestricted Rust
   references through script values or bypass scoped borrow validation.
 - Preserve left-to-right, once-only evaluation, mutation commit guarantees, trap
   order and already-completed side effects. A readonly view does not prove that
   another alias cannot modify its referent.
 - Keep runtime ownership/generation checks, explicit roots and cleanup on traps,
-  cancellation, budget exhaustion and synchronous host reentry.
+  cancellation, call-depth exhaustion and synchronous host reentry.
 - Preserve generation-pinned calls and dependency versions across hot reload.
-  Reflection must remain within declared metadata and permissions, without runtime
+  Reflection must remain within declared metadata and member access rules, without runtime
   type mutation or monkey-patching that bypasses versioned publication.
-- Do not introduce unbudgeted infinite execution paths. Optimization must preserve
-  the specified logical budget and termination behavior.
+- Preserve cooperative cancellation through loops, calls and long native operations.
+  Do not reintroduce execution charging or generic permission matrices; the active
+  execution-policy plan defines the trusted-script boundary.
 - Follow the active plan's production dependency constraints: executable contracts
   must not depend on source analysis, and backends must consume checked facts
   rather than resolve syntax or infer types again.

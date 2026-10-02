@@ -1,7 +1,6 @@
 //! Portable member contracts. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
 use crate::{
-    capability::CapabilitySet,
     host_interface::{
         HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle, codec, hash,
         host_type_identity, validate_host_type_identity, value_type::HostValueType,
@@ -79,8 +78,7 @@ pub struct HostMethodDeclaration {
     #[serde(deserialize_with = "super::decode_limits::members")]
     pub params: Vec<HostParameter>,
     pub return_type: HostValueType,
-    pub capability_requirements: CapabilitySet,
-    pub resource_cost_hint: Option<u64>,
+
     pub effects: HostFunctionEffects,
     pub documentation: String,
 }
@@ -139,8 +137,7 @@ impl HostMethodDeclaration {
             receiver: HostPassingStyle::SharedBorrow,
             params,
             return_type,
-            capability_requirements: Default::default(),
-            resource_cost_hint: None,
+
             effects: Default::default(),
             documentation: String::new(),
         }
@@ -192,8 +189,7 @@ impl HostTypeDeclaration {
             symbol: format!("{}.{}", self.symbol, method.name),
             params,
             return_type: method.return_type.clone(),
-            capability_requirements: method.capability_requirements,
-            resource_cost_hint: method.resource_cost_hint,
+
             effects: method.effects,
             documentation: method.documentation.clone(),
         };

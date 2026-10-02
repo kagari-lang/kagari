@@ -99,12 +99,7 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
         "use pkg::model::make; fn main() -> i32 { make().hidden() }",
     );
     let error = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            inaccessible,
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), inaccessible, &Default::default())
         .unwrap_err();
     assert!(format!("{error:?}").contains("KG_RESOLVE_UNKNOWN_NAME"));
     let invalid_import = insert(
@@ -349,12 +344,7 @@ fn duplicate_inline_and_external_module_identity_is_rejected() {
         "mod child { pub fn value() -> i32 { 2 } } fn main() -> i32 { child::value() }",
     );
     let error = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root,
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap_err();
     assert!(format!("{error:?}").contains("KG_RESOLVE_DUPLICATE_DECLARATION"));
 }
@@ -369,7 +359,6 @@ fn reachable_cycles_compile_without_initialization() {
         .compile_snapshot(
             engine.source_snapshot(),
             root,
-            CompileOptions::default(),
             &CancellationToken::default(),
         )
         .unwrap();

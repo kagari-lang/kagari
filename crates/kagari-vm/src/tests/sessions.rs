@@ -11,37 +11,17 @@ use {
 
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::{cancellation::CancellationToken, host_interface::standard_log};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        backend::{BackendInvocationError, native::NativeInvocationFailure},
-        error::RuntimeErrorKind,
-        host::HostFunction,
-        resource::ResourcePolicy,
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    backend::{BackendInvocationError, native::NativeInvocationFailure},
+    error::RuntimeErrorKind,
+    host::HostFunction,
+    resource::ResourcePolicy,
+    value::Value,
 };
 
 fn runtime(limit: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.log".into()],
-            ..Default::default()
-        },
         resources: ResourcePolicy {
             max_instruction_steps: limit,
             ..Default::default()

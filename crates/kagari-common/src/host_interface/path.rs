@@ -2,7 +2,7 @@
 #[cfg(test)]
 use crate::collection::CollectionAccess;
 use crate::host_interface::{
-    CapabilitySet, DefinitionId, HostInterface, HostInterfaceError,
+    DefinitionId, HostInterface, HostInterfaceError,
     type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     value_type::HostValueType,
 };
@@ -15,7 +15,6 @@ pub struct HostPathDeclaration {
     pub segments: Vec<HostPathSegmentDeclaration>,
     pub access: PathAccess,
     pub schema_epoch: u64,
-    pub capabilities: CapabilitySet,
 }
 impl HostPathDeclaration {
     pub fn contract(
@@ -103,7 +102,7 @@ pub struct HostPathContract {
     pub result: HostValueType,
     pub schema_epoch: u64,
     pub access: PathAccess,
-    pub capabilities: CapabilitySet,
+
     pub segments: Vec<HostPathSegmentContract>,
 }
 impl HostPathContract {
@@ -122,7 +121,7 @@ impl HostPathContract {
         encoded.number(self.result.fingerprint()?);
         encoded.number(self.schema_epoch);
         encoded.access(self.access);
-        encoded.capabilities(self.capabilities);
+
         encoded.number(self.segments.len() as u64);
         for segment in &self.segments {
             if !allows(segment.access, self.access) {
@@ -287,7 +286,7 @@ impl HostInterface {
             result: current,
             schema_epoch: declaration.schema_epoch,
             access: declaration.access,
-            capabilities: declaration.capabilities,
+
             segments,
         })
     }
@@ -324,59 +323,6 @@ impl Fingerprint {
             PathAccess::ReadOnly => 1,
             PathAccess::ReadWrite => 2,
         }]);
-    }
-    fn capabilities(&mut self, capabilities: CapabilitySet) {
-        let CapabilitySet {
-            fs_read,
-            fs_write,
-            net,
-            clock,
-            random,
-            host_calls,
-            path_mutation,
-            reflection_metadata,
-            reflection_read,
-            reflection_write,
-            dynamic_invocation,
-            downcast,
-            module_loading,
-            jit,
-            debug_attach,
-            debug_breakpoints,
-            debug_pause,
-            debug_stack_inspection,
-            debug_value_inspection,
-            debug_host_value_inspection,
-            debug_watch_evaluation,
-            debug_side_effecting_evaluation,
-        } = capabilities;
-        self.bytes(
-            &[
-                fs_read,
-                fs_write,
-                net,
-                clock,
-                random,
-                host_calls,
-                path_mutation,
-                reflection_metadata,
-                reflection_read,
-                reflection_write,
-                dynamic_invocation,
-                downcast,
-                module_loading,
-                jit,
-                debug_attach,
-                debug_breakpoints,
-                debug_pause,
-                debug_stack_inspection,
-                debug_value_inspection,
-                debug_host_value_inspection,
-                debug_watch_evaluation,
-                debug_side_effecting_evaluation,
-            ]
-            .map(u8::from),
-        );
     }
 }
 
@@ -450,7 +396,6 @@ mod tests {
             ],
             access: PathAccess::ReadOnly,
             schema_epoch: 4,
-            capabilities: CapabilitySet::default(),
         };
         let interface = HostInterface {
             types: vec![root],
@@ -536,7 +481,6 @@ mod tests {
                 .collect(),
             access: PathAccess::ReadOnly,
             schema_epoch: 7,
-            capabilities: CapabilitySet::default(),
         };
         let contract = declaration.contract(&catalog).unwrap();
         let mut published = catalog.clone();

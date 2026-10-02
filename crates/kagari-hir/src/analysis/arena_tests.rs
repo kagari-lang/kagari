@@ -4,8 +4,7 @@ use crate::{hir::stmt::StmtKind, resolver::resolved::ResolvedName};
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(source.snapshot(), Default::default(), &Default::default())
-        .unwrap()
+    db.snapshot(source.snapshot(), &Default::default()).unwrap()
 }
 
 #[test]
@@ -135,9 +134,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
         .unwrap();
     // Declaration cache now holds the edit, but signature/full caches hold the
     // original revision. Reconstructing that revision must not copy its old IDs.
-    let reconstructed = db
-        .snapshot(old_source, Default::default(), &Default::default())
-        .unwrap();
+    let reconstructed = db.snapshot(old_source, &Default::default()).unwrap();
     let file = reconstructed.file(id).unwrap();
     let arena = file.result().facts().lowered.module.body.arena();
     assert_ne!(old_arena, arena);

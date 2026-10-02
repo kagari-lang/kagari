@@ -11,11 +11,7 @@ use std::sync::{Arc, Mutex};
 fn execute(source: &str, entry: &str, expected: i32) {
     let engine = KagariEngine::default();
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("never.kgr", source),
-            Default::default(),
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("never.kgr", source), Default::default())
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -147,7 +143,7 @@ fn impossible(value: !) -> i32 { value }
 fn healthy() -> i32 { 42 }
 "#,
             ),
-            Default::default(),
+
             Default::default(),
         )
         .unwrap();

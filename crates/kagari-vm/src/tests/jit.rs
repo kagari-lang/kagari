@@ -11,14 +11,7 @@ use kagari_bytecode::{
 };
 
 use kagari_common::span::Span;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
-};
+use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 
 use crate::{
     debug::DebugSession,
@@ -35,7 +28,7 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
     use kagari_common::host_interface::{
         HostFunctionDeclaration, standard_log, value_type::HostValueType,
     };
-    use kagari_runtime::{host::HostFunction, security::HostExposurePolicy};
+    use kagari_runtime::host::HostFunction;
     use std::sync::{Arc, Mutex};
     let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
     for artifact in [false, true] {
@@ -55,22 +48,6 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                 bytecode.clone()
             };
             let mut runtime = Runtime::new(RuntimeConfig {
-                security: SecurityContext {
-                    profile: LanguageProfile {
-                        allow_host_calls: true,
-                        allow_jit: true,
-                        ..Default::default()
-                    },
-                    capabilities: CapabilitySet {
-                        host_calls: true,
-                        jit: true,
-                        ..Default::default()
-                    },
-                },
-                host_exposure: HostExposurePolicy {
-                    allowed_host_functions: vec!["host.log".into()],
-                    ..Default::default()
-                },
                 ..Default::default()
             });
             runtime
@@ -295,19 +272,15 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
         false,
     ));
 
-    vm.runtime_mut().set_security_context(Default::default());
-
     let report = vm
         .execute_prepared(&loaded, "main", &prepared)
-        .expect("disabled JIT policy should fall back to the interpreter");
+        .expect("installed JIT implementation should execute");
 
     assert_eq!(report.return_value, Value::I32(7));
-    let jit = report.jit.expect("policy fallback should be reported");
-    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
-    assert!(jit.artifact.is_none());
-    assert_eq!(jit.diagnostics.len(), 1);
-    assert!(jit.diagnostics[0].contains("runtime policy"));
-    assert!(jit.diagnostics[0].contains("jit"));
+    let jit = report.jit.expect("native execution should be reported");
+    assert_eq!(jit.status, JitExecutionStatus::Native);
+    assert!(jit.artifact.is_some());
+    assert!(jit.diagnostics.is_empty());
 }
 
 #[test]
@@ -374,43 +347,12 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
 
 fn debug_runtime(module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                debug_watch_evaluation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec![module_name.to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     })
 }
 
 fn jit_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     })
 }

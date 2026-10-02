@@ -60,7 +60,7 @@ impl Vm {
         };
         let native = match prepared {
             PreparedNativeEntry::Native(installed) => {
-                if let Err(error) = self.runtime.validate_jit_boundary() {
+                if let Err(error) = self.runtime.resources().ensure_execution_allowed() {
                     diagnostics.push(format!("JIT disabled by runtime policy: {error}"));
                     None
                 } else {

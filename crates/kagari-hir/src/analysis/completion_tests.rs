@@ -36,7 +36,7 @@ fn function_fallthrough_is_checked_only_when_reachable() {
         ("42;", false),
     ] {
         let source = SourceFile::new("completion.kgr", format!("fn main() -> i32 {{ {body} }}"));
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = crate::analyze_source(&source);
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,

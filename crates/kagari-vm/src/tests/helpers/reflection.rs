@@ -69,16 +69,6 @@ fn runtime_reflection_helpers_require_runtime_capability() {
 #[test]
 fn reflection_metadata_and_read_gates_are_separate() {
     let mut metadata_only = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     });
     let loaded = metadata_only
@@ -127,18 +117,6 @@ fn reflection_metadata_and_read_gates_are_separate() {
 #[test]
 fn reflection_read_and_write_gates_are_separate() {
     let mut read_only = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     });
     let loaded = read_only
@@ -196,17 +174,6 @@ fn reflection_read_and_write_gates_are_separate() {
 #[test]
 fn reflection_helpers_enforce_reflection_operation_resource_limit() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
-        },
         resources: ResourcePolicy {
             max_reflection_operations: Some(1),
             ..ResourcePolicy::default()

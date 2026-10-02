@@ -35,7 +35,7 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
     let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())

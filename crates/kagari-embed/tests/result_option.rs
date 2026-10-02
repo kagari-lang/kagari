@@ -17,10 +17,7 @@ fn propagation_requires_one_infallible_conversion_bound() {
         "struct E{} struct Mid{} struct F{} impl From<E> for Mid {fn from(e:E)->Self{Mid{}}} impl From<Mid> for F {fn from(e:Mid)->Self{F{}}} fn main()->Result<i32,F>{val x:Result<i32,E> = Err(E{});Ok(x?)}",
     ] {
         let error = KagariEngine::default()
-            .compile_source(
-                SourceFile::new("missing-error-conversion.kgr", source),
-                Default::default(),
-            )
+            .compile_source(SourceFile::new("missing-error-conversion.kgr", source))
             .unwrap_err();
         assert!(
             format!("{error:?}").contains("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"),
@@ -54,7 +51,6 @@ fn after() -> i32 { 42 }
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("conversion-trap.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -96,7 +92,6 @@ fn execute(source: &str) {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("result-option.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -297,11 +292,7 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
         ),
     ] {
         let error = KagariEngine::default()
-            .compile_to_artifact(
-                SourceFile::new("invalid.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
             .unwrap_err();
         let EmbeddingError::Diagnostics { diagnostics } = error else {
             panic!("{source}: {error:?}");
@@ -367,7 +358,6 @@ fn malformed_standard_enum_operations_are_rejected_before_execution() {
         .compile_to_artifact(
             SourceFile::new("verified.kgr", "fn main()->Option<i32> { Some(42) }"),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for case in 0..5 {
@@ -422,7 +412,6 @@ fn main()->Result<i32, String> { for x in [1, 2] { fail()?; } Ok(42) }
 fn after()->i32 { 42 }
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

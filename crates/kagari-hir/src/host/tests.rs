@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     analysis::AnalysisDatabase, callable::CallableSignature, native::NativeBinding,
-    profile::LanguageFeatureProfile, typeck::FunctionImplementation,
+    typeck::FunctionImplementation,
 };
 use kagari_common::{
     host_interface::{HostParameter, HostPassingStyle},
@@ -75,8 +75,7 @@ fn checked_host_callables_retain_provider_contracts_and_reject_other_inputs() {
     let mut declaration = declaration();
     declaration.params[0].ty = HostValueType::String;
     declaration.params[0].passing = HostPassingStyle::SharedBorrow;
-    declaration.capability_requirements.clock = true;
-    declaration.resource_cost_hint = Some(23);
+
     declaration.effects.may_call_host_services = true;
     declaration.effects.may_trap = true;
     let interface = HostInterface {
@@ -124,12 +123,9 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     .unwrap();
     let old_id = original.resolve("demo::echo").unwrap();
     database.set_host_declarations(original.clone());
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let first = database
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let first_file = first.file(file).unwrap();
     assert!(
@@ -145,7 +141,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
         declaration().id
     );
     let cached = database
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(Arc::ptr_eq(first_file, cached.file(file).unwrap()));
     let mut changed = declaration();
@@ -160,7 +156,7 @@ fn snapshots_own_host_declarations_and_invalidate_body_reuse_on_input_change() {
     assert!(updated.function(old_id).is_none());
     database.set_host_declarations(updated);
     let second = database
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let second_file = second.file(file).unwrap();
     assert_eq!(first.revision(), second.revision());
@@ -225,14 +221,7 @@ fn invalid_imports_and_calls_keep_neighbor_facts_but_block_codegen() {
             .unwrap(),
         );
         let snapshot = database
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
         assert!(

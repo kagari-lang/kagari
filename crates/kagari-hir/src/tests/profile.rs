@@ -1,9 +1,5 @@
-use crate::{
-    analyze_source,
-    profile::{LanguageFeatureProfile, validate_profile},
-    typeck::table::CallTarget,
-};
-use kagari_common::{diagnostic::DiagnosticKind, source::SourceFile};
+use crate::{analyze_source, typeck::table::CallTarget};
+use kagari_common::source::SourceFile;
 
 #[test]
 fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {
@@ -11,15 +7,9 @@ fn generic_type_binding_does_not_acquire_same_named_trait_permissions() {
         "profile.kgr",
         "trait Show { fn value(self) -> i32; } fn identity<Show>(value: Show) -> Show { value }",
     );
-    analyze_source(
-        &module,
-        LanguageFeatureProfile {
-            allow_interface_values: false,
-            ..Default::default()
-        },
-    )
-    .into_codegen()
-    .expect("generic binding shadows trait spelling in type scope");
+    analyze_source(&module)
+        .into_codegen()
+        .expect("generic binding shadows trait spelling in type scope");
 }
 
 #[test]
@@ -28,7 +18,7 @@ fn same_named_user_functions_are_not_reflection_helpers() {
         "profile.kgr",
         "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
     );
-    let checked = analyze_source(&module, LanguageFeatureProfile::default())
+    let checked = analyze_source(&module)
         .into_codegen()
         .expect("resolved user function does not need reflection permission");
     let main = &checked.lowered.module.functions[1];
@@ -50,49 +40,11 @@ fn same_named_user_functions_are_not_reflection_helpers() {
 }
 
 #[test]
-fn profile_rejects_script_visible_reflection_when_disabled() {
-    let module = SourceFile::new("profile.kgr", "fn main() -> String { type_of(7) }");
-    let diagnostics = analyze_source(&module, LanguageFeatureProfile::default())
+fn reflection_uses_language_types_without_a_permission_profile() {
+    let module = SourceFile::new("reflection.kgr", "fn main() -> String { type_of(7) }");
+    analyze_source(&module)
         .into_codegen()
-        .expect_err("profile should reject reflection");
-
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::ProfileFeatureDisabled {
-                feature: "reflection",
-            }
-    }));
-}
-
-#[test]
-fn profile_requires_separate_reflection_write_feature() {
-    let module = SourceFile::new(
-        "profile.kgr",
-        r#"
-struct Point { var x: i32 }
-fn main() -> Point {
-    val point = Point { x: 1 };
-    set_field(point, "x", 2)
-}
-"#,
-    );
-    let diagnostics = analyze_source(
-        &module,
-        LanguageFeatureProfile {
-            allow_reflection: true,
-            allow_reflection_write: false,
-            ..LanguageFeatureProfile::default()
-        },
-    )
-    .into_codegen()
-    .expect_err("profile should reject reflective writes");
-
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::ProfileFeatureDisabled {
-                feature: "reflective writes",
-            }
-    }));
+        .expect("reflection is a language operation");
 }
 
 #[test]
@@ -101,13 +53,7 @@ fn static_trait_bounds_do_not_require_interface_value_permission() {
         "bounds.kgr",
         "trait Show { fn show(self) -> i32; } fn inline<T: Show>(value: T) -> i32 { value.show() } fn predicate<T>(value: T) -> i32 where T: Show { value.show() }",
     );
-    let analysis = analyze_source(
-        &module,
-        LanguageFeatureProfile {
-            allow_interface_values: false,
-            ..LanguageFeatureProfile::default()
-        },
-    );
+    let analysis = analyze_source(&module);
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -116,30 +62,12 @@ fn static_trait_bounds_do_not_require_interface_value_permission() {
 }
 
 #[test]
-fn profile_rejects_interface_value_types_when_disabled() {
+fn interface_values_do_not_require_permission() {
     let module = SourceFile::new(
-        "profile.kgr",
-        r#"
-trait Show { fn show(self) -> String; }
-fn render(value: Show) -> String { value.show() }
-"#,
+        "interface.kgr",
+        "trait Show { fn show(self) -> String; } fn render(value: Show) -> String { value.show() }",
     );
-    let analyzed = crate::analyze_source(&module, Default::default())
+    analyze_source(&module)
         .into_codegen()
-        .expect("interface value should analyze");
-    let diagnostics = validate_profile(
-        &analyzed,
-        LanguageFeatureProfile {
-            allow_interface_values: false,
-            ..LanguageFeatureProfile::default()
-        },
-    )
-    .expect_err("profile should reject interface values");
-
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::ProfileFeatureDisabled {
-                feature: "interface values",
-            }
-    }));
+        .expect("interface values are statically checked");
 }

@@ -9,10 +9,7 @@ use kagari_common::host_interface::{
 
 use std::{cell::Cell, rc::Rc};
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-    },
+    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
     kagari_runtime::{
         Runtime, RuntimeConfig,
         error::RuntimeErrorKind,
@@ -22,29 +19,12 @@ use {
             PreparedHostPathWrite,
         },
         resource::ResourcePolicy,
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
         value::Value,
     },
 };
 
 fn main() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_path_mutation: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                path_mutation: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_types: vec!["game.Player".into()],
-            allow_host_path_reads: true,
-            allow_host_path_mutation: true,
-            ..Default::default()
-        },
         resources: ResourcePolicy {
             max_dirty_records: Some(1),
             ..Default::default()
@@ -68,7 +48,6 @@ fn main() {
         segments: vec![HostPathSegmentDeclaration::Field(hp_declaration)],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: CapabilitySet::default(),
     };
     let player = runtime.register_host_type(player).unwrap();
     let scalar = runtime.types().get(player).unwrap().fields[0].ty;
@@ -110,7 +89,6 @@ fn main() {
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
     let preview_hp = hp.clone();

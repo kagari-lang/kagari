@@ -1,5 +1,5 @@
 use super::*;
-use crate::{analysis::AnalysisDatabase, profile::LanguageFeatureProfile};
+use crate::analysis::AnalysisDatabase;
 use kagari_common::{
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::{SourceDatabase, SourceLayer},
@@ -44,12 +44,9 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
         })
         .unwrap(),
     );
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let old = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = old.file(root).unwrap();
     assert!(
@@ -75,7 +72,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
         );
     }
     let again = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(Arc::ptr_eq(file, again.file(root).unwrap()));
     let mut changed = declaration;
@@ -89,7 +86,7 @@ fn facade_bindings_keep_offline_host_identity_queries_and_revision_invalidation(
         .unwrap(),
     );
     let current = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let current = current.file(root).unwrap();
     assert_eq!(current.result().facts().typed.reused_bodies, 0);
@@ -125,14 +122,7 @@ fn host_facades_do_not_override_local_shadowing_or_duplicate_export_errors() {
             .unwrap(),
         );
         let snapshot = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
         assert!(

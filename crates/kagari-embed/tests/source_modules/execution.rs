@@ -19,12 +19,7 @@ fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
     );
     let source = engine.source_snapshot();
     let error = engine
-        .compile_snapshot(
-            source.clone(),
-            root,
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(source.clone(), root, &Default::default())
         .unwrap_err();
     let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected dependency diagnostics")
@@ -92,13 +87,7 @@ fn dependency_bindings_and_execution_policy_are_checked_before_execution() {
         "root",
         "use pkg::left; use pkg::right; fn main() -> i32 { 42 }",
     );
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     assert!(
         artifact.program.modules[artifact.program.root.index()]
             .host_interface

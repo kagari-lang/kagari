@@ -3,6 +3,7 @@ use kagari_abi::{
     ids::{DebugPointId, FunctionRef},
     representation::ValueType,
 };
+use kagari_bytecode::module::RootSlotLayout;
 use kagari_bytecode::{
     instruction::{
         BytecodeInstruction, CallTarget, ConstantOperand, ModuleSlot, Register, RuntimeHelper,
@@ -13,20 +14,18 @@ use kagari_bytecode::{
     },
     program::ModuleRef,
 };
-use {kagari_bytecode::module::RootSlotLayout, kagari_runtime::security::HostExposurePolicy};
 
 use std::sync::{Arc, Mutex};
 
 use kagari_common::span::Span;
 use {
-    kagari_common::{capability::CapabilitySet, host_interface::HostFunctionDeclaration},
+    kagari_common::host_interface::HostFunctionDeclaration,
     kagari_runtime::{
         Runtime, RuntimeConfig,
         error::RuntimeErrorKind,
         host::HostFunction,
         module::ModuleEpochRetention,
         resource::ResourcePolicy,
-        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
         value::{StructValueField, Value},
     },
 };
@@ -169,51 +168,14 @@ fn reloadable_value_module(value: i32) -> BytecodeModule {
 
 fn host_call_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..HostExposurePolicy::default()
-        },
         ..RuntimeConfig::default()
     })
 }
 
 fn debug_runtime(module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: debug_capabilities(),
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec![module_name.to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     })
-}
-
-fn debug_capabilities() -> CapabilitySet {
-    CapabilitySet {
-        debug_attach: true,
-        debug_breakpoints: true,
-        debug_pause: true,
-        debug_stack_inspection: true,
-        debug_value_inspection: true,
-        debug_watch_evaluation: true,
-        ..CapabilitySet::default()
-    }
 }
 
 fn interface_instruction_module() -> BytecodeModule {

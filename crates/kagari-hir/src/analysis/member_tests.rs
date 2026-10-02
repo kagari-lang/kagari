@@ -1,5 +1,5 @@
 use super::*;
-use crate::{declarations::DeclarationId, profile::LanguageFeatureProfile};
+use crate::declarations::DeclarationId;
 use kagari_common::{
     diagnostic::DiagnosticKind,
     identity::DefinitionKind,
@@ -9,7 +9,7 @@ use kagari_common::{
 };
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(sources.snapshot(), Default::default(), &Default::default())
+    db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
 
@@ -308,13 +308,9 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .set("reflection-members.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = AnalysisDatabase::default();
-    let profile = LanguageFeatureProfile {
-        allow_reflection: true,
-        allow_reflection_write: true,
-        ..Default::default()
-    };
+
     let first = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = first.file(id).unwrap();
     let uses: Vec<_> = text
@@ -344,7 +340,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .set("reflection-members.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let second = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let updated = second.file(id).unwrap();
     assert_eq!(updated.result().facts().typed.reused_bodies, 1);
@@ -369,7 +365,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .set("reflection-members.kgr", body_edit, SourceLayer::Overlay)
         .unwrap();
     let third = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let reused = third.file(id).unwrap();
     assert_eq!(reused.result().facts().typed.reused_bodies, 1);
@@ -393,14 +389,7 @@ fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
             .set("partial-member.kgr", text.clone(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_reflection: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(id).unwrap();
         assert_eq!(

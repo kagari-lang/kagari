@@ -11,11 +11,7 @@ use kagari_runtime::value::Value;
 fn execute(source: &str) {
     let engine = KagariEngine::default();
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("families.kgr", source),
-            Default::default(),
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("families.kgr", source), Default::default())
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -217,12 +213,7 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     for encoded in [false, true] {
@@ -257,7 +248,7 @@ fn unused_family_metadata_is_verified_before_loading() {
         types::{AbiType, ConstraintAbi, GenericBoundAbi, PublicAbiItem},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"),  Default::default()).unwrap();
     for mutation in 0..10 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -362,7 +353,7 @@ fn complete_family_metadata_cannot_make_a_dynamic_interface() {
         AbiType, AssociatedTypeAbi, AssociatedTypeFamilyAbi, GenericParameterAbi, PublicAbiItem,
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"),  Default::default()).unwrap();
     let mut program = artifact.program.clone();
     let module = &mut program.modules[program.root.index()];
     let (interface, implementation) = module

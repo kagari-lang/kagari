@@ -3,10 +3,7 @@
 use std::{hint::black_box, sync::Arc, time::Instant};
 
 use kagari_common::{source::SourceFile, source_database::SourceLayer};
-use kagari_embed::engine::{
-    KagariEngine,
-    source::{ArtifactOptions, CompileOptions},
-};
+use kagari_embed::engine::{KagariEngine, source::ArtifactOptions};
 use kagari_runtime::{Runtime, module::VerifiedProgram, value::Value};
 use kagari_vm::vm::Vm;
 
@@ -24,7 +21,6 @@ fn main() {
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new("baseline.kgr", source.clone()),
-                CompileOptions::default(),
                 ArtifactOptions::default(),
             )
             .unwrap();
@@ -73,7 +69,6 @@ fn main() {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("baseline.kgr", source),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .unwrap();

@@ -10,23 +10,14 @@ use kagari_common::{
 use kagari_runtime::host::HostError;
 use kagari_vm::reentry::reenter;
 
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{KagariEngine, source::ArtifactOptions},
+    program::PreparedProgram,
+    runtime::LoadOptions,
+};
+use kagari_runtime::{host::HostFunction, value::Value};
 use std::sync::{Arc, Mutex};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{host::HostFunction, security::LanguageProfile, value::Value},
-};
-use {
-    kagari_embed::{
-        context::ExecutionContext,
-        engine::{
-            KagariEngine,
-            source::{ArtifactOptions, CompileOptions},
-        },
-        program::PreparedProgram,
-        runtime::LoadOptions,
-    },
-    kagari_runtime::security::HostExposurePolicy,
-};
 
 fn composite() -> Type {
     Type::Tuple(vec![
@@ -66,12 +57,8 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     engine
         .set_host_interface(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
-    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> (ArrayList<i32>, HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
+
+    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use demo as api; fn main() -> (ArrayList<i32>, HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> (ArrayList<i32>, HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
     let payload = artifact.program.modules[artifact.program.root.index()]
         .functions
         .iter()
@@ -85,16 +72,6 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec!["demo.make".into(), "demo.echo".into()],
-                ..Default::default()
-            },
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
@@ -193,15 +170,10 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
         })
         .unwrap();
     let error = engine
-        .compile_source(
-            SourceFile::new("bad.kgr", "fn main() { demo::take(([true], true)); }"),
-            CompileOptions {
-                language_profile: LanguageProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-            },
-        )
+        .compile_source(SourceFile::new(
+            "bad.kgr",
+            "fn main() { demo::take(([true], true)); }",
+        ))
         .unwrap_err();
     assert!(format!("{error:?}").contains("KG_TYPE_ARGUMENT_TYPE_MISMATCH"));
 }
@@ -225,11 +197,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
             functions: vec![declaration.clone()],
         })
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     for (argument, expected_calls) in [
         ("[]", 1),
         ("if true { [] } else { [] }", 1),
@@ -241,9 +209,6 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                     "host-context.kgr",
                     format!("fn main() -> i32 {{ demo::take({argument}) }}"),
                 ),
-                CompileOptions {
-                    language_profile: profile,
-                },
                 ArtifactOptions::default(),
             )
             .unwrap();
@@ -254,16 +219,6 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
                 artifact.clone()
             };
             let context = ExecutionContext {
-                language_profile: profile,
-                capabilities: CapabilitySet {
-                    host_calls: true,
-                    jit: true,
-                    ..Default::default()
-                },
-                host_policy: HostExposurePolicy {
-                    allowed_host_functions: vec!["demo.take".into()],
-                    ..Default::default()
-                },
                 ..Default::default()
             };
             let mut runtime = engine.runtime(context.clone());

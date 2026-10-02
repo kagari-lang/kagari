@@ -16,7 +16,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("type-inference.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -206,7 +205,6 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
                     "numeric-overflow.kgr",
                     format!("fn main() {{ val x = {expression}; }}"),
                 ),
-                Default::default(),
                 Default::default(),
             )
             .unwrap();

@@ -11,11 +11,7 @@ use kagari_runtime::value::Value;
 fn execute(source: &str) {
     let engine = KagariEngine::default();
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("constants.kgr", source),
-            Default::default(),
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("constants.kgr", source), Default::default())
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -189,12 +185,7 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -218,7 +209,7 @@ fn imported_defaults_keep_the_trait_module_constant_resolution() {
 fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
     use kagari_abi::types::PublicAbiItem;
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("constants.kgr", "pub trait Limit { const VALUE: i32; } struct Number {} impl Limit for Number { const VALUE: i32 = 42; } fn main() -> i32 { Number::VALUE }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("constants.kgr", "pub trait Limit { const VALUE: i32; } struct Number {} impl Limit for Number { const VALUE: i32 = 42; } fn main() -> i32 { Number::VALUE }"),  Default::default()).unwrap();
     for mutation in 0..4 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -261,7 +252,7 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         }
         assert!(BytecodeArtifact::from_program(program, Default::default()).is_err());
     }
-    let dynamic = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self) -> i32; } struct Number {} impl Read for Number { fn read(self) -> i32 { 42 } } fn main() -> i32 { val x: Read = Number {}; x.read() }"), Default::default(), Default::default()).unwrap();
+    let dynamic = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self) -> i32; } struct Number {} impl Read for Number { fn read(self) -> i32 { 42 } } fn main() -> i32 { val x: Read = Number {}; x.read() }"),  Default::default()).unwrap();
     let mut program = dynamic.program.clone();
     let module = &mut program.modules[program.root.index()];
     let identity = module

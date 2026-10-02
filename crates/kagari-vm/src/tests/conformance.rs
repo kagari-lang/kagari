@@ -7,38 +7,15 @@ use crate::{
     },
     vm::Vm,
 };
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        resource::ResourcePolicy,
-        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
-        value::{StructValueField, Value},
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    resource::ResourcePolicy,
+    value::{StructValueField, Value},
 };
 
 fn debug_runtime(module_name: &str) -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                debug_watch_evaluation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec![module_name.to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     })
 }

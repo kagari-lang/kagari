@@ -17,24 +17,14 @@ use kagari_common::{
     identity::{DefinitionId, DefinitionKind, DefinitionPathSegment},
     source_database::SourceLayer,
 };
+use kagari_embed::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+};
+use kagari_runtime::{
+    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    value::Value,
+};
 use std::{cell::RefCell, rc::Rc};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-        security::LanguageProfile,
-        value::Value,
-    },
-};
-use {
-    kagari_embed::{
-        BytecodeArtifact,
-        context::ExecutionContext,
-        engine::{KagariEngine, source::CompileOptions},
-        program::PreparedProgram,
-    },
-    kagari_runtime::security::HostExposurePolicy,
-};
 
 const SOURCE: &str = concat!(
     include_str!("../../../examples/host-interfaces.kgr"),
@@ -114,18 +104,7 @@ fn fixture() -> (
     let interface = HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap();
     engine.set_host_interface(interface).unwrap();
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: LanguageProfile {
-                    allow_host_calls: true,
-                    allow_jit: true,
-                    ..Default::default()
-                },
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     (engine, artifact, host, make)
@@ -133,20 +112,6 @@ fn fixture() -> (
 
 fn context(jit: bool) -> ExecutionContext {
     ExecutionContext {
-        language_profile: LanguageProfile {
-            allow_host_calls: true,
-            allow_jit: jit,
-            ..Default::default()
-        },
-        capabilities: CapabilitySet {
-            host_calls: true,
-            jit,
-            ..Default::default()
-        },
-        host_policy: HostExposurePolicy {
-            allowed_host_functions: vec!["demo.make".into(), "demo.Counter.read".into()],
-            ..Default::default()
-        },
         jit_policy: if jit {
             JitPolicy::Enabled
         } else {
@@ -257,14 +222,7 @@ fn host_child_interfaces_upcast_through_precompiled_parent_bridges() {
         .unwrap();
     let context = context(false);
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -400,8 +358,6 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
     let (engine, artifact, host, make) = fixture();
     let context = context(false);
     let mut vm = Vm::new(Runtime::new(RuntimeConfig {
-        security: context.security_context(),
-        host_exposure: context.host_policy.clone(),
         ..Default::default()
     }));
     let ty = vm
@@ -483,14 +439,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         )
         .unwrap();
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let new = vm
@@ -572,12 +521,7 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
         })
         .unwrap();
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let mut program = artifact.program;
@@ -627,14 +571,7 @@ fn imported_host_interfaces_preserve_generic_inputs_and_associated_outputs() {
     let root = engine.set_source("mem://consumer", "use pkg::api::Reader; use demo::make; fn main() -> i32 { val reader: Reader<i32, Item = i32> = make(); reader.read(42) }".into(), SourceLayer::Base).unwrap();
     let context = context(false);
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root,
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -678,8 +615,6 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
     let (_, artifact, host, make) = fixture();
     let context = context(false);
     let mut vm = Vm::new(Runtime::new(RuntimeConfig {
-        security: context.security_context(),
-        host_exposure: context.host_policy.clone(),
         ..Default::default()
     }));
     let ty = vm
@@ -747,8 +682,6 @@ fn dynamic_host_calls_enforce_permissions_and_registered_output_contracts() {
             registered.trait_implementations[0].associated_types[0].ty = HostValueType::I64;
         }
         let mut runtime = Runtime::new(RuntimeConfig {
-            security: context.security_context(),
-            host_exposure: context.host_policy.clone(),
             ..Default::default()
         });
         runtime
@@ -803,14 +736,7 @@ fn interface_method_results_validate_nested_host_roots() {
         .unwrap();
     let context = context(false);
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let mut runtime = engine.runtime(context.clone());

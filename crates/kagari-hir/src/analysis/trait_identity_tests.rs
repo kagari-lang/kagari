@@ -12,7 +12,7 @@ use kagari_common::{
 const SOURCE: &str = "trait Get { fn get(self) -> i32; } struct Point { val n: i32 } impl Get for Point { fn get(self) -> i32 { self.n } } fn read<T: Get>(p: T) -> i32 { p.get() } fn main() -> i32 { read(Point { n: 7 }) }";
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(sources.snapshot(), Default::default(), &Default::default())
+    db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
 

@@ -24,19 +24,15 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        backend::{BackendInvocationError, native::InstalledNativeFunction},
-        error::RuntimeErrorKind,
-        jit_abi::jit_consume_instruction_step,
-        module::VerifiedProgram,
-        reload::ReloadValidationError,
-        resource::ResourcePolicy,
-        security::{LanguageProfile, SecurityContext},
-        value::Value,
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    backend::{BackendInvocationError, native::InstalledNativeFunction},
+    error::RuntimeErrorKind,
+    jit_abi::jit_consume_instruction_step,
+    module::VerifiedProgram,
+    reload::ReloadValidationError,
+    resource::ResourcePolicy,
+    value::Value,
 };
 
 #[derive(Debug)]
@@ -50,16 +46,6 @@ impl Drop for Owner {
 
 fn runtime(limit: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                ..Default::default()
-            },
-        },
         resources: ResourcePolicy {
             max_instruction_steps: limit,
             ..Default::default()
@@ -231,18 +217,17 @@ fn installed_handles_retain_code_and_old_versions_until_the_last_clone_drops() {
 }
 
 #[test]
-fn invocation_rechecks_runtime_ownership_and_current_permissions() {
+fn invocation_checks_runtime_ownership_without_permission_flags() {
     let mut first = runtime(None);
     let installed = install(&mut first, execute);
     let second = runtime(None);
     assert!(
         matches!(second.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::ModuleValidation)
     );
-    first.set_security_context(SecurityContext::default());
-    assert!(
-        matches!(first.invoke_native_function(&installed).unwrap_err().error, BackendInvocationError::RuntimeFailure(ref error) if error.kind() == RuntimeErrorKind::CapabilityDenied)
+    assert_eq!(
+        first.invoke_native_function(&installed).unwrap(),
+        Value::Unit
     );
-    assert_eq!(first.resources().counters().instruction_steps, 0);
     assert_clean(&first);
     assert_clean(&second);
 }

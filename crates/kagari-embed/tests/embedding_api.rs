@@ -22,10 +22,17 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
 use kagari_common::source::SourceFile;
+use kagari_embed::{
+    BytecodeArtifact,
+    context::ExecutionContext,
+    engine::{KagariEngine, source::ArtifactOptions},
+    error::{EmbeddingError, RuntimeFailureKind},
+    program::{PreparedProgram, ProgramPreparationError},
+    runtime::{KagariRuntime, LoadOptions, ReloadOptions},
+};
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    kagari_common::host_interface::type_declaration::{
+        HostReflectionPolicy, HostTypeOwnership, PathAccess,
     },
     kagari_runtime::{
         host::{
@@ -35,23 +42,8 @@ use {
         },
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
         resource::ResourcePolicy,
-        security::LanguageProfile,
         value::Value,
     },
-};
-use {
-    kagari_embed::{
-        BytecodeArtifact,
-        context::ExecutionContext,
-        engine::{
-            KagariEngine,
-            source::{ArtifactOptions, CompileOptions},
-        },
-        error::{EmbeddingError, RuntimeFailureKind},
-        program::{PreparedProgram, ProgramPreparationError},
-        runtime::{KagariRuntime, LoadOptions, ReloadOptions},
-    },
-    kagari_runtime::security::HostExposurePolicy,
 };
 
 fn compile_artifact(
@@ -60,30 +52,12 @@ fn compile_artifact(
     source: &str,
 ) -> kagari_embed::BytecodeArtifact {
     engine
-        .compile_to_artifact(
-            SourceFile::new(name, source),
-            CompileOptions::default(),
-            ArtifactOptions::default(),
-        )
+        .compile_to_artifact(SourceFile::new(name, source), ArtifactOptions::default())
         .expect("source should compile")
 }
 
 fn host_call_context() -> ExecutionContext {
     ExecutionContext {
-        language_profile: LanguageProfile {
-            allow_host_calls: true,
-            ..LanguageProfile::default()
-        },
-        capabilities: CapabilitySet {
-            host_calls: true,
-            ..CapabilitySet::default()
-        },
-        host_policy: HostExposurePolicy {
-            allowed_host_functions: vec!["host.player".to_owned()],
-            allowed_host_types: vec!["game.Player".to_owned()],
-            allow_host_path_reads: true,
-            ..HostExposurePolicy::default()
-        },
         ..ExecutionContext::default()
     }
 }
@@ -91,7 +65,6 @@ fn host_call_context() -> ExecutionContext {
 fn register_embedding_host_path_runtime(
     runtime: &mut KagariRuntime,
     path_access: PathAccess,
-    capability_requirements: CapabilitySet,
 ) -> HostPathDescriptorId {
     let i32_id = runtime
         .runtime_mut()
@@ -140,7 +113,6 @@ fn register_embedding_host_path_runtime(
             }],
             access: path_access,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements,
         })
         .unwrap();
     assert_eq!(descriptor_id.index(), 0);
@@ -325,10 +297,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
 fn compile_failures_return_structured_diagnostics() {
     let engine = KagariEngine::default();
     let error = engine
-        .compile_source(
-            SourceFile::new("bad.kgr", "fn main( -> i32 { 1 }"),
-            CompileOptions::default(),
-        )
+        .compile_source(SourceFile::new("bad.kgr", "fn main( -> i32 { 1 }"))
         .expect_err("parse failure should be structured");
 
     let EmbeddingError::Diagnostics { diagnostics } = error else {
@@ -356,10 +325,10 @@ fn compile_failures_return_structured_diagnostics() {
 fn analysis_failures_return_structured_diagnostics() {
     let engine = KagariEngine::default();
     let error = engine
-        .compile_source(
-            SourceFile::new("bad_type.kgr", "fn main() -> Missing { 1 }"),
-            CompileOptions::default(),
-        )
+        .compile_source(SourceFile::new(
+            "bad_type.kgr",
+            "fn main() -> Missing { 1 }",
+        ))
         .expect_err("analysis failure should be structured");
 
     let EmbeddingError::Diagnostics { diagnostics } = error else {
@@ -746,12 +715,6 @@ fn execution_context_denies_host_and_reflection_helpers() {
     let type_of_artifact = engine
         .compile_to_artifact(
             SourceFile::new("type_of.kgr", r#"fn main() -> String { type_of(7) }"#),
-            CompileOptions {
-                language_profile: LanguageProfile {
-                    allow_reflection: true,
-                    ..LanguageProfile::default()
-                },
-            },
             ArtifactOptions::default(),
         )
         .expect("reflection source should compile with reflection profile");
@@ -790,10 +753,6 @@ fn execution_context_denies_host_and_reflection_helpers() {
         .expect("type_of module should load");
 
     let host_denied = ExecutionContext {
-        host_policy: HostExposurePolicy {
-            allow_host_functions: false,
-            ..HostExposurePolicy::default()
-        },
         ..ExecutionContext::default()
     };
     let error = runtime
@@ -819,14 +778,6 @@ fn execution_context_denies_host_and_reflection_helpers() {
     ));
 
     let reflection_allowed = ExecutionContext {
-        language_profile: LanguageProfile {
-            allow_reflection: true,
-            ..LanguageProfile::default()
-        },
-        capabilities: CapabilitySet {
-            reflection_metadata: true,
-            ..CapabilitySet::default()
-        },
         ..ExecutionContext::default()
     };
     let report = runtime

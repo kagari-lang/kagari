@@ -77,7 +77,7 @@ fn load() -> (Runtime, LoadedModule) {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![module.declaration().clone()]);
     let snapshot = analysis
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();

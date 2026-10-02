@@ -8,10 +8,7 @@ use {
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
-    engine::{
-        KagariEngine,
-        source::{ArtifactOptions, CompileOptions},
-    },
+    engine::{KagariEngine, source::ArtifactOptions},
     program::PreparedProgram,
 };
 use kagari_runtime::value::Value;
@@ -19,7 +16,6 @@ use kagari_runtime::value::Value;
 fn compile(source: &str) -> Result<BytecodeArtifact, EmbeddingError> {
     KagariEngine::default().compile_to_artifact(
         SourceFile::new("inheritance.kgr", source),
-        CompileOptions::default(),
         ArtifactOptions::default(),
     )
 }
@@ -119,12 +115,7 @@ fn imported_child_bounds_keep_hidden_parent_declarations_and_projections() {
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     execute(artifact);

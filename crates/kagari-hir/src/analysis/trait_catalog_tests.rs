@@ -27,7 +27,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
     if db.native_modules.is_empty() {
         db.set_native_modules(vec![fixture::module()]);
     }
-    db.snapshot(sources.snapshot(), Default::default(), &Default::default())
+    db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
 

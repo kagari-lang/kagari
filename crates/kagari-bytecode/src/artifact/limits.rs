@@ -639,7 +639,6 @@ pub(super) fn artifact_count_limit(artifact: &KbcArtifact) -> Option<&'static st
         verification.typed_path_fingerprints.len(),
         verification.public_abi_fingerprints.len(),
         verification.dependency_fingerprints.len(),
-        verification.security_profile_requirements.len(),
         verification.loader.dependency_fingerprints.len(),
         verification.loader.typed_path_fingerprints.len(),
         verification.loader.public_abi_fingerprints.len(),

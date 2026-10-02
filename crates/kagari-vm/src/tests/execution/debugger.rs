@@ -236,17 +236,6 @@ fn debugger_breakpoints_require_capability_and_visible_module() {
     let mut capabilities = debug_capabilities();
     capabilities.debug_breakpoints = false;
     let runtime_without_breakpoints = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities,
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     });
     let mut session =
@@ -280,17 +269,6 @@ fn debugger_pause_control_is_separate_from_breakpoint_capability() {
     let mut capabilities = debug_capabilities();
     capabilities.debug_breakpoints = false;
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities,
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug_step_only.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     });
     let loaded = runtime
@@ -332,17 +310,6 @@ fn main() -> i32 {
     let mut capabilities = debug_capabilities();
     capabilities.debug_watch_evaluation = false;
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities,
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug_watch.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     });
     let loaded = runtime

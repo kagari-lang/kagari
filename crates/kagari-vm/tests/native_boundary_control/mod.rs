@@ -6,14 +6,11 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    capability::CapabilitySet,
     host_interface::{HostInterface, standard_log},
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{
-    analysis::AnalysisDatabase, host::HostDeclarations, profile::LanguageFeatureProfile,
-};
+use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -25,7 +22,6 @@ use kagari_runtime::{
         module::NativeModule, types::Type,
     },
     resource::ResourcePolicy,
-    security::{DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext},
     value::Value,
 };
 use kagari_vm::{
@@ -78,14 +74,7 @@ fn compile_test_bytecode(text: &str) -> BytecodeProgram {
         .unwrap(),
     );
     let snapshot = analysis
-        .snapshot(
-            sources.snapshot(),
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(file, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
@@ -96,30 +85,7 @@ fn runtime(resources: ResourcePolicy) -> Runtime {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
         },
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                allow_debugger: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.log".into()],
-            ..Default::default()
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["native-control".into()],
-            ..Default::default()
-        },
+
         resources,
     });
     module().install(&mut runtime).unwrap();

@@ -50,7 +50,7 @@ fn main() {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![Arc::new(storage)]);
     let snapshot = analysis
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir_program = lower_program_to_mir(&checked, &Default::default()).unwrap();

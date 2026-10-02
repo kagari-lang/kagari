@@ -6,7 +6,7 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
     let lowered = common::lower_ok(
         "trait Sequence { type Item; fn size(self) -> usize where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
     );
-    let analyzed = crate::analyze_source(&lowered.source, Default::default())
+    let analyzed = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect("Self bounds in their declaring trait context");
     let typed = analyzed.typed;
@@ -61,7 +61,7 @@ where T: Display
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&lowered.source, Default::default())
+    let analyzed = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect("type checker should succeed");
     let typed = analyzed.typed;
@@ -175,7 +175,7 @@ struct Player {
 impl Display for Player {}
 "#,
     );
-    let diagnostics = crate::analyze_source(&missing_method.source, Default::default())
+    let diagnostics = crate::analyze_source(&missing_method.source)
         .into_checked()
         .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -204,7 +204,7 @@ impl Display for Player {
 }
 "#,
     );
-    let diagnostics = crate::analyze_source(&wrong_return.source, Default::default())
+    let diagnostics = crate::analyze_source(&wrong_return.source)
         .into_checked()
         .expect_err("type checker should reject impl");
     assert!(diagnostics.iter().any(|diagnostic| {

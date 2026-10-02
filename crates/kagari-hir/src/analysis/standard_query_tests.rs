@@ -29,7 +29,7 @@ mod tests {
                 .set("ranges.kgr", source.into(), SourceLayer::Base)
                 .unwrap();
             let snapshot = AnalysisDatabase::default()
-                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let analysis = snapshot.file(file).unwrap();
             let candidates = analysis.method_completions(
@@ -67,7 +67,7 @@ mod tests {
             .set("iterator.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
         let item_type = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
@@ -151,7 +151,7 @@ mod tests {
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
@@ -227,7 +227,7 @@ mod tests {
             .set("main.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
         assert!(
@@ -288,7 +288,7 @@ mod tests {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let old = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let offset = text.find("text. ").unwrap() + 5;
         let candidates = old.file(file).unwrap().method_completions(offset);
@@ -301,7 +301,7 @@ mod tests {
             )
             .unwrap();
         let _new = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         assert_eq!(
             old.file(file).unwrap().method_completions(offset),
@@ -323,7 +323,7 @@ mod trait_tests {
             .set("defaults.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = crate::tests::native::database()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
         assert!(
@@ -364,7 +364,7 @@ mod trait_tests {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let snapshot = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
         assert!(
@@ -429,7 +429,7 @@ mod interpolation_queries {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let old = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let offset = text.find("{value}").unwrap() + 1;
         let original = old
@@ -452,7 +452,7 @@ mod interpolation_queries {
             )
             .unwrap();
         let new = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let moved = new
             .file(file)
@@ -488,7 +488,7 @@ mod interpolation_queries {
             let mut db = AnalysisDatabase::default();
             db.set_native_modules(vec![crate::tests::native::text_items_module()]);
             let snapshot = db
-                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
             assert!(
@@ -528,7 +528,7 @@ mod collection_access_tests {
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let catalog = &snapshot.file(root).unwrap().result().facts().aggregates;
         let integer = TypeId::Builtin(kagari_abi::scalar::BuiltinType::I32);
@@ -629,7 +629,7 @@ mod collection_access_tests {
             .set("constructors.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(file).unwrap();
         assert!(
@@ -669,7 +669,7 @@ mod collection_access_tests {
                 .set("completion.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
             let snapshot = AnalysisDatabase::default()
-                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let diagnostics = snapshot.file(id).unwrap().result().diagnostics();
             assert!(
@@ -695,7 +695,7 @@ mod collection_access_tests {
             .set("string-api.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = crate::tests::native::database()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(id).unwrap();
         assert!(
@@ -724,7 +724,7 @@ mod collection_access_tests {
                 .set("list-completion.kgr", text.clone(), SourceLayer::Base)
                 .unwrap();
             let snapshot = AnalysisDatabase::default()
-                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let diagnostics = snapshot.file(id).unwrap().result().diagnostics();
             assert!(

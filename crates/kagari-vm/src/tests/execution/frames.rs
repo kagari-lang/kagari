@@ -1,12 +1,9 @@
 use super::*;
-use {kagari_bytecode::program::verify_program, kagari_runtime::error::RuntimeErrorKind};
-use {
-    kagari_bytecode::{
-        instruction::StructId,
-        program::{BytecodeProgram, ModuleRef},
-    },
-    kagari_runtime::security::{LanguageProfile, SecurityContext},
+use kagari_bytecode::{
+    instruction::StructId,
+    program::{BytecodeProgram, ModuleRef},
 };
+use {kagari_bytecode::program::verify_program, kagari_runtime::error::RuntimeErrorKind};
 
 #[test]
 fn foreign_loaded_module_is_rejected_before_execution() {
@@ -205,16 +202,6 @@ fn unsupported_dynamic_invocation_is_rejected_even_with_capability() {
         vec![],
     )]);
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                dynamic_invocation: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     });
     let error = runtime

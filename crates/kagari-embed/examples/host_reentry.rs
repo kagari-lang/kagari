@@ -1,10 +1,6 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
-use kagari_embed::{
-    context::ExecutionContext,
-    engine::{KagariEngine, source::CompileOptions},
-    program::PreparedProgram,
-};
+use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_vm::reentry::reenter;
 
 use std::{
@@ -54,9 +50,6 @@ fn main() {
                 "reentry.kgr",
                 "fn main() -> i32 { print(\"make\"); 42 } fn make() -> ArrayList<i32> { [7, 8] }",
             ),
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
             Default::default(),
         )
         .unwrap();

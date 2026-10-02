@@ -42,7 +42,7 @@ fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 }
 fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
     AnalysisDatabase::default()
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap()
@@ -541,7 +541,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
     );
     let mut analysis = AnalysisDatabase::default();
     let old = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let file = old.file(root).unwrap();
     let target = file
@@ -565,7 +565,7 @@ fn dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot() 
     )
     .unwrap();
     let current = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(
         current

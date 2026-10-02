@@ -70,7 +70,6 @@ mod tests {
             segments: vec![HostPathSegmentDeclaration::Field(field.id); MAX_MEMBERS + 1],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
-            capabilities: Default::default(),
         };
         let interface = HostInterface {
             paths: vec![path.clone()],

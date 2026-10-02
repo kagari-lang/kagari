@@ -116,9 +116,7 @@ impl KagariRuntime {
                 ),
             ));
         }
-        for member in module.members() {
-            context.validate_for_execute(entry, &member.bytecode)?;
-        }
+        context.validate_for_execute(entry)?;
         let _session = self
             .vm
             .runtime()
@@ -144,9 +142,7 @@ impl KagariRuntime {
                 ),
             ));
         }
-        for member in module.members() {
-            context.validate_for_backend_execute(entry, &member.bytecode)?;
-        }
+
         let _session = self
             .vm
             .runtime()

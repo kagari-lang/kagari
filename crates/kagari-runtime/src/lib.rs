@@ -42,7 +42,7 @@ pub mod range;
 pub mod reflection;
 pub mod reload;
 pub mod resource;
-pub mod security;
+
 pub mod session;
 pub mod value;
 pub mod value_semantics;
@@ -70,7 +70,6 @@ use crate::{
     native::{foundation, registry::NativeRegistry},
     reload::ModuleEpochAllocator,
     resource::{ResourcePolicy, ResourceState},
-    security::{DebugVisibilityPolicy, HostExposurePolicy, SecurityContext},
     session::{
         ExecutionEvent, ExecutionObserver, ExecutionOptions, ExecutionPhase, ExecutionSession,
     },
@@ -109,9 +108,7 @@ impl StagedReload {
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
     pub gc: GcHeapConfig,
-    pub security: SecurityContext,
-    pub host_exposure: HostExposurePolicy,
-    pub debug_visibility: DebugVisibilityPolicy,
+
     pub resources: ResourcePolicy,
 }
 
@@ -122,9 +119,7 @@ pub struct Runtime {
     host: HostRegistry,
     native_entries: NativeRegistry,
     host_borrows: HostBorrowTable,
-    security: SecurityContext,
-    host_exposure: Rc<HostExposurePolicy>,
-    debug_visibility: DebugVisibilityPolicy,
+
     resources: Rc<ResourceState>,
     epochs: ModuleEpochAllocator,
     modules: ModuleStore,
@@ -178,9 +173,7 @@ impl Runtime {
             host: HostRegistry::default(),
             native_entries: NativeRegistry::default(),
             host_borrows: HostBorrowTable::with_resources(&resources),
-            security: config.security,
-            host_exposure: Rc::new(config.host_exposure),
-            debug_visibility: config.debug_visibility,
+
             modules: ModuleStore::new(resources.clone()),
             resources,
             epochs: ModuleEpochAllocator::default(),
@@ -296,8 +289,7 @@ impl Runtime {
         }
         ExecutionOptions {
             phase: ExecutionPhase::Ordinary,
-            security: self.security,
-            host_exposure: self.host_exposure.clone(),
+
             resources: self.resources.policy(),
             cancellation: Default::default(),
             inputs: Default::default(),
@@ -532,7 +524,8 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: host::DynamicPathArguments,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, HostPathOperation::MakeView)?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         if !dynamic_args
             .as_slice()
             .iter()
@@ -551,8 +544,8 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<host::HostPathViewHandle, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, HostPathOperation::MakeView)?;
-        self.validate_host_path_capabilities(descriptor_id)?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         if !self.gc.validate_value(root_or_view)
             || !dynamic_args.iter().all(|arg| self.gc.validate_value(arg))
         {
@@ -570,8 +563,8 @@ impl Runtime {
         descriptor_id: host::HostPathDescriptorId,
         dynamic_args: Vec<value::Value>,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, HostPathOperation::Read)?;
-        self.validate_host_path_capabilities(descriptor_id)?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         let result = self
             .host
             .read_path(self, root_or_view, descriptor_id, dynamic_args);
@@ -586,9 +579,10 @@ impl Runtime {
         dynamic_args: Vec<value::Value>,
         value: value::Value,
     ) -> Result<(), RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, HostPathOperation::Set)?;
-        self.validate_path_mutation_boundary()?;
-        self.validate_host_path_capabilities(descriptor_id)?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         let result = self
             .host
             .set_path(self, root_or_view, descriptor_id, dynamic_args, value);
@@ -604,9 +598,10 @@ impl Runtime {
         op: BinaryOp,
         value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_host_path_exposure(descriptor_id, HostPathOperation::Modify(op))?;
-        self.validate_path_mutation_boundary()?;
-        self.validate_host_path_capabilities(descriptor_id)?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
         let result =
             self.host
                 .modify_path(self, root_or_view, descriptor_id, dynamic_args, op, value);
@@ -624,35 +619,6 @@ impl Runtime {
 
     pub fn types(&self) -> &TypeRegistry {
         &self.types
-    }
-
-    pub fn security(&self) -> SecurityContext {
-        self.resources
-            .active_session()
-            .map_or(self.security, |session| session.options.security)
-    }
-
-    pub fn set_security_context(&mut self, security: SecurityContext) {
-        self.security = security;
-    }
-
-    pub fn host_exposure(&self) -> Rc<HostExposurePolicy> {
-        self.resources.active_session().map_or_else(
-            || self.host_exposure.clone(),
-            |session| session.options.host_exposure.clone(),
-        )
-    }
-
-    pub fn set_host_exposure_policy(&mut self, policy: HostExposurePolicy) {
-        self.host_exposure = Rc::new(policy);
-    }
-
-    pub fn debug_visibility(&self) -> &DebugVisibilityPolicy {
-        &self.debug_visibility
-    }
-
-    pub fn set_debug_visibility_policy(&mut self, policy: DebugVisibilityPolicy) {
-        self.debug_visibility = policy;
     }
 
     pub fn resources(&self) -> &ResourceState {
@@ -811,7 +777,7 @@ impl Runtime {
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {
-        self.validate_reflection_metadata_boundary()?;
+        self.resources().ensure_execution_allowed()?;
         self.resources.consume_reflection_operation()?;
         Ok(reflection::type_of(&self.gc, value))
     }
@@ -821,7 +787,7 @@ impl Runtime {
         value: &value::Value,
         field_name: &str,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_reflection_read_boundary()?;
+        self.resources().ensure_execution_allowed()?;
         self.resources.consume_reflection_operation()?;
         reflection::get_field(&self.gc, value, field_name)
             .map_err(|error| RuntimeError::invalid_reflective_read(error.message()))
@@ -833,7 +799,7 @@ impl Runtime {
         field_name: &str,
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_reflection_write_boundary()?;
+        self.resources().ensure_execution_allowed()?;
         self.resources.consume_reflection_operation()?;
         reflection::set_field(&self.gc, value, field_name, next_value)
             .map_err(ReflectionError::into_write_error)
@@ -845,7 +811,7 @@ impl Runtime {
         index: &value::Value,
         next_value: value::Value,
     ) -> Result<value::Value, RuntimeError> {
-        self.validate_reflection_write_boundary()?;
+        self.resources().ensure_execution_allowed()?;
         self.resources.consume_reflection_operation()?;
         reflection::set_index(&self.gc, value, index, next_value)
             .map_err(ReflectionError::into_write_error)
@@ -859,15 +825,6 @@ impl Runtime {
         self.resources.ensure_execution_allowed()?;
         let value = builtin::invoke_standard(&self.gc, intrinsic, args)?;
         Ok(value)
-    }
-}
-
-fn value_contains_host_owned_data(value: &value::Value) -> bool {
-    match value {
-        Value::Tuple(elements) => elements.iter().any(value_contains_host_owned_data),
-        Value::HostRoot(_) | Value::HostPathView(_) => true,
-        Value::Ephemeral(EphemeralValue::HostRef(_) | EphemeralValue::HostMut(_)) => true,
-        _ => false,
     }
 }
 

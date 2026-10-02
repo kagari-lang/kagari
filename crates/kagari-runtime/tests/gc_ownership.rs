@@ -155,31 +155,10 @@ fn roots_reject_foreign_replacement_and_execution_root_sets_release_on_drop() {
 #[test]
 fn host_callbacks_can_retain_explicit_roots_without_requiring_cross_thread_storage() {
     use {
-        kagari_common::{
-            capability::CapabilitySet,
-            host_interface::{HostFunctionDeclaration, value_type::HostValueType},
-        },
-        kagari_runtime::{
-            RuntimeConfig,
-            host::HostFunction,
-            security::{HostExposurePolicy, LanguageProfile, SecurityContext},
-        },
+        kagari_common::host_interface::{HostFunctionDeclaration, value_type::HostValueType},
+        kagari_runtime::{RuntimeConfig, host::HostFunction},
     };
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..Default::default()
-        },
         ..Default::default()
     });
     let runtime_owner = allocation_owner(&mut runtime);

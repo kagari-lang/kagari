@@ -96,7 +96,7 @@ fn signature_navigation_uses_checked_type_targets_before_body_analysis() {
     );
 
     let full = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(
         full.file(id).unwrap().definition_at(bad_annotation),
@@ -140,7 +140,7 @@ fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
     assert_eq!(changed.file(id).unwrap().diagnostics().len(), 4);
     assert_ne!(file.diagnostics(), changed.file(id).unwrap().diagnostics());
     let full = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(full.file(id).unwrap().result().diagnostics().len(), 4);
     assert!(Arc::ptr_eq(
@@ -301,7 +301,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         assert_eq!(method.bounds.len(), 2);
         assert!(db.files.is_empty());
         let full = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = full.file(id).unwrap();
         assert_eq!(analysis.result().diagnostics().len(), 1);
@@ -359,7 +359,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
         .unwrap();
     assert_eq!(original.bounds, cached.bounds);
     let good = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(good.file(id).unwrap().result().diagnostics().is_empty());
     sources
@@ -382,7 +382,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
         .unwrap();
     assert_ne!(original.bounds, current.bounds);
     let bad = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = bad.file(id).unwrap();
     assert_eq!(analysis.result().facts().typed.reused_bodies, 0);
@@ -452,7 +452,7 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
     assert_eq!(good.return_type, TypeId::Builtin(BuiltinType::I32));
     assert!(db.files.is_empty());
     let full = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(Arc::ptr_eq(
         file,

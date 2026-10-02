@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
-    profile::LanguageFeatureProfile, resolver::resolved::ResolvedName, typeck::table::CallTarget,
+    resolver::resolved::ResolvedName, typeck::table::CallTarget,
 };
 use kagari_common::{
     diagnostic::DiagnosticKind,
@@ -24,14 +24,7 @@ fn analyze(text: &str) -> (AnalysisSnapshot, FileId) {
         .set("prelude.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let result = crate::tests::native::database()
-        .snapshot(
-            sources.snapshot(),
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     (result, file)
 }
@@ -292,14 +285,7 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
         let expected = hosts.resolve(name).unwrap();
         db.set_host_declarations(hosts);
         let snapshot = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(file).unwrap();
         assert!(
@@ -346,14 +332,7 @@ fn reflection_helpers_reject_unknown_members_and_invalid_index_targets_in_hir() 
                 "struct Point {{ var x: i32 }} fn main() {{ val point = Point {{ x: 1 }}; {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(
-            &source,
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        let analysis = crate::analyze_source(&source);
         assert!(
             analysis
                 .diagnostics()
@@ -374,14 +353,10 @@ fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
         "set_index(missing, 0, 7);",
         "set_index([1], missing, 7);",
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new("recovery-reflection.kgr", format!("fn main() {{ {body} }}")),
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "recovery-reflection.kgr",
+            format!("fn main() {{ {body} }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().len(),
             1,
@@ -423,14 +398,7 @@ fn reflective_field_writes_check_declared_writeability_and_keep_rhs_context() {
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ {binding} value: Marker<i32> }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }} }}; {expression} }}"
             ),
         );
-        let analysis = crate::analyze_source(
-            &source,
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        let analysis = crate::analyze_source(&source);
         assert_eq!(
             analysis
                 .diagnostics()
@@ -497,19 +465,12 @@ fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics
             1,
         ),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "reflection-names.kgr",
-                format!(
-                    "struct Point {{ var x: i32 }} fn bad(name: String) {{ val point = Point {{ x: 1 }}; {expression}; }}"
-                ),
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "reflection-names.kgr",
+            format!(
+                "struct Point {{ var x: i32 }} fn bad(name: String) {{ val point = Point {{ x: 1 }}; {expression}; }}"
             ),
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        ));
         assert_eq!(
             analysis.diagnostics().len(),
             count,
@@ -542,17 +503,10 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
         ("values[missing];", false),
         ("set_index(values, missing, 7);", false),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "partial-index.kgr",
-                format!("fn bad(values: ArrayList<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
-            ),
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "partial-index.kgr",
+            format!("fn bad(values: ArrayList<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().len(),
             1 + usize::from(invalid),
@@ -584,19 +538,12 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
             ("if true { return false; } else { return 7; }", false),
         ] {
             let body = call.replace("VALUE", value);
-            let analysis = crate::analyze_source(
-                &SourceFile::new(
-                    "reflection-completion.kgr",
-                    format!(
-                        "struct Box {{ var value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
-                    ),
+            let analysis = crate::analyze_source(&SourceFile::new(
+                "reflection-completion.kgr",
+                format!(
+                    "struct Box {{ var value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
                 ),
-                LanguageFeatureProfile {
-                    allow_reflection: true,
-                    allow_reflection_write: true,
-                    ..Default::default()
-                },
-            );
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -611,19 +558,12 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
         "set_index(array, true, VALUE)",
     ] {
         let body = call.replace("VALUE", "if true { return 42; } else { return 7; }");
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "reflection-target-completion.kgr",
-                format!(
-                    "struct Box {{ val value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
-                ),
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "reflection-target-completion.kgr",
+            format!(
+                "struct Box {{ val value: i32 }} fn run(box: Box, array: ArrayList<i32>) -> i32 {{ {body}; 0 }}"
             ),
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        ));
         assert!(!analysis.diagnostics().is_empty(), "{body}");
         assert!(analysis.into_codegen().is_err());
     }
@@ -641,14 +581,10 @@ fn reflection_receivers_must_produce_values_before_target_checks() {
     ] {
         let call = call.replace("BASE", "if true { return 42; } else { return 7; }");
         let source = format!("fn main() -> i32 {{ {call}; 0 }}");
-        let analysis = crate::analyze_source(
-            &SourceFile::new("reflection-receiver-completion.kgr", source.clone()),
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "reflection-receiver-completion.kgr",
+            source.clone(),
+        ));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,

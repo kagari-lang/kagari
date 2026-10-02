@@ -1,6 +1,6 @@
 use super::contracts::analyze_contracts;
 use super::*;
-use crate::{hir::expr::ExprKind, profile::LanguageFeatureProfile};
+use crate::hir::expr::ExprKind;
 use {crate::typeck::table::CallTarget, kagari_common::diagnostic::DiagnosticKind};
 
 #[test]
@@ -27,13 +27,10 @@ fn terminating_array_members_do_not_contribute_or_enable_later_type_joins() {
             false,
         ),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "array-completion.kgr",
-                format!("fn main() -> i32 {{ {body} 0 }}"),
-            ),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "array-completion.kgr",
+            format!("fn main() -> i32 {{ {body} 0 }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -62,13 +59,10 @@ fn terminating_conditions_do_not_require_a_boolean_value_but_keep_operand_errors
             false,
         ),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "condition-completion.kgr",
-                format!("fn main() -> i32 {{ {body} 0 }}"),
-            ),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "condition-completion.kgr",
+            format!("fn main() -> i32 {{ {body} 0 }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -88,13 +82,10 @@ fn return_values_are_checked_only_when_their_expression_completes() {
         ("return if true { return false; } else { return 7; };", 1),
         ("return;", 1),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "return-completion.kgr",
-                format!("fn main() -> i32 {{ {body} }}"),
-            ),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "return-completion.kgr",
+            format!("fn main() -> i32 {{ {body} }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().len(),
             mismatches,
@@ -125,13 +116,10 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
             ("if true { return false; } else { return 7; }", false),
         ] {
             let body = statement.replace("VALUE", value);
-            let analysis = crate::analyze_source(
-                &SourceFile::new(
-                    "assignment-completion.kgr",
-                    format!("fn main() -> i32 {{ {body} 0 }}"),
-                ),
-                Default::default(),
-            );
+            let analysis = crate::analyze_source(&SourceFile::new(
+                "assignment-completion.kgr",
+                format!("fn main() -> i32 {{ {body} 0 }}"),
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -141,13 +129,10 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
             assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
         }
     }
-    let analysis = crate::analyze_source(
-        &SourceFile::new(
-            "readonly-terminating-assignment.kgr",
-            "fn main() -> i32 { val value = 1; value = if true { return 42; } else { return 7; }; 0 }",
-        ),
-        Default::default(),
-    );
+    let analysis = crate::analyze_source(&SourceFile::new(
+        "readonly-terminating-assignment.kgr",
+        "fn main() -> i32 { val value = 1; value = if true { return 42; } else { return 7; }; 0 }",
+    ));
     assert!(
         analysis
             .diagnostics()
@@ -170,10 +155,8 @@ fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
             ("if true { return false; } else { return 7; }", false),
         ] {
             let source = format!("{signature} fn main() -> i32 {{ take({argument}) }}");
-            let analysis = crate::analyze_source(
-                &SourceFile::new("argument-completion.kgr", source.clone()),
-                Default::default(),
-            );
+            let analysis =
+                crate::analyze_source(&SourceFile::new("argument-completion.kgr", source.clone()));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -187,15 +170,12 @@ fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
         "if true { return 42; } else { return 7; }, false",
         "if true { return 42; } else { return 7; }, missing",
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "argument-completion-errors.kgr",
-                format!(
-                    "fn take(value: i32) -> i32 {{ value }} fn main() -> i32 {{ take({arguments}) }}"
-                ),
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "argument-completion-errors.kgr",
+            format!(
+                "fn take(value: i32) -> i32 {{ value }} fn main() -> i32 {{ take({arguments}) }}"
             ),
-            Default::default(),
-        );
+        ));
         assert!(
             analysis
                 .diagnostics()
@@ -219,10 +199,10 @@ fn trait_and_declared_parameters_share_completion_aware_value_checks() {
             let source = format!(
                 "trait Take {{ fn take(self, input: bool) -> i32; }} fn run<T: Take>(value: T) -> i32 {{ {body} }}"
             );
-            let analysis = analyze_contracts(
-                &SourceFile::new("shared-parameter-completion.kgr", source.clone()),
-                Default::default(),
-            );
+            let analysis = analyze_contracts(&SourceFile::new(
+                "shared-parameter-completion.kgr",
+                source.clone(),
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -251,13 +231,10 @@ fn declared_operand_constraints_require_normally_produced_values() {
             ("if true { return false; } else { return 7; }", false),
         ] {
             let body = call.replace("ARG", argument);
-            let analysis = analyze_contracts(
-                &SourceFile::new(
-                    "standard-completion.kgr",
-                    format!("fn main() -> i32 {{ {body} }}"),
-                ),
-                Default::default(),
-            );
+            let analysis = analyze_contracts(&SourceFile::new(
+                "standard-completion.kgr",
+                format!("fn main() -> i32 {{ {body} }}"),
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -267,13 +244,10 @@ fn declared_operand_constraints_require_normally_produced_values() {
             assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
         }
     }
-    let analysis = analyze_contracts(
-        &SourceFile::new(
-            "standard-completion-invalid.kgr",
-            "fn main() -> i32 { ordered_pair(if true { return 42; } else { return 7; }, false); 0 }",
-        ),
-        Default::default(),
-    );
+    let analysis = analyze_contracts(&SourceFile::new(
+        "standard-completion-invalid.kgr",
+        "fn main() -> i32 { ordered_pair(if true { return 42; } else { return 7; }, false); 0 }",
+    ));
     assert!(!analysis.diagnostics().is_empty());
     assert!(analysis.into_codegen().is_err());
 }
@@ -288,13 +262,10 @@ fn enum_payloads_follow_function_argument_completion_rules() {
             ("if true { return 42; } else { return 7; }, missing", false),
         ] {
             let expression = constructor.replace("ARG", argument);
-            let analysis = crate::analyze_source(
-                &SourceFile::new(
-                    "enum-completion.kgr",
-                    format!("enum Item<T> {{ Value(T) }} fn main() -> i32 {{ {expression}; 0 }}"),
-                ),
-                Default::default(),
-            );
+            let analysis = crate::analyze_source(&SourceFile::new(
+                "enum-completion.kgr",
+                format!("enum Item<T> {{ Value(T) }} fn main() -> i32 {{ {expression}; 0 }}"),
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -304,13 +275,10 @@ fn enum_payloads_follow_function_argument_completion_rules() {
             assert_eq!(analysis.into_codegen().is_ok(), valid, "{expression}");
         }
     }
-    let analysis = crate::analyze_source(
-        &SourceFile::new(
-            "enum-completion-invalid.kgr",
-            "enum Item<T> { Value(T, i32) } fn main() -> i32 { Item::Value(if true { return 42; } else { return 7; }, false); 0 }",
-        ),
-        Default::default(),
-    );
+    let analysis = crate::analyze_source(&SourceFile::new(
+        "enum-completion-invalid.kgr",
+        "enum Item<T> { Value(T, i32) } fn main() -> i32 { Item::Value(if true { return 42; } else { return 7; }, false); 0 }",
+    ));
     assert!(
         analysis.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,
@@ -350,10 +318,8 @@ fn struct_fields_infer_and_check_only_normally_produced_values() {
             let source = format!(
                 "struct Item<T> {{ val value: T, val flag: bool }} fn main() -> i32 {{ {constructor} {{ {fields} }}; 0 }}"
             );
-            let analysis = crate::analyze_source(
-                &SourceFile::new("struct-completion.kgr", source.clone()),
-                Default::default(),
-            );
+            let analysis =
+                crate::analyze_source(&SourceFile::new("struct-completion.kgr", source.clone()));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -378,13 +344,10 @@ fn unary_constraints_apply_only_to_normally_produced_operands() {
             ),
         ] {
             let expression = format!("{operator}({operand})");
-            let analysis = crate::analyze_source(
-                &SourceFile::new(
-                    "unary-completion.kgr",
-                    format!("fn main() -> i32 {{ {expression}; 0 }}"),
-                ),
-                Default::default(),
-            );
+            let analysis = crate::analyze_source(&SourceFile::new(
+                "unary-completion.kgr",
+                format!("fn main() -> i32 {{ {expression}; 0 }}"),
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -412,13 +375,10 @@ fn binary_constraints_ignore_absent_operands_but_check_known_counterparts() {
         (format!("{returning} || 7"), false),
         (format!("{returning} + missing"), false),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "binary-completion.kgr",
-                format!("fn main() -> i32 {{ {expression}; 0 }}"),
-            ),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "binary-completion.kgr",
+            format!("fn main() -> i32 {{ {expression}; 0 }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -445,19 +405,12 @@ fn terminating_indexes_preserve_receiver_rules_without_requiring_an_index_value(
             ("if true { return false; } else { return 7; }", false),
         ] {
             let statement = statement.replace("INDEX", index);
-            let analysis = crate::analyze_source(
-                &SourceFile::new(
-                    "index-completion.kgr",
-                    format!(
-                        "fn main() -> i32 {{ val array = [1]; var tuple = (1, true); {statement} 0 }}"
-                    ),
+            let analysis = crate::analyze_source(&SourceFile::new(
+                "index-completion.kgr",
+                format!(
+                    "fn main() -> i32 {{ val array = [1]; var tuple = (1, true); {statement} 0 }}"
                 ),
-                LanguageFeatureProfile {
-                    allow_reflection: true,
-                    allow_reflection_write: true,
-                    ..Default::default()
-                },
-            );
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -469,13 +422,10 @@ fn terminating_indexes_preserve_receiver_rules_without_requiring_an_index_value(
     }
     for statement in ["true[INDEX];", "val tuple = (1, true); tuple[INDEX] = 7;"] {
         let statement = statement.replace("INDEX", "if true { return 42; } else { return 7; }");
-        let analysis = crate::analyze_source(
-            &SourceFile::new(
-                "index-target-invalid.kgr",
-                format!("fn main() -> i32 {{ {statement} 0 }}"),
-            ),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "index-target-invalid.kgr",
+            format!("fn main() -> i32 {{ {statement} 0 }}"),
+        ));
         assert!(!analysis.diagnostics().is_empty(), "{statement}");
         assert!(analysis.into_codegen().is_err());
     }
@@ -511,10 +461,8 @@ fn match_patterns_and_joins_require_a_normally_produced_scrutinee() {
         ),
     ] {
         let source = format!("fn main() -> i32 {{ match ({scrutinee}) {{ {arms} }}; 0 }}");
-        let analysis = crate::analyze_source(
-            &SourceFile::new("match-completion.kgr", source.clone()),
-            Default::default(),
-        );
+        let analysis =
+            crate::analyze_source(&SourceFile::new("match-completion.kgr", source.clone()));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -551,10 +499,8 @@ fn if_result_joins_require_a_normally_produced_condition() {
         ("if true { return 42; } else { return 7; }", "{ 7 }", true),
     ] {
         let source = format!("fn main() -> i32 {{ if ({condition}) {branches}; 0 }}");
-        let analysis = crate::analyze_source(
-            &SourceFile::new("if-result-completion.kgr", source.clone()),
-            Default::default(),
-        );
+        let analysis =
+            crate::analyze_source(&SourceFile::new("if-result-completion.kgr", source.clone()));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -589,10 +535,8 @@ fn field_reads_require_member_targets_only_when_the_receiver_completes() {
     ] {
         let source =
             format!("struct Box {{ val value: i32 }} fn main() -> i32 {{ {expression}; 0 }}");
-        let analysis = crate::analyze_source(
-            &SourceFile::new("field-completion.kgr", source.clone()),
-            Default::default(),
-        );
+        let analysis =
+            crate::analyze_source(&SourceFile::new("field-completion.kgr", source.clone()));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -618,10 +562,10 @@ fn index_reads_require_a_receiver_value_but_keep_inner_index_errors() {
         ),
     ] {
         let source = format!("fn main() -> i32 {{ {expression}; 0 }}");
-        let analysis = crate::analyze_source(
-            &SourceFile::new("index-receiver-completion.kgr", source.clone()),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new(
+            "index-receiver-completion.kgr",
+            source.clone(),
+        ));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -649,10 +593,10 @@ fn declared_receiver_shapes_require_normally_produced_values() {
         ] {
             let expression = call.replace("ARG", argument);
             let source = format!("fn main() -> i32 {{ {expression}; 0 }}");
-            let analysis = analyze_contracts(
-                &SourceFile::new("standard-receiver-completion.kgr", source.clone()),
-                Default::default(),
-            );
+            let analysis = analyze_contracts(&SourceFile::new(
+                "standard-receiver-completion.kgr",
+                source.clone(),
+            ));
             assert_eq!(
                 analysis.diagnostics().is_empty(),
                 valid,
@@ -682,10 +626,8 @@ fn terminating_callees_retain_explicit_call_facts_and_independent_errors() {
         ("(if true { return 42; } else { 7 })", "1", false),
     ] {
         let source = format!("fn main() -> i32 {{ {callee}({args}); 0 }}");
-        let analysis = crate::analyze_source(
-            &SourceFile::new("callee-completion.kgr", source.clone()),
-            Default::default(),
-        );
+        let analysis =
+            crate::analyze_source(&SourceFile::new("callee-completion.kgr", source.clone()));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -718,7 +660,7 @@ fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     old.check_program(root, &Default::default()).unwrap();
     sources
@@ -729,7 +671,7 @@ fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
         )
         .unwrap();
     let new = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     new.check_program(root, &Default::default()).unwrap();
     assert_eq!(

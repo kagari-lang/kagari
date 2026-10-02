@@ -159,7 +159,7 @@ impl HostRegistry {
             result: portable_type(registration.result_type)?,
             schema_epoch: registration.schema_epoch.0,
             access: registration.access,
-            capabilities: registration.capability_requirements,
+
             segments,
         }
         .fingerprint()

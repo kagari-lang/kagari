@@ -5,19 +5,15 @@ use kagari_common::host_interface::{
 use std::sync::{Arc, Mutex};
 
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::{
-            HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
-            type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
-        },
+    kagari_common::host_interface::{
+        HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
+        type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
     },
     kagari_runtime::{
         Runtime, RuntimeConfig,
         error::RuntimeErrorKind,
         host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
         metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
         value::Value,
     },
 };
@@ -37,38 +33,12 @@ fn host_root_value(runtime: &mut Runtime, object_id: u64) -> Value {
 
 fn exposed_host_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["game.heal".to_owned()],
-            ..HostExposurePolicy::default()
-        },
         ..RuntimeConfig::default()
     })
 }
 
 fn host_call_enabled_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     })
 }
@@ -126,11 +96,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
                 passing: HostPassingStyle::Owned,
             },
         ],
-        capability_requirements: CapabilitySet {
-            reflection_read: true,
-            ..CapabilitySet::default()
-        },
-        resource_cost_hint: Some(5),
+
         effects: HostFunctionEffects {
             may_mutate_host_state: true,
             may_trap: true,
@@ -155,7 +121,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
         registered.declaration().params[0].passing,
         HostPassingStyle::UniqueBorrow
     );
-    assert_eq!(registered.declaration().resource_cost_hint, Some(5));
+
     assert!(registered.declaration().effects.may_mutate_host_state);
     assert_eq!(registered.declaration().fingerprint().unwrap(), fingerprint);
     let root = host_root_value(&mut runtime, 1);

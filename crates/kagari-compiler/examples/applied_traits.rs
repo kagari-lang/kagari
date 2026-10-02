@@ -24,7 +24,7 @@ fn main() {
         .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot");
     let checked = snapshot
         .check_program(root, &Default::default())

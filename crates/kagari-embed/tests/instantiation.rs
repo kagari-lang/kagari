@@ -1,10 +1,7 @@
 use kagari_common::source::SourceFile;
 use {
     kagari_compiler::source::lower::instances::MirLoweringOptions,
-    kagari_embed::{
-        context::{ExecutionContext, JitPolicy},
-        engine::source::CompileOptions,
-    },
+    kagari_embed::context::{ExecutionContext, JitPolicy},
 };
 
 use kagari_embed::{
@@ -30,7 +27,6 @@ fn generic_trait_method_bounds_reject_invalid_arguments() {
     let error = KagariEngine::default()
         .compile_to_artifact(
             SourceFile::new("generic-method-bound.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap_err();
@@ -299,13 +295,7 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection
     context.capabilities.reflection_write = reflection_write;
     context.capabilities.jit = true;
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("context.kgr", source),
-            CompileOptions {
-                language_profile: context.language_profile,
-            },
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("context.kgr", source), Default::default())
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -352,13 +342,10 @@ fn execute_contextual_source_with_writes(source: &str, expected: i32, reflection
 fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilation() {
     let engine = KagariEngine::default();
     let checked = engine
-        .compile_source(
-            SourceFile::new(
-                "instances.kgr",
-                "// 泛型😀\r\nfn echo<T>(value: T) -> T { value } fn main() -> i32 { echo(7) }",
-            ),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new(
+            "instances.kgr",
+            "// 泛型😀\r\nfn echo<T>(value: T) -> T { value } fn main() -> i32 { echo(7) }",
+        ))
         .unwrap();
     let error = engine
         .emit_bytecode(
@@ -397,10 +384,10 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
 fn cancelled_instantiation_keeps_the_checked_module_reusable() {
     let engine = KagariEngine::default();
     let checked = engine
-        .compile_source(
-            SourceFile::new("cancel-instances.kgr", "fn main() -> i32 { 7 }"),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new(
+            "cancel-instances.kgr",
+            "fn main() -> i32 { 7 }",
+        ))
         .unwrap();
     let options = ArtifactOptions::default();
     options.lowering.cancel.cancel();
@@ -414,10 +401,10 @@ fn cancelled_instantiation_keeps_the_checked_module_reusable() {
 #[test]
 fn unresolved_container_inference_is_a_diagnostic_before_codegen() {
     let engine = KagariEngine::default();
-    let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(
-        SourceFile::new("inference.kgr", "fn main() { HashMap::new(); }"),
-        Default::default(),
-    ) else {
+    let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_source(SourceFile::new(
+        "inference.kgr",
+        "fn main() { HashMap::new(); }",
+    )) else {
         panic!("unresolved type must not enter checked HIR");
     };
     assert_eq!(diagnostics[0].code, "KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT");

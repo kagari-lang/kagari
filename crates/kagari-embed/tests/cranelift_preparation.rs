@@ -17,7 +17,6 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         .compile_to_artifact(
             SourceFile::new("native.kgr", "fn main() -> i32 { 40 + 2 }"),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for encoded in [false, true] {
@@ -75,11 +74,7 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction() {
         ),
     ] {
         let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("fallback.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("fallback.kgr", source), Default::default())
             .unwrap();
         let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
         let program =
@@ -127,7 +122,6 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             .compile_to_artifact(
                 SourceFile::new("versioned.kgr", format!("fn main() -> i32 {{ {value} }}")),
                 Default::default(),
-                Default::default(),
             )
             .unwrap();
         PreparedProgram::from_artifact(
@@ -145,7 +139,6 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
     context.jit_policy = JitPolicy::Enabled;
     let mut runtime = KagariRuntime::new(
         Runtime::new(RuntimeConfig {
-            security: context.security_context(),
             gc: GcHeapConfig {
                 collection_threshold: Some(1),
             },

@@ -14,22 +14,15 @@ use kagari_common::{
     source_database::SourceLayer,
 };
 
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-        security::LanguageProfile,
-        value::Value,
-    },
+use kagari_embed::{
+    BytecodeArtifact,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
 };
-use {
-    kagari_embed::{
-        BytecodeArtifact,
-        context::{ExecutionContext, JitPolicy},
-        engine::{KagariEngine, source::CompileOptions},
-        program::PreparedProgram,
-    },
-    kagari_runtime::security::HostExposurePolicy,
+use kagari_runtime::{
+    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    value::Value,
 };
 
 const SOURCE: &str = include_str!("../../../examples/host-interfaces.kgr");
@@ -107,18 +100,7 @@ fn compile_offline() -> (
     let interface = HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap();
     engine.set_host_interface(interface).unwrap();
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: LanguageProfile {
-                    allow_host_calls: true,
-                    allow_jit: true,
-                    ..Default::default()
-                },
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     (engine, artifact, host, make)
@@ -126,20 +108,6 @@ fn compile_offline() -> (
 
 fn context(jit: bool) -> ExecutionContext {
     ExecutionContext {
-        language_profile: LanguageProfile {
-            allow_host_calls: true,
-            allow_jit: jit,
-            ..Default::default()
-        },
-        capabilities: CapabilitySet {
-            host_calls: true,
-            jit,
-            ..Default::default()
-        },
-        host_policy: HostExposurePolicy {
-            allowed_host_functions: vec!["demo.make".into(), "demo.Counter.read".into()],
-            ..Default::default()
-        },
         jit_policy: if jit {
             JitPolicy::Enabled
         } else {

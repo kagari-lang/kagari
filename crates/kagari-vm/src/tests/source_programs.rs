@@ -11,14 +11,7 @@ use kagari_common::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_compiler::bytecode::lower_program_to_bytecode;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        security::{DebugVisibilityPolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
-};
+use kagari_runtime::{Runtime, RuntimeConfig, value::Value};
 
 fn fixture(dependency_source: &str) -> BytecodeProgram {
     let mut sources = SourceDatabase::default();
@@ -43,7 +36,7 @@ fn fixture(dependency_source: &str) -> BytecodeProgram {
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
     let snapshot = kagari_hir::analysis::AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot
         .check_program(root.unwrap(), &Default::default())
@@ -67,16 +60,6 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
         for program in [source, decoded.program] {
             for jit in [false, true] {
                 let mut runtime = Runtime::new(RuntimeConfig {
-                    security: SecurityContext {
-                        profile: LanguageProfile {
-                            allow_jit: true,
-                            ..Default::default()
-                        },
-                        capabilities: CapabilitySet {
-                            jit: true,
-                            ..Default::default()
-                        },
-                    },
                     ..Default::default()
                 });
                 let loaded = runtime.load_program("root", program.clone()).unwrap();
@@ -108,24 +91,6 @@ fn source_and_artifact_cross_module_calls_match_interpreter_and_jit_fallback() {
 #[test]
 fn cross_module_debug_frames_keep_their_member_identity() {
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                ..Default::default()
-            },
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            allow_all_modules: true,
-            ..Default::default()
-        },
         ..Default::default()
     });
     let loaded = runtime

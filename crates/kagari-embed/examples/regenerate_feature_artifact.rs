@@ -17,7 +17,7 @@ fn main() {
         .install(provider::module(Default::default()))
         .build()
         .unwrap()
-        .compile_to_artifact(source, Default::default(), Default::default())
+        .compile_to_artifact(source, Default::default())
         .unwrap();
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

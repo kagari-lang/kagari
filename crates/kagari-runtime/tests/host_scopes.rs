@@ -17,10 +17,7 @@ use std::{
     rc::Rc,
 };
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-    },
+    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
     kagari_runtime::{
         Runtime, RuntimeConfig,
         error::RuntimeErrorKind,
@@ -29,27 +26,12 @@ use {
             HostTypeRegistration,
         },
         metadata::TypeId,
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
         value::Value,
     },
 };
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..Default::default()
-        },
         ..Default::default()
     })
 }

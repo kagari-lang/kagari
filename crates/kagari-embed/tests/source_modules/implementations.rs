@@ -124,13 +124,7 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     let mut wrong_contract = artifact.program.clone();
     let api = wrong_contract
         .modules
@@ -212,13 +206,7 @@ fn imported_generic_trait_method_specializes_across_execution_routes() {
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -278,13 +266,7 @@ fn dependency_defined_trait_impl_dispatches_through_bound_call() {
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -350,7 +332,6 @@ fn ambiguous_dependency_trait_implementations_reject_bound_call() {
         .compile_snapshot(
             engine.source_snapshot(),
             root,
-            CompileOptions::default(),
             &CancellationToken::default(),
         )
         .unwrap_err();
@@ -394,14 +375,8 @@ fn sibling_dependency_implementations_reject_even_when_unused_and_recover_after_
         "use pkg::a; use pkg::b; fn main() -> i32 { 1 }",
     );
     let before = engine.source_snapshot();
-    let compile_from = |sources| {
-        engine.compile_snapshot(
-            sources,
-            root,
-            CompileOptions::default(),
-            &CancellationToken::default(),
-        )
-    };
+    let compile_from =
+        |sources| engine.compile_snapshot(sources, root, &CancellationToken::default());
     let error = compile_from(before.clone()).unwrap_err();
     let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected source diagnostics");
@@ -449,14 +424,8 @@ fn dependency_generic_implementation_overlap_respects_trait_arguments() {
         "use pkg::a; use pkg::b; fn main() -> i32 { 3 }",
     );
     let before = engine.source_snapshot();
-    let compile_from = |sources| {
-        engine.compile_snapshot(
-            sources,
-            root,
-            CompileOptions::default(),
-            &CancellationToken::default(),
-        )
-    };
+    let compile_from =
+        |sources| engine.compile_snapshot(sources, root, &CancellationToken::default());
     let error = compile_from(before.clone()).unwrap_err();
     let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected source diagnostics");
@@ -500,13 +469,7 @@ fn dependency_generic_implementation_is_specialized_for_reachable_calls() {
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()
@@ -584,7 +547,6 @@ fn dependency_generic_implementation_checks_specialized_bounds() {
         .compile_snapshot(
             engine.source_snapshot(),
             root,
-            CompileOptions::default(),
             &CancellationToken::default(),
         )
         .unwrap_err();
@@ -655,13 +617,7 @@ fn facade_call_signatures_supply_context_to_nominal_constructors() {
     let mut context = ExecutionContext::default();
     context.language_profile.allow_jit = true;
     context.capabilities.jit = true;
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap()

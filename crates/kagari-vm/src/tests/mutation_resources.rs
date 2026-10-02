@@ -4,15 +4,7 @@ use crate::{
     vm::Vm,
 };
 use kagari_bytecode::artifact::KbcArtifact;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        resource::ResourcePolicy,
-        security::{LanguageProfile, SecurityContext},
-    },
-};
+use kagari_runtime::{Runtime, RuntimeConfig, error::RuntimeErrorKind, resource::ResourcePolicy};
 
 #[test]
 fn standard_mutation_resource_failures_match_across_execution_routes() {
@@ -33,16 +25,7 @@ fn standard_mutation_resource_failures_match_across_execution_routes() {
                             max_allocation_units: (!heap_limit).then_some(limit),
                             ..Default::default()
                         },
-                        security: SecurityContext {
-                            profile: LanguageProfile {
-                                allow_jit: true,
-                                ..Default::default()
-                            },
-                            capabilities: CapabilitySet {
-                                jit: true,
-                                ..Default::default()
-                            },
-                        },
+
                         ..Default::default()
                     });
                     let program = module.clone();

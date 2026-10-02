@@ -7,10 +7,7 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use {
-    crate::{error::RuntimeError, reload::ModuleEpoch},
-    kagari_common::capability::CapabilitySet,
-};
+use crate::{error::RuntimeError, reload::ModuleEpoch};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(u64);
@@ -111,7 +108,7 @@ pub struct MethodInfo {
     pub params: Vec<ParameterInfo>,
     pub return_type: TypeId,
     pub origin: MethodOrigin,
-    pub capability_requirements: CapabilitySet,
+
     pub abi_fingerprint: AbiFingerprint,
 }
 
@@ -299,7 +296,6 @@ mod tests {
                     }],
                     return_type: i32_id,
                     origin: MethodOrigin::Inherent,
-                    capability_requirements: CapabilitySet::default(),
                     abi_fingerprint: AbiFingerprint(13),
                 }],
                 abi_fingerprint: AbiFingerprint(14),

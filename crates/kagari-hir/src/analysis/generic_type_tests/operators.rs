@@ -1,6 +1,6 @@
 use super::contracts::analyze_contracts;
 use super::*;
-use crate::profile::LanguageFeatureProfile;
+
 use {crate::hir::expr::ExprKind, kagari_common::diagnostic::DiagnosticKind};
 
 #[test]
@@ -33,14 +33,7 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: ArrayList<Marker<i32>> = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(
-            &source,
-            LanguageFeatureProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        );
+        let analysis = crate::analyze_source(&source);
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -76,7 +69,7 @@ fn declared_arguments_suppress_dependent_errors_but_keep_known_member_conflicts(
             "standard-recovery.kgr",
             format!("fn bad() {{ val values = [(1, true)]; {body} }} fn good() -> i32 {{ 42 }}"),
         );
-        let analysis = analyze_contracts(&source, Default::default());
+        let analysis = analyze_contracts(&source);
         assert_eq!(
             analysis.diagnostics().len(),
             1 + usize::from(mismatch),
@@ -114,7 +107,7 @@ fn declared_container_operands_supply_constructor_context_in_both_call_forms() {
                 "struct Marker<T> {{ val value: i32 }} fn main() {{ val values: ArrayList<Marker<i32>> = []; val map: HashMap<i32, Marker<i32>> = HashMap::new(); {body} }}"
             ),
         );
-        let analysis = analyze_contracts(&source, Default::default());
+        let analysis = analyze_contracts(&source);
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -133,15 +126,12 @@ fn declared_set_and_result_context_preserves_concrete_receiver_arguments() {
         "result_or(result, Marker { value: 7 });",
         "result_or(result, Marker { value: 7 });",
     ] {
-        let analysis = analyze_contracts(
-            &SourceFile::new(
-                "standard-fallback-context.kgr",
-                format!(
-                    "struct Marker<T> {{ val value: i32 }} fn check(keys: HashSet<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
-                ),
+        let analysis = analyze_contracts(&SourceFile::new(
+            "standard-fallback-context.kgr",
+            format!(
+                "struct Marker<T> {{ val value: i32 }} fn check(keys: HashSet<i32>, result: Result<Marker<i32>, String>) {{ {body} }}"
             ),
-            Default::default(),
-        );
+        ));
         assert!(
             analysis.diagnostics().is_empty(),
             "{body}: {:?}",
@@ -172,7 +162,7 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
                 "trait View {{}} fn bad(view: View) {{ val result = {expression}; result; }} fn good() -> i32 {{ 42 }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = crate::analyze_source(&source);
         assert_eq!(
             analysis.diagnostics().len(),
             1 + usize::from(mismatch),
@@ -226,10 +216,7 @@ fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
         ("fn bad() { -missing; }", false, false),
         ("fn bad() { -(1, missing); }", false, true),
     ] {
-        let analysis = crate::analyze_source(
-            &SourceFile::new("unary-bounds.kgr", source),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new("unary-bounds.kgr", source));
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -260,13 +247,10 @@ fn declared_math_and_equality_check_each_known_operand_after_recovery() {
         ("check_equal((1, missing), (false, true), \"test\");", 1),
         ("check_equal(missing, view, \"test\");", 1),
     ] {
-        let analysis = analyze_contracts(
-            &SourceFile::new(
-                "standard-operand-recovery.kgr",
-                format!("trait View {{}} fn bad(view: View) {{ {body} }}"),
-            ),
-            Default::default(),
-        );
+        let analysis = analyze_contracts(&SourceFile::new(
+            "standard-operand-recovery.kgr",
+            format!("trait View {{}} fn bad(view: View) {{ {body} }}"),
+        ));
         assert_eq!(
             analysis.diagnostics().len(),
             1 + extra,
@@ -305,7 +289,7 @@ fn binary_rhs_uses_left_type_without_overriding_explicit_constructor_arguments()
             "binary-context.kgr",
             format!("enum Token<T> {{ Empty }} fn main() -> bool {{ {body} }}"),
         );
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = crate::analyze_source(&source);
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -353,7 +337,7 @@ fn preceding_array_elements_and_completing_branches_supply_constructor_context()
             "sequence-context.kgr",
             format!("enum Token<T> {{ Empty }} fn main() {{ {body} }}"),
         );
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = crate::analyze_source(&source);
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,

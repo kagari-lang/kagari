@@ -4,7 +4,6 @@ use crate::{
     hir::{expr::ExprKind, stmt::StmtKind},
     host::HostDeclarations,
     native::NativeBinding,
-    profile::LanguageFeatureProfile,
     resolver::resolved::ResolvedName,
     tests::native as fixture,
     typeck::{FunctionImplementation, table::CallTarget},
@@ -30,7 +29,7 @@ fn native_generic_scalar_calls_keep_their_exact_declared_types() {
         .set("numeric-bindings.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = fixture::database()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
     assert!(
@@ -96,7 +95,7 @@ fn required_script_and_native_methods_keep_distinct_signature_implementations() 
         )
         .unwrap();
     let snapshot = fixture::database()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let facts = snapshot.file(root).unwrap().result().facts();
     for (name, expected) in [
@@ -167,7 +166,7 @@ fn main() -> i32 {
         .set("callables.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = fixture::database()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
     assert!(
@@ -280,14 +279,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         .unwrap(),
     );
     let snapshot = database
-        .snapshot(
-            sources.snapshot(),
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(root).unwrap();
     assert!(!file.result().diagnostics().is_empty());
@@ -366,7 +358,7 @@ fn native_generic_permissions_do_not_bypass_bounds_or_script_export_rules() {
             .set("native-authority.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = fixture::database()
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(root).unwrap();
         let diagnostics = analysis.result().diagnostics();
@@ -412,7 +404,7 @@ fn inherent_method_selection_checks_receiver_owner_before_same_named_members() {
         .set("method-owners.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
     assert!(
@@ -460,7 +452,7 @@ fn run(callback: fn(i32) -> bool) {
         .set("applied-contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(root).unwrap();
     assert!(
@@ -528,10 +520,7 @@ fn lexical_values_shadow_associated_native_and_script_owners() {
         let text = format!(
             "struct Item {{}} impl Item {{ pub fn make() -> Item {{ Item {{}} }} }} fn bad({owner}: i32) {{ {call}; }}"
         );
-        let analysis = crate::analyze_source(
-            &SourceFile::new("shadow-owners.kgr", text),
-            Default::default(),
-        );
+        let analysis = crate::analyze_source(&SourceFile::new("shadow-owners.kgr", text));
         assert!(analysis.clone().into_codegen().is_err(), "{owner}");
         let facts = analysis.facts();
         let (id, _) = facts

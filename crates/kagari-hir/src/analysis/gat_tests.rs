@@ -13,7 +13,7 @@ fn make<T: Family>(x: T) -> T::Item<i32> { x.make(42) }
 fn main() -> i32 { make(Number {}) }
 "#,
     );
-    let result = crate::analyze_source(&source, Default::default());
+    let result = crate::analyze_source(&source);
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -43,7 +43,7 @@ fn constructor_binders_and_cached_queries_follow_the_latest_signature() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let old_file = old.file(file).unwrap();
     assert!(old_file.result().diagnostics().is_empty());
@@ -58,7 +58,7 @@ fn constructor_binders_and_cached_queries_follow_the_latest_signature() {
         .set("gat-cache.kgr", edited.clone(), SourceLayer::Overlay)
         .unwrap();
     let unchanged = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(
         unchanged
@@ -73,7 +73,7 @@ fn constructor_binders_and_cached_queries_follow_the_latest_signature() {
         .set("gat-cache.kgr", broken, SourceLayer::Overlay)
         .unwrap();
     let latest = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(!latest.file(file).unwrap().result().diagnostics().is_empty());
     assert!(old_file.result().diagnostics().is_empty());

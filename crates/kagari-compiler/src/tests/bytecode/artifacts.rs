@@ -87,7 +87,6 @@ fn main() -> i32 { add(1, 2) }
     let artifact = KbcArtifact::from_program(
         module,
         ArtifactBuildOptions {
-            security_profile: Some("dev".into()),
             ..Default::default()
         },
     )
@@ -112,15 +111,11 @@ fn main() -> i32 { add(1, 2) }
         artifact.verification.loader.dependency_fingerprints,
         dependencies
     );
-    assert_eq!(
-        artifact.verification.loader.security_profile.as_deref(),
-        Some("dev")
-    );
 
     let requirements = ArtifactCompatibility {
         module_identity: Some(identity),
         dependency_fingerprints: Some(artifact.verification.loader.dependency_fingerprints.clone()),
-        security_profile: Some("dev".to_owned()),
+
         ..Default::default()
     };
     assert!(artifact.validate_for_loader(&requirements).is_ok());

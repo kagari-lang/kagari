@@ -1,9 +1,6 @@
 use kagari_abi::native_import::NativeImport;
 use kagari_abi::{budget::LogicalBudgetCharge, ids::FunctionRef, representation::ValueType};
-use {
-    kagari_bytecode::{module::RootSlotLayout, program::ModuleRef},
-    kagari_hir::profile::LanguageFeatureProfile,
-};
+use kagari_bytecode::{module::RootSlotLayout, program::ModuleRef};
 
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantOperand},
@@ -71,16 +68,7 @@ pub fn compile_test_bytecode(source_text: &str) -> BytecodeProgram {
         .unwrap(),
     );
     let snapshot = analysis
-        .snapshot(
-            sources.snapshot(),
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot should succeed");
     let checked = snapshot
         .check_program(root, &Default::default())

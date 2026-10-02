@@ -13,11 +13,7 @@ use kagari_runtime::value::Value;
 fn execute(source: &str) {
     let engine = KagariEngine::default();
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("defaults.kgr", source),
-            Default::default(),
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("defaults.kgr", source), Default::default())
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -161,12 +157,7 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let module = &artifact.program.modules[artifact.program.root.index()];
@@ -247,7 +238,7 @@ fn main() -> i32 { Number {}.again() }
 
 #[test]
 fn malformed_default_contracts_and_source_origins_are_rejected() {
-    let artifact = KagariEngine::default().compile_to_artifact(SourceFile::new("defaults.kgr", "pub trait Read { fn read(self) -> i32 { 42 } } struct Number {} impl Read for Number {} fn main() -> i32 { Number {}.read() }"), Default::default(), Default::default()).unwrap();
+    let artifact = KagariEngine::default().compile_to_artifact(SourceFile::new("defaults.kgr", "pub trait Read { fn read(self) -> i32 { 42 } } struct Number {} impl Read for Number {} fn main() -> i32 { Number {}.read() }"),  Default::default()).unwrap();
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];

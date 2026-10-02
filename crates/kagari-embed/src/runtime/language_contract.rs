@@ -20,15 +20,11 @@ use kagari_bytecode::{
 };
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::profile::LanguageFeatureProfile;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        host::{HostError, HostFunction},
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
+
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    host::{HostError, HostFunction},
+    value::Value,
 };
 
 use crate::{program::PreparedProgram, runtime::KagariRuntime};
@@ -149,12 +145,6 @@ impl<'a> Case<'a> {
 }
 
 fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        allow_reflection: case.reflection,
-        allow_reflection_write: case.reflection,
-        ..Default::default()
-    };
     let observe = kagari_common::host_interface::HostFunctionDeclaration::new(
         "observe.array",
         vec![],
@@ -196,7 +186,7 @@ fn compile(case: &Case<'_>) -> Option<KbcArtifact> {
         );
     }
     let snapshot = analysis
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root.unwrap(), &Default::default());
     if let Expected::Diagnostic(code) = case.expected {
@@ -359,27 +349,7 @@ fn run(
             max_instruction_steps: case.max_steps,
             ..Default::default()
         },
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                allow_host_calls: true,
-                allow_reflection: case.reflection,
-                allow_reflection_write: case.reflection,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                host_calls: true,
-                reflection_metadata: case.reflection,
-                reflection_read: case.reflection,
-                reflection_write: case.reflection,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.log".into(), "observe.array".into()],
-            ..Default::default()
-        },
+
         ..Default::default()
     });
     let host = Arc::new(Mutex::new(RecordingHost::default()));

@@ -7,23 +7,14 @@ use kagari_common::{
 };
 use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
 
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{KagariEngine, source::ArtifactOptions},
+    program::PreparedProgram,
+    runtime::LoadOptions,
+};
+use kagari_runtime::{host::HostFunction, value::Value};
 use std::sync::{Arc, Mutex};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{host::HostFunction, security::LanguageProfile, value::Value},
-};
-use {
-    kagari_embed::{
-        context::ExecutionContext,
-        engine::{
-            KagariEngine,
-            source::{ArtifactOptions, CompileOptions},
-        },
-        program::PreparedProgram,
-        runtime::LoadOptions,
-    },
-    kagari_runtime::security::HostExposurePolicy,
-};
 
 fn declaration() -> HostFunctionDeclaration {
     HostFunctionDeclaration::new(
@@ -87,20 +78,9 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 .unwrap(),
         );
     }
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            CompileOptions {
-                language_profile: profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine
         .emit_bytecode(&checked, ArtifactOptions::default())
@@ -132,16 +112,6 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec!["demo.echo".into()],
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {
@@ -245,11 +215,8 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     engine
         .set_host_interface(HostInterface::from_bytes(&encoded).unwrap())
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
-    let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(demo::echo(39))) }"), CompileOptions { language_profile: profile }, ArtifactOptions::default()).unwrap();
+
+    let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(demo::echo(39))) }"),  ArtifactOptions::default()).unwrap();
     assert_eq!(
         artifact.program.modules[artifact.program.root.index()]
             .host_interface
@@ -258,15 +225,6 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     );
     let artifact = KbcArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext {
-        language_profile: profile,
-        capabilities: CapabilitySet {
-            host_calls: true,
-            ..Default::default()
-        },
-        host_policy: HostExposurePolicy {
-            allowed_host_functions: vec!["demo.echo".into()],
-            ..Default::default()
-        },
         ..Default::default()
     };
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -328,23 +286,15 @@ fn host_calls_require_profile_and_cannot_run_in_scalar_constants() {
         })
         .unwrap();
     let disabled = engine
-        .compile_source(
-            SourceFile::new("disabled.kgr", "fn main() -> i32 { demo::echo(7) }"),
-            CompileOptions::default(),
-        )
+        .compile_source(SourceFile::new(
+            "disabled.kgr",
+            "fn main() -> i32 { demo::echo(7) }",
+        ))
         .unwrap_err();
     assert!(format!("{disabled:?}").contains("KG_PROFILE_FEATURE_DISABLED"));
-    let constant = engine.compile_source(
-        SourceFile::new(
-            "const.kgr",
-            "const N: i32 = demo::echo(7); fn main() -> i32 { N }",
-        ),
-        CompileOptions {
-            language_profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-        },
-    );
+    let constant = engine.compile_source(SourceFile::new(
+        "const.kgr",
+        "const N: i32 = demo::echo(7); fn main() -> i32 { N }",
+    ));
     assert!(constant.is_err());
 }

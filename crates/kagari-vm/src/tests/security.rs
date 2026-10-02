@@ -9,16 +9,9 @@ use {
 use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, ConstantOperand, Register, RuntimeHelper, StructId,
 };
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        host::HostFunction,
-        resource::ResourcePolicy,
-        security::{DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, resource::ResourcePolicy,
+    value::Value,
 };
 
 use crate::{
@@ -49,16 +42,6 @@ fn expect_resource_limit(error: VmError, limit: &str) {
 #[test]
 fn security_denied_host_reflection_and_debugger_operations_are_classified() {
     let mut host_runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     });
     host_runtime
@@ -151,18 +134,6 @@ fn security_denied_host_reflection_and_debugger_operations_are_classified() {
 #[test]
 fn security_reflection_and_debugger_gates_remain_separate() {
     let mut metadata_only = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     });
     let reflection_module = metadata_only
@@ -215,21 +186,6 @@ fn security_reflection_and_debugger_gates_remain_separate() {
     );
 
     let debug_runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                debug_attach: true,
-                debug_breakpoints: true,
-                ..CapabilitySet::default()
-            },
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
         ..RuntimeConfig::default()
     });
     let mut session = DebugSession::new(&debug_runtime).expect("attach should be allowed");
@@ -289,20 +245,6 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     );
 
     let mut host_call_limited = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.limited".to_owned()],
-            ..HostExposurePolicy::default()
-        },
         resources: ResourcePolicy {
             max_host_calls: Some(0),
             ..ResourcePolicy::default()
@@ -356,17 +298,6 @@ fn security_resource_limit_failures_are_classified_in_interpreter() {
     );
 
     let mut reflection_limited = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
-        },
         resources: ResourcePolicy {
             max_reflection_operations: Some(1),
             ..ResourcePolicy::default()

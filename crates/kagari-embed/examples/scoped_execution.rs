@@ -4,10 +4,7 @@ use kagari_common::source::SourceFile;
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
-    engine::{
-        KagariEngine,
-        source::{ArtifactOptions, CompileOptions},
-    },
+    engine::{KagariEngine, source::ArtifactOptions},
     program::PreparedProgram,
     runtime::LoadOptions,
 };
@@ -18,7 +15,6 @@ fn main() {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("scoped.kgr", "fn main() -> i32 { 42 }"),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .unwrap();
@@ -73,7 +69,6 @@ fn main() {
                 "ambiguous.kgr",
                 "fn main() -> i32 { 42 } fn alternative() -> i32 { 43 }",
             ),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .unwrap();

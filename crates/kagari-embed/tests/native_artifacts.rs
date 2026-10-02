@@ -19,10 +19,7 @@ use kagari_runtime::value::Value;
 fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
     let engine = KagariEngine::default();
     let checked = engine
-        .compile_source(
-            SourceFile::new("native-export", "fn main() -> i32 { 42 }"),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new("native-export", "fn main() -> i32 { 42 }"))
         .unwrap();
     for native_input in [
         NativeInputExport::PortableMir,
@@ -80,11 +77,7 @@ fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure(
     let engine = KagariEngine::default();
     let prepare = |source| {
         let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("reload", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("reload", source), Default::default())
             .unwrap();
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
     };

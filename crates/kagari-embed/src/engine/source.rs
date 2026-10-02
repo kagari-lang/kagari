@@ -30,7 +30,6 @@ use kagari_hir::{
     },
     host::{HostDeclarations, origin::HostInput},
     imports::ModuleOrderError,
-    profile::LanguageFeatureProfile,
     program::{CheckedProgram, ProgramCheckError},
     typeck::const_budget::ConstLimits,
 };
@@ -38,7 +37,7 @@ use kagari_mir::{
     codec::{MirCodecError, encode_program},
     program::ProgramErrorKind,
 };
-use kagari_runtime::security::LanguageProfile;
+
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 
@@ -63,25 +62,6 @@ impl CheckedModule {
     }
     pub fn program(&self) -> &CheckedProgram {
         &self.program
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct CompileOptions {
-    pub language_profile: LanguageProfile,
-}
-
-fn language_feature_profile_from_runtime(profile: LanguageProfile) -> LanguageFeatureProfile {
-    LanguageFeatureProfile {
-        allow_reflection: profile.allow_reflection,
-        allow_reflection_write: profile.allow_reflection_write,
-        allow_interface_values: profile.allow_interface_values,
-        allow_host_calls: profile.allow_host_calls,
-        allow_path_mutation: profile.allow_path_mutation,
-        allow_module_loading: profile.allow_module_loading,
-        allow_jit: profile.allow_jit,
-        allow_eval: profile.allow_eval,
-        allow_async: profile.allow_async,
     }
 }
 
@@ -129,18 +109,9 @@ impl KagariEngine {
             .set_host_declarations(declarations);
         Ok(())
     }
-    pub fn compile_source(
-        &self,
-        source: SourceFile,
-        options: CompileOptions,
-    ) -> CompileResult<CheckedModule> {
+    pub fn compile_source(&self, source: SourceFile) -> CompileResult<CheckedModule> {
         let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
-        self.compile_snapshot(
-            self.source_snapshot(),
-            id,
-            options,
-            &CancellationToken::default(),
-        )
+        self.compile_snapshot(self.source_snapshot(), id, &CancellationToken::default())
     }
 
     pub fn set_source(
@@ -183,16 +154,12 @@ impl KagariEngine {
     pub fn analyze(
         &self,
         source: SourceSnapshot,
-        profile: LanguageProfile,
+
         cancel: &CancellationToken,
     ) -> CompileResult<AnalysisSnapshot> {
         self.analysis
             .borrow_mut()
-            .snapshot(
-                source,
-                language_feature_profile_from_runtime(profile),
-                cancel,
-            )
+            .snapshot(source, cancel)
             .map_err(analysis_error)
     }
 
@@ -237,10 +204,10 @@ impl KagariEngine {
         &self,
         source: SourceSnapshot,
         file: FileId,
-        options: CompileOptions,
+
         cancel: &CancellationToken,
     ) -> CompileResult<CheckedModule> {
-        let snapshot = self.analyze(source, options.language_profile, cancel)?;
+        let snapshot = self.analyze(source, cancel)?;
         let analysis = snapshot.file(file).ok_or_else(|| EmbeddingError::Source {
             message: "file is absent from this source snapshot".into(),
         })?;
@@ -346,10 +313,10 @@ impl KagariEngine {
     pub fn compile_to_artifact(
         &self,
         source: SourceFile,
-        compile_options: CompileOptions,
+
         artifact_options: ArtifactOptions,
     ) -> CompileResult<BytecodeArtifact> {
-        let checked = self.compile_source(source, compile_options)?;
+        let checked = self.compile_source(source)?;
         self.emit_bytecode(&checked, artifact_options)
     }
 }

@@ -115,7 +115,8 @@ impl Vm {
 
     pub fn attach_debug_session(&mut self, session: DebugSession) -> Result<(), VmError> {
         self.runtime
-            .validate_debug_attach_boundary()
+            .resources()
+            .ensure_execution_allowed()
             .map_err(VmError::RuntimeError)?;
         self.debug_session = Some(Rc::new(SharedDebugSession(RefCell::new(session))));
         Ok(())

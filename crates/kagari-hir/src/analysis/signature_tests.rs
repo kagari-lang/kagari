@@ -2,7 +2,7 @@ use super::*;
 use kagari_common::source_database::{SourceDatabase, SourceLayer};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(sources.snapshot(), Default::default(), &Default::default())
+    db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
 
@@ -154,13 +154,8 @@ fn cancelled_or_older_queries_cannot_replace_signature_cache() {
     let latest = snapshot(&mut db, &sources);
     let cancel = CancellationToken::default();
     cancel.cancel();
-    assert!(
-        db.snapshot(old_source.clone(), Default::default(), &cancel)
-            .is_err()
-    );
-    let stale = db
-        .snapshot(old_source, Default::default(), &Default::default())
-        .unwrap();
+    assert!(db.snapshot(old_source.clone(), &cancel).is_err());
+    let stale = db.snapshot(old_source, &Default::default()).unwrap();
     assert!(!stale.file(id).unwrap().signatures_reused());
     let again = snapshot(&mut db, &sources);
     assert!(Arc::ptr_eq(

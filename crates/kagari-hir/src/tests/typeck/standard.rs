@@ -17,7 +17,7 @@ fn main() -> usize {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, Default::default())
+    let analyzed = crate::analyze_source(&source)
         .into_checked()
         .expect("checked installed declarations");
     let typed = &analyzed.typed;
@@ -54,7 +54,7 @@ fn main(value: HashMap<String, i32>) -> usize {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, Default::default())
+    let analyzed = crate::analyze_source(&source)
         .into_checked()
         .expect("checked installed declarations");
     let typed = &analyzed.typed;
@@ -91,7 +91,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let facts = snapshot.file(root).unwrap().result().facts();
     let declarations = snapshot.declaration_snapshot();
@@ -215,7 +215,7 @@ fn unique(value: HashSet<String>) -> HashSet<String> { value }
 fn sized(value: usize) -> usize { value }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, Default::default())
+    let analyzed = crate::analyze_source(&source)
         .into_checked()
         .expect("checked installed declarations");
     let typed = &analyzed.typed;
@@ -269,7 +269,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         fn qualified() -> ArrayList<i32> { foundation::ArrayList::new() }
     "#,
     );
-    let analyzed = crate::analyze_source(&source, Default::default())
+    let analyzed = crate::analyze_source(&source)
         .into_checked()
         .expect("checked constructor imports");
     let lowered = &analyzed.lowered;
@@ -336,7 +336,7 @@ fn popped(values: ArrayList<i32>) -> Option<i32> {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, Default::default())
+    let analyzed = crate::analyze_source(&source)
         .into_checked()
         .expect("checked installed method declarations");
     let lowered = &analyzed.lowered;
@@ -412,12 +412,12 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
 }
 "#,
     );
-    crate::analyze_source(&lowered.source, Default::default())
+    crate::analyze_source(&lowered.source)
         .into_checked()
         .expect("hash-key constrained generics should type check");
 
     let lowered = common::lower_ok("fn bad(values: HashMap<f64, i32>) -> usize { values.len() }");
-    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
+    let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("f64 map keys should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -429,7 +429,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
     }));
 
     let lowered = common::lower_ok("fn bad<K, V>(values: HashMap<K, V>) -> usize { values.len() }");
-    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
+    let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -444,7 +444,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
 #[test]
 fn rejects_standard_library_invalid_arity_and_argument_types() {
     let lowered = common::lower_ok("fn bad() { ArrayList::push([1]); }");
-    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
+    let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("standard call arity should reject");
     assert!(diagnostics.iter().any(|diagnostic| {
@@ -463,7 +463,7 @@ fn bad(values: HashMap<String, i32>) -> bool {
 }
 "#,
     );
-    let diagnostics = crate::analyze_source(&lowered.source, Default::default())
+    let diagnostics = crate::analyze_source(&lowered.source)
         .into_checked()
         .expect_err("standard method key type should reject");
     assert!(diagnostics.iter().any(|diagnostic| {

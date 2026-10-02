@@ -1,5 +1,5 @@
 use super::*;
-use crate::profile::LanguageFeatureProfile;
+
 use kagari_common::{
     host_interface::value_type::HostValueType,
     identity::PackageId,
@@ -21,7 +21,7 @@ pub(super) fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId 
 }
 pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
     AnalysisDatabase::default()
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap()
 }
 
@@ -40,7 +40,7 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
     let root = insert(&mut db, "root", text);
     let mut analysis = AnalysisDatabase::default();
     let first = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let child = identity("root::child");
     let child_id = first.module_graph().node(&child).unwrap().file;
@@ -51,7 +51,7 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
     db.set("mem://root", text.replace("42", "41"), SourceLayer::Overlay)
         .unwrap();
     let second = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(second.module_graph().node(&child).unwrap().file, child_id);
     assert_eq!(
@@ -256,14 +256,7 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         .unwrap(),
     );
     let snapshot = analysis
-        .snapshot(
-            db.snapshot(),
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let imports = &snapshot
         .module_graph()
@@ -403,14 +396,14 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     let root = insert(&mut db, "root", text);
     let mut analysis = AnalysisDatabase::default();
     let first = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let old = first
         .definition_at(root, text.find("pkg::library").unwrap())
         .unwrap()
         .clone();
     let cached = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(Arc::ptr_eq(
         first.file(root).unwrap(),
@@ -423,7 +416,7 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     )
     .unwrap();
     let second = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(!Arc::ptr_eq(
         first.file(root).unwrap(),
@@ -460,7 +453,7 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     )
     .unwrap();
     let private = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(
         private
@@ -479,7 +472,7 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     ));
     db.close_overlay("mem://library").unwrap();
     let restored = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(
         restored
@@ -498,7 +491,7 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
     let root = insert(&mut db, "root", text);
     let mut analysis = AnalysisDatabase::default();
     let missing = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(
         !missing
@@ -517,7 +510,7 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
         )
         .unwrap();
     let supplied = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(
         supplied
@@ -542,7 +535,7 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
     ));
     db.close_overlay("mem://editor").unwrap();
     let removed = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(removed.file(editor).is_none());
     assert!(removed.definition_at(root, offset).is_none());
@@ -580,7 +573,7 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
         .unwrap(),
     );
     let snapshot = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(
         snapshot

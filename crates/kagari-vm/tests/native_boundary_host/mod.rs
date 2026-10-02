@@ -12,10 +12,6 @@ use kagari_common::{
 };
 use kagari_runtime::module::LoadedModule;
 use kagari_vm::vm::Vm;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
-};
 
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -29,20 +25,6 @@ use std::sync::{
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..Default::default()
-        },
         ..Default::default()
     })
 }

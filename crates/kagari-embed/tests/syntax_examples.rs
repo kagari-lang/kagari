@@ -239,11 +239,8 @@ fn standalone_language_examples_execute_from_source_and_artifact() {
     let mut failures = Vec::new();
     for (path, source, expected) in cases {
         let engine = KagariEngine::default();
-        let artifact = engine.compile_to_artifact(
-            SourceFile::new(path, source),
-            Default::default(),
-            Default::default(),
-        );
+        let artifact =
+            engine.compile_to_artifact(SourceFile::new(path, source), Default::default());
         let artifact = match artifact {
             Ok(artifact) => artifact,
             Err(error) => {
@@ -290,7 +287,6 @@ fn pattern_alternatives_require_the_same_bindings() {
                 "fn main() -> i32 { match (1, 2) { (1, x) | (2, y) => x, _ => 0 } }",
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap_err();
     assert!(format!("{error:?}").contains("the same bindings in every alternative"));
@@ -307,7 +303,6 @@ fn attributes_without_compiler_behavior_are_rejected_before_execution() {
         let error = engine
             .compile_to_artifact(
                 SourceFile::new("attribute-rejection.kgr", source),
-                Default::default(),
                 Default::default(),
             )
             .unwrap_err();
@@ -327,7 +322,7 @@ fn grouped_standard_globs_execute() {
                 "standard-glob.kgr",
                 "use std::{collections::*}; fn main() -> i32 { val values=[22,20];sort(values);values[0]+values[1] }",
             ),
-            Default::default(),
+
             Default::default(),
         )
         .unwrap();
@@ -356,7 +351,6 @@ fn nested_inline_modules_resolve_qualified_members() {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("nested-inline.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -390,12 +384,7 @@ fn inline_module_errors_point_into_the_original_source() {
         )
         .unwrap();
     let error = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            id,
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), id, &Default::default())
         .unwrap_err();
     let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected diagnostics");
@@ -426,7 +415,6 @@ fn after_trap() -> i32 { 42 }
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("for-mutation.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -464,7 +452,6 @@ fn after() -> i32 { 42 }
 "#,
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     let context = ExecutionContext::default();
@@ -501,7 +488,6 @@ fn zero() -> i32 { val divisor = 0; 5 % divisor }
 fn overflow() -> i32 { val minimum = -2147483648; minimum % -1 }
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

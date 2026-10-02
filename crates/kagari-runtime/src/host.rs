@@ -39,7 +39,7 @@ use {
         metadata::{AbiFingerprint, FieldMetadataId, TypeId},
         value::Value,
     },
-    kagari_common::{capability::CapabilitySet, host_interface::type_declaration::PathAccess},
+    kagari_common::host_interface::type_declaration::PathAccess,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -269,7 +269,6 @@ pub struct HostPathDescriptorRegistration {
     pub segments: Vec<HostPathSegmentRegistration>,
     pub access: PathAccess,
     pub schema_epoch: HostSchemaEpoch,
-    pub capability_requirements: CapabilitySet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,7 +282,6 @@ pub struct HostPathDescriptor {
     pub access: PathAccess,
     pub schema_epoch: HostSchemaEpoch,
     pub abi_fingerprint: AbiFingerprint,
-    pub capability_requirements: CapabilitySet,
 }
 
 impl HostPathDescriptor {
@@ -338,7 +336,6 @@ impl HostPathDescriptor {
             access: registration.access,
             schema_epoch: registration.schema_epoch,
             abi_fingerprint,
-            capability_requirements: registration.capability_requirements,
         })
     }
 
@@ -971,11 +968,6 @@ impl fmt::Debug for HostFunction {
             .field("id", &self.id)
             .field("params", &self.declaration.params)
             .field("return_type", &self.declaration.return_type)
-            .field(
-                "capability_requirements",
-                &self.declaration.capability_requirements,
-            )
-            .field("resource_cost_hint", &self.declaration.resource_cost_hint)
             .field("effects", &self.declaration.effects)
             .field("declaration_id", &self.declaration.id)
             .finish_non_exhaustive()

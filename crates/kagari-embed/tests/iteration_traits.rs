@@ -18,7 +18,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -145,7 +144,6 @@ fn trap()->i32{val a=[20];for x in a {return x/0;}0}
 fn exhaust()->i32{val a=[20];for x in a {while true {}}0}
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -367,7 +365,6 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 "iter-wire.kgr",
                 "fn main()->i32 {var total=0;for x in [20,22]{total+=x;}total}",
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

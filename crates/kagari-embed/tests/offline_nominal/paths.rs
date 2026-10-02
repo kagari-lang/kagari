@@ -21,29 +21,18 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         ],
         access: PathAccess::ReadOnly,
         schema_epoch: 7,
-        capabilities: CapabilitySet {
-            fs_read: true,
-            ..Default::default()
-        },
     };
     declarations.types[1].fields.push(count);
     declarations.paths.push(path.clone());
     let engine = KagariEngine::default();
     engine.set_host_interface(declarations.clone()).unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
                 "field.kgr",
                 "use left as api; fn main() -> i32 { api::make().related.count }",
             ),
-            CompileOptions {
-                language_profile: profile,
-            },
             Default::default(),
         )
         .unwrap();
@@ -57,19 +46,6 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                fs_read: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec!["left.make".into()],
-                allowed_host_types: vec!["left.Item".into()],
-                allow_host_path_reads: true,
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {
@@ -227,7 +203,6 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     let engine = KagariEngine::default();
     engine
@@ -237,21 +212,14 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             functions: vec![make.clone(), first.clone(), second.clone(), rhs.clone()],
         })
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_path_mutation: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
                 "multi-index.kgr",
                 "use game as api; fn main() -> i32 { var player = api::make(); player[api::first()][api::second()].selected.score += api::rhs(); player[1][2].selected.score }",
             ),
-            CompileOptions {
-                language_profile: profile,
-            },
+
             Default::default(),
         )
         .unwrap();
@@ -262,25 +230,6 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                path_mutation: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec![
-                    "game.make".into(),
-                    "game.first".into(),
-                    "game.second".into(),
-                    "game.rhs".into(),
-                ],
-                allowed_host_types: vec!["game.Player".into(), "game.Child".into()],
-                allow_host_path_reads: true,
-                allow_host_path_mutation: true,
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {
@@ -409,7 +358,6 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     declarations.types[1].fields.push(count);
     declarations.paths.push(path.clone());
@@ -417,12 +365,7 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
     declarations.functions.push(rhs.clone());
     let engine = KagariEngine::default();
     engine.set_host_interface(declarations.clone()).unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_path_mutation: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     for rebind in [false, true] {
         for (op, rhs_value, after_rhs, deleted, expected) in [
             ("=", 2, 100, false, Some(2)),
@@ -443,9 +386,6 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
             let artifact = engine
                 .compile_to_artifact(
                     SourceFile::new("write.kgr", text.clone()),
-                    CompileOptions {
-                        language_profile: profile,
-                    },
                     Default::default(),
                 )
                 .unwrap();
@@ -470,20 +410,6 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     artifact.clone()
                 };
                 let context = ExecutionContext {
-                    language_profile: profile,
-                    capabilities: CapabilitySet {
-                        host_calls: true,
-                        path_mutation: true,
-                        jit: true,
-                        ..Default::default()
-                    },
-                    host_policy: HostExposurePolicy {
-                        allowed_host_functions: vec!["left.make".into(), "left.rhs".into()],
-                        allowed_host_types: vec!["left.Item".into()],
-                        allow_host_path_reads: true,
-                        allow_host_path_mutation: true,
-                        ..Default::default()
-                    },
                     jit_policy: if jit {
                         JitPolicy::Enabled
                     } else {

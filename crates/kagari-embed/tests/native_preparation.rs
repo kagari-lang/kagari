@@ -30,11 +30,8 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError, native::NativePreparationError},
 };
 use kagari_mir::instruction::{Constant, Instruction, Terminator};
+use kagari_runtime::jit_abi::jit_consume_instruction_step;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{jit_abi::jit_consume_instruction_step, security::LanguageProfile},
-};
 
 #[derive(Debug)]
 struct Owner(Arc<AtomicUsize>);
@@ -133,14 +130,6 @@ unsafe impl CodegenBackend for Backend {
 }
 fn context() -> ExecutionContext {
     ExecutionContext {
-        language_profile: LanguageProfile {
-            allow_jit: true,
-            ..Default::default()
-        },
-        capabilities: CapabilitySet {
-            jit: true,
-            ..Default::default()
-        },
         ..Default::default()
     }
 }
@@ -148,7 +137,6 @@ fn prepare(engine: &KagariEngine, native: NativeInputExport) -> PreparedProgram 
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("shared", "fn main() {}"),
-            Default::default(),
             ArtifactOptions {
                 native_input: native,
                 ..Default::default()
@@ -288,16 +276,11 @@ fn cancellation_discards_compilation_results_and_can_be_retried() {
 fn mismatched_artifact_native_input_is_rejected_before_loading() {
     let engine = KagariEngine::default();
     let mut artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("a", "fn main() {}"),
-            Default::default(),
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("a", "fn main() {}"), Default::default())
         .unwrap();
     let other = engine
         .compile_to_artifact(
             SourceFile::new("a", "fn main() -> i32 { 1 }"),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

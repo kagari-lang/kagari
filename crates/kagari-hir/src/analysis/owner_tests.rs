@@ -18,7 +18,7 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
         .set("owners.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
     assert!(

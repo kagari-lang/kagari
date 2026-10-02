@@ -19,7 +19,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -163,7 +162,6 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
             .compile_to_artifact(
                 SourceFile::new("bad-traits.kgr", source),
                 Default::default(),
-                Default::default(),
             )
             .unwrap_err();
         assert!(
@@ -197,7 +195,7 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
         types::{AbiType, PublicAbiItem},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default(),Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("format-wire.kgr", "struct Item {} impl Debug for Item { fn debug(self)->String { \"ok\" } } fn main()->i32 { val item=Item {}; item.debug(); 42 }"),Default::default()).unwrap();
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -487,7 +485,6 @@ fn make()->(Test,HashSet<Key>) {
         .compile_to_artifact(
             SourceFile::new("callback-cleanup.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -640,12 +637,8 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
                 root = Some(id);
             }
         }
-        let checked = engine.compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        );
+        let checked =
+            engine.compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default());
         if downstream_override {
             assert!(checked.is_err());
             continue;
@@ -691,7 +684,6 @@ fn main()->i64 {Key{id:1}.hash()}
 "#,
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for missing in [Protocol::Eq, Protocol::PartialEq] {
@@ -713,7 +705,6 @@ fn composed_enum_hash_uses_variant_identity_instead_of_version_local_slots() {
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new("stable-variant.kgr", source),
-                Default::default(),
                 Default::default(),
             )
             .unwrap();

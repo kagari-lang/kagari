@@ -8,7 +8,6 @@ use std::{
 };
 
 use crate::{
-    capability::CapabilitySet,
     host_interface::{
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::HostTypeDeclaration,
@@ -96,8 +95,7 @@ pub struct HostFunctionDeclaration {
     #[serde(deserialize_with = "decode_limits::members")]
     pub params: Vec<HostParameter>,
     pub return_type: HostValueType,
-    pub capability_requirements: CapabilitySet,
-    pub resource_cost_hint: Option<u64>,
+
     pub effects: HostFunctionEffects,
     pub documentation: String,
 }
@@ -116,8 +114,6 @@ impl HostFunctionDeclaration {
             && self.symbol == actual.symbol
             && self.params == actual.params
             && self.return_type == actual.return_type
-            && self.capability_requirements == actual.capability_requirements
-            && self.resource_cost_hint == actual.resource_cost_hint
             && self.effects == actual.effects
     }
     /// The application host namespace is a logical package. Providers can replace
@@ -145,8 +141,7 @@ impl HostFunctionDeclaration {
             symbol,
             params,
             return_type,
-            capability_requirements: Default::default(),
-            resource_cost_hint: None,
+
             effects: Default::default(),
             documentation: String::new(),
         }
@@ -212,8 +207,6 @@ impl HostFunctionDeclaration {
                 &self.symbol,
                 &self.params,
                 &self.return_type,
-                self.capability_requirements,
-                self.resource_cost_hint,
                 self.effects,
             ))
             .map_err(|_| HostInterfaceError::Encoding)?;

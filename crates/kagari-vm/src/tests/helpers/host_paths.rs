@@ -96,10 +96,6 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            let mut security = runtime.security();
-            security.profile.allow_jit = true;
-            security.capabilities.jit = true;
-            runtime.set_security_context(security);
             let write_hp = hp.clone();
             runtime
                 .register_host_path_adapter(
@@ -224,10 +220,6 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            let mut security = runtime.security();
-            security.profile.allow_jit = true;
-            security.capabilities.jit = true;
-            runtime.set_security_context(security);
             let bytecode = compile_test_bytecode(
                 "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> ArrayList<i32> { [7] }",
             );
@@ -431,13 +423,7 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
 
 #[test]
 fn typed_path_helpers_enforce_runtime_capability_boundary() {
-    let (mut runtime, _) = register_vm_host_path_runtime_with_capabilities(
-        PathAccess::ReadWrite,
-        CapabilitySet {
-            fs_read: true,
-            ..CapabilitySet::default()
-        },
-    );
+    let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let loaded = runtime
         .load_program(
             "path_capability.kbc",
@@ -502,7 +488,6 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 segments: vec![HostPathSegmentRegistration::Field { declaration }],
                 access: PathAccess::ReadOnly,
                 schema_epoch: HostSchemaEpoch::new(0),
-                capability_requirements: Default::default(),
             };
             let target = runtime
                 .register_host_path_descriptor(registration.clone())
@@ -572,10 +557,6 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 RuntimeErrorKind::TypedPathValidation
             );
             assert_eq!(runtime.modules().loaded_count(), 1);
-            let mut security = runtime.security();
-            security.profile.allow_jit = true;
-            security.capabilities.jit = true;
-            runtime.set_security_context(security);
             let mut vm = Vm::new(runtime);
             let value = if jit {
                 let prepared = native_fixtures::unsupported();
@@ -614,7 +595,6 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: Default::default(),
         })
         .unwrap();
     let fingerprint = runtime

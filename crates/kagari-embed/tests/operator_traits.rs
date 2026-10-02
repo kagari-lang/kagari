@@ -19,7 +19,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -247,7 +246,6 @@ fn invalid_operator_signatures_bounds_and_writes_are_diagnostics() {
         let result = KagariEngine::default().compile_to_artifact(
             SourceFile::new("bad-operator.kgr", source),
             Default::default(),
-            Default::default(),
         );
         assert!(
             matches!(result, Err(EmbeddingError::Diagnostics { .. })),
@@ -300,12 +298,8 @@ pub fn add(a:Box<i32>,b:i32)->Box<i32> {plus(a,b)}
                 root = Some(id);
             }
         }
-        let checked = engine.compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        );
+        let checked =
+            engine.compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default());
         if downstream_override {
             assert!(checked.is_err());
             continue;
@@ -349,7 +343,6 @@ fn main()->i32 {Number{value:20}+22}
 "#,
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for corrupt_input in [false, true] {
@@ -382,7 +375,6 @@ fn arithmetic_stays_direct_and_indexing_uses_its_checked_native_binding() {
 fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -434,7 +426,6 @@ fn exhaust()->i32 {var n=1000;while n>0 {val a=Number{value:n};a+1;n-=1;}42}
 fn main()->i32 {Number{value:42}+1}
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

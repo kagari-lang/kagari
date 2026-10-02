@@ -17,7 +17,6 @@ fn optional_collection_algorithms_use_the_normal_default_installation_path() {
     "#,
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     let program =
@@ -59,7 +58,7 @@ fn disabling_optional_modules_keeps_language_collections_and_removes_algorithms(
             val set: HashSet<i32> = HashSet::new(); set.insert(values[1]);
             if set.contains(22) && map.contains_key(1) { values[0] + values[1] } else { 0 }
         }
-    "#), Default::default(), Default::default()).unwrap();
+    "#),  Default::default()).unwrap();
     let program =
         PreparedProgram::from_artifact(program, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();

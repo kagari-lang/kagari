@@ -1,12 +1,6 @@
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_common::source::SourceFile;
-use {
-    kagari_embed::{
-        context::JitPolicy,
-        engine::{EngineConfig, source::CompileOptions},
-    },
-    kagari_runtime::security::LanguageProfile,
-};
+use kagari_embed::{context::JitPolicy, engine::EngineConfig};
 
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
@@ -20,7 +14,6 @@ fn execute(source: &str) {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -156,7 +149,6 @@ fn readonly_operations_cannot_recover_write_access() {
         let result = KagariEngine::default().compile_to_artifact(
             SourceFile::new("readonly-negative.kgr", source),
             Default::default(),
-            Default::default(),
         );
         assert!(result.is_err(), "must reject: {source}");
     }
@@ -175,7 +167,6 @@ pub fn inspect(values: [i32]) { values.len(); }
 fn main() { val values = [1, 2]; inspect(values); }
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -230,13 +221,7 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             paths: vec![],
         })
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
-    let options = CompileOptions {
-        language_profile: profile,
-    };
+
     assert!(
         engine
             .compile_to_artifact(
@@ -246,10 +231,9 @@ fn host_results_preserve_declared_access_through_artifacts_and_binding_checks() 
             )
             .is_err()
     );
-    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = [source[0], 2]; copy[0] + copy[1] }"), options, Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = [source[0], 2]; copy[0] + copy[1] }"),  Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let mut context = ExecutionContext {
-        language_profile: profile,
         ..Default::default()
     };
     context.capabilities.host_calls = true;

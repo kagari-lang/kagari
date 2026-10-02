@@ -1,6 +1,6 @@
 //! Ordinary application declarations used to exercise inference and recovery.
 //! These bodies are test inputs, not a second implementation of library algorithms.
-use crate::{AnalysisResult, AnalyzedModule, analyze_source, profile::LanguageFeatureProfile};
+use crate::{AnalysisResult, AnalyzedModule, analyze_source};
 use kagari_common::source::SourceFile;
 
 const CONTRACTS: &str = r#"
@@ -23,12 +23,9 @@ fn same_set<T: Eq + Hash>(left: Set<T>, right: Set<T>) -> Set<T> { left }
 fn put_map<K: Eq + Hash,V>(values: HashMap<K,V>, key: K, value: V) { values.insert(key, value); }
 "#;
 
-pub(super) fn analyze_contracts(
-    source: &SourceFile,
-    profile: LanguageFeatureProfile,
-) -> AnalysisResult<AnalyzedModule> {
-    analyze_source(
-        &SourceFile::new(source.name(), format!("{CONTRACTS}\n{}", source.text())),
-        profile,
-    )
+pub(super) fn analyze_contracts(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
+    analyze_source(&SourceFile::new(
+        source.name(),
+        format!("{CONTRACTS}\n{}", source.text()),
+    ))
 }

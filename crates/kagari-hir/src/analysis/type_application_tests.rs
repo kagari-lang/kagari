@@ -7,7 +7,7 @@ use kagari_common::{
 };
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(sources.snapshot(), Default::default(), &Default::default())
+    db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
 
@@ -288,7 +288,7 @@ fn explicit_bindings_shadow_all_standard_type_constructors() {
         ] {
             let text = format!("{declaration} fn bad(x: {name}<{args}>) {{}}");
             let source = SourceFile::new("shadow.kgr", &text);
-            let analysis = crate::analyze_source(&source, Default::default());
+            let analysis = crate::analyze_source(&source);
             let facts = analysis.facts();
             let function = facts
                 .typed

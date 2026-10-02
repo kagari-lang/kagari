@@ -21,9 +21,8 @@ use kagari_bytecode::{
 };
 use std::sync::{Arc, Mutex};
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    kagari_common::host_interface::type_declaration::{
+        HostReflectionPolicy, HostTypeOwnership, PathAccess,
     },
     kagari_runtime::{
         Runtime, RuntimeConfig,
@@ -35,7 +34,6 @@ use {
         },
         metadata::{AbiFingerprint, TypeKind, TypeRegistration},
         resource::ResourcePolicy,
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
         value::Value,
     },
 };
@@ -50,48 +48,12 @@ use crate::{
 
 fn host_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                allow_path_mutation: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                path_mutation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec![
-                "host.player".to_owned(),
-                "host.add_i32".to_owned(),
-                "host.log".to_owned(),
-            ],
-            allowed_host_types: vec!["game.Player".to_owned()],
-            allow_host_path_reads: true,
-            allow_host_path_mutation: true,
-            ..HostExposurePolicy::default()
-        },
         ..RuntimeConfig::default()
     })
 }
 
 fn reflection_runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                reflection_read: true,
-                reflection_write: true,
-                ..CapabilitySet::default()
-            },
-        },
         ..RuntimeConfig::default()
     })
 }
@@ -112,13 +74,6 @@ fn load_reflection_test_module(source_text: &str) -> (Runtime, LoadedModule) {
 }
 
 fn register_vm_host_path_runtime(access: PathAccess) -> (Runtime, Arc<Mutex<i32>>) {
-    register_vm_host_path_runtime_with_capabilities(access, CapabilitySet::default())
-}
-
-fn register_vm_host_path_runtime_with_capabilities(
-    access: PathAccess,
-    capability_requirements: CapabilitySet,
-) -> (Runtime, Arc<Mutex<i32>>) {
     let mut runtime = host_runtime();
     let i32_id = runtime
         .types()
@@ -161,7 +116,6 @@ fn register_vm_host_path_runtime_with_capabilities(
             }],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements,
         })
         .unwrap();
     assert_eq!(descriptor_id.index(), 0);

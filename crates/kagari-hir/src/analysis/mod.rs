@@ -14,7 +14,6 @@ use crate::{
     host::HostDeclarations,
     imports::{ImportTarget, ModuleGraph, SourceImport, functions::ImportedFunction},
     lower::LoweredModule,
-    profile::LanguageFeatureProfile,
     resolver::resolved::ResolvedName,
     typeck::{
         ModuleSignatures,
@@ -62,7 +61,7 @@ pub mod signature_queries;
 pub struct FileAnalysis {
     signatures_reused: bool,
     source: Arc<SourceFile>,
-    profile: LanguageFeatureProfile,
+
     parsed: Parse,
     result: AnalysisResult<AnalyzedModule>,
 }
@@ -773,7 +772,7 @@ impl AnalysisDatabase {
     pub fn snapshot(
         &mut self,
         source: SourceSnapshot,
-        profile: LanguageFeatureProfile,
+
         cancel: &CancellationToken,
     ) -> Result<AnalysisSnapshot, AnalysisError> {
         cancel.check()?;
@@ -807,7 +806,6 @@ impl AnalysisDatabase {
                     if previous.source.revision() == file.revision()
                         && previous.result.facts().lowered.module.body.arena()
                             == prepared.lowered.module.body.arena()
-                        && previous.profile == profile
                         && previous.result.facts().names.hosts.revision()
                             == self.hosts.revision()
                         && previous.result.facts().names.imports == imports
@@ -843,7 +841,6 @@ impl AnalysisDatabase {
                         prepared,
                         &parsed,
                         AnalysisPolicy {
-                            profile,
                             const_limits: self.const_limits,
                             max_semantic_diagnostics: self.max_semantic_diagnostics,
                         },
@@ -855,7 +852,6 @@ impl AnalysisDatabase {
                     Arc::new(FileAnalysis {
                         signatures_reused,
                         source: file,
-                        profile,
                         parsed,
                         result,
                     })
@@ -1069,13 +1065,7 @@ mod tests {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let token = CancellationToken::default();
-        let first = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &token,
-            )
-            .unwrap();
+        let first = db.snapshot(sources.snapshot(), &token).unwrap();
         assert_eq!(
             first
                 .file(file)
@@ -1093,13 +1083,7 @@ mod tests {
                 SourceLayer::Overlay,
             )
             .unwrap();
-        let second = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &token,
-            )
-            .unwrap();
+        let second = db.snapshot(sources.snapshot(), &token).unwrap();
         let result = &second.file(file).unwrap().result;
         assert_eq!(result.facts().typed.reused_bodies, 1);
         assert_eq!(result.facts().typed.checked_bodies, 1);
@@ -1111,13 +1095,7 @@ mod tests {
                 SourceLayer::Overlay,
             )
             .unwrap();
-        let third = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &token,
-            )
-            .unwrap();
+        let third = db.snapshot(sources.snapshot(), &token).unwrap();
         let result = &third.file(file).unwrap().result;
         assert_eq!(result.facts().typed.reused_bodies, 0);
         assert!(!result.diagnostics().is_empty());
@@ -1131,11 +1109,7 @@ mod tests {
             .set("a.kgr", text.into(), SourceLayer::Base)
             .unwrap();
         let snapshot = AnalysisDatabase::default()
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &CancellationToken::default(),
-            )
+            .snapshot(sources.snapshot(), &CancellationToken::default())
             .unwrap();
         let facts = snapshot.file(file).unwrap();
         assert!(!facts.result().diagnostics().is_empty());
@@ -1180,21 +1154,13 @@ mod tests {
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let first = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &CancellationToken::default(),
-            )
+            .snapshot(sources.snapshot(), &CancellationToken::default())
             .unwrap();
         sources
             .set("b.kgr", "fn b() -> i32 { 3 }".into(), SourceLayer::Overlay)
             .unwrap();
         let second = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &CancellationToken::default(),
-            )
+            .snapshot(sources.snapshot(), &CancellationToken::default())
             .unwrap();
         assert!(Arc::ptr_eq(first.file(a).unwrap(), second.file(a).unwrap()));
         assert!(!Arc::ptr_eq(
@@ -1203,14 +1169,7 @@ mod tests {
         ));
         let cancel = CancellationToken::default();
         cancel.cancel();
-        assert!(
-            db.snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile::default(),
-                &cancel
-            )
-            .is_err()
-        );
+        assert!(db.snapshot(sources.snapshot(), &cancel).is_err());
         assert!(first.file(b).unwrap().source().text().contains("{ 2 }"));
     }
 }

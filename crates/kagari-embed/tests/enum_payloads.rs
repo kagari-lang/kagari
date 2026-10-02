@@ -10,10 +10,7 @@ use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProg
 
 fn compile(engine: &KagariEngine, source: &str) -> BytecodeArtifact {
     let checked = engine
-        .compile_source(
-            SourceFile::new("memory://events.kgr", source),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new("memory://events.kgr", source))
         .unwrap();
     engine.emit_bytecode(&checked, Default::default()).unwrap()
 }

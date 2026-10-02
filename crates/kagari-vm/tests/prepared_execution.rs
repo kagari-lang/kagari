@@ -15,21 +15,13 @@ use kagari_compiler::{
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
 };
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_runtime::{
+    Runtime, RuntimeConfig, error::RuntimeErrorKind, jit_abi::jit_consume_instruction_step,
+    module::LoadedModule, resource::ResourcePolicy, value::Value,
+};
 use kagari_vm::{
     error::VmError,
     vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
-};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        error::RuntimeErrorKind,
-        jit_abi::jit_consume_instruction_step,
-        module::LoadedModule,
-        resource::ResourcePolicy,
-        security::{LanguageProfile, SecurityContext},
-        value::Value,
-    },
 };
 
 fn compile(source: &str, optimize: bool) -> BytecodeProgram {
@@ -38,7 +30,7 @@ fn compile(source: &str, optimize: bool) -> BytecodeProgram {
         .set("test.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(
@@ -53,16 +45,6 @@ fn compile(source: &str, optimize: bool) -> BytecodeProgram {
 }
 fn setup(bytecode: BytecodeProgram, limit: Option<u64>) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                ..Default::default()
-            },
-        },
         resources: ResourcePolicy {
             max_instruction_steps: limit,
             ..Default::default()
@@ -239,7 +221,6 @@ fn optimized_execution_preserves_results_traps_and_every_budget_failure_point() 
 
 #[test]
 fn debugging_selects_interpreter_before_entering_native_code() {
-    use kagari_runtime::security::DebugVisibilityPolicy;
     use kagari_vm::debug::DebugSession;
     let (mut vm, module) = setup(compile("fn main() {}", false), None);
     let preparation = prepared(&vm, &module, native_trap);

@@ -3,7 +3,6 @@ use crate::{
     host::{HostObjectId, HostRootHandle, HostSchemaEpoch},
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     reload::ReloadValidationError,
-    security::LanguageProfile,
 };
 use kagari_bytecode::{
     artifact::{
@@ -14,7 +13,6 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::capability::CapabilitySet;
 
 use kagari_abi::{
     budget::LogicalBudgetCharge,
@@ -154,7 +152,6 @@ fn artifact_with_loader_fingerprints() -> KbcArtifact {
             modules: vec![dependency, root],
         },
         ArtifactBuildOptions {
-            security_profile: Some("dev".into()),
             ..Default::default()
         },
     )
@@ -164,18 +161,8 @@ fn compatibility_for_artifact(artifact: &KbcArtifact) -> ArtifactCompatibility {
     ArtifactCompatibility {
         module_identity: Some(artifact.header.module_identity.clone()),
         dependency_fingerprints: Some(artifact.verification.loader.dependency_fingerprints.clone()),
-        security_profile: artifact.verification.loader.security_profile.clone(),
-        ..ArtifactCompatibility::default()
-    }
-}
 
-fn debug_security(capabilities: CapabilitySet) -> SecurityContext {
-    SecurityContext {
-        profile: LanguageProfile {
-            allow_debugger: true,
-            ..LanguageProfile::default()
-        },
-        capabilities,
+        ..ArtifactCompatibility::default()
     }
 }
 
@@ -766,19 +753,8 @@ fn heap_mutations_update_runtime_resource_counters() {
 }
 
 #[test]
-fn exposes_runtime_type_registry_and_security_context() {
+fn exposes_runtime_type_registry() {
     let runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
-            profile: LanguageProfile {
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-        },
         ..RuntimeConfig::default()
     });
     let type_id = runtime
@@ -790,272 +766,4 @@ fn exposes_runtime_type_registry_and_security_context() {
         .unwrap();
 
     assert_eq!(runtime.types().id_by_name("Player"), Some(type_id));
-    assert!(runtime.security().allows_reflection_read());
-}
-
-#[test]
-fn security_context_requires_profile_and_capability_for_runtime_boundaries() {
-    let default_runtime = Runtime::default();
-    assert_eq!(
-        default_runtime
-            .validate_reflection_metadata_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_reflection_read_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_reflection_write_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_dynamic_invocation_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_downcast_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_host_function_boundary("host.missing")
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_path_mutation_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime
-            .validate_module_loading_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-    assert_eq!(
-        default_runtime.validate_jit_boundary().unwrap_err().kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-
-    let enabled = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                allow_path_mutation: true,
-                allow_module_loading: true,
-                allow_jit: true,
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                path_mutation: true,
-                module_loading: true,
-                jit: true,
-                reflection_metadata: true,
-                reflection_read: true,
-                reflection_write: true,
-                dynamic_invocation: true,
-                downcast: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..HostExposurePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-
-    assert!(
-        enabled
-            .validate_host_function_boundary("host.missing")
-            .is_ok()
-    );
-    assert!(enabled.validate_reflection_metadata_boundary().is_ok());
-    assert!(enabled.validate_reflection_read_boundary().is_ok());
-    assert!(enabled.validate_reflection_write_boundary().is_ok());
-    assert!(enabled.validate_dynamic_invocation_boundary().is_ok());
-    assert!(enabled.validate_downcast_boundary().is_ok());
-    assert!(enabled.validate_path_mutation_boundary().is_ok());
-    assert!(enabled.validate_module_loading_boundary().is_ok());
-    assert!(enabled.validate_jit_boundary().is_ok());
-}
-
-#[test]
-fn security_restricted_profiles_disable_runtime_boundaries_independently() {
-    let capability_only = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_interface_values: false,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                path_mutation: true,
-                module_loading: true,
-                jit: true,
-                reflection_metadata: true,
-                reflection_read: true,
-                reflection_write: true,
-                dynamic_invocation: true,
-                downcast: true,
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                debug_watch_evaluation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..HostExposurePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-
-    let denied = [
-        capability_only.validate_host_function_boundary("host.open"),
-        capability_only.validate_path_mutation_boundary(),
-        capability_only.validate_module_loading_boundary(),
-        capability_only.validate_jit_boundary(),
-        capability_only.validate_reflection_metadata_boundary(),
-        capability_only.validate_reflection_read_boundary(),
-        capability_only.validate_reflection_write_boundary(),
-        capability_only.validate_dynamic_invocation_boundary(),
-        capability_only.validate_downcast_boundary(),
-        capability_only.validate_debug_attach_boundary(),
-        capability_only.validate_debug_breakpoint_boundary(),
-        capability_only.validate_debug_pause_boundary(),
-        capability_only.validate_debug_stack_inspection_boundary(),
-        capability_only.validate_debug_value_inspection_boundary(),
-        capability_only.validate_debug_watch_evaluation_boundary(),
-    ];
-
-    for result in denied {
-        assert_eq!(
-            result
-                .expect_err("restricted profile should deny boundary")
-                .kind(),
-            RuntimeErrorKind::CapabilityDenied
-        );
-    }
-}
-
-#[test]
-fn downcast_gate_is_independent_from_reflection_gates() {
-    let downcast_only = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            capabilities: CapabilitySet {
-                downcast: true,
-                ..CapabilitySet::default()
-            },
-            ..SecurityContext::default()
-        },
-        ..RuntimeConfig::default()
-    });
-
-    assert!(downcast_only.validate_downcast_boundary().is_ok());
-    assert_eq!(
-        downcast_only
-            .validate_reflection_metadata_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-
-    let metadata_only = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_reflection: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                reflection_metadata: true,
-                ..CapabilitySet::default()
-            },
-        },
-        ..RuntimeConfig::default()
-    });
-
-    assert!(
-        metadata_only
-            .validate_reflection_metadata_boundary()
-            .is_ok()
-    );
-    assert_eq!(
-        metadata_only
-            .validate_downcast_boundary()
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-}
-
-#[test]
-fn debug_visibility_respects_host_value_policy() {
-    let host_value = value::Value::HostRoot(HostRootHandle::new(
-        Default::default(),
-        HostObjectId(1),
-        TypeId::new(0),
-        HostSchemaEpoch::new(0),
-        AbiFingerprint(1),
-    ));
-    let runtime_without_host_debug = Runtime::new(RuntimeConfig {
-        security: debug_security(CapabilitySet {
-            debug_value_inspection: true,
-            ..CapabilitySet::default()
-        }),
-        ..RuntimeConfig::default()
-    });
-
-    assert_eq!(
-        runtime_without_host_debug
-            .validate_debug_value_visible(&host_value)
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::CapabilityDenied
-    );
-
-    let runtime_with_host_debug = Runtime::new(RuntimeConfig {
-        security: debug_security(CapabilitySet {
-            debug_value_inspection: true,
-            debug_host_value_inspection: true,
-            ..CapabilitySet::default()
-        }),
-        debug_visibility: DebugVisibilityPolicy {
-            allow_host_value_inspection: true,
-            ..DebugVisibilityPolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-
-    assert!(
-        runtime_with_host_debug
-            .validate_debug_value_visible(&host_value)
-            .is_ok()
-    );
 }

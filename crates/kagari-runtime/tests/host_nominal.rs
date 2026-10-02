@@ -11,36 +11,18 @@ use kagari_common::{
 
 use std::{cell::Cell, rc::Rc};
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostTypeOwnership, PathAccess},
-    },
+    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess},
     kagari_runtime::{
         Runtime, RuntimeConfig,
         error::RuntimeErrorKind,
         host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
         metadata::TypeId,
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
         value::Value,
     },
 };
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..Default::default()
-        },
         ..Default::default()
     })
 }
@@ -311,7 +293,6 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
                 }],
                 access: PathAccess::ReadOnly,
                 schema_epoch: HostSchemaEpoch::new(0),
-                capability_requirements: Default::default(),
             })
             .unwrap();
         let view = runtime
@@ -400,7 +381,6 @@ fn path_fields_are_derived_from_nominal_declarations() {
         segments: vec![HostPathSegmentRegistration::Field { declaration }],
         access,
         schema_epoch: HostSchemaEpoch::new(0),
-        capability_requirements: CapabilitySet::default(),
     };
     let other = HostTypeDeclaration::new("other.Player");
     let foreign_hp = HostFieldDeclaration::new(&other.id, "hp", HostValueType::I32);
@@ -492,10 +472,6 @@ fn path_fingerprints_ignore_runtime_slots_and_track_contract_changes() {
                 segments: vec![HostPathSegmentRegistration::Field { declaration }],
                 access: PathAccess::ReadOnly,
                 schema_epoch: HostSchemaEpoch::new(epoch),
-                capability_requirements: CapabilitySet {
-                    fs_read: capability,
-                    ..Default::default()
-                },
             })
             .unwrap();
         runtime.host().path_descriptor(id).unwrap().abi_fingerprint
@@ -545,7 +521,6 @@ fn paths_reject_types_without_portable_contracts_before_publication() {
         }],
         access: PathAccess::ReadOnly,
         schema_epoch: HostSchemaEpoch::new(0),
-        capability_requirements: Default::default(),
     });
     assert_eq!(
         result.unwrap_err().kind(),

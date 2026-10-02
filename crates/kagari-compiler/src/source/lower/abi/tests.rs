@@ -25,7 +25,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         .set("native-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let mut count = 0;
     let mut seen_map = false;
@@ -91,7 +91,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
         .set("trait-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let root = snapshot.file(root).unwrap();
     let mut contracts = BTreeMap::new();
@@ -190,7 +190,7 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
         )
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     for declared in snapshot.declaration_snapshot().files() {
         let analyzed = snapshot.file(declared.source().id()).unwrap();

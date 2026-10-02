@@ -95,7 +95,6 @@ fn main() {
                     .compile_to_artifact(
                         SourceFile::new("baseline.kgr", SOURCE),
                         Default::default(),
-                        Default::default(),
                     )
                     .unwrap(),
             );
@@ -103,7 +102,7 @@ fn main() {
         "cold_engine_source_to_artifact",
         21,
     );
-    let checked = analyze_source(&SourceFile::new("baseline.kgr", SOURCE), Default::default())
+    let checked = analyze_source(&SourceFile::new("baseline.kgr", SOURCE))
         .into_codegen()
         .unwrap();
     let mir = lower_to_mir(&checked, &Default::default()).unwrap();
@@ -121,11 +120,7 @@ fn main() {
         analysis_times[50]
     );
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("baseline.kgr", SOURCE),
-            Default::default(),
-            Default::default(),
-        )
+        .compile_to_artifact(SourceFile::new("baseline.kgr", SOURCE), Default::default())
         .unwrap();
     let bytes = artifact.to_bytes().unwrap();
     let bytecode_only =

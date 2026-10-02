@@ -184,6 +184,10 @@ pub struct ResolvedHostPlacePath {
 }
 
 impl TypeTable {
+    #[cfg(test)]
+    pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
+        self.host_place_paths.keys().copied()
+    }
     pub fn iteration(&self, id: ExprId) -> Option<&ResolvedIteration> {
         self.iterations.get(&id)
     }
@@ -220,9 +224,7 @@ impl TypeTable {
     pub(crate) fn insert_associated_const(&mut self, expr: ExprId, fact: ResolvedAssociatedConst) {
         self.associated_consts.insert(expr, fact);
     }
-    pub(crate) fn host_write_places(&self) -> impl Iterator<Item = PlaceId> + '_ {
-        self.host_place_paths.keys().copied()
-    }
+
     pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath> {
         self.host_place_paths.get(&place)
     }

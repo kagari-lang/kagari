@@ -213,12 +213,7 @@ impl KbcArtifact {
                 found: self.verification.host_interface_fingerprint,
             });
         }
-        if self.verification.loader.security_profile != requirements.security_profile {
-            return Err(ArtifactValidationError::SecurityProfileMismatch {
-                expected: requirements.security_profile.clone(),
-                found: self.verification.loader.security_profile.clone(),
-            });
-        }
+
         if self.verification.typed_path_fingerprints
             != self.verification.loader.typed_path_fingerprints
         {
@@ -234,7 +229,7 @@ impl KbcArtifact {
             &ArtifactBuildOptions {
                 runtime_abi_version: self.header.runtime_abi_version.clone(),
                 runtime_helper_abi_version: self.header.runtime_helper_abi_version.clone(),
-                security_profile: self.verification.loader.security_profile.clone(),
+
                 ..Default::default()
             },
         );
@@ -598,8 +593,6 @@ pub struct VerificationMetadata {
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub dependency_fingerprints: DependencyFingerprintBuffer,
     pub host_interface_fingerprint: ArtifactFingerprint,
-    #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
-    pub security_profile_requirements: Vec<String>,
     pub loader: LoaderValidationMetadata,
 }
 
@@ -670,7 +663,7 @@ impl VerificationMetadata {
             public_abi_fingerprints: public_abi_fingerprints.clone(),
             dependency_fingerprints: program.dependency_fingerprints(),
             host_interface_fingerprint: ArtifactFingerprint::of_program_hosts(program),
-            security_profile_requirements: options.security_profile.clone().into_iter().collect(),
+
             loader: LoaderValidationMetadata {
                 module_identity: module.identity.clone(),
                 runtime_abi_version: options.runtime_abi_version.clone(),
@@ -678,7 +671,6 @@ impl VerificationMetadata {
                 dependency_fingerprints: program.dependency_fingerprints(),
                 typed_path_fingerprints,
                 public_abi_fingerprints,
-                security_profile: options.security_profile.clone(),
             },
         }
     }
@@ -740,7 +732,6 @@ pub struct LoaderValidationMetadata {
     pub typed_path_fingerprints: PathFingerprintBuffer,
     #[serde(deserialize_with = "kagari_abi::decode_limits::table")]
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
-    pub security_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -748,7 +739,7 @@ pub struct ArtifactBuildOptions {
     pub module_epoch: Option<ModuleEpoch>,
     pub runtime_abi_version: String,
     pub runtime_helper_abi_version: String,
-    pub security_profile: Option<String>,
+
     pub debug: Option<DebugMetadata>,
     pub signatures: Option<ArtifactSignatures>,
     pub portable_mir: Option<PortableMir>,
@@ -760,7 +751,7 @@ impl Default for ArtifactBuildOptions {
             module_epoch: None,
             runtime_abi_version: KAGARI_RUNTIME_ABI_VERSION.to_owned(),
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
-            security_profile: None,
+
             debug: None,
             signatures: None,
             portable_mir: None,
@@ -776,7 +767,6 @@ pub struct ArtifactCompatibility {
     pub runtime_helper_abi_version: String,
     pub module_identity: Option<ModuleIdentity>,
     pub dependency_fingerprints: Option<DependencyFingerprintBuffer>,
-    pub security_profile: Option<String>,
 }
 
 impl Default for ArtifactCompatibility {
@@ -788,7 +778,6 @@ impl Default for ArtifactCompatibility {
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
             module_identity: None,
             dependency_fingerprints: None,
-            security_profile: None,
         }
     }
 }
@@ -869,11 +858,7 @@ pub enum ArtifactValidationError {
         expected: ArtifactFingerprint,
         found: ArtifactFingerprint,
     },
-    #[error("artifact security profile mismatch: expected {expected:?}, found {found:?}")]
-    SecurityProfileMismatch {
-        expected: Option<String>,
-        found: Option<String>,
-    },
+
     #[error("artifact typed path fingerprints mismatch")]
     PathFingerprintMismatch,
     #[error("artifact public ABI fingerprints mismatch")]
@@ -920,7 +905,7 @@ impl ArtifactValidationError {
             Self::HostInterfaceFingerprintMismatch { .. } => {
                 "KG_ARTIFACT_HOST_INTERFACE_FINGERPRINT_MISMATCH"
             }
-            Self::SecurityProfileMismatch { .. } => "KG_ARTIFACT_SECURITY_PROFILE_MISMATCH",
+
             Self::PathFingerprintMismatch => "KG_ARTIFACT_PATH_FINGERPRINT_MISMATCH",
             Self::PublicAbiFingerprintMismatch => "KG_ARTIFACT_PUBLIC_ABI_FINGERPRINT_MISMATCH",
             Self::Bytecode(error) => error.code(),

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     analysis::AnalysisDatabase, callable::CallableSignature, declarations::DeclarationId,
-    native::NativeBinding, profile::LanguageFeatureProfile, typeck::FunctionImplementation,
+    native::NativeBinding, typeck::FunctionImplementation,
 };
 use kagari_common::host_interface::type_declaration::HostMethodDeclaration;
 use kagari_common::{
@@ -73,14 +73,7 @@ fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
         assert_eq!(callable.parameters().len(), 2);
         db.set_host_declarations(hosts);
         let snapshot = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
         assert_eq!(
@@ -160,12 +153,9 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     db.set_host_declarations(HostDeclarations::new(interface()).unwrap());
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let old = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = old.file(root).unwrap();
     assert!(
@@ -202,7 +192,7 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
     changed.functions[0].return_type = HostValueType::Opaque(changed.types[1].id.clone());
     db.set_host_declarations(HostDeclarations::new(changed).unwrap());
     let new = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(!new.file(root).unwrap().result().diagnostics().is_empty());
     let offset = text.find("facade::Object").unwrap() + "facade::".len();
@@ -260,7 +250,6 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
         segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
-        capabilities: Default::default(),
     });
     let host_type = TypeId::Host(owner.id.clone());
     for call in [
@@ -278,14 +267,7 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
         let mut db = AnalysisDatabase::default();
         db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
         let snapshot = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
         assert!(file.result().diagnostics().iter().any(|d| matches!(
@@ -350,14 +332,7 @@ fn host_type_errors_preserve_other_functions_and_do_not_enable_equality_or_const
         let mut db = AnalysisDatabase::default();
         db.set_host_declarations(HostDeclarations::new(interface()).unwrap());
         let snapshot = db
-            .snapshot(
-                sources.snapshot(),
-                LanguageFeatureProfile {
-                    allow_host_calls: true,
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
         assert!(!file.result().diagnostics().is_empty(), "{broken}");
@@ -400,7 +375,6 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
         access: PathAccess::ReadOnly,
         schema_epoch: 2,
-        capabilities: Default::default(),
     };
     declarations.paths.push(path.clone());
     let mut sources = SourceDatabase::default();
@@ -410,12 +384,9 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let old = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let old_file = old.file(root).unwrap();
     assert!(old_file.result().diagnostics().is_empty());
@@ -428,7 +399,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .set("mem://field", changed.clone(), SourceLayer::Base)
         .unwrap();
     let new = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let new_file = new.file(root).unwrap();
     assert_eq!(new_file.result().facts().typed.reused_bodies, 1);
@@ -458,7 +429,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         }
         db.set_host_declarations(HostDeclarations::new(invalid).unwrap());
         let snapshot = db
-            .snapshot(sources.snapshot(), profile, &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let file = snapshot.file(root).unwrap();
         assert!(
@@ -479,7 +450,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .set("mem://field", incomplete.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(root).unwrap();
     assert!(!file.result().diagnostics().is_empty());
@@ -512,7 +483,6 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         segments: vec![HostPathSegmentDeclaration::Field(field.id.clone())],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: Default::default(),
     });
     let mut sources = SourceDatabase::default();
     let text = "fn neighbor() -> i32 { 1 } fn update(target: left::Item) { target.score += 2; }";
@@ -521,12 +491,9 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     db.set_host_declarations(HostDeclarations::new(declarations.clone()).unwrap());
-    let profile = LanguageFeatureProfile {
-        allow_path_mutation: true,
-        ..Default::default()
-    };
+
     let old = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     old.check_program(root, &Default::default()).unwrap();
     assert_eq!(
@@ -554,7 +521,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         )
         .unwrap();
     let new = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = new.file(root).unwrap();
     assert_eq!(file.result().facts().typed.reused_bodies, 1);
@@ -573,7 +540,7 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
     declarations.paths[0].access = PathAccess::ReadOnly;
     db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
     let readonly = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(
         readonly
@@ -630,7 +597,6 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         ],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     declarations.paths.push(path.clone());
     // Query abstract signatures without constructing a script heap object that
@@ -643,14 +609,7 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     let mut db = AnalysisDatabase::default();
     db.set_host_declarations(HostDeclarations::new(declarations).unwrap());
     let snapshot = db
-        .snapshot(
-            sources.snapshot(),
-            LanguageFeatureProfile {
-                allow_path_mutation: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(root).unwrap();
     assert!(

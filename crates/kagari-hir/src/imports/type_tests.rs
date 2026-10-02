@@ -235,7 +235,7 @@ fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_rema
     let root = insert(&mut db, "root", text);
     let mut analysis = AnalysisDatabase::default();
     let first = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let location = text.find("Data)").unwrap();
     let old = first.definition_at(root, location).unwrap().clone();
@@ -246,7 +246,7 @@ fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_rema
     )
     .unwrap();
     let second = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(
         first.file(facade).unwrap().source().revision(),
@@ -280,12 +280,12 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     let root = insert(&mut db, "root", text);
     let mut analysis = AnalysisDatabase::default();
     analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     db.set("mem://root", text.replace("42", "43"), SourceLayer::Overlay)
         .unwrap();
     let edited = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(edited.file(root).unwrap().signatures_reused());
     db.set(
@@ -297,7 +297,7 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
     db.set("mem://root", text.replace("42", "44"), SourceLayer::Overlay)
         .unwrap();
     let changed = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let file = changed.file(root).unwrap();
     assert!(!file.signatures_reused());

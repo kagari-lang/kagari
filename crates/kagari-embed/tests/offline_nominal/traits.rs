@@ -53,7 +53,7 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
                 "host-trait.kgr",
                 "use demo::Counter; pub fn identity(value: Counter) -> Counter { value } fn main() {}",
             ),
-            CompileOptions::default(),
+
             ArtifactOptions::default(),
         )
         .unwrap();
@@ -64,11 +64,6 @@ fn artifact_host_trait_table_requires_callback_before_publication() {
         counter.trait_implementations
     );
     let context = ExecutionContext {
-        host_policy: HostExposurePolicy {
-            allowed_host_types: vec![counter.symbol.clone()],
-            allowed_host_functions: vec!["demo.Counter.read".into()],
-            ..Default::default()
-        },
         ..Default::default()
     };
     let mut runtime = engine.runtime(context);
@@ -299,20 +294,9 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         functions: vec![make.clone()],
     };
     engine.set_host_interface(interface).unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let executable = &artifact.program.modules[artifact.program.root.index()];
@@ -331,20 +315,6 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec![
-                    "demo.make".into(),
-                    "demo.Counter.number".into(),
-                    "demo.Counter.flag".into(),
-                ],
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {
@@ -453,14 +423,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         })
         .unwrap();
     let error = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            file,
-            CompileOptions {
-                language_profile: profile,
-            },
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap_err();
     assert!(format!("{error:?}").contains("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"));
 }

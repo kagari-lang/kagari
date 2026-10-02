@@ -629,7 +629,8 @@ impl<'a> Executor<'a> {
             }
             RuntimeHelper::DynamicCall => {
                 self.runtime
-                    .validate_dynamic_invocation_boundary()
+                    .resources()
+                    .ensure_execution_allowed()
                     .map_err(VmError::RuntimeError)?;
                 Err(VmError::UnsupportedInstruction(
                     "runtime_helper_dynamic_call",

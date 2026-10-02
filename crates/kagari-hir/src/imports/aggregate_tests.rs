@@ -226,7 +226,7 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
     );
     let mut analysis = AnalysisDatabase::default();
     let first = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(first.file(root).unwrap().result().diagnostics().is_empty());
     db.set(
@@ -236,7 +236,7 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
     )
     .unwrap();
     let second = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(
         first.file(api).unwrap().source().revision(),

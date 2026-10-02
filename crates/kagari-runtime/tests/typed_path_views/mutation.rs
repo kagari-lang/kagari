@@ -684,10 +684,6 @@ fn path_execution_enforces_descriptor_capabilities() {
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet {
-                reflection_read: true,
-                ..CapabilitySet::default()
-            },
         })
         .unwrap();
     runtime

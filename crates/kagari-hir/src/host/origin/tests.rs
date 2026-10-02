@@ -4,7 +4,6 @@ use crate::{
     callable::CallableSignature,
     host::{HostDeclarations, tests::declaration},
     native::NativeBinding,
-    profile::LanguageFeatureProfile,
     typeck::FunctionImplementation,
 };
 use kagari_common::{
@@ -137,14 +136,11 @@ fn origin_changes_are_snapshot_owned_and_never_change_native_authority() {
     let root = sources
         .set("origin-query.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let mut database = AnalysisDatabase::default();
     database.set_host_declarations(old.clone());
     let first = database
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let first_file = first.file(root).unwrap();
     assert!(
@@ -171,7 +167,7 @@ fn origin_changes_are_snapshot_owned_and_never_change_native_authority() {
     assert!(new.callable(id).is_none());
     database.set_host_declarations(new);
     let second = database
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let offset = text.rfind("invoke").unwrap();
     assert_ne!(first.host_revision(), second.host_revision());

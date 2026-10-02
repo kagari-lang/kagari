@@ -130,7 +130,7 @@ fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
     let unrelated = insert(&mut db, "unrelated", "fn other() -> i32 { 9 }");
     let mut analysis = AnalysisDatabase::default();
     let first = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert!(first.file(root).unwrap().result().diagnostics().is_empty());
     let old_binding = first
@@ -146,7 +146,7 @@ fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
     )
     .unwrap();
     let second = analysis
-        .snapshot(db.snapshot(), Default::default(), &Default::default())
+        .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(
         first.file(facade).unwrap().source().revision(),

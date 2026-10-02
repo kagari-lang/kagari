@@ -80,7 +80,9 @@ impl Runtime {
     ) -> Result<InstalledNativeFunction, BackendInvocationError> {
         self.validate_loaded_module(module)
             .map_err(runtime_failure)?;
-        self.validate_jit_boundary().map_err(runtime_failure)?;
+        self.resources()
+            .ensure_execution_allowed()
+            .map_err(runtime_failure)?;
         validate_product(module, &product.artifact)?;
         let mut retention = NativeRetention {
             store: self.modules.clone(),
@@ -117,7 +119,8 @@ impl Runtime {
         self.validate_loaded_module(&installed.module)
             .map_err(runtime_failure)
             .map_err(failure)?;
-        self.validate_jit_boundary()
+        self.resources()
+            .ensure_execution_allowed()
             .map_err(runtime_failure)
             .map_err(failure)?;
         // The existing native subset has no observer callbacks. Metadata alone

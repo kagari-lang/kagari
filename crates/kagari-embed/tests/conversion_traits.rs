@@ -20,7 +20,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -194,12 +193,7 @@ fn main()->i32 {match propagate(){Err(w)=>total(w),Ok(x)=>x}}
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
@@ -362,11 +356,7 @@ fn native_numeric_aggregation_checks_declared_width_and_releases_roots() {
         "fn main()->u8 {u8::product([128u8,2u8])}",
     ] {
         let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("overflow.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("overflow.kgr", source), Default::default())
             .unwrap();
         let program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())

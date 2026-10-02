@@ -12,7 +12,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let snapshot = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = snapshot.file(file).unwrap();
     assert!(analysis.result().diagnostics().is_empty());
@@ -76,7 +76,7 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
         )
         .unwrap();
     let snapshot = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let facts = snapshot.file(file).unwrap().result().facts();
     assert!(

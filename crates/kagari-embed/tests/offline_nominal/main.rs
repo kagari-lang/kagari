@@ -14,26 +14,16 @@ use kagari_common::{
 };
 use {kagari_bytecode::artifact::KbcArtifact, kagari_embed::context::JitPolicy};
 
+use kagari_embed::{
+    context::ExecutionContext,
+    engine::{KagariEngine, source::ArtifactOptions},
+    program::PreparedProgram,
+};
+use kagari_runtime::{
+    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    value::Value,
+};
 use std::{cell::RefCell, rc::Rc};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
-        security::LanguageProfile,
-        value::Value,
-    },
-};
-use {
-    kagari_embed::{
-        context::ExecutionContext,
-        engine::{
-            KagariEngine,
-            source::{ArtifactOptions, CompileOptions},
-        },
-        program::PreparedProgram,
-    },
-    kagari_runtime::security::HostExposurePolicy,
-};
 
 fn interface() -> HostInterface {
     let related = HostTypeDeclaration::new("right.Item");
@@ -114,7 +104,6 @@ fn assert_source_index_path(field_prefix: bool) {
         segments,
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     let declarations = HostInterface {
         paths: vec![path.clone()],
@@ -123,12 +112,7 @@ fn assert_source_index_path(field_prefix: bool) {
     };
     let engine = KagariEngine::default();
     engine.set_host_interface(declarations).unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_path_mutation: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let prefix = if field_prefix { ".scores" } else { "" };
     let source = SourceFile::new(
         "host-index.kgr",
@@ -137,13 +121,7 @@ fn assert_source_index_path(field_prefix: bool) {
         ),
     );
     let artifact = engine
-        .compile_to_artifact(
-            source,
-            CompileOptions {
-                language_profile: profile,
-            },
-            Default::default(),
-        )
+        .compile_to_artifact(source, Default::default())
         .unwrap();
     assert!(
         engine
@@ -166,24 +144,6 @@ fn assert_source_index_path(field_prefix: bool) {
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                path_mutation: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec![
-                    "game.make".into(),
-                    "game.index".into(),
-                    "game.rhs".into(),
-                ],
-                allowed_host_types: vec!["game.Player".into()],
-                allow_host_path_reads: true,
-                allow_host_path_mutation: true,
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {

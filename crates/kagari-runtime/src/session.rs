@@ -8,7 +8,6 @@ use crate::{
     host_scope::HostScopeState,
     module::{LoadedModule, ModuleEpochRetention, ModuleStore},
     resource::{ResourceCounters, ResourcePolicy, ResourceState},
-    security::{HostExposurePolicy, SecurityContext},
     value::Value,
 };
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
@@ -48,8 +47,7 @@ pub struct DeterministicInputs {
 #[derive(Debug, Clone, Default)]
 pub struct ExecutionOptions {
     pub phase: ExecutionPhase,
-    pub security: SecurityContext,
-    pub host_exposure: Rc<HostExposurePolicy>,
+
     pub resources: ResourcePolicy,
     pub cancellation: CancellationToken,
     pub inputs: DeterministicInputs,

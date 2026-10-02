@@ -1,14 +1,10 @@
+use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 use kagari_common::{
     collection::CollectionAccess,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter,
         HostPassingStyle, value_type::HostValueType,
     },
-};
-use {
-    kagari_bytecode::program::{BytecodeProgram, ModuleRef},
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
 };
 
 use std::sync::{
@@ -173,20 +169,6 @@ fn callback_arguments_and_result_obey_the_declared_representation() {
         Ok(Value::Bool(true))
     });
     let mut runtime = Runtime::new(kagari_runtime::RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allow_host_functions: true,
-            ..Default::default()
-        },
         ..Default::default()
     });
     let id = runtime.register_host_function(function).unwrap();
@@ -231,7 +213,7 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
             panic!("linking must not invoke callbacks")
         }))
         .unwrap();
-    let changes: [fn(&mut HostFunctionDeclaration); 7] = [
+    let changes: [fn(&mut HostFunctionDeclaration); 5] = [
         |d| d.id.module.package.0 = "another-provider".into(),
         |d| d.params[0].ty = HostValueType::Bool,
         |d| d.return_type = HostValueType::String,
@@ -240,8 +222,6 @@ fn linking_checks_identity_signature_borrow_effects_permissions_and_cost() {
             d.params[0].passing = HostPassingStyle::UniqueBorrow;
         },
         |d| d.effects.may_mutate_host_state = true,
-        |d| d.capability_requirements.net = true,
-        |d| d.resource_cost_hint = Some(9),
     ];
     for change in changes {
         let mut expected = declaration.clone();

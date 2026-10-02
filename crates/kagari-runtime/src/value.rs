@@ -459,12 +459,9 @@ impl Value {
 mod tests {
     use {
         crate::host::HostTypeRegistration,
-        kagari_common::{
-            capability::CapabilitySet,
-            host_interface::{
-                type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-                value_type::HostValueType,
-            },
+        kagari_common::host_interface::{
+            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+            value_type::HostValueType,
         },
     };
 
@@ -526,7 +523,6 @@ mod tests {
                 }],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
-                capability_requirements: CapabilitySet::default(),
             })
             .unwrap();
         Value::HostPathView(

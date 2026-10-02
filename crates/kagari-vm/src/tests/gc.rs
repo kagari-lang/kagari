@@ -6,19 +6,11 @@ use crate::{
 use {
     crate::debug::{DebugSession, SourceBreakpoint},
     kagari_bytecode::{artifact::KbcArtifact, instruction::BytecodeInstruction},
-    kagari_runtime::security::DebugVisibilityPolicy,
 };
 
 use kagari_abi::{ids::FunctionRef, scalar::BuiltinType, types::AbiType};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        gc::GcHeapConfig,
-        resource::ResourcePolicy,
-        security::{LanguageProfile, SecurityContext},
-        value::Value,
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig, gc::GcHeapConfig, resource::ResourcePolicy, value::Value,
 };
 
 fn runtime(max_steps: Option<u64>) -> Runtime {
@@ -30,16 +22,7 @@ fn runtime(max_steps: Option<u64>) -> Runtime {
             max_instruction_steps: max_steps,
             ..Default::default()
         },
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                ..Default::default()
-            },
-        },
+
         ..Default::default()
     })
 }
@@ -227,24 +210,6 @@ fn cloned_debug_bindings_keep_inspected_objects_alive_after_the_session_is_repla
     let source = "fn main() -> i32 { val kept = [7]; kept.len(); 42 }";
     let module = compile_test_bytecode(source);
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                ..Default::default()
-            },
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            allow_all_modules: true,
-            ..Default::default()
-        },
         ..Default::default()
     });
     let loaded = runtime.load_program("gc.kgr", module).unwrap();

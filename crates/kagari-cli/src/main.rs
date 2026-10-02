@@ -5,29 +5,22 @@ use kagari_common::{diagnostic::Diagnostic, host_interface, source::SourceFile};
 use kagari_embed::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
-    engine::{
-        KagariEngine,
-        source::{ArtifactOptions, CompileOptions},
-    },
+    engine::{KagariEngine, source::ArtifactOptions},
     error::{EmbeddingDiagnostic, EmbeddingError},
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions},
+};
+use kagari_runtime::{
+    error::RuntimeError,
+    host::{HostError, HostFunction},
+    module::LoadedModule,
+    value::Value,
 };
 use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
     path::{Path, PathBuf},
     process::ExitCode,
-};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        error::RuntimeError,
-        host::{HostError, HostFunction},
-        module::LoadedModule,
-        security::{HostExposurePolicy, LanguageProfile},
-        value::Value,
-    },
 };
 
 use kagari_syntax::parser::parse_module;
@@ -45,7 +38,7 @@ fn main() -> ExitCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Cli {
     command: Command,
-    profile: CliProfile,
+
     jit: bool,
 }
 
@@ -56,13 +49,6 @@ enum Command {
     Emit { source: PathBuf, output: PathBuf },
     RunSource { source: PathBuf },
     RunArtifact { artifact: PathBuf },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CliProfile {
-    Restricted,
-    Dev,
-    Tooling,
 }
 
 impl Cli {
@@ -78,18 +64,17 @@ impl Cli {
             "--help" | "-h" | "help" => return Err(CliError::usage()),
             path => {
                 let source = PathBuf::from(path);
-                let profile = parser.profile()?;
+
                 let jit = parser.jit()?;
                 parser.finish()?;
                 return Ok(Self {
                     command: command_for_implicit_path(source),
-                    profile,
+
                     jit,
                 });
             }
         };
 
-        let profile = parser.profile()?;
         let jit = parser.jit()?;
         let command = match command_name.as_str() {
             "parse" => Command::Parse {
@@ -116,11 +101,7 @@ impl Cli {
         };
         parser.finish()?;
 
-        Ok(Self {
-            command,
-            profile,
-            jit,
-        })
+        Ok(Self { command, jit })
     }
 }
 
@@ -128,7 +109,7 @@ impl Cli {
 struct ArgParser {
     args: Vec<String>,
     index: usize,
-    profile: CliProfile,
+
     jit: bool,
     output: Option<PathBuf>,
 }
@@ -138,7 +119,7 @@ impl ArgParser {
         Self {
             args: args.into_iter().collect(),
             index: 0,
-            profile: CliProfile::Dev,
+
             jit: false,
             output: None,
         }
@@ -148,11 +129,6 @@ impl ArgParser {
         let arg = self.args.get(self.index)?.clone();
         self.index += 1;
         Some(arg)
-    }
-
-    fn profile(&mut self) -> Result<CliProfile, CliError> {
-        self.consume_options()?;
-        Ok(self.profile)
     }
 
     fn jit(&mut self) -> Result<bool, CliError> {
@@ -191,15 +167,6 @@ impl ArgParser {
     fn consume_options(&mut self) -> Result<(), CliError> {
         while self.index < self.args.len() {
             match self.args[self.index].as_str() {
-                "--profile" => {
-                    self.index += 1;
-                    let value = self
-                        .args
-                        .get(self.index)
-                        .ok_or_else(|| CliError::message(2, usage()))?;
-                    self.profile = CliProfile::parse(value)?;
-                    self.index += 1;
-                }
                 "--jit" => {
                     self.jit = true;
                     self.index += 1;
@@ -224,138 +191,13 @@ impl ArgParser {
     }
 }
 
-impl CliProfile {
-    fn parse(value: &str) -> Result<Self, CliError> {
-        match value {
-            "restricted" => Ok(Self::Restricted),
-            "dev" => Ok(Self::Dev),
-            "tooling" => Ok(Self::Tooling),
-            _ => Err(CliError::message(
-                2,
-                format!("unknown profile `{value}`\n\n{}", usage()),
-            )),
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Restricted => "restricted",
-            Self::Dev => "dev",
-            Self::Tooling => "tooling",
-        }
-    }
-
-    fn compile_options(self) -> CompileOptions {
-        CompileOptions {
-            language_profile: self.language_profile(false),
-        }
-    }
-
-    fn artifact_options(self) -> ArtifactOptions {
-        let mut options = ArtifactOptions::default();
-        options.build.security_profile = Some(self.name().to_owned());
-        options
-    }
-
-    fn artifact_compatibility(self) -> ArtifactCompatibility {
-        ArtifactCompatibility {
-            security_profile: Some(self.name().to_owned()),
-            ..Default::default()
-        }
-    }
-
-    fn execution_context(self, jit: bool) -> ExecutionContext {
-        ExecutionContext {
-            language_profile: self.language_profile(jit),
-            capabilities: self.capabilities(jit),
-            host_policy: self.host_policy(),
-            jit_policy: if jit {
-                JitPolicy::Enabled
-            } else {
-                JitPolicy::Disabled
-            },
-            ..ExecutionContext::default()
-        }
-    }
-
-    fn language_profile(self, jit: bool) -> LanguageProfile {
-        match self {
-            Self::Restricted => LanguageProfile::default(),
-            Self::Dev => LanguageProfile {
-                allow_host_calls: true,
-                allow_jit: jit,
-                ..LanguageProfile::default()
-            },
-            Self::Tooling => LanguageProfile {
-                allow_reflection: true,
-                allow_reflection_write: true,
-                allow_interface_values: true,
-                allow_host_calls: true,
-                allow_path_mutation: true,
-                allow_module_loading: true,
-                allow_jit: jit,
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-        }
-    }
-
-    fn capabilities(self, jit: bool) -> CapabilitySet {
-        match self {
-            Self::Restricted => CapabilitySet::default(),
-            Self::Dev => CapabilitySet {
-                host_calls: true,
-                jit,
-                ..CapabilitySet::default()
-            },
-            Self::Tooling => CapabilitySet {
-                host_calls: true,
-                path_mutation: true,
-                reflection_metadata: true,
-                reflection_read: true,
-                reflection_write: true,
-                dynamic_invocation: true,
-                downcast: true,
-                module_loading: true,
-                jit,
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                debug_host_value_inspection: true,
-                debug_watch_evaluation: true,
-                debug_side_effecting_evaluation: true,
-                ..CapabilitySet::default()
-            },
-        }
-    }
-
-    fn host_policy(self) -> HostExposurePolicy {
-        match self {
-            Self::Restricted => HostExposurePolicy::default(),
-            Self::Dev => HostExposurePolicy {
-                allowed_host_functions: vec!["host.log".to_owned()],
-                ..HostExposurePolicy::default()
-            },
-            Self::Tooling => HostExposurePolicy {
-                allow_host_functions: true,
-                allow_host_types: true,
-                allow_host_path_reads: true,
-                allow_host_path_mutation: true,
-                ..HostExposurePolicy::default()
-            },
-        }
-    }
-}
-
 fn run_cli(cli: Cli) -> Result<(), CliError> {
     match cli.command {
         Command::Parse { source } => parse_source(&source),
-        Command::Check { source } => check_source(&source, cli.profile),
-        Command::Emit { source, output } => emit_artifact(&source, &output, cli.profile),
-        Command::RunSource { source } => run_source(&source, cli.profile, cli.jit),
-        Command::RunArtifact { artifact } => run_artifact(&artifact, cli.profile, cli.jit),
+        Command::Check { source } => check_source(&source),
+        Command::Emit { source, output } => emit_artifact(&source, &output),
+        Command::RunSource { source } => run_source(&source, cli.jit),
+        Command::RunArtifact { artifact } => run_artifact(&artifact, cli.jit),
     }
 }
 
@@ -373,10 +215,10 @@ fn parse_source(path: &Path) -> Result<(), CliError> {
     }
 }
 
-fn check_source(path: &Path, profile: CliProfile) -> Result<(), CliError> {
+fn check_source(path: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
     let engine = KagariEngine::default();
-    match engine.compile_source(source, profile.compile_options()) {
+    match engine.compile_source(source) {
         Ok(_) => {
             println!("checked {}", path.display());
             Ok(())
@@ -385,15 +227,11 @@ fn check_source(path: &Path, profile: CliProfile) -> Result<(), CliError> {
     }
 }
 
-fn emit_artifact(path: &Path, output: &Path, profile: CliProfile) -> Result<(), CliError> {
+fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
     let engine = KagariEngine::default();
     let artifact = engine
-        .compile_to_artifact(
-            source,
-            profile.compile_options(),
-            profile.artifact_options(),
-        )
+        .compile_to_artifact(source, ArtifactOptions::default())
         .map_err(print_embedding_error)?;
     let bytes = artifact
         .to_bytes()
@@ -408,15 +246,11 @@ fn emit_artifact(path: &Path, output: &Path, profile: CliProfile) -> Result<(), 
     Ok(())
 }
 
-fn run_source(path: &Path, profile: CliProfile, jit: bool) -> Result<(), CliError> {
+fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
     let engine = KagariEngine::default();
     let artifact = engine
-        .compile_to_artifact(
-            source,
-            profile.compile_options(),
-            profile.artifact_options(),
-        )
+        .compile_to_artifact(source, ArtifactOptions::default())
         .map_err(print_embedding_error)?;
     run_loaded_artifact(
         &engine,
@@ -424,12 +258,11 @@ fn run_source(path: &Path, profile: CliProfile, jit: bool) -> Result<(), CliErro
         LoadOptions {
             module_name: Some(path.display().to_string()),
         },
-        profile,
         jit,
     )
 }
 
-fn run_artifact(path: &Path, profile: CliProfile, jit: bool) -> Result<(), CliError> {
+fn run_artifact(path: &Path, jit: bool) -> Result<(), CliError> {
     let bytes = fs::read(path).map_err(|error| {
         CliError::message(
             1,
@@ -442,7 +275,6 @@ fn run_artifact(path: &Path, profile: CliProfile, jit: bool) -> Result<(), CliEr
         &KagariEngine::default(),
         artifact,
         LoadOptions::default(),
-        profile,
         jit,
     )
 }
@@ -451,13 +283,20 @@ fn run_loaded_artifact(
     engine: &KagariEngine,
     artifact: BytecodeArtifact,
     load_options: LoadOptions,
-    profile: CliProfile,
+
     jit: bool,
 ) -> Result<(), CliError> {
-    let context = profile.execution_context(jit);
+    let context = ExecutionContext {
+        jit_policy: if jit {
+            JitPolicy::Enabled
+        } else {
+            JitPolicy::Disabled
+        },
+        ..Default::default()
+    };
     let program = PreparedProgram::from_artifact(
         artifact,
-        &profile.artifact_compatibility(),
+        &ArtifactCompatibility::default(),
         &context.cancellation,
     )
     .map_err(print_program_error)?;
@@ -618,11 +457,11 @@ fn default_artifact_path(source: &Path) -> PathBuf {
 fn usage() -> String {
     [
         "usage:",
-        "  kagari parse [--profile restricted|dev|tooling] <script.kgr>",
-        "  kagari check [--profile restricted|dev|tooling] <script.kgr>",
-        "  kagari emit [--profile restricted|dev|tooling] [-o artifact.kbc] <script.kgr>",
-        "  kagari run [--profile restricted|dev|tooling] [--jit] <script.kgr>",
-        "  kagari run-artifact [--profile restricted|dev|tooling] [--jit] <artifact.kbc>",
+        "  kagari parse <script.kgr>",
+        "  kagari check <script.kgr>",
+        "  kagari emit [-o artifact.kbc] <script.kgr>",
+        "  kagari run [--jit] <script.kgr>",
+        "  kagari run-artifact [--jit] <artifact.kbc>",
     ]
     .join("\n")
 }
@@ -749,7 +588,7 @@ mod tests {
             command: Command::Parse {
                 source: source.clone(),
             },
-            profile: CliProfile::Dev,
+
             jit: false,
         })
         .expect("parse command should succeed");
@@ -757,7 +596,7 @@ mod tests {
             command: Command::Check {
                 source: source.clone(),
             },
-            profile: CliProfile::Dev,
+
             jit: false,
         })
         .expect("check command should succeed");
@@ -766,7 +605,7 @@ mod tests {
                 source: source.clone(),
                 output: artifact.clone(),
             },
-            profile: CliProfile::Dev,
+
             jit: false,
         })
         .expect("emit command should succeed");
@@ -774,16 +613,12 @@ mod tests {
         let emitted =
             BytecodeArtifact::from_bytes(&fs::read(&artifact).expect("artifact should exist"))
                 .expect("artifact should decode");
-        assert_eq!(
-            emitted.verification.loader.security_profile.as_deref(),
-            Some("dev")
-        );
 
         run_cli(Cli {
             command: Command::RunArtifact {
                 artifact: artifact.clone(),
             },
-            profile: CliProfile::Dev,
+
             jit: false,
         })
         .expect("artifact command should run");
@@ -807,7 +642,7 @@ mod tests {
                 source: source.clone(),
                 output: artifact.clone(),
             },
-            profile: CliProfile::Dev,
+
             jit: false,
         })
         .unwrap();
@@ -815,7 +650,7 @@ mod tests {
             command: Command::RunSource {
                 source: source.clone(),
             },
-            profile: CliProfile::Dev,
+
             jit: false,
         })
         .unwrap_err();
@@ -826,7 +661,7 @@ mod tests {
         fs::write(&source, "this is no longer the compiled code").unwrap();
         let encoded = run_cli(Cli {
             command: Command::RunArtifact { artifact },
-            profile: CliProfile::Dev,
+
             jit: cfg!(feature = "jit"),
         })
         .unwrap_err();

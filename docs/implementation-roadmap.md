@@ -92,11 +92,15 @@ implementation to this scope. `kagari-ffi` is recorded only as the future extern
 C adapter boundary. Activation, phase breakdown and implementation acceptance
 checks remain pending; this queue entry is the progress record until activation.
 
-## Execution policy work deferred
+## Installation access and cancellation (active)
 
-The [execution-policy proposal](execution-policy-refactor.md) is separate future
-work. Its former ST06/NR05 ordering does not govern this reset, and permission or
-budget redesign must not become a prerequisite or an expanding parallel phase.
+The [execution policy plan](execution-policy-refactor.md) is now active before
+further standard-library work. Remove duplicate authorization and execution
+charging; retain installation-defined access, cooperative root cancellation,
+runtime call-depth protection and correctness checks. No max_work or general heap
+quota replaces the removed budget system. The plan owns EP01-EP03 and its ledger.
+ABI/common ownership cleanup remains queued separately; capability and cost fields
+are deleted here rather than moved to the future contract crate.
 
 ## Rust value and opaque interoperability queued
 

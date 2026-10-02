@@ -7,13 +7,9 @@ use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 
 use kagari_embed::{
-    engine::{
-        KagariEngine,
-        source::{ArtifactOptions, CompileOptions},
-    },
+    engine::{KagariEngine, source::ArtifactOptions},
     error::EmbeddingError,
 };
-use kagari_runtime::security::LanguageProfile;
 
 #[test]
 fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
@@ -35,12 +31,12 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
         .unwrap();
     let old_source = engine.source_snapshot();
     let old = engine
-        .compile_snapshot(old_source.clone(), id, Default::default(), &token)
+        .compile_snapshot(old_source.clone(), id, &token)
         .unwrap();
     engine.bind_module(name, second.clone()).unwrap();
     let current_source = engine.source_snapshot();
     let new = engine
-        .compile_snapshot(current_source.clone(), id, Default::default(), &token)
+        .compile_snapshot(current_source.clone(), id, &token)
         .unwrap();
     assert_eq!(old.module_identity(), &first);
     assert_eq!(new.module_identity(), &second);
@@ -53,9 +49,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
         artifact.header.module_identity,
         artifact.program.modules[artifact.program.root.index()].identity
     );
-    let old_again = engine
-        .compile_snapshot(old_source, id, Default::default(), &token)
-        .unwrap();
+    let old_again = engine.compile_snapshot(old_source, id, &token).unwrap();
     assert_eq!(old_again.module_identity(), &first);
     let current_again = engine
         .analyze(current_source, Default::default(), &token)
@@ -119,15 +113,10 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
             .reused_bodies,
         2
     );
-    let reused = engine
-        .compile_snapshot(snapshot, id, Default::default(), &token)
-        .unwrap();
+    let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
     let fresh_engine = KagariEngine::default();
     let fresh = fresh_engine
-        .compile_source(
-            SourceFile::new("memory://reuse.kgr", edited),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new("memory://reuse.kgr", edited))
         .unwrap();
     assert_eq!(
         engine
@@ -163,16 +152,10 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
         )
         .unwrap();
     let edited = engine.source_snapshot();
-    let current = engine
-        .analyze(edited.clone(), LanguageProfile::default(), &token)
-        .unwrap();
-    let old = engine
-        .analyze(original.clone(), LanguageProfile::default(), &token)
-        .unwrap();
+    let current = engine.analyze(edited.clone(), &token).unwrap();
+    let old = engine.analyze(original.clone(), &token).unwrap();
     assert!(old.revision() < current.revision());
-    let again = engine
-        .analyze(edited, LanguageProfile::default(), &token)
-        .unwrap();
+    let again = engine.analyze(edited, &token).unwrap();
     assert!(
         Arc::ptr_eq(current.file(id).unwrap(), again.file(id).unwrap()),
         "an older query must not replace the current cache"
@@ -180,21 +163,16 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
 
     // Supplying new base text cannot silently bypass an editor's overlay.
     let checked = engine
-        .compile_source(
-            SourceFile::new("memory://main.kgr", "fn main() -> i32 { 3 }"),
-            CompileOptions::default(),
-        )
+        .compile_source(SourceFile::new(
+            "memory://main.kgr",
+            "fn main() -> i32 { 3 }",
+        ))
         .unwrap();
     let artifact = engine
         .emit_bytecode(&checked, ArtifactOptions::default())
         .unwrap();
     let from_snapshot = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            id,
-            CompileOptions::default(),
-            &token,
-        )
+        .compile_snapshot(engine.source_snapshot(), id, &token)
         .unwrap();
     assert_eq!(
         artifact.to_bytes().unwrap(),
@@ -241,16 +219,11 @@ fn profile_changes_do_not_reuse_a_previously_accepted_result() {
         )
         .unwrap();
     let token = CancellationToken::default();
-    let permissive = LanguageProfile {
-        allow_reflection: true,
-        ..LanguageProfile::default()
-    };
+
     let allowed = engine
         .analyze(engine.source_snapshot(), permissive, &token)
         .unwrap();
-    let restricted = engine
-        .analyze(engine.source_snapshot(), LanguageProfile::default(), &token)
-        .unwrap();
+    let restricted = engine.analyze(engine.source_snapshot(), &token).unwrap();
     assert!(!Arc::ptr_eq(
         allowed.file(id).unwrap(),
         restricted.file(id).unwrap()
@@ -272,12 +245,9 @@ fn diagnostics_carry_the_source_revision_that_produced_them() {
         )
         .unwrap();
     let snapshot = engine.source_snapshot();
-    let Err(EmbeddingError::Diagnostics { diagnostics }) = engine.compile_snapshot(
-        snapshot.clone(),
-        id,
-        CompileOptions::default(),
-        &CancellationToken::default(),
-    ) else {
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(snapshot.clone(), id, &CancellationToken::default())
+    else {
         panic!("expected source diagnostics")
     };
     let span = diagnostics
@@ -311,7 +281,7 @@ fn parser_budget_reports_revision_owned_limits_before_codegen() {
         .unwrap();
     let source = engine.source_snapshot();
     let Err(EmbeddingError::Diagnostics { diagnostics }) =
-        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+        engine.compile_snapshot(source.clone(), id, &Default::default())
     else {
         panic!("limited source must not reach code generation");
     };
@@ -320,9 +290,7 @@ fn parser_budget_reports_revision_owned_limits_before_codegen() {
         .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
         .expect("structured parser limit");
     assert!(source.contains(limit.span.expect("revision-owned position")));
-    let facts = engine
-        .analyze(source, LanguageProfile::default(), &Default::default())
-        .unwrap();
+    let facts = engine.analyze(source, &Default::default()).unwrap();
     assert!(
         facts
             .file(id)
@@ -334,10 +302,10 @@ fn parser_budget_reports_revision_owned_limits_before_codegen() {
             .any(|d| d.name == "main")
     );
     engine
-        .compile_source(
-            SourceFile::new("memory://valid.kgr", "fn main() -> i32 { 42 }"),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new(
+            "memory://valid.kgr",
+            "fn main() -> i32 { 42 }",
+        ))
         .unwrap();
 }
 
@@ -352,20 +320,14 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
         )
         .unwrap();
     let source = engine.source_snapshot();
-    let before = engine
-        .analyze(
-            source.clone(),
-            LanguageProfile::default(),
-            &Default::default(),
-        )
-        .unwrap();
+    let before = engine.analyze(source.clone(), &Default::default()).unwrap();
     assert!(before.check_program(id, &Default::default()).is_ok());
     engine.set_parse_limits(ParseLimits {
         max_nesting: 3,
         ..Default::default()
     });
     let Err(EmbeddingError::Diagnostics { diagnostics }) =
-        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+        engine.compile_snapshot(source.clone(), id, &Default::default())
     else {
         panic!("excessive nesting must be rejected before code generation");
     };
@@ -377,7 +339,7 @@ fn nesting_budget_changes_invalidate_same_revision_analysis() {
     assert!(before.check_program(id, &Default::default()).is_ok());
     engine.set_parse_limits(Default::default());
     engine
-        .compile_snapshot(source, id, Default::default(), &Default::default())
+        .compile_snapshot(source, id, &Default::default())
         .unwrap();
 }
 
@@ -400,13 +362,7 @@ fn deep_iterative_source_is_rejected_with_queryable_prefix() {
             )
             .unwrap();
         let source = engine.source_snapshot();
-        let analysis = engine
-            .analyze(
-                source.clone(),
-                LanguageProfile::default(),
-                &Default::default(),
-            )
-            .unwrap();
+        let analysis = engine.analyze(source.clone(), &Default::default()).unwrap();
         assert!(
             analysis
                 .file(id)
@@ -418,7 +374,7 @@ fn deep_iterative_source_is_rejected_with_queryable_prefix() {
                 .any(|d| d.name == "good")
         );
         let Err(EmbeddingError::Diagnostics { diagnostics }) =
-            engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+            engine.compile_snapshot(source.clone(), id, &Default::default())
         else {
             panic!("deep source reached codegen")
         };
@@ -484,13 +440,7 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
             .set_source("memory://deep.kgr", text, SourceLayer::Base)
             .unwrap();
         let source = engine.source_snapshot();
-        let analysis = engine
-            .analyze(
-                source.clone(),
-                LanguageProfile::default(),
-                &Default::default(),
-            )
-            .unwrap();
+        let analysis = engine.analyze(source.clone(), &Default::default()).unwrap();
         let file = analysis.file(id).unwrap();
         assert_eq!(
             file.type_at("fn good(value: i32) -> i32 { ".len()),
@@ -610,7 +560,7 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
     assert!(limited.check_program(id, &Default::default()).is_err());
     assert!(complete.check_program(id, &Default::default()).is_ok());
     let Err(EmbeddingError::Diagnostics { diagnostics }) =
-        engine.compile_snapshot(source.clone(), id, Default::default(), &Default::default())
+        engine.compile_snapshot(source.clone(), id, &Default::default())
     else {
         panic!("limited const reached codegen")
     };
@@ -624,7 +574,7 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
         max_depth: 1,
     });
     engine
-        .compile_snapshot(source, id, Default::default(), &Default::default())
+        .compile_snapshot(source, id, &Default::default())
         .unwrap();
 }
 
@@ -636,13 +586,10 @@ fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
         max_depth: 2,
     });
     engine
-        .compile_source(
-            SourceFile::new(
-                "memory://short.kgr",
-                "const VALUE: bool = false && true; fn main() -> bool { VALUE }",
-            ),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new(
+            "memory://short.kgr",
+            "const VALUE: bool = false && true; fn main() -> bool { VALUE }",
+        ))
         .unwrap();
     assert!(
         engine
@@ -696,10 +643,10 @@ fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
         max_depth: 0,
     });
     engine
-        .compile_source(
-            SourceFile::new("memory://empty-const.kgr", "fn main() -> i32 { 42 }"),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new(
+            "memory://empty-const.kgr",
+            "fn main() -> i32 { 42 }",
+        ))
         .unwrap();
     let id = engine
         .set_source(

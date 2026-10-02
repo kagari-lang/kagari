@@ -3,7 +3,6 @@ use kagari_bytecode::instruction::NativeImportId;
 use {
     kagari_bytecode::program::{BytecodeProgram, ModuleRef},
     kagari_common::host_interface::value_type::HostValueType,
-    kagari_runtime::security::{HostExposurePolicy, LanguageProfile, SecurityContext},
 };
 
 #[test]
@@ -11,10 +10,6 @@ fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
     let mut metadata = HostFunctionDeclaration::new("host.secure", vec![], HostValueType::I32);
-    metadata.capability_requirements = CapabilitySet {
-        fs_read: true,
-        ..CapabilitySet::default()
-    };
 
     let mut runtime = host_call_runtime();
     runtime
@@ -70,27 +65,13 @@ fn host_runtime_helpers_charge_resource_cost_before_invocation() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = Arc::clone(&calls);
     let mut metadata = HostFunctionDeclaration::new("host.costly", vec![], HostValueType::I32);
-    metadata.resource_cost_hint = Some(2);
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
         resources: ResourcePolicy {
             max_instruction_steps: Some(2),
             ..ResourcePolicy::default()
         },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.costly".to_owned()],
-            ..HostExposurePolicy::default()
-        },
+
         ..RuntimeConfig::default()
     });
     runtime
@@ -146,24 +127,11 @@ fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
     let calls_for_host = Arc::clone(&calls);
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
         resources: ResourcePolicy {
             max_host_calls: Some(0),
             ..ResourcePolicy::default()
         },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["host.limited".to_owned()],
-            ..HostExposurePolicy::default()
-        },
+
         ..RuntimeConfig::default()
     });
     runtime

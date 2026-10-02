@@ -51,7 +51,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
             assert_ne!(retained[0].id, retained[1].id);
 
             let snapshot = db
-                .snapshot(sources.snapshot(), Default::default(), &Default::default())
+                .snapshot(sources.snapshot(), &Default::default())
                 .unwrap();
             let analysis = snapshot.file(file).unwrap();
             let annotation = text.find("x: Clash").unwrap() + 3;
@@ -136,7 +136,7 @@ fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = old.file(file).unwrap();
     let DeclarationId::Definition(owner) = &analysis

@@ -2,17 +2,9 @@ use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
 use kagari_common::host_interface::{
     HostFunctionDeclaration, HostInterface, value_type::HostValueType,
 };
+use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
 use std::error::Error;
 use {kagari_bytecode::module::BytecodeModule, kagari_runtime::session::TraceValue};
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        host::HostFunction,
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
-};
 
 fn main() -> Result<(), Box<dyn Error>> {
     // This definition can be exported by a separate tool with no runtime or services.
@@ -28,20 +20,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let expected = HostInterface::from_bytes(&bytes)?;
 
     let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_host_calls: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..Default::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_functions: vec!["demo.limit".into()],
-            ..Default::default()
-        },
         ..Default::default()
     });
     let immutable_limit = 42;

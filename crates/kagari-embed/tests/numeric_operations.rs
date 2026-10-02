@@ -1,13 +1,7 @@
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_common::source::SourceFile;
+use kagari_embed::{context::JitPolicy, engine::EngineConfig};
 use std::{cell::RefCell, rc::Rc};
-use {
-    kagari_embed::{
-        context::JitPolicy,
-        engine::{EngineConfig, source::CompileOptions},
-    },
-    kagari_runtime::security::LanguageProfile,
-};
 
 use kagari_embed::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
@@ -21,7 +15,6 @@ fn execute(source: &str) {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("type-inference.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -120,11 +113,7 @@ fn shifts_reject_negative_and_width_counts() {
     for expression in ["1u8 << 8", "1u8 >> -1", "1u64 << 64u16"] {
         let source = format!("fn main() {{ val value = {expression}; }}");
         let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("shift.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("shift.kgr", source), Default::default())
             .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
@@ -159,10 +148,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
             ..Default::default()
         })
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -173,14 +159,10 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         fn main() { val memory = demo::memory(); memory[index(memory)] <<= count(memory); }
     "#,
             ),
-            CompileOptions {
-                language_profile: profile,
-            },
             Default::default(),
         )
         .unwrap();
     let mut context = ExecutionContext {
-        language_profile: profile,
         ..Default::default()
     };
     context.capabilities.host_calls = true;
@@ -269,7 +251,6 @@ fn conversions_reject_implicit_loss_and_invalid_cast_targets() {
                 format!("fn main() {{ val value = {expr}; }}"),
             ),
             Default::default(),
-            Default::default(),
         );
         assert!(result.is_err(), "unexpectedly accepted {expr}");
     }
@@ -297,7 +278,6 @@ fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("conversion.kgr", "fn main() -> u8 { 256u16 as u8 }"),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -331,7 +311,6 @@ fn ordinary_narrow_remainder_and_compound_arithmetic_still_trap() {
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new("checked.kgr", format!("fn main() {{ {body} }}")),
-                Default::default(),
                 Default::default(),
             )
             .unwrap();

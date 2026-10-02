@@ -16,7 +16,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -138,11 +137,8 @@ fn interpolation_rejects_missing_protocols_and_invalid_formats() {
         r#"fn main() { f"{1:04}"; }"#,
         r#"const VALUE: String = f"{1}"; fn main() {}"#,
     ] {
-        let result = KagariEngine::default().compile_to_artifact(
-            SourceFile::new("invalid.kgr", source),
-            Default::default(),
-            Default::default(),
-        );
+        let result = KagariEngine::default()
+            .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default());
         assert!(result.is_err(), "{source}");
     }
 }
@@ -159,7 +155,6 @@ fn healthy()->i32 {42}
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("formatter-trap.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

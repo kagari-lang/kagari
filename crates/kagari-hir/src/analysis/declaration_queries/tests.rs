@@ -106,7 +106,7 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
         "declarations must not populate body results"
     );
     let complete = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(Arc::ptr_eq(
         file,
@@ -259,7 +259,7 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
         .unwrap();
     let mut db = AnalysisDatabase::default();
     let old = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let has_later = |snapshot: &AnalysisSnapshot| {
         snapshot
@@ -277,7 +277,7 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
         ..Default::default()
     });
     let limited = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(!has_later(&limited));
     assert!(has_later(&old));
@@ -299,7 +299,7 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
     );
     db.set_parse_limits(Default::default());
     let restored = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(has_later(&restored));
     assert!(!has_later(&limited));

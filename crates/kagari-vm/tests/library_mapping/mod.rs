@@ -239,7 +239,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![library.declaration().clone()]);
     let snapshot = analysis
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let candidates = snapshot
         .file(file)

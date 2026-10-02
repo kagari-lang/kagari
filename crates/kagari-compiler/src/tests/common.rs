@@ -1,7 +1,6 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{
-    CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, profile::LanguageFeatureProfile,
-    program::CheckedProgram,
+    CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
 };
 
 use kagari_bytecode::program::BytecodeProgram;
@@ -19,17 +18,9 @@ pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     let source = SourceFile::new("test.kg", text);
 
     Box::new(
-        analyze_source(
-            &source,
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-        )
-        .into_codegen()
-        .expect("analysis should succeed"),
+        analyze_source(&source)
+            .into_codegen()
+            .expect("analysis should succeed"),
     )
 }
 
@@ -39,16 +30,7 @@ pub fn program_ok(text: &str) -> CheckedProgram {
         .set("test.kg", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(
-            sources.snapshot(),
-            LanguageFeatureProfile {
-                allow_host_calls: true,
-                allow_reflection: true,
-                allow_reflection_write: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot should succeed");
     snapshot
         .check_program(root, &Default::default())

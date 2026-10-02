@@ -1,7 +1,6 @@
 use crate::{
     hir::ids::BodySelection,
     imports::{functions::ImportedFunctions, types::ImportedTypes},
-    profile::LanguageFeatureProfile,
     resolver::{
         collect::{collect_declarations, resolve_bodies},
         resolved::{DeclarationNames, ResolvedNames},
@@ -40,7 +39,7 @@ pub mod imports;
 pub mod language;
 pub mod lower;
 pub mod native;
-pub mod profile;
+
 pub mod program;
 pub mod resolver;
 pub mod source_map;
@@ -334,14 +333,10 @@ fn analyze_prepared(
     }
 }
 
-pub fn analyze_source(
-    source: &SourceFile,
-    profile: LanguageFeatureProfile,
-) -> AnalysisResult<AnalyzedModule> {
+pub fn analyze_source(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
     let snapshot = AnalysisDatabase::default()
         .snapshot(
             SourceSnapshot::single_file(Arc::new(source.clone())),
-            profile,
             &Default::default(),
         )
         .expect("language declarations must prepare for uncancelled analysis");
@@ -353,7 +348,6 @@ pub fn analyze_source(
 }
 
 pub(crate) struct AnalysisPolicy {
-    profile: LanguageFeatureProfile,
     const_limits: ConstLimits,
     max_semantic_diagnostics: usize,
 }
@@ -375,9 +369,7 @@ pub(crate) fn analyze_parsed(
         reuse,
         cancel,
     );
-    if let Err(diagnostics) = profile::validate_profile(&analyzed.facts, policy.profile) {
-        analyzed.diagnostics.extend(*diagnostics);
-    }
+
     for attribute in &analyzed.facts.lowered.attributes {
         if analyzed
             .facts

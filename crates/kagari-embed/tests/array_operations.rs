@@ -14,7 +14,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("array-operations.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -168,7 +167,6 @@ fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
         let error = engine
             .compile_to_artifact(
                 SourceFile::new("invalid-repeat.kgr", source),
-                Default::default(),
                 Default::default(),
             )
             .unwrap_err();

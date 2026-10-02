@@ -458,7 +458,6 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             ],
             access: PathAccess::ReadOnly,
             schema_epoch: 0,
-            capabilities: Default::default(),
         });
     cases.push(host_path);
 
@@ -741,7 +740,6 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         )],
         access: PathAccess::ReadOnly,
         schema_epoch: 1,
-        capabilities: Default::default(),
     };
     let mut module = BytecodeModule::default();
     module.host_interface.types.push(root);

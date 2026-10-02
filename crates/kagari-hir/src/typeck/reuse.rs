@@ -157,7 +157,7 @@ mod tests {
             "reuse.kgr",
             "const global: i32 = 0; fn one() -> i32 { 1 } fn two() -> i32 { 2 }",
         );
-        let analysis = crate::analyze_source(&source, Default::default());
+        let analysis = crate::analyze_source(&source);
         assert!(analysis.diagnostics().is_empty());
         let facts = analysis.facts();
         let one = facts

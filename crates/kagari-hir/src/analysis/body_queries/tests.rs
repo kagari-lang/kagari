@@ -107,7 +107,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
     let cached = query(&mut db, &sources, &good);
     assert!(Arc::ptr_eq(&result, &cached));
     let complete = db
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(!complete.file(id).unwrap().result().diagnostics().is_empty());
     for (expr, _) in result.lowered().module.body.expressions() {
@@ -407,7 +407,7 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
         );
         assert_eq!(original.member_receiver_type(offset), Some(receiver));
         let snapshot = db
-            .snapshot(sources.snapshot(), Default::default(), &Default::default())
+            .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         assert_eq!(
             snapshot

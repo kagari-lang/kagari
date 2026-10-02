@@ -21,12 +21,9 @@ use kagari_common::{
 };
 use kagari_embed::{
     BytecodeArtifact,
-    engine::{
-        KagariEngine,
-        source::{ArtifactOptions, CompileOptions},
-    },
+    engine::{KagariEngine, source::ArtifactOptions},
 };
-use kagari_runtime::security::LanguageProfile;
+
 use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -66,7 +63,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         )],
         access: PathAccess::ReadWrite,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     let index_declaration = HostPathDeclaration {
         root: player.id.clone(),
@@ -81,7 +77,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         )],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     let field_index_declaration = HostPathDeclaration {
         root: player.id.clone(),
@@ -100,7 +95,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         ],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     let nested_declaration = HostPathDeclaration {
         root: player.id.clone(),
@@ -128,7 +122,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         ],
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
-        capabilities: Default::default(),
     };
     let declarations = HostInterface {
         paths: vec![
@@ -218,15 +211,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     assert!(signature.host_type_at(host_annotation - 2).is_none());
     println!("offline host type navigation is available before body analysis");
     let query = engine
-        .analyze(
-            engine.source_snapshot(),
-            LanguageProfile {
-                allow_host_calls: true,
-                allow_path_mutation: true,
-                ..Default::default()
-            },
-            &Default::default(),
-        )
+        .analyze(engine.source_snapshot(), &Default::default())
         .expect("offline source should be queryable");
     let source = query
         .file(root.expect("entry source"))
@@ -262,13 +247,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .compile_snapshot(
             engine.source_snapshot(),
             root.expect("entry source"),
-            CompileOptions {
-                language_profile: LanguageProfile {
-                    allow_host_calls: true,
-                    allow_path_mutation: true,
-                    ..Default::default()
-                },
-            },
             &Default::default(),
         )
         .expect("offline source should compile against its declaration");

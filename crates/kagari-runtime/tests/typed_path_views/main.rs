@@ -15,9 +15,8 @@ use kagari_runtime::module::LoadedModule;
 
 use std::sync::{Arc, Mutex};
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    kagari_common::host_interface::type_declaration::{
+        HostReflectionPolicy, HostTypeOwnership, PathAccess,
     },
     kagari_runtime::{
         Runtime, RuntimeConfig,
@@ -29,7 +28,6 @@ use {
             PreparedHostPathWrite,
         },
         metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
-        security::{HostExposurePolicy, LanguageProfile, SecurityContext},
         value::Value,
     },
 };
@@ -54,27 +52,6 @@ fn path_mutation_runtime() -> Runtime {
 
 fn path_mutation_config() -> RuntimeConfig {
     RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_path_mutation: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                path_mutation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: HostExposurePolicy {
-            allowed_host_types: vec![
-                "game.Player".to_owned(),
-                "game.Item".to_owned(),
-                "game.ReadOnly".to_owned(),
-                "game.Opaque".to_owned(),
-            ],
-            allow_host_path_reads: true,
-            allow_host_path_mutation: true,
-            ..HostExposurePolicy::default()
-        },
         ..RuntimeConfig::default()
     }
 }
@@ -131,7 +108,6 @@ fn register_hp_descriptor(
             }],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap()
 }

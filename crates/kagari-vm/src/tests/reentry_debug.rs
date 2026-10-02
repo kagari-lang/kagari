@@ -10,15 +10,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
 };
 use kagari_common::host_interface::standard_log;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        host::HostFunction,
-        security::{DebugVisibilityPolicy, HostExposurePolicy, LanguageProfile, SecurityContext},
-        value::Value,
-    },
-};
+use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
 
 #[test]
 fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
@@ -61,32 +53,6 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                 .program;
             }
             let mut runtime = Runtime::new(RuntimeConfig {
-                security: SecurityContext {
-                    profile: LanguageProfile {
-                        allow_debugger: true,
-                        allow_host_calls: true,
-                        allow_jit: true,
-                        ..Default::default()
-                    },
-                    capabilities: CapabilitySet {
-                        debug_attach: true,
-                        debug_breakpoints: true,
-                        debug_pause: true,
-                        debug_stack_inspection: true,
-                        debug_value_inspection: true,
-                        host_calls: true,
-                        jit: true,
-                        ..Default::default()
-                    },
-                },
-                debug_visibility: DebugVisibilityPolicy {
-                    visible_modules: vec!["debug-reentry.kgr".into()],
-                    ..Default::default()
-                },
-                host_exposure: HostExposurePolicy {
-                    allowed_host_functions: vec!["host.log".into()],
-                    ..Default::default()
-                },
                 ..Default::default()
             });
             runtime

@@ -10,23 +10,15 @@ use kagari_compiler::{
 };
 use kagari_embed::engine::KagariEngine;
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
-use std::rc::Rc;
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::{
-        Runtime, RuntimeConfig,
-        backend::BackendInvocationError,
-        error::RuntimeErrorKind,
-        jit_abi::native_helper_symbols,
-        resource::ResourcePolicy,
-        security::{LanguageProfile, SecurityContext},
-        value::Value,
-    },
+use kagari_runtime::{
+    Runtime, RuntimeConfig, backend::BackendInvocationError, error::RuntimeErrorKind,
+    jit_abi::native_helper_symbols, resource::ResourcePolicy, value::Value,
 };
+use std::rc::Rc;
 
 fn mir(source: &str) -> VerifiedMirProgram {
     let checked = KagariEngine::default()
-        .compile_source(SourceFile::new("native.kgr", source), Default::default())
+        .compile_source(SourceFile::new("native.kgr", source))
         .unwrap();
     lower_program_to_mir(checked.program(), &Default::default()).unwrap()
 }
@@ -39,16 +31,6 @@ fn root(program: &VerifiedMirProgram) -> &VerifiedMirModule {
 }
 fn runtime(limit: Option<u64>) -> Runtime {
     Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_jit: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                ..Default::default()
-            },
-        },
         resources: ResourcePolicy {
             max_instruction_steps: limit,
             ..Default::default()

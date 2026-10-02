@@ -13,10 +13,7 @@ mod layouts;
 use kagari_abi::{scalar::BuiltinType, types::AbiType};
 use kagari_bytecode::module::BytecodeModule;
 use {
-    kagari_common::{
-        capability::CapabilitySet,
-        host_interface::type_declaration::{HostTypeOwnership, PathAccess, Visibility},
-    },
+    kagari_common::host_interface::type_declaration::{HostTypeOwnership, PathAccess, Visibility},
     kagari_runtime::{
         Runtime,
         error::RuntimeErrorKind,
@@ -74,7 +71,6 @@ fn path_view_value(object_id: u64) -> Value {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
     Value::HostPathView(

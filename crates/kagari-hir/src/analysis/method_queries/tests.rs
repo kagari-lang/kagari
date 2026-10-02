@@ -29,7 +29,7 @@ fn generic<T: Read>(value: T) { value. }
         .set("methods.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
     let candidates = file.method_completions(text.find("value. }").unwrap() + 6);
@@ -101,7 +101,7 @@ fn floats(value: Box<f64>) { value. }
         .set("bounds.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = AnalysisDatabase::default()
-        .snapshot(sources.snapshot(), Default::default(), &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = snapshot.file(id).unwrap();
     for (offset, ordered) in [

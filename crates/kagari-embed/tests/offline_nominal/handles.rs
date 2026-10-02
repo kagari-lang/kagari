@@ -26,11 +26,7 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
     assert!(signature.diagnostics().is_empty());
 
     let full = engine
-        .analyze(
-            engine.source_snapshot(),
-            LanguageProfile::default(),
-            &Default::default(),
-        )
+        .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     assert_eq!(
         full.file(file).unwrap().host_type_at(annotation),
@@ -54,27 +50,20 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     );
     method.receiver = HostPassingStyle::UniqueBorrow;
     method.effects.may_mutate_host_state = true;
-    method.capability_requirements.fs_write = true;
+
     let method_id = method.id.clone();
     interface.types[0].methods.push(method);
     let rhs = HostFunctionDeclaration::new("left.rhs", vec![], HostValueType::I32);
     interface.functions.push(rhs.clone());
     let engine = KagariEngine::default();
     engine.set_host_interface(interface.clone()).unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
                 "method.kgr",
                 "use left as api; fn main() -> i32 { api::make().add(api::rhs()) }",
             ),
-            CompileOptions {
-                language_profile: profile,
-            },
             Default::default(),
         )
         .unwrap();
@@ -95,21 +84,6 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                jit: true,
-                fs_write: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec![
-                    "left.make".into(),
-                    "left.rhs".into(),
-                    "left.Item.add".into(),
-                ],
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {
@@ -246,14 +220,10 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     engine
         .set_host_interface(HostInterface::from_bytes(&interface.to_bytes().unwrap()).unwrap())
         .unwrap();
-    let profile = LanguageProfile {
-        allow_host_calls: true,
-        allow_jit: true,
-        ..Default::default()
-    };
+
     let artifact = engine.compile_to_artifact(
         SourceFile::new("nominal.kgr", "use left::Item; use left as api; pub fn pass(value: Item) -> api::Item { value } fn id<T>(value: T) -> T { value } fn main() -> i32 { val value: Item = api::make(); api::take(pass(id(value))) }"),
-        CompileOptions { language_profile: profile }, ArtifactOptions::default(),
+         ArtifactOptions::default(),
     ).unwrap();
     let module = &artifact.program.modules[artifact.program.root.index()];
     assert_eq!(module.host_interface.types, interface.types[..2]);
@@ -281,16 +251,6 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
             artifact.clone()
         };
         let context = ExecutionContext {
-            language_profile: profile,
-            capabilities: CapabilitySet {
-                host_calls: true,
-                jit: true,
-                ..Default::default()
-            },
-            host_policy: HostExposurePolicy {
-                allowed_host_functions: vec!["left.make".into(), "left.take".into()],
-                ..Default::default()
-            },
             jit_policy: if jit {
                 JitPolicy::Enabled
             } else {
@@ -375,7 +335,6 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
                 "annotation.kgr",
                 "pub fn pass(value: left::Item) -> left::Item { value } fn main() -> i32 { 7 }",
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

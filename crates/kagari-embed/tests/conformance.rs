@@ -4,10 +4,7 @@ use kagari_bytecode::artifact::{
 };
 use kagari_embed::{
     context::ExecutionContext,
-    engine::{
-        KagariEngine,
-        source::{ArtifactOptions, CompileOptions},
-    },
+    engine::{KagariEngine, source::ArtifactOptions},
     error::{EmbeddingError, RuntimeFailureKind},
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{LoadOptions, ReloadOptions},
@@ -27,7 +24,7 @@ fn exact_compatibility(
     ArtifactCompatibility {
         module_identity: Some(identity),
         dependency_fingerprints: Some(artifact.verification.loader.dependency_fingerprints.clone()),
-        security_profile: artifact.verification.loader.security_profile.clone(),
+
         ..ArtifactCompatibility::default()
     }
 }
@@ -56,10 +53,10 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         )
         .unwrap();
     let checked = engine
-        .compile_source(
-            SourceFile::new(source_name, "use gameplay::math; fn main() -> i32 { 7 }"),
-            CompileOptions::default(),
-        )
+        .compile_source(SourceFile::new(
+            source_name,
+            "use gameplay::math; fn main() -> i32 { 7 }",
+        ))
         .expect("source should compile");
 
     let artifact = engine
@@ -68,7 +65,6 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
             ArtifactOptions {
                 lowering: Default::default(),
                 build: ArtifactBuildOptions {
-                    security_profile: Some("dev".to_owned()),
                     ..ArtifactBuildOptions::default()
                 },
                 ..Default::default()
@@ -103,10 +99,6 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         artifact.verification.host_interface_fingerprint,
         ArtifactFingerprint::of_program_hosts(&artifact.program)
     );
-    assert_eq!(
-        artifact.verification.loader.security_profile.as_deref(),
-        Some("dev")
-    );
 
     let compatibility = exact_compatibility(&artifact, identity.clone());
     artifact
@@ -140,7 +132,6 @@ fn embedding_conformance_rejects_incompatible_artifacts_before_publication() {
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("stale.kgr", "fn main() -> i32 { 1 }"),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .expect("source should compile to an artifact");
@@ -182,7 +173,7 @@ fn main() -> (usize, usize, usize, bool, i32) {
 }
 "#,
             ),
-            CompileOptions::default(),
+
             ArtifactOptions::default(),
         )
         .expect("builtin source should compile to artifact");
@@ -228,7 +219,6 @@ pub fn main() -> usize {
 }
 "#,
             ),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .expect("first standard artifact should compile");
@@ -243,7 +233,6 @@ pub fn main() -> usize {
 }
 "#,
             ),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .expect("second standard artifact should compile");
@@ -307,7 +296,6 @@ fn main() -> usize {
 }
 "#,
             ),
-            CompileOptions::default(),
             ArtifactOptions::default(),
         )
         .expect("standard resource source should compile");

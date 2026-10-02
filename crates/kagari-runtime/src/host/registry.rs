@@ -410,7 +410,6 @@ impl HostRegistry {
                 .collect(),
             access: registration.access,
             schema_epoch: registration.schema_epoch.0,
-            capabilities: registration.capability_requirements,
         };
         let fingerprint = self.path_fingerprint(&registration, &segments, types)?;
         let offline_fingerprint = declaration
@@ -474,7 +473,6 @@ impl HostRegistry {
                     .collect(),
                 access: declaration.access,
                 schema_epoch: HostSchemaEpoch(declaration.schema_epoch),
-                capability_requirements: declaration.capabilities,
             },
             types,
         )

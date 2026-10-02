@@ -88,7 +88,7 @@ impl KagariRuntime {
             backend: configuration.backend.clone(),
             diagnostics: vec![message],
         };
-        if let Err(error) = self.runtime().validate_jit_boundary() {
+        if let Err(error) = self.runtime().resources().ensure_execution_allowed() {
             return Ok(unsupported(format!(
                 "JIT disabled by runtime policy: {error}"
             )));

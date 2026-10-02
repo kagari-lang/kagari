@@ -105,7 +105,7 @@ impl TypeRegistry {
                         params,
                         return_type: intern(&mut candidate, &nominal, &method.return_type)?,
                         origin: MethodOrigin::Host,
-                        capability_requirements: method.capability_requirements,
+
                         abi_fingerprint: AbiFingerprint(
                             method.fingerprint().map_err(metadata_error)?,
                         ),

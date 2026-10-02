@@ -16,7 +16,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("standard-traits.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
@@ -218,7 +217,6 @@ fn main(){ val mapped = collections::map([1], Failure{}); mapped.next(); }
 fn healthy()->i32{42}
 "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();

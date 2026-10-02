@@ -19,7 +19,6 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         }],
         access,
         schema_epoch: HostSchemaEpoch::new(0),
-        capability_requirements: CapabilitySet::default(),
     };
     let first = runtime
         .register_host_path_descriptor(index(PathAccess::ReadOnly))
@@ -57,7 +56,6 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         }],
         access: PathAccess::ReadOnly,
         schema_epoch: HostSchemaEpoch::new(0),
-        capability_requirements: CapabilitySet::default(),
     };
     let health = runtime
         .register_host_path_descriptor(virtual_path("health"))
@@ -136,7 +134,6 @@ fn portable_path_segments_reject_unbound_types_before_publication() {
                     segments: vec![segment],
                     access: PathAccess::ReadOnly,
                     schema_epoch: HostSchemaEpoch::new(0),
-                    capability_requirements: CapabilitySet::default(),
                 })
                 .unwrap_err()
                 .kind(),
@@ -303,7 +300,6 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
             segments,
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         });
         assert_eq!(
             result.unwrap_err().kind(),
@@ -352,7 +348,6 @@ fn registers_typed_host_roots_and_simple_path_views() {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
 
@@ -410,7 +405,6 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
             ],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
 
@@ -528,7 +522,6 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
             }],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
 
@@ -639,7 +632,6 @@ fn rejects_root_schema_mismatch_when_creating_views() {
             }],
             access: PathAccess::ReadWrite,
             schema_epoch: HostSchemaEpoch::new(0),
-            capability_requirements: CapabilitySet::default(),
         })
         .unwrap();
 

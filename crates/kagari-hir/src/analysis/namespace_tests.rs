@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     hir::expr::ExprKind,
-    profile::LanguageFeatureProfile,
     resolver::{resolved::ResolvedName, table::NameResolution},
 };
 
@@ -50,15 +49,8 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
 }
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(
-        sources.snapshot(),
-        LanguageFeatureProfile {
-            allow_host_calls: true,
-            ..Default::default()
-        },
-        &Default::default(),
-    )
-    .unwrap()
+    db.snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
 }
 
 #[test]

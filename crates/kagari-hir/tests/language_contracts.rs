@@ -170,11 +170,7 @@ fn diagnostics(text: &str) -> Vec<String> {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![]);
     let snapshot = analysis
-        .snapshot(
-            sources.snapshot(),
-            Default::default(),
-            &CancellationToken::default(),
-        )
+        .snapshot(sources.snapshot(), &CancellationToken::default())
         .unwrap();
     snapshot
         .file(id)

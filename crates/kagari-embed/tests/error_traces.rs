@@ -11,7 +11,7 @@ use kagari_vm::vm::native::PreparedNativeEntry;
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
     let engine = KagariEngine::default();
-    let artifact=engine.compile_to_artifact(SourceFile::new("origin.kgr","fn fail()->i32 {\n    42/0\n}\nfn middle()->i32 {fail()}\nfn main()->i32 {middle()}\n"),Default::default(),Default::default()).unwrap();
+    let artifact=engine.compile_to_artifact(SourceFile::new("origin.kgr","fn fail()->i32 {\n    42/0\n}\nfn middle()->i32 {fail()}\nfn main()->i32 {middle()}\n"),Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
@@ -46,7 +46,6 @@ fn native_overflow_reports_the_same_instruction_as_the_interpreter() {
                 "native-origin.kgr",
                 "fn main()->i32 {\n\n    2147483647+1\n}",
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -100,7 +99,6 @@ fn run_failure(source: &str, expected_origin: &str, expected_line: u32, expected
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("result-origin.kgr", source),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -243,7 +241,6 @@ fn main()->Result<i32,String>{recur(160)}
 "#,
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     let context = ExecutionContext::default();
@@ -275,11 +272,7 @@ fn none_and_handled_errors_do_not_become_execution_failures() {
     ] {
         let engine = KagariEngine::default();
         let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("handled.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("handled.kgr", source), Default::default())
             .unwrap();
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
@@ -304,11 +297,7 @@ fn diagnostic_snapshots_survive_reload_without_retaining_script_values() {
     let engine = KagariEngine::default();
     let compile = |source| {
         engine
-            .compile_to_artifact(
-                SourceFile::new("changing.kgr", source),
-                Default::default(),
-                Default::default(),
-            )
+            .compile_to_artifact(SourceFile::new("changing.kgr", source), Default::default())
             .unwrap()
     };
     let first = compile("fn main()->Result<i32,String> {Err(\"old\")}");
@@ -373,7 +362,6 @@ fn utf8_crlf_and_minimal_artifact_locations_are_portable() {
                 format!("fn main()->Result<i32,String> {{\r\n{prefix}Err(\"问题\")\r\n}}"),
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     assert!(artifact.debug.is_none());
@@ -413,7 +401,6 @@ fn budget_exhaustion_keeps_the_failing_frame_and_releases_resources() {
                 "budget.kgr",
                 "fn deep()->i32 { var x=0; while x<1000 {x+=1;} x } fn main()->i32 {deep()}",
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -502,12 +489,7 @@ fn imported_error_frames_keep_their_own_source_locations() {
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let artifact = BytecodeArtifact::from_bytes(&artifact.to_bytes().unwrap()).unwrap();

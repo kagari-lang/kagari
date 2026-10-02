@@ -8,12 +8,8 @@ use kagari_common::{
 };
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    db.snapshot(
-        sources.snapshot(),
-        LanguageFeatureProfile::default(),
-        &Default::default(),
-    )
-    .unwrap()
+    db.snapshot(sources.snapshot(), &Default::default())
+        .unwrap()
 }
 
 #[test]
@@ -30,7 +26,7 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     sources.set("source.kgr", "use core::language::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
     let files = sources.snapshot();
     let source = files.file(id).unwrap();
-    let result = crate::analyze_source(source, Default::default());
+    let result = crate::analyze_source(source);
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -397,12 +393,9 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
     assert_ne!(new_binding.id, binding_a.id);
 
     // A different profile is a different semantic analysis, even at the same text revision.
-    let profile = LanguageFeatureProfile {
-        allow_host_calls: true,
-        ..Default::default()
-    };
+
     let third = db
-        .snapshot(sources.snapshot(), profile, &Default::default())
+        .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert!(third.declaration(&new_binding.id).is_none());
     assert!(third.declaration(&function_a.id).is_some());
@@ -892,7 +885,7 @@ fn implicit_receiver_keeps_impl_type_context_when_method_shadows_a_generic() {
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);
-    let result = crate::analyze_source(&source, Default::default());
+    let result = crate::analyze_source(&source);
     assert!(!result.diagnostics().is_empty());
     let facts = result.facts();
     let declarations = facts

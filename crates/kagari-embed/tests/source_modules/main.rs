@@ -3,22 +3,15 @@ use kagari_common::{
     identity::{FileId, ModuleIdentity, PackageId},
     source_database::SourceLayer,
 };
-use {
-    kagari_common::capability::CapabilitySet,
-    kagari_runtime::security::{HostExposurePolicy, LanguageProfile},
-};
 
 use kagari_embed::{
-    BytecodeArtifact,
-    context::ExecutionContext,
-    engine::{KagariEngine, source::CompileOptions},
-    error::EmbeddingError,
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
 };
 use kagari_runtime::value::Value;
 
-fn compile(engine: &KagariEngine, root: FileId, options: CompileOptions) -> BytecodeArtifact {
+fn compile(engine: &KagariEngine, root: FileId) -> BytecodeArtifact {
     let checked = engine
-        .compile_snapshot(engine.source_snapshot(), root, options, &Default::default())
+        .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap();
     engine.emit_bytecode(&checked, Default::default()).unwrap()
 }
@@ -87,27 +80,9 @@ fn host_fixture() -> (
         "use pkg::left::left; use pkg::right::right; fn main() -> i32 { trace::record(4); left() + right() }",
     );
     let context = ExecutionContext {
-        language_profile: LanguageProfile {
-            allow_host_calls: true,
-            ..Default::default()
-        },
-        capabilities: CapabilitySet {
-            host_calls: true,
-            ..Default::default()
-        },
-        host_policy: HostExposurePolicy {
-            allowed_host_functions: vec!["trace.record".into()],
-            ..Default::default()
-        },
         ..Default::default()
     };
-    let artifact = compile(
-        &engine,
-        root,
-        CompileOptions {
-            language_profile: context.language_profile,
-        },
-    );
+    let artifact = compile(&engine, root, CompileOptions {});
     (engine, artifact, context, declaration)
 }
 

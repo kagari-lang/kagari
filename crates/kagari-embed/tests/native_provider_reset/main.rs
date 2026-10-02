@@ -35,7 +35,6 @@ fn artifact(source: &str) -> KbcArtifact {
                 format!("use external::fixture as native;\n{source}"),
             ),
             Default::default(),
-            Default::default(),
         )
         .unwrap()
 }

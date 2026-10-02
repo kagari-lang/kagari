@@ -61,7 +61,6 @@ fn execute(source: &str) {
         .compile_to_artifact(
             SourceFile::new("associated.kgr", source),
             Default::default(),
-            Default::default(),
         )
         .unwrap();
     execute_artifact(&engine, artifact);
@@ -207,12 +206,7 @@ fn imported_associated_types_keep_trait_identity_and_interface_bindings() {
     }
     let root = root.expect("root");
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root,
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     execute_artifact(&engine, artifact);
@@ -250,7 +244,7 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
         types::{AbiType, ConstraintAbi, PublicAbiItem},
     };
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("associated-wire.kgr", "pub trait Read { type Item: Eq + Hash; } struct N {} impl Read for N { type Item = i32; } fn main() -> i32 { 42 }"),  Default::default()).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -309,7 +303,6 @@ fn generic_implementation_interface_tables_specialize_and_deduplicate() {
         }
     "#,
             ),
-            Default::default(),
             Default::default(),
         )
         .unwrap();
@@ -372,7 +365,7 @@ fn generic_interface_conversion_checks_implementation_bounds() {
 fn interface_instance_bounds_are_checked_without_method_slots() {
     use kagari_abi::{scalar::BuiltinType, types::AbiType};
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("empty-generic-wire.kgr", "trait Tag {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Tag for Holder<T> {} fn main() -> i32 { val tagged: Tag = Holder { value: 42 }; 42 }"),  Default::default()).unwrap();
     let mut program = artifact.program.clone();
     let table = program.modules[program.root.index()]
         .interface_tables
@@ -417,12 +410,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
         }
     }
     let checked = engine
-        .compile_snapshot(
-            engine.source_snapshot(),
-            root.unwrap(),
-            Default::default(),
-            &Default::default(),
-        )
+        .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
     let model = artifact
@@ -445,7 +433,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
 fn malformed_generic_interface_instances_are_rejected_before_execution() {
     use kagari_abi::{scalar::BuiltinType, types::AbiType};
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"), Default::default(), Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("generic-wire.kgr", "trait Reader { type Item; fn read(self) -> Self::Item; } struct Holder<T> { val value: T } impl<T: Eq + Hash> Reader for Holder<T> { type Item = T; fn read(self) -> T { self.value } } fn main() -> i32 { val a: Reader<Item = i32> = Holder { value: 42 }; val b: Reader<Item = String> = Holder { value: \"text\" }; a.read() }"),  Default::default()).unwrap();
     for mutation in 0..6 {
         let mut program = artifact.program.clone();
         let tables = &mut program.modules[program.root.index()].interface_tables;

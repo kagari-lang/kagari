@@ -44,7 +44,7 @@ fn artifact_bytes() -> &'static [u8] {
                 include_str!("fixtures/feature_artifact.kgr"),
             );
             let artifact = engine(Default::default(), Default::default())
-                .compile_to_artifact(source, Default::default(), Default::default())
+                .compile_to_artifact(source, Default::default())
                 .unwrap();
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, artifact.to_bytes().unwrap()).unwrap();
@@ -162,7 +162,7 @@ fn portable_fixture_matches_source_emission() {
         include_str!("fixtures/feature_artifact.kgr"),
     );
     let generated = engine(Default::default(), Default::default())
-        .compile_to_artifact(source, Default::default(), Default::default())
+        .compile_to_artifact(source, Default::default())
         .unwrap();
     assert_eq!(generated.to_bytes().unwrap(), artifact_bytes());
 }
@@ -182,12 +182,9 @@ mod native {
         BackendConfiguration, BackendFunctionInput, CodegenBackend, diagnostic::BackendCompileError,
     };
     use kagari_mir::instruction::{Constant, Instruction, Terminator};
+    use kagari_runtime::jit_abi::jit_consume_instruction_step;
     use kagari_vm::vm::JitExecutionStatus;
     use std::{ffi::c_void, rc::Rc};
-    use {
-        kagari_common::capability::CapabilitySet,
-        kagari_runtime::{jit_abi::jit_consume_instruction_step, security::LanguageProfile},
-    };
 
     #[derive(Debug)]
     struct StaticCode;
@@ -257,14 +254,6 @@ mod native {
                 .unwrap();
         assert!(program.has_native_input());
         let context = ExecutionContext {
-            language_profile: LanguageProfile {
-                allow_jit: true,
-                ..Default::default()
-            },
-            capabilities: CapabilitySet {
-                jit: true,
-                ..Default::default()
-            },
             ..Default::default()
         };
         let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
